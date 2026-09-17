@@ -21,7 +21,11 @@ from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.egress import EgressRepository
-from securevector.app.services import egress_attestation, egress_scope
+from securevector.app.services import (
+    codex_web_observer,
+    egress_attestation,
+    egress_scope,
+)
 from securevector.app.services.containment_drift import diff_proofs
 from securevector.app.services.containment_proof import (
     preflight_manifest,
@@ -273,10 +277,16 @@ async def get_session_destinations(session_id: str, limit: int = 50):
         raise HTTPException(status_code=400, detail="Invalid session id")
     repo = EgressRepository(get_database())
     rows = await repo.session_destinations(session_id, limit=limit)
+    # `observed` rows were reached without passing the evaluator (a harness's
+    # own web tool fires no hook). They are counted separately, and the
+    # consent flag travels with them: with transcript reading off the list is
+    # not "nothing happened", it is "nothing was read".
     return {
         "session_id": session_id,
         "distinct_hosts": len(rows),
         "blocked_hosts": sum(1 for r in rows if (r.get("blocked") or 0) > 0),
+        "observed_calls": sum((r.get("observed") or 0) for r in rows),
+        "transcript_consent": codex_web_observer.consent_granted(),
         "destinations": rows,
     }
 

@@ -26,8 +26,8 @@ test('finished tasks can be relaunched without replacing their original session'
     'finished task cards must offer a visible Relaunch action');
   assert.match(page, /API\.terminalsLaunch\(task\.executor_id, task\.workspace, task\.title \|\| ''\)/,
     'relaunch must retain the harness, workspace, and title when creating a fresh task');
-  assert.match(page, /await this\._refreshTasks\(\);[\s\S]*?this\._attach\(fresh\.id\)/,
-    'the freshly-created task should be shown and attached after relaunch');
+  assert.match(page, /await this\._refreshTasks\(\);[\s\S]*?this\._attach\(fresh\.id, holder, 'swap', task\.id\)/,
+    'the freshly-created task should be shown and attached after relaunch, in the tab it came from');
 });
 
 test('the page presents task sessions as a quiet single-surface workspace', () => {

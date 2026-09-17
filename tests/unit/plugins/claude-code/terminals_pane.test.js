@@ -24,7 +24,7 @@ test('the pane head renders a tab strip with a launch tab and a bounded tab coun
 
 test('the tab strip only lists live tasks plus whatever is attached', () => {
   const src = read('js/pages/terminals.js');
-  const fn = src.slice(src.indexOf('_tabTasks('), src.indexOf('_renderPaneFoot('));
+  const fn = src.slice(src.indexOf('_tabTasks('), src.indexOf('_renderPaneFoot(paneId)'));
   assert.match(fn, /'starting'/);
   assert.match(fn, /'working'/);
   assert.match(fn, /'blocked'/);
@@ -36,14 +36,14 @@ test('the tab strip only lists live tasks plus whatever is attached', () => {
 test('the status footer exists in the template, hidden until a task is attached', () => {
   const src = read('js/pages/terminals.js');
   assert.match(src, /id="terminals-pane-foot" hidden/, 'the footer ships hidden in the page template');
-  assert.match(src, /_renderPaneFoot\(\)\s*\{/, 'the footer has its own render method');
-  const foot = src.slice(src.indexOf('_renderPaneFoot() {'));
+  assert.match(src, /_renderPaneFoot\(paneId\)\s*\{/, 'the footer has its own render method, now per pane');
+  const foot = src.slice(src.indexOf('_renderPaneFoot(paneId) {'));
   assert.match(foot, /hidden = true/, 'with nothing attached the footer hides itself');
 });
 
 test('the footer shows the branch only when the backend supplied one', () => {
   const src = read('js/pages/terminals.js');
-  const foot = src.slice(src.indexOf('_renderPaneFoot() {'), src.indexOf('_renderPaneFoot() {') + 3600);
+  const foot = src.slice(src.indexOf('_renderPaneFoot(paneId) {'), src.indexOf('_renderPaneFoot(paneId) {') + 4200);
   assert.match(foot, /t\.branch/, 'the footer reads the branch the tasks route now returns');
   assert.match(foot, /terminals-foot-branch/);
   assert.match(foot, /terminals-foot-path/);
@@ -132,9 +132,9 @@ test('the pane and rail styles are defined and survive the collapsed rail', () =
 
 test('index.html pins the versions this change ships', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=396/);
-  assert.match(html, /sidebar\.js\?v=165/);
-  assert.match(html, /terminals\.js\?v=20/);
+  assert.match(html, /styles\.css\?v=410/);
+  assert.match(html, /sidebar\.js\?v=167/);
+  assert.match(html, /terminals\.js\?v=35/);
 });
 
 // --- DOM stub for the behavioural pane tests ---------------------------
@@ -179,6 +179,9 @@ function loadTerminalsPage(elements, api = {}) {
     URLSearchParams,
     sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   };
+  // The page reads its pane tree from the layout model, so the sandbox needs
+  // both scripts, exactly as index.html loads them.
+  vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(src, sandbox);
   return sandbox.window.TerminalsPage;
 }

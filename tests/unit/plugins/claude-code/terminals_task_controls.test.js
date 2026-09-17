@@ -60,6 +60,9 @@ function loadPage(elements, api = {}, timers = fastTimers()) {
     clearTimeout: () => timers.clearTimeout(),
     console: { warn() {}, error() {} },
   };
+  // The page reads its pane tree from the layout model, so the sandbox needs
+  // both scripts, exactly as index.html loads them.
+  vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(src, sandbox);
   return { Page: sandbox.window.TerminalsPage, timers };
 }
@@ -155,9 +158,13 @@ test('a failed restart surfaces in the banner text and re-arms the button', asyn
   assert.strictEqual(els['terminals-guard-banner-restart'].textContent, 'Restart harness');
 });
 
-test('restart and the card Relaunch share one code path', () => {
+test('restart and the card Relaunch share one code path, and restart keeps its pane', () => {
   const src = read('js/pages/terminals.js');
-  assert.match(src, /_relaunchTask\(task, \{ stopFirst = false \} = \{\}\)/);
+  assert.match(src, /_relaunchTask\(task, \{ stopFirst = false, pane = null \} = \{\}\)/);
+  assert.match(src, /await this\._relaunchTask\(t, \{ stopFirst: true, pane: paneId \}\)/,
+    'a restart has to come back in the pane whose banner asked for it');
+  assert.match(src, /_claimPane\(taskId, paneId, group = 'replace', swapFor = null\) \{/,
+    'and the pane is claimed by name, not by whichever one holds the focus');
   assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 2,
     'one launch call in the shared helper, one in the launch form');
 });

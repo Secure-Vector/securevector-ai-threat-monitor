@@ -50,6 +50,9 @@ function loadTerminalsPage(api = {}) {
     window, document, API: api, URLSearchParams,
     sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   };
+  // The page reads its pane tree from the layout model, so the sandbox needs
+  // both scripts, exactly as index.html loads them.
+  vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(src, sandbox);
   return sandbox.window.TerminalsPage;
 }
@@ -79,8 +82,8 @@ test('styles.css defines .terminals-executor-hint', () => {
 
 test('index.html pins the bumped executor cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=20/);
-  assert.match(html, /styles\.css\?v=396/);
+  assert.match(html, /terminals\.js\?v=35/);
+  assert.match(html, /styles\.css\?v=410/);
 });
 
 test('no em dash in the executor-hint UI strings', () => {

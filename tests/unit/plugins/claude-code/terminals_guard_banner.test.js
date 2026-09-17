@@ -53,6 +53,9 @@ function loadTerminalsPage(elements, api = {}) {
     clearTimeout: () => {},
     console: { warn() {}, error() {} },
   };
+  // The page reads its pane tree from the layout model, so the sandbox needs
+  // both scripts, exactly as index.html loads them.
+  vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(src, sandbox);
   return sandbox.window.TerminalsPage;
 }
@@ -108,7 +111,7 @@ test('an installed Guard the session has not loaded yet gets the pending banner 
   assert.strictEqual(banner.classList.contains('is-pending'), true);
   assert.strictEqual(
     els['terminals-guard-banner-text'].textContent,
-    'SecureVector Guard installed. Restart the harness to load it.',
+    'SecureVector Guard installed. This session started before it, so restart the harness to load it.',
   );
   assert.strictEqual(els['terminals-guard-banner-install'].hidden, true);
   assert.strictEqual(els['terminals-guard-banner-recheck'].hidden, false);
@@ -124,7 +127,7 @@ test('Claude Code names /reload-plugins rather than a restart', () => {
   Page._renderGuardBanner();
 
   assert.strictEqual(els['terminals-guard-banner-text'].textContent,
-    'SecureVector Guard installed. Run /reload-plugins in the terminal, or restart the harness to load it.');
+    'SecureVector Guard installed. This session started before it, so run /reload-plugins in the terminal, or restart the harness.');
 });
 
 test('the banner hides once the Guard reports in, and for a finished task', () => {
@@ -242,4 +245,51 @@ test('styles.css carries the banner rule and the full-width launch form rows', (
   // one narrow cell.
   assert.match(css, /\.terminals-launch-error[^{]*\{[^}]*grid-column:\s*1 \/ -1/);
   assert.match(css, /\.terminals-launch-error\s*\{[^}]*white-space:\s*normal/);
+});
+
+test('a hidden button is really hidden, and Install never keeps its Installing label', () => {
+  const css = fs.readFileSync(path.join(WEB, 'css', 'styles.css'), 'utf8');
+  assert.match(css, /\.btn\[hidden\] \{ display: none; \}/,
+    'the btn class sets display, which beats the UA rule for [hidden]');
+  assert.ok(css.indexOf('.btn[hidden] { display: none; }') < css.indexOf('\n.btn {'),
+    'and the rule has to be defined alongside the class it corrects');
+
+  const src = fs.readFileSync(path.join(WEB, 'js', 'pages', 'terminals.js'), 'utf8');
+  assert.match(src, /_resetInstallButton\(install\) \{\s*\n\s*install\.hidden = true;\s*\n\s*install\.disabled = false;\s*\n\s*install\.textContent = 'Install SecureVector Guard';/,
+    'putting the button away has to restore its label and re-enable it');
+  assert.doesNotMatch(src, /if \(install\) install\.hidden = true;/,
+    'nothing may hide the Install button without resetting it');
+});
+
+test('a task launched with the Guard already in place shows no restart banner', () => {
+  const els = bannerElements();
+  const Page = loadTerminalsPage(els);
+  // No session id yet: the first tool call has not happened. The task was
+  // still spawned governed, so there is no ungoverned window to warn about.
+  attach(Page, { ...RUNNING_TASK, session_id: null, governed_at_launch: true }, CODEX_GOVERNED);
+
+  Page._renderGuardBanner();
+
+  assert.strictEqual(els['terminals-guard-banner'].hidden, true,
+    'a governed launch must not be told to restart the harness it just started');
+});
+
+test('Check again says what it found, so an unchanged banner does not look like a dead button', async () => {
+  const els = bannerElements();
+  const Page = loadTerminalsPage(els, {
+    terminalsExecutors: async () => ({ items: [CODEX_GOVERNED] }),
+    terminalsTasks: async () => ({ items: [RUNNING_TASK] }),
+  });
+  attach(Page, RUNNING_TASK, CODEX_GOVERNED);
+  // The real refresh repaints the whole page; the banner is what is under test.
+  Page._refreshTasks = async () => {};
+  Page._renderGuardBanner();
+
+  await Page._recheckGuardFromBanner();
+
+  assert.match(els['terminals-guard-banner-text'].textContent,
+    /Checked just now: no call from this session yet\.$/,
+    'the check is about the session, and it has to report its result');
+  assert.strictEqual(els['terminals-guard-banner-recheck'].disabled, false,
+    'and the button comes back ready to be pressed again');
 });

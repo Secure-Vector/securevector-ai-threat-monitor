@@ -161,13 +161,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await _manager.start(asyncio.get_running_loop())
         app.state.terminal_auth = _auth
         app.state.terminal_manager = _manager
+        # Codex's built-in web tool fires no hook, so its destinations are read
+        # back from the local transcript and recorded as observed. Gated on the
+        # transcript-reading consent inside the observer itself.
+        from securevector.app.database.repositories.egress import EgressRepository
+        from securevector.app.services import codex_web_observer
+        app.state.codex_web_observer = asyncio.create_task(
+            codex_web_observer.run_observer(_manager, EgressRepository(db))
+        )
     except Exception as _e:
         logger.warning(f"Could not initialise Agent Terminals: {_e}")
         app.state.terminal_auth = None
         app.state.terminal_manager = None
+        app.state.codex_web_observer = None
 
     yield
     logger.info("API server shutting down...")
+
+    _observer = getattr(app.state, "codex_web_observer", None)
+    if _observer is not None:
+        _observer.cancel()
 
     # Pre-teardown lifecycle hook (#112): emit a device.lifecycle.uninstalling
     # OCSF event to any enrollment-sourced destinations BEFORE we stop the

@@ -59,6 +59,9 @@ function loadTerminalsPage(api = {}) {
     setTimeout: () => 0,
     clearTimeout: () => {},
   };
+  // The page reads its pane tree from the layout model, so the sandbox needs
+  // both scripts, exactly as index.html loads them.
+  vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(src, sandbox);
   return sandbox.window.TerminalsPage;
 }
@@ -226,8 +229,8 @@ test('a launch submits for an installed-but-ungoverned executor (it runs ungover
 test('index.html and pin assertions moved to the bumped versions', () => {
   const html = read('index.html');
   assert.match(html, /api\.js\?v=325/);
-  assert.match(html, /terminals\.js\?v=20/);
-  assert.match(html, /styles\.css\?v=396/);
+  assert.match(html, /terminals\.js\?v=35/);
+  assert.match(html, /styles\.css\?v=410/);
 });
 
 test('the launch-form recheck reports a failed executors fetch and the ready timer is cancelled on harness change', () => {

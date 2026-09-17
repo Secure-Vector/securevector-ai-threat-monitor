@@ -61,10 +61,52 @@ class TestSessionDestinationsRoute:
         repo = _StubRepo([])
         monkeypatch.setattr(egress_routes, "get_database", lambda: object())
         monkeypatch.setattr(egress_routes, "EgressRepository", lambda db: repo)
+        monkeypatch.setattr(
+            egress_routes.codex_web_observer, "consent_granted", lambda: True)
         out = await egress_routes.get_session_destinations("s1")
         assert out == {"session_id": "s1", "distinct_hosts": 0,
-                       "blocked_hosts": 0, "destinations": []}
+                       "blocked_hosts": 0, "observed_calls": 0,
+                       "transcript_consent": True, "destinations": []}
 
     def test_route_is_registered(self):
         paths = {r.path for r in egress_routes.router.routes}
         assert "/egress/sessions/{session_id}/destinations" in paths
+
+
+class TestObservedOnTheSessionRoute:
+    """A harness's own web tool fires no hook, so its destinations arrive from
+    a local transcript instead of a verdict. The panel needs two things the
+    host rows alone cannot say: how many such calls there were, and whether
+    the transcript was readable at all. An empty list with consent off is not
+    "this task reached nothing"; it is "nothing was read"."""
+
+    @pytest.mark.asyncio
+    async def test_observed_calls_are_totalled(self, monkeypatch):
+        repo = _StubRepo([
+            {"host": "web-search", "calls": 3, "blocked": 0, "observed": 3,
+             "writes": 0, "hard_blocked": 0},
+            {"host": "docs.example.com", "calls": 1, "blocked": 0,
+             "observed": 1, "writes": 0, "hard_blocked": 0},
+            {"host": "api.example.com", "calls": 4, "blocked": 0,
+             "observed": 0, "writes": 0, "hard_blocked": 0},
+        ])
+        monkeypatch.setattr(egress_routes, "get_database", lambda: object())
+        monkeypatch.setattr(egress_routes, "EgressRepository", lambda db: repo)
+        monkeypatch.setattr(
+            egress_routes.codex_web_observer, "consent_granted", lambda: True)
+        out = await egress_routes.get_session_destinations("s1")
+        assert out["observed_calls"] == 4
+        assert out["distinct_hosts"] == 3
+        assert out["blocked_hosts"] == 0
+        assert out["transcript_consent"] is True
+
+    @pytest.mark.asyncio
+    async def test_missing_consent_travels_with_the_rows(self, monkeypatch):
+        repo = _StubRepo([])
+        monkeypatch.setattr(egress_routes, "get_database", lambda: object())
+        monkeypatch.setattr(egress_routes, "EgressRepository", lambda db: repo)
+        monkeypatch.setattr(
+            egress_routes.codex_web_observer, "consent_granted", lambda: False)
+        out = await egress_routes.get_session_destinations("s1")
+        assert out["transcript_consent"] is False
+        assert out["observed_calls"] == 0

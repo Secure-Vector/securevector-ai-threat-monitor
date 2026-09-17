@@ -66,6 +66,9 @@ function loadPage(dom, api = {}, extras = {}) {
     clearInterval: () => {},
     console: { warn() {}, error() {} },
   }, extras);
+  // The page reads its pane tree from the layout model, so the sandbox needs
+  // both scripts, exactly as index.html loads them.
+  vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(read('js/pages/terminals.js'), sandbox);
   const Page = sandbox.window.TerminalsPage;
   Page._container = dom.container;
@@ -219,11 +222,11 @@ test('attaching a linked task renders the linked stage and opens no WebSocket', 
   await Page._attach('L1');
 
   assert.strictEqual(sockets, 0, 'there is no PTY behind a linked task');
-  assert.strictEqual(Page._ws, null);
-  const body = dom.byId('terminals-attached-body');
-  assert.match(body.innerHTML, /terminals-linked-stage/);
-  assert.match(body.innerHTML, /Runs outside SecureVector/);
-  assert.match(body.innerHTML, /This session was started in your own terminal\. There is no terminal here; governance is live\./);
+  assert.strictEqual(Page._ws, null, 'the focused pane holds no socket');
+  const stage = Page._panes.get(Page._focused).stageEl;
+  assert.match(stage.innerHTML, /terminals-linked-stage/);
+  assert.match(stage.innerHTML, /Runs outside SecureVector/);
+  assert.match(stage.innerHTML, /This session was started in your own terminal\. There is no terminal here; governance is live\./);
 });
 
 test('the pane offers no Stop for a linked task', () => {
@@ -248,8 +251,9 @@ test('attaching an unknown task re-reads the board once, then says so without a 
 
   assert.strictEqual(refetches, 1, 'the board is re-read exactly once before giving up');
   assert.strictEqual(sockets, 0, 'a task the board cannot describe never gets a socket');
-  assert.strictEqual(dom.byId('terminals-banner').textContent, 'Task not found.');
-  assert.strictEqual(dom.byId('terminals-banner').hidden, false);
+  const banner = Page._panes.get(Page._focused).bannerEl;
+  assert.strictEqual(banner.textContent, 'Task not found.', 'the pane that asked for it says so');
+  assert.strictEqual(banner.hidden, false);
 });
 
 test('a stale board that the refetch fixes still attaches normally', async () => {
@@ -267,7 +271,7 @@ test('a stale board that the refetch fixes still attaches normally', async () =>
   await Page._attach('L9');
 
   assert.strictEqual(sockets, 0);
-  assert.match(dom.byId('terminals-attached-body').innerHTML, /terminals-linked-stage/);
+  assert.match(Page._panes.get(Page._focused).stageEl.innerHTML, /terminals-linked-stage/);
 });
 
 test('a second link submit is refused while the first is still in flight', async () => {
@@ -446,7 +450,7 @@ test('api.js exposes the link and discovery calls on the terminals write/read pa
 test('index.html pins the bumped asset versions', () => {
   const html = read('index.html');
   assert.match(html, /api\.js\?v=325/);
-  assert.match(html, /terminals\.js\?v=20/);
-  assert.match(html, /sidebar\.js\?v=165/);
-  assert.match(html, /styles\.css\?v=396/);
+  assert.match(html, /terminals\.js\?v=35/);
+  assert.match(html, /sidebar\.js\?v=167/);
+  assert.match(html, /styles\.css\?v=410/);
 });

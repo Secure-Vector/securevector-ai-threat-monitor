@@ -147,7 +147,9 @@ alone unless they changed.
   gated on its own Guard plugin being installed and enabled (spawn is closed
   by default). Cursor and Gemini are not executors in 6.0.0. macOS and Linux
   full PTY; Windows streams-only.
-- One attached terminal at a time. Tasks run in the folder the user picks
+- Several tasks can be attached at once in split panes, each with its own
+  governance (owner decision, replaces the earlier one-terminal rule). Tasks
+  run in the folder the user picks
   (worktree isolation is 6.1). Executor in Python; no Node sidecar.
 - Not in 6.0.0: diff review, PR creation, merge, or any kanban or board
   planning surface. Terminals shows the terminal, the verdict rail, and

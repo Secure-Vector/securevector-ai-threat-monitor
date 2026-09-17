@@ -409,7 +409,20 @@ const Sidebar = {
                     }
                     return;
                 }
-                if (item.id === 'terminals') sessionStorage.removeItem('sv-agent-task-id');
+                if (item.id === 'terminals') {
+                    // Agent Tasks means the board, not whatever task was last
+                    // attached. The flag survives the navigation so a mount
+                    // that would otherwise restore its panes stands down.
+                    try {
+                        sessionStorage.removeItem('sv-agent-task-id');
+                        sessionStorage.setItem('sv-agent-tasks-board', '1');
+                    } catch (err) { /* storage unavailable */ }
+                    if (this.currentPage === 'terminals' && window.TerminalsPage?.showAllTasks) {
+                        try { sessionStorage.removeItem('sv-agent-tasks-board'); } catch (err) { /* storage unavailable */ }
+                        TerminalsPage.showAllTasks();
+                        return;
+                    }
+                }
                 this.navigate(item.id);
             });
 
@@ -1155,9 +1168,21 @@ const Sidebar = {
                 hint.textContent = `g ${chordKey}`;
                 row.appendChild(hint);
             }
+            // The rail is the one list that always has every task, so it is
+            // where a task is picked up from to drop into a pane. The drag
+            // itself belongs to the terminals page, which is the only thing
+            // that knows whether there is a pane to drop onto; this only
+            // offers, and a row that is merely clicked is untouched.
+            if (view.taskId) {
+                row.addEventListener('pointerdown', (ev) => {
+                    if (window.TerminalsPage?.beginTaskDrag) TerminalsPage.beginTaskDrag(view.taskId, ev);
+                });
+            }
             row.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (view.taskId) {
+                    // The click that ends a drag belongs to the drag.
+                    if (window.TerminalsPage?.consumeDragClick && TerminalsPage.consumeDragClick()) return;
                     sessionStorage.setItem('sv-agent-task-id', view.taskId);
                     this.navigate('terminals');
                     return;

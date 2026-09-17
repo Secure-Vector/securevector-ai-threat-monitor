@@ -94,8 +94,8 @@ test('terminals.js enters a focused single-task mode on attach and leaves it on 
     'attaching must enter the focused single-task mode');
   assert.match(terminals, /classList\.remove\('is-focused'\)/,
     'detaching must leave the focused single-task mode');
-  assert.match(terminals, /sessionStorage\.setItem\('sv-agent-task-id', id\);\s*\n\s*if \(window\.Sidebar\?\.setActive\) Sidebar\.setActive\('terminals'\)/,
-    'attaching must re-highlight the rail right after claiming the stored task id');
+  assert.match(terminals, /sessionStorage\.setItem\('sv-agent-task-id', rec\.taskId\);[^]{0,90}if \(window\.Sidebar\?\.setActive\) Sidebar\.setActive\('terminals'\)/,
+    'focusing a pane must re-highlight the rail right after claiming the stored task id');
   assert.match(terminals, /\} else if \(!this\._error && requested && !this\._tasks\.some\(task => task\.id === requested\)\) \{/,
     'a fetch failure must not be mistaken for a vanished task and clear the stored id');
   assert.match(terminals, /terminals-all-tasks-btn/,

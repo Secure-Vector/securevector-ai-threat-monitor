@@ -2195,6 +2195,15 @@ def chat_with_protection(user_input):
         btnRow.appendChild(statusPill);
         content.appendChild(btnRow);
 
+        // Codex's built-in web tool runs inside the harness and fires no hook,
+        // so the Guard never sees it. Terminals lists it after the fact from
+        // the local transcript; this is how to bring it under the Guard.
+        const webHint = document.createElement('div');
+        webHint.id = 'codex-web-search-hint';
+        webHint.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 14px;';
+        webHint.textContent = 'Web search inside Codex is not hookable. Set web_search = false in Codex\'s config to force web access through shell commands, which the Guard governs.';
+        content.appendChild(webHint);
+
         const resultArea = document.createElement('div');
         resultArea.id = 'codex-plugin-result';
         resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';

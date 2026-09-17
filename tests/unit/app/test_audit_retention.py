@@ -96,11 +96,13 @@ async def test_schema_version_advances_to_45(tmp_path):
     # started outside the app can be linked by its session id and governed
     # on the board with no PTY of its own.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 50
+    # v51: egress_audit.action accepts 'observed' for calls read back from a
+    # harness transcript after the fact (no hook fired, nothing was governed).
+    assert CURRENT_SCHEMA_VERSION == 51
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 50
+    assert row["v"] == 51
     exists = await db.fetch_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
     )

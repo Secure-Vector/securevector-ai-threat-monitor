@@ -52,8 +52,8 @@ test('the empty stage keeps the heading and blurb without the SV mark tile', () 
 });
 
 test('styles carry the quiet-workspace frame and rail tightening rules', () => {
-  assert.match(css, /\.terminals-page \.terminals-task \{ display: flex/,
-    'task rows must be flattened to a single flex line');
+  assert.match(css, /\.terminals-page \.terminals-task \{ display: block/,
+    'all tasks shows cards, so a task is a block and not a flex line');
   assert.match(css, /\.terminals-page \.terminals-centre \{ border: 1px solid var\(--border-default/,
     'the centre surface keeps a hairline frame with no shadow');
   assert.match(css, /\.terminals-page \.terminals-tasks,[^\n]*box-shadow: none/,
@@ -65,10 +65,51 @@ test('styles carry the quiet-workspace frame and rail tightening rules', () => {
 });
 
 test('pins are bumped for the touched assets', () => {
-  assert.match(html, /terminals\.js\?v=20/);
-  assert.match(html, /styles\.css\?v=396/);
+  assert.match(html, /terminals\.js\?v=35/);
+  assert.match(html, /styles\.css\?v=410/);
 });
 
-test('the compact task list scrolls inside itself instead of pushing the terminal off screen', () => {
-  assert.match(css, /\.terminals-page \.terminals-task-list \{ max-height: 38vh; overflow-y: auto; \}/);
+test('with nothing attached the board is the whole page', () => {
+  assert.match(css, /\.terminals-page:not\(\.is-focused\) \{ grid-template-rows: minmax\(0, 1fr\); \}/,
+    'the board takes the page when no task is attached');
+  assert.match(css, /\.terminals-page:not\(\.is-focused\) \.terminals-workspace \{ display: none; \}/,
+    'an empty stage and a governance panel with no task say nothing worth the room');
+  assert.match(css, /\.terminals-page \.terminals-task-list \{ flex: 1 1 auto; min-height: 0; overflow-y: auto; \}/,
+    'the list owns the scroll; the section around it clips');
+  assert.match(css, /\.terminals-page \.terminals-tasks \{ display: flex; flex-direction: column; min-height: 0; \}/,
+    'and the section has to let it shrink, or the scroll never engages');
+});
+
+test('all tasks is a wrapping board of cards', () => {
+  assert.match(css, /\.terminals-page \.terminals-group \{ display: grid; grid-template-columns: repeat\(auto-fill, minmax\(282px, 1fr\)\)/,
+    'the group lays its tasks out as a card grid');
+  assert.match(css, /\.terminals-page \.terminals-task \{[^\n]*border-radius: 8px/,
+    'a card has its own frame');
+  assert.match(css, /\.terminals-page \.terminals-task-select \{ display: flex; flex-direction: column/,
+    'the card stacks its bot, title, harness and clock');
+});
+
+test('the tab strip styles the controls a lone pane hands up to it', () => {
+  assert.match(css, /\.terminals-head-pane-gov \{/);
+  assert.match(css, /\.terminals-head-pane-gov:empty \{ display: none; \}/,
+    'no chip yet must not leave a gap in the strip');
+  assert.match(css, /\.terminals-head-pane-acts \{/);
+});
+
+test('the board is a dashboard of tasks, and only the gap gets colour', () => {
+  assert.match(page, /_guardState\(t\) \{/,
+    'a card has to answer whether the task is being checked');
+  assert.match(page, /terminals-task-guard terminals-guard-\$\{guard\.kind\}/,
+    'and carry that state on the card itself, not only in the attached view');
+  assert.match(page, /terminals-task-doing/,
+    'and say what the agent is doing now, so a board of five needs no clicks');
+  assert.match(page, /_renderBoardSummary\(shown\)/,
+    'one line of state over the whole board');
+  assert.match(page, /cell\(ungoverned, 'not governed', 'is-amber'/,
+    'the summary counts the tasks nobody is watching');
+
+  assert.match(css, /\.terminals-guard-ungoverned \{ border-color: rgba\(245, 158, 11/,
+    'a governance gap is amber');
+  assert.doesNotMatch(css, /\.terminals-guard-governed \{/,
+    'governed is the quiet default and must not spend the accent on good news');
 });

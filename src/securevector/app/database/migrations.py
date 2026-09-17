@@ -196,6 +196,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         48: migrate_to_v48,
         49: migrate_to_v49,
         50: migrate_to_v50,
+        51: migrate_to_v51,
     }
 
     if version in migrations:
@@ -1881,7 +1882,7 @@ async def migrate_to_v44(db: DatabaseConnection) -> None:
             scheme        TEXT,
             operation     TEXT NOT NULL CHECK (operation IN ('read', 'write', 'unknown')),
             kind          TEXT NOT NULL,
-            action        TEXT NOT NULL CHECK (action IN ('allow', 'block', 'log_only')),
+            action        TEXT NOT NULL CHECK (action IN ('allow', 'block', 'log_only', 'observed')),
             rule_id       TEXT,
             severity      TEXT,
             confidence    TEXT NOT NULL,
@@ -2460,3 +2461,107 @@ async def migrate_to_v50(db: DatabaseConnection) -> None:
         "VALUES (50, CURRENT_TIMESTAMP, 'Agent Task origin: launched or linked')"
     )
     logger.info("Applied migration v50: terminal task origin")
+
+
+async def migrate_to_v51(db: DatabaseConnection) -> None:
+    """v50 -> v51: `observed` joins the egress_audit action vocabulary.
+
+    A hook fires for every governed tool call, but some harness-native network
+    tools never reach one. Their destinations are read back from the local
+    transcript afterwards and recorded as ``observed``: reached, and not
+    decided by any policy. Keeping them in the same table is what makes one
+    per-session list of destinations possible; keeping them under their own
+    action is what stops them being read as verdicts.
+
+    SQLite cannot widen a CHECK in place, so the table is rebuilt. Idempotent:
+    an install whose constraint already allows ``observed`` is left alone.
+
+    The rebuild is recovered before it is attempted. A crash between the drop
+    and the rename leaves the audit in a staging table and no `egress_audit` at
+    all, which every later query would fail on; a crash before the drop leaves
+    a staging table that is merely stale. Both states are repaired here, on the
+    next run, rather than being left for an operator to notice.
+    """
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    async def _create_indexes() -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_time ON egress_audit (timestamp DESC)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_host ON egress_audit (host, action)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_session ON egress_audit (session_id)"
+        )
+
+    leftover = await _table_sql("egress_audit_v51")
+    if leftover:
+        if await _table_sql("egress_audit"):
+            # The rebuild did not get as far as swapping. The staging copy is
+            # stale by definition; the live table is still the source of truth.
+            await conn.execute("DROP TABLE egress_audit_v51")
+        else:
+            # The swap was interrupted between the drop and the rename: the
+            # staging table *is* the audit history, and dropping it would
+            # delete it.
+            await conn.execute("ALTER TABLE egress_audit_v51 RENAME TO egress_audit")
+            await _create_indexes()
+        await conn.commit()
+
+    existing = await _table_sql("egress_audit")
+    if existing and "'observed'" not in existing:
+        await conn.executescript(
+            """
+            CREATE TABLE egress_audit_v51 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                host          TEXT,
+                port          INTEGER,
+                scheme        TEXT,
+                operation     TEXT NOT NULL CHECK (operation IN ('read', 'write', 'unknown')),
+                kind          TEXT NOT NULL,
+                action        TEXT NOT NULL CHECK (action IN ('allow', 'block', 'log_only', 'observed')),
+                rule_id       TEXT,
+                severity      TEXT,
+                confidence    TEXT NOT NULL,
+                detector      TEXT NOT NULL,
+                tool_name     TEXT,
+                runtime_kind  TEXT,
+                session_id    TEXT,
+                request_id    TEXT,
+                evidence      TEXT,
+                reason        TEXT,
+                promoted      INTEGER NOT NULL DEFAULT 0,
+                promoted_at   TIMESTAMP
+            );
+            INSERT INTO egress_audit_v51 (
+                id, timestamp, host, port, scheme, operation, kind, action,
+                rule_id, severity, confidence, detector, tool_name,
+                runtime_kind, session_id, request_id, evidence, reason,
+                promoted, promoted_at
+            )
+            SELECT id, timestamp, host, port, scheme, operation, kind, action,
+                   rule_id, severity, confidence, detector, tool_name,
+                   runtime_kind, session_id, request_id, evidence, reason,
+                   promoted, promoted_at
+            FROM egress_audit;
+            DROP TABLE egress_audit;
+            ALTER TABLE egress_audit_v51 RENAME TO egress_audit;
+            """
+        )
+        await _create_indexes()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (51, CURRENT_TIMESTAMP, 'Observed egress rows')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v51: observed egress action")

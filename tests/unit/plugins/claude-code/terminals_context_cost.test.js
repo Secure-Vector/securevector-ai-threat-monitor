@@ -54,6 +54,9 @@ function loadPage(elements, api = {}, extra = {}) {
     clearTimeout: () => {},
     console: { warn() {}, error() {} },
   }, extra);
+  // The page reads its pane tree from the layout model, so the sandbox needs
+  // both scripts, exactly as index.html loads them.
+  vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(src, sandbox);
   return sandbox.window.TerminalsPage;
 }
@@ -590,7 +593,7 @@ test('attaching a task clears the previous task context gauge and hosts', async 
 
 test('_attach and _detach both clear the per-session panels', () => {
   const src = read('js/pages/terminals.js');
-  const attachFn = src.slice(src.indexOf('_attach(id) {'), src.indexOf('_resetSessionPanels() {'));
+  const attachFn = src.slice(src.indexOf("_attach(id, paneId, group = 'replace', swapFor = null) {"), src.indexOf('_resetSessionPanels() {'));
   assert.match(attachFn, /this\._resetSessionPanels\(\);/);
   const detachFn = src.slice(src.indexOf('_detach() {'), src.indexOf('_banner(text) {'));
   assert.match(detachFn, /this\._resetSessionPanels\(\);/);

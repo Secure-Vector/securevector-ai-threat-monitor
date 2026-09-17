@@ -2,11 +2,19 @@
 // Agent Tasks: launch a governed task, attach to one at a time, and keep
 // governance available without taking over the workspace.
 const TerminalsPage = {
+    // The stage with no pane in it. Kept in one place because leaving the
+    // board also repaints it, and an empty grey box is not an empty state.
+    STAGE_EMPTY_HTML: `
+                <div class="terminals-stage-empty">
+                  <h3>Your governed agent workspace</h3>
+                  <p>Launch a harness or select a task to return to its live terminal, verdicts, and approvals.</p>
+                </div>`,
+    // The rail's Agent Tasks row asks for the board rather than the task it
+    // left attached. Read once at mount, because restoring a stored layout
+    // re-attaches a task and would otherwise overrule the request.
+    _wantBoard: false,
     _tasks: [],
     _executors: [],
-    _attached: null,      // task id
-    _ws: null,
-    _view: null,
     _pollTimer: null,
     _railTimer: null,
     _attachedAt: null,
@@ -47,6 +55,7 @@ const TerminalsPage = {
 
     async render(container) {
         const gen = ++this._gen;
+        this._destroyed = false;
         // navigating terminals -> terminals re-renders without calling destroy(),
         // so a stale attachment/timers from the outgoing DOM must be torn down here too.
         clearInterval(this._pollTimer);
@@ -102,6 +111,7 @@ const TerminalsPage = {
                 <pre class="terminals-guard-commands" id="terminals-guard-commands" hidden></pre>
                 <div class="terminals-unlinked" id="terminals-unlinked" hidden></div>
               </form>
+              <div class="terminals-board-summary" id="terminals-board-summary" hidden></div>
               <div id="terminals-task-list" class="terminals-task-list"></div>
             </section>
             <div class="terminals-workspace">
@@ -119,11 +129,7 @@ const TerminalsPage = {
                 </span>
               </div>
               <pre class="terminals-guard-commands" id="terminals-guard-banner-commands" hidden></pre>
-              <div class="terminals-attached-body" id="terminals-attached-body">
-                <div class="terminals-stage-empty">
-                  <h3>Your governed agent workspace</h3>
-                  <p>Launch a harness or select a task to return to its live terminal, verdicts, and approvals.</p>
-                </div>
+              <div class="terminals-attached-body" id="terminals-attached-body">${this.STAGE_EMPTY_HTML}
               </div>
               <div class="terminals-pane-foot" id="terminals-pane-foot" hidden></div>
             </section>
@@ -154,6 +160,12 @@ const TerminalsPage = {
             </div>
           </div>`;
 
+        this._layoutRestored = false;
+        try {
+            this._wantBoard = sessionStorage.getItem('sv-agent-tasks-board') === '1';
+            sessionStorage.removeItem('sv-agent-tasks-board');
+        } catch (e) { this._wantBoard = false; }
+        this._bindPaneKeys();
         this._bindLaunchForm(container);
         container.querySelector('#terminals-task-search').oninput = (ev) => {
             this._taskQuery = ev.target.value.trim().toLowerCase();
@@ -181,11 +193,15 @@ const TerminalsPage = {
         await this._refreshTasks();
         if (gen !== this._gen) return;
         this._pollTimer = setInterval(() => this._refreshTasks(), 3000);
-        this._railTimer = setInterval(() => this._refreshRail(), 4000);
+        this._railTimer = setInterval(() => { this._refreshRail(); this._refreshPaneGov(); }, 4000);
     },
 
     destroy() {
         this._gen = (this._gen || 0) + 1;
+        // Beside the generation bump, not further down: destroy() is called
+        // inside a try/catch, and a throw below here would otherwise leave a
+        // torn-down page looking live to _claimFocusedPane's guard.
+        this._destroyed = true;
         clearInterval(this._pollTimer);
         clearInterval(this._railTimer);
         this._pollTimer = null;
@@ -194,6 +210,18 @@ const TerminalsPage = {
         this._removeConfirmTimer = null;
         this._removeConfirmId = null;
         this._detach();
+        clearTimeout(this._stopAllTimer);
+        this._stopAllTimer = null;
+        this._stopAllArmed = false;
+        // A drag in flight owns window listeners; navigating away mid drag
+        // must take them with it rather than leaving them resizing nothing.
+        if (this._drag && this._drag.finish) this._drag.finish(false);
+        this._clearDragGhost();
+        this._clearDropZone();
+        this._drag = null;
+        this._clickAfterDrag = false;
+        this._unbindPaneKeys();
+        this._layoutRestored = false;
         this._tasks = [];
         this._executors = [];
         this._attachedAt = null;
@@ -417,12 +445,30 @@ const TerminalsPage = {
         }
         if (gen !== this._gen) return;
         this._renderTaskList();
+        this._renderPaneHeads();
+        this._checkDragAlive();
         const sig = this._tasks.map(t => t.id + ':' + this._taskState(t).kind).join('|');
         if (sig !== this._railSig) {
             this._railSig = sig;
             if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
         }
         this._renderAttachedHead();
+        // A stored layout is rebuilt once per mount, and only now: pruning it
+        // needs the task list, and it has to settle before the reconcile below
+        // decides whether the stored task id still wants attaching.
+        if (!this._layoutRestored) {
+            this._layoutRestored = true;
+            if (this._wantBoard) {
+                // Asked for the board, so the stored panes are not what the
+                // user wants back; forget them rather than reopen their sockets.
+                this._wantBoard = false;
+                this._clearStoredLayout();
+            } else {
+                await this._restoreLayout();
+                if (gen !== this._gen) return;
+            }
+        }
+        this._pruneLayoutToTasks();
         // This must run before the reconcile block below: _attach() is what
         // writes the stored id, so the reconcile block needs to see that
         // write (or the lack of one) already settled.
@@ -439,8 +485,9 @@ const TerminalsPage = {
         // page's DOM, so a poll tick must notice and detach on its behalf.
         if (this._attached && !sessionStorage.getItem('sv-agent-task-id')) {
             this._detach();
+            this._clearStoredLayout();
             const attachedBody = document.getElementById('terminals-attached-body');
-            if (attachedBody) attachedBody.innerHTML = '';
+            if (attachedBody) attachedBody.innerHTML = this.STAGE_EMPTY_HTML;
             if (window.Sidebar?.setActive) Sidebar.setActive('terminals');
             this._renderAttachedHead();
             this._renderTaskList();
@@ -450,8 +497,9 @@ const TerminalsPage = {
     _renderTaskList() {
         const el = document.getElementById('terminals-task-list');
         if (!el) return;
-        if (this._error) { el.innerHTML = `<div class="terminals-error">${this._esc(this._error)}</div>`; return; }
+        if (this._error) { this._renderBoardSummary([]); el.innerHTML = `<div class="terminals-error">${this._esc(this._error)}</div>`; return; }
         if (!this._tasks.length) {
+            this._renderBoardSummary([]);
             el.innerHTML = `<div class="terminals-task-empty">
               <strong>Start your first governed task</strong>
               <span>Choose a harness, then SecureVector keeps its calls and decisions together.</span>
@@ -466,9 +514,11 @@ const TerminalsPage = {
             [t.title, t.workspace, t.executor_id, t.status].some(value => String(value || '').toLowerCase().includes(query))
         ) : this._tasks;
         if (!shown.length) {
+            this._renderBoardSummary([]);
             el.innerHTML = '<div class="terminals-task-empty"><strong>No matching tasks</strong><span>Try a task name, workspace, harness, or state.</span></div>';
             return;
         }
+        this._renderBoardSummary(shown);
         const groups = new Map();
         for (const t of shown) {
             if (!groups.has(t.workspace)) groups.set(t.workspace, []);
@@ -495,12 +545,17 @@ const TerminalsPage = {
                         : `<button class="terminals-task-remove" data-remove-id="${this._esc(t.id)}" title="Remove from board; the audit record remains">Remove</button>`)
                     : '';
                 const elapsed = this._elapsed(t.created_at, t.ended_at);
+                const guard = this._guardState(t);
+                const branch = typeof t.branch === 'string' && t.branch
+                    ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
                 html += `
                   <article class="terminals-task${active}" data-id="${this._esc(t.id)}">
                     <button class="terminals-task-select" data-id="${this._esc(t.id)}" aria-label="Open ${this._esc(t.title || this._label(t.executor_id))}">
                       <span class="terminals-task-title-row">${window.TaskAvatar ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 44 }) : ''}<span class="terminals-task-title">${this._esc(t.title || this._label(t.executor_id))}</span>${t.origin === 'linked' ? '<span class="terminals-task-linked">linked</span>' : ''}</span>
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
-                      <span class="terminals-task-when">${this._esc(elapsed)}</span>
+                      <span class="terminals-task-doing" title="${this._esc(this._activityLine(t))}">${this._esc(this._activityLine(t))}</span>
+                      <span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>
+                      <span class="terminals-task-when">${branch}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
                     </button>
                     ${relaunch}
                     ${removable}
@@ -509,7 +564,19 @@ const TerminalsPage = {
             html += '</div>';
         }
         el.innerHTML = html;
-        el.querySelectorAll('.terminals-task-select').forEach(b => { b.onclick = () => this._attach(b.dataset.id); });
+        el.querySelectorAll('.terminals-task-select').forEach(b => {
+            b.onclick = () => {
+                // The click that ends a card drag belongs to the drag, not to
+                // the card it happened to finish over.
+                if (this.consumeDragClick()) return;
+                this._attach(b.dataset.id);
+            };
+        });
+        // Grouping two sessions has to be possible from the board, where no
+        // pane is on screen to drop onto, so one card drops onto another.
+        el.querySelectorAll('.terminals-task[data-id]').forEach(card => {
+            card.onpointerdown = (ev) => this._onCardPointerDown(ev, card.dataset.id);
+        });
         el.querySelectorAll('[data-relaunch-id]').forEach(b => {
             b.onclick = async (ev) => {
                 ev.stopPropagation();
@@ -543,7 +610,8 @@ const TerminalsPage = {
                 try {
                     await API.terminalsArchive(task.id);
                     this._removeConfirmId = null;
-                    if (this._attached === task.id) this._detach();
+                    // The pane holding it is closed by the prune in
+                    // _refreshTasks(); the rest of the workspace stays up.
                     if (sessionStorage.getItem('sv-agent-task-id') === task.id) sessionStorage.removeItem('sv-agent-task-id');
                     await this._refreshTasks();
                     if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
@@ -596,6 +664,37 @@ const TerminalsPage = {
         return { kind: 'active', label: 'Active', detail: 'Harness is running', mark: '•' };
     },
 
+    /** Whether this task is being checked, and on what basis. The board is
+     *  the triage surface, so it has to answer "which of these am I actually
+     *  watching" without opening any of them. */
+    _guardState(t) {
+        if (t.origin === 'linked') {
+            return { kind: 'linked', label: 'linked', detail: 'A session you linked; the app does not own this process' };
+        }
+        if (t.governed_at_launch === false) {
+            return { kind: 'ungoverned', label: 'not governed', detail: 'Launched without SecureVector Guard: its calls are not being checked or recorded' };
+        }
+        return { kind: 'governed', label: 'governed', detail: 'Launched with SecureVector Guard in place: every call is checked and recorded' };
+    },
+
+    /** One line of state over the whole board. Every number here is counted
+     *  from the task list already in hand, so it costs no extra request. */
+    _renderBoardSummary(shown) {
+        const el = document.getElementById('terminals-board-summary');
+        if (!el) return;
+        if (!shown || shown.length < 2) { el.hidden = true; el.innerHTML = ''; return; }
+        const running = shown.filter(t => this._RUNNING_STATUSES.includes(t.status)).length;
+        const waiting = shown.filter(t => this._hasPendingApproval(t)).length;
+        const blocked = shown.filter(t => t.status === 'blocked').length;
+        const ungoverned = shown.filter(t => this._guardState(t).kind === 'ungoverned').length;
+        const cell = (n, word, cls, title) => `<span class="terminals-board-stat${n > 0 && cls ? ' ' + cls : ''}" title="${this._esc(title)}"><b>${n}</b> ${this._esc(word)}</span>`;
+        el.hidden = false;
+        el.innerHTML = cell(running, 'running', '', 'Tasks whose harness is still alive')
+            + cell(waiting, 'waiting on you', 'is-amber', 'Tasks paused for your decision')
+            + cell(blocked, 'blocked', 'is-red', 'Tasks the harness stopped')
+            + cell(ungoverned, 'not governed', 'is-amber', 'Tasks launched without SecureVector Guard');
+    },
+
     _activityLine(t) {
         const hasCode = t.exit_code !== null && t.exit_code !== undefined;
         if (t.status === 'done') return hasCode ? `Finished with exit code ${t.exit_code}` : 'Finished';
@@ -623,27 +722,753 @@ const TerminalsPage = {
         return { starting: 'Starting', working: 'Running', blocked: 'Blocked', idle: 'Waiting', done: 'Finished', failed: 'Stopped', interrupted: 'Interrupted' }[status] || status;
     },
 
-    // --- attached terminal ----------------------------------------------
+    // --- attached terminals: the pane layout -----------------------------
+    //
+    // The workspace is a tree of panes (the model lives in terminals-layout.js).
+    // A pane holds a group of tasks as tabs and shows one of them, and it is
+    // that one that owns the pane's single xterm and its single WebSocket:
+    // switching tab hangs up and reconnects exactly as changing a pane's task
+    // always did. `_attached` is
+    // the focused pane's task, which is what the tab strip, the status footer,
+    // the Guard banner, the governance panel, and the rail all key off, so
+    // none of them had to learn what a pane is.
 
-    async _attach(id) {
-        if (this._attached === id && this._ws && this._ws.readyState <= WebSocket.OPEN) return;
-        this._detach();
-        const body = document.getElementById('terminals-attached-body');
-        if (!body) return;
-        this._attached = id;
-        // Both panels are cached reads keyed to a session. Carrying either
-        // across an attach would put the previous task's context gauge and
-        // destination list under the new task's name, which reads as evidence
-        // about the wrong agent. Clear the containers as well as the caches:
-        // a stale gauge is visible until the next fetch returns.
-        this._resetSessionPanels();
-        this._sessionReported = null;
-        sessionStorage.setItem('sv-agent-task-id', id);
-        if (window.Sidebar?.setActive) Sidebar.setActive('terminals');
-        document.querySelector('.terminals-page')?.classList.add('is-focused');
+    _layout: null,          // root node of the pane tree, or null
+    _panes: new Map(),      // pane id -> { taskId, ws, view, el, ... }
+    _focused: null,         // pane id
+    _splitEls: new Map(),   // split id -> its element, for ratio updates
+    LAYOUT_KEY: 'sv-terminals-layout',
+    // One terminal and one socket per pane; past six a restore costs more
+    // than the layout is worth.
+    MAX_RESTORED_PANES: 6,
+    // A pane's tabs are cheap until one is brought forward, and then each is a
+    // socket of its own, so the tasks are capped across the whole restore as
+    // well as the panes.
+    MAX_RESTORED_TASKS: 8,
+    // Arrow keys nudge a gutter by this much, which is a visible step without
+    // being a jump.
+    GUTTER_STEP: 0.05,
+
+    /** The layout model, however this page was loaded. */
+    _lay() {
+        if (typeof TerminalsLayout !== 'undefined' && TerminalsLayout) return TerminalsLayout;
+        return (typeof window !== 'undefined' && window.TerminalsLayout) || null;
+    },
+
+    // `_attached`, `_ws`, and `_view` read through to the focused pane rather
+    // than being state of their own: one attached task was the old model, and
+    // every caller that still speaks it means "the pane I am looking at".
+    get _attached() {
+        const rec = this._focusedPane();
+        return rec ? rec.taskId : null;
+    },
+    set _attached(id) {
+        if (id === null || id === undefined) { this._closeAllPanes(); return; }
+        const rec = this._focusedPane();
+        if (!rec) { this._claimFocusedPane(id); return; }
+        rec.taskId = id;
+        rec.headSig = null;
+        const L = this._lay();
+        if (L && this._layout) this._layout = L.replaceTask(this._layout, rec.id, id);
+        this._syncPaneGroup(rec);
+    },
+    get _ws() {
+        const rec = this._focusedPane();
+        return rec ? rec.ws : null;
+    },
+    set _ws(sock) {
+        const rec = this._focusedPane() || this._claimFocusedPane(null);
+        if (rec) rec.ws = sock;
+    },
+    get _view() {
+        const rec = this._focusedPane();
+        return rec ? rec.view : null;
+    },
+    set _view(view) {
+        const rec = this._focusedPane() || this._claimFocusedPane(null);
+        if (rec) rec.view = view;
+    },
+
+    _focusedPane() {
+        if (!this._panes || !this._focused) return null;
+        return this._panes.get(this._focused) || null;
+    },
+
+    /** A task lives in one pane at a time; this is the pane holding it.
+     *  The whole group counts, not just the tab on screen: a task behind a tab
+     *  is still in that pane, and attaching it has to switch tabs there rather
+     *  than open a second copy of it somewhere else. */
+    _paneForTask(taskId) {
+        if (!taskId || !this._panes) return null;
+        for (const [id, rec] of this._panes) if (this._paneTasks(rec).includes(taskId)) return id;
+        return null;
+    },
+
+    /** One pane's group in tab order. A copy: the record's own array is the
+     *  layout's to change, and a caller holding it would see it move. */
+    _paneTasks(rec) {
+        if (!rec) return [];
+        if (Array.isArray(rec.taskIds) && rec.taskIds.length) return rec.taskIds.slice();
+        return rec.taskId ? [rec.taskId] : [];
+    },
+
+    /** The layout node owns a pane's group; the record carries a copy so the
+     *  head can draw its tabs without walking the tree on every poll. */
+    _syncPaneGroup(rec, node) {
+        if (!rec) return;
+        const L = this._lay();
+        const n = node || (L && this._layout ? L.find(this._layout, rec.id) : null);
+        const ids = n && Array.isArray(n.taskIds) ? n.taskIds : (rec.taskId ? [rec.taskId] : []);
+        const was = rec.taskIds || [];
+        if (was.length === ids.length && ids.every((x, i) => x === was[i])) return;
+        rec.taskIds = ids.slice();
+        rec.headSig = null;
+    },
+
+    _syncPaneGroups() {
+        if (!this._panes) return;
+        for (const rec of this._panes.values()) this._syncPaneGroup(rec);
+    },
+
+    _blankPane(id, taskId, taskIds) {
+        return {
+            id, taskId: taskId || null,
+            taskIds: Array.isArray(taskIds) ? taskIds.slice() : (taskId ? [taskId] : []),
+            ws: null, view: null, mountToken: null,
+            gov: null, govSid: null, govAt: 0, govSig: null, guardSig: null, footSig: null,
+            el: null, headEl: null, pickerEl: null, stageEl: null, bannerEl: null,
+            headSig: null, mounted: false,
+        };
+    },
+
+    /** Point one named pane at a task, in place. A restart has to come back
+     *  in the pane the user was looking at, not in whichever pane happens to
+     *  hold the focus at the time. Falls back to the focused pane.
+     *  `group` says what becomes of the tasks the pane already holds:
+     *  'replace' lets them go, because the pane was claimed for this one task;
+     *  'add' keeps them and puts this task beside them as a new tab;
+     *  'activate' keeps them and brings a tab already in the group forward;
+     *  'swap' puts the new task in the old one's place, which is how a
+     *  restarted harness comes back without disbanding the group around it.
+     *  `swapFor` names the task being replaced, for a swap of a task the pane
+     *  holds but is not showing. */
+    _claimPane(taskId, paneId, group = 'replace', swapFor = null) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!rec) return this._claimFocusedPane(taskId);
+        const L = this._lay();
+        // A restart says which task it replaces. Reading it off the record
+        // instead would swap whichever tab the pane happens to be showing,
+        // and a task can be restarted from a tab that is not the one on top.
+        const was = (swapFor && this._paneTasks(rec).includes(swapFor)) ? swapFor : rec.taskId;
+        this._closePaneSocket(rec);
+        rec.taskId = taskId || null;
+        rec.headSig = null;
+        rec.guardSig = null;
+        rec.footSig = null;
+        rec.gov = null;
+        rec.govSid = null;
+        rec.govSig = null;
+        if (L && this._layout) {
+            if (group === 'add') this._layout = L.addTask(this._layout, rec.id, rec.taskId);
+            else if (group === 'activate') this._layout = L.setActive(this._layout, rec.id, rec.taskId);
+            else if (group === 'swap' && was && rec.taskId) {
+                this._layout = L.swapTask(this._layout, was, rec.taskId);
+                // The pane is about to mount the fresh session, so that is the
+                // tab it shows, whether or not the task it replaced was.
+                this._layout = L.setActive(this._layout, rec.id, rec.taskId);
+            }
+            else this._layout = L.replaceTask(this._layout, rec.id, rec.taskId);
+        }
+        this._syncPaneGroup(rec);
+        return rec;
+    },
+
+    /** Point the focused pane at a task, or open the first pane. */
+    _claimFocusedPane(taskId) {
+        const L = this._lay();
+        if (!this._panes) this._panes = new Map();
+        const rec = this._focusedPane();
+        if (rec) {
+            this._closePaneSocket(rec);
+            rec.taskId = taskId || null;
+            rec.headSig = null;
+            if (L && this._layout) this._layout = L.replaceTask(this._layout, rec.id, rec.taskId);
+            this._syncPaneGroup(rec);
+            return rec;
+        }
+        // The first attach of a visit legitimately opens the first pane from
+        // nothing. A torn down page must not: every await in this file can
+        // come back to one, and a pane built then is a socket nobody owns.
+        if (!L || this._destroyed) return null;
+        const node = L.create(taskId);
+        this._layout = node;
+        const made = this._blankPane(node.id, taskId);
+        this._panes.set(node.id, made);
+        this._focused = node.id;
+        return made;
+    },
+
+    _closePaneSocket(rec) {
+        if (!rec) return;
+        if (rec.ws) {
+            const ws = rec.ws;
+            // Null the handlers before closing so frames from the old task
+            // queued on this socket cannot land in a newly attached terminal.
+            ws.onmessage = ws.onclose = ws.onopen = ws.onerror = null;
+            try { ws.close(); } catch (e) { /* closing */ }
+        }
+        if (rec.view) { try { rec.view.dispose(); } catch (e) { /* already gone */ } }
+        rec.ws = null;
+        rec.view = null;
+        rec.mounted = false;
+    },
+
+    /** Open a task in the focused pane, or focus the pane already showing it.
+     *  `paneId` names a pane to open it in instead of the focused one, and
+     *  `group` what becomes of the tasks that pane holds, and `swapFor` the
+     *  task a swap replaces (see _claimPane). */
+    async _attach(id, paneId, group = 'replace', swapFor = null) {
+        const L = this._lay();
+        if (!L || !id) return;
+        if (!this._panes) this._panes = new Map();
+        const holder = this._paneForTask(id);
+        const held = holder ? this._panes.get(holder) : null;
+        // The task is in that pane's group but is not the tab on screen, so
+        // this is a tab switch: the pane keeps its group and changes socket.
+        const activate = !!held && held.taskId !== id;
+        if (holder && !activate) {
+            if (holder !== this._focused) {
+                this._focusPane(holder);
+                this._refreshRail();
+                return;
+            }
+            if (held.ws && held.ws.readyState <= WebSocket.OPEN) return;
+        }
+        // A group is something the user assembled deliberately: adding to it
+        // is recoverable by closing a tab, replacing it is not. So an attach
+        // that names no pane joins a focused pane that holds a group, and
+        // replaces only when that pane holds one task or none, which leaves
+        // clicking through the task list feeling exactly as it did.
+        const focused = !activate && !paneId && this._focused ? this._panes.get(this._focused) : null;
+        const joins = !!focused && this._paneTasks(focused).length > 1;
+        if (joins && this._paneTasks(focused).length >= (L.MAX_GROUP || 8)) {
+            this._banner('This pane is full. Close a tab first.', this._focused);
+            return;
+        }
+        const rec = activate
+            ? this._claimPane(id, holder, 'activate')
+            : this._claimPane(id, joins ? this._focused : paneId, joins ? 'add' : group, swapFor);
+        if (!rec) return;
         this._attachedAt = Date.now();
+        this._focusPane(rec.id, { force: true });
+        this._renderLayout();
         this._renderTaskList();
         this._renderAttachedHead();
+        await this._mountPane(rec.id);
+        // A mount waits on the board when it cannot describe the task, and a
+        // destroy() inside that wait nulls the layout. Persisting then would
+        // remove the stored layout the next visit is meant to bring back.
+        if (!this._layout) return;
+        this._persistLayout();
+    },
+
+    /** Split the focused pane and open a task in the half that appeared. */
+    async _openInNewPane(taskId, dir) {
+        const L = this._lay();
+        if (!L || !taskId) return;
+        const holder = this._paneForTask(taskId);
+        if (holder) {
+            // The task already has a pane, so this is a focus or, when it is
+            // behind one of that pane's tabs, a tab switch. Never a copy.
+            const held = this._panes.get(holder);
+            if (held && held.taskId !== taskId) { await this._attach(taskId, holder); return; }
+            this._focusPane(holder);
+            this._refreshRail();
+            return;
+        }
+        if (!this._layout || !this._focused) { await this._attach(taskId); return; }
+        const before = new Set(L.panes(this._layout).map(p => p.id));
+        const next = L.split(this._layout, this._focused, dir, taskId);
+        if (next === this._layout) return;
+        this._layout = next;
+        const added = L.panes(next).find(p => !before.has(p.id));
+        this._panes.set(added.id, this._blankPane(added.id, taskId));
+        this._focusPane(added.id, { force: true });
+        this._renderLayout();
+        this._renderTaskList();
+        this._renderAttachedHead();
+        await this._mountPane(added.id);
+        if (!this._layout) return;
+        this._persistLayout();
+        this._fitAll();
+    },
+
+    /** Bring one of a pane's tabs forward. The pane keeps its group; only its
+     *  socket and its terminal change, which is the same claim any other
+     *  change of a pane's task makes. */
+    _activatePaneTask(paneId, taskId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !taskId || rec.taskId === taskId) return Promise.resolve();
+        if (!this._paneTasks(rec).includes(taskId)) return Promise.resolve();
+        return this._attach(taskId, paneId);
+    },
+
+    /** Close one tab. The task keeps running; only the view of it goes. */
+    _closePaneTask(paneId, taskId) {
+        const L = this._lay();
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!L || !rec || !taskId) return Promise.resolve();
+        const group = this._paneTasks(rec);
+        if (!group.includes(taskId)) return Promise.resolve();
+        // The last tab going takes the pane with it, which is the same event
+        // as closing the pane outright: same tidy up, empty workspace and all.
+        if (group.length <= 1) { this._closePane(paneId); return Promise.resolve(); }
+        const next = L.removeTask(this._layout, taskId);
+        if (next === this._layout) return Promise.resolve();
+        this._layout = next;
+        this._syncPaneGroups();
+        if (rec.taskId !== taskId) {
+            this._renderLayout();
+            this._persistLayout();
+            this._refreshRail();
+            return Promise.resolve();
+        }
+        // The tab on screen went, so the neighbour the model picked takes over.
+        return this._settlePaneAfterLeave(paneId, taskId);
+    },
+
+    /** Close one pane. The task keeps running; only the view of it goes. */
+    _closePane(paneId) {
+        const L = this._lay();
+        if (!L || !this._panes || !this._panes.has(paneId)) return;
+        this._closePaneSocket(this._panes.get(paneId));
+        const next = L.close(this._layout, paneId);
+        this._layout = next;
+        this._reapPanes();
+        if (!next) {
+            this._detach();
+            this._clearStoredLayout();
+            try { sessionStorage.removeItem('sv-agent-task-id'); } catch (e) { /* storage unavailable */ }
+            const body = document.getElementById('terminals-attached-body');
+            if (body) body.innerHTML = this.STAGE_EMPTY_HTML;
+            if (window.Sidebar?.setActive) Sidebar.setActive('terminals');
+            this._renderAttachedHead();
+            this._renderTaskList();
+            return;
+        }
+        if (this._focused === paneId || !this._panes.has(this._focused)) {
+            this._focused = null;
+            this._focusPane(L.panes(next)[0].id, { force: true });
+        }
+        this._renderLayout();
+        this._persistLayout();
+        this._refreshRail();
+        this._fitAll();
+    },
+
+    /** A task that left the board takes its own pane with it, and nothing
+     *  else: one task vanishing must never tear down the whole workspace. */
+    _pruneLayoutToTasks() {
+        const L = this._lay();
+        if (!L || !this._layout) return;
+        const next = L.prune(this._layout, new Set(this._tasks.map(t => t.id)));
+        if (next === this._layout) return;
+        this._layout = next;
+        this._reapPanes();
+        if (!next) {
+            // Every pane's task is gone, so the workspace goes back to the board.
+            this._detach();
+            this._clearStoredLayout();
+            try { sessionStorage.removeItem('sv-agent-task-id'); } catch (e) { /* storage unavailable */ }
+            const body = document.getElementById('terminals-attached-body');
+            if (body) body.innerHTML = this.STAGE_EMPTY_HTML;
+            this._renderAttachedHead();
+            return;
+        }
+        if (!this._panes.has(this._focused)) {
+            this._focused = null;
+            this._focusPane(L.panes(next)[0].id, { force: true });
+        }
+        this._renderLayout();
+        this._persistLayout();
+    },
+
+    /** Dispose the runtime of every pane the tree no longer contains. */
+    _reapPanes() {
+        const L = this._lay();
+        const live = new Set(L ? L.panes(this._layout).map(p => p.id) : []);
+        for (const [id, rec] of Array.from(this._panes)) {
+            if (live.has(id)) continue;
+            this._closePaneSocket(rec);
+            this._panes.delete(id);
+        }
+        // A pane that went while the pointer was down leaves the drag holding
+        // or aiming at nothing.
+        this._checkDragAlive();
+    },
+
+    _closeAllPanes() {
+        if (this._panes) for (const rec of this._panes.values()) this._closePaneSocket(rec);
+        this._panes = new Map();
+        this._splitEls = new Map();
+        this._layout = null;
+        this._focused = null;
+    },
+
+    /** Move the focus. Everything the governance panels cached belongs to the
+     *  pane that had it, so a move clears them exactly as attaching did. */
+    _focusPane(paneId, { force = false } = {}) {
+        const rec = this._panes ? this._panes.get(paneId) : null;
+        if (!rec) return;
+        const changed = force || this._focused !== paneId;
+        const prev = this._focused;
+        this._focused = paneId;
+        if (!changed) return;
+        const before = prev ? this._panes.get(prev) : null;
+        if (before) before.headSig = null;
+        rec.headSig = null;
+        this._resetSessionPanels();
+        this._sessionReported = null;
+        this._govCounts = { governed: 0, blocked: 0 };
+        this._govHas = {};
+        this._headSig = null;
+        this._footSig = null;
+        this._guardBannerSig = null;
+        if (rec.taskId) {
+            try { sessionStorage.setItem('sv-agent-task-id', rec.taskId); } catch (e) { /* storage unavailable */ }
+        }
+        if (window.Sidebar?.setActive) Sidebar.setActive('terminals');
+        document.querySelector('.terminals-page')?.classList.add('is-focused');
+        this._applyFocusClasses();
+        this._renderPaneHead(prev);
+        this._renderPaneHead(paneId);
+        this._renderTaskList();
+        this._renderAttachedHead();
+        this._persistLayout();
+        if (rec.view) { try { rec.view.focus(); } catch (e) { /* not mounted yet */ } }
+    },
+
+    _applyFocusClasses() {
+        if (!this._panes) return;
+        for (const [id, rec] of this._panes) {
+            if (!rec.el || !rec.el.classList) continue;
+            if (id === this._focused) rec.el.classList.add('is-focused');
+            else rec.el.classList.remove('is-focused');
+        }
+    },
+
+    // --- pane DOM -------------------------------------------------------
+
+    /** Rebuild the layout DOM. Pane elements are reused and moved rather than
+     *  recreated, because recreating one would restart its terminal. */
+    _renderLayout() {
+        const body = document.getElementById('terminals-attached-body');
+        if (!body) return;
+        if (body.classList) {
+            if (this._layout) body.classList.add('is-layout');
+            else body.classList.remove('is-layout');
+        }
+        this._splitEls = new Map();
+        const root = this._buildNode(this._layout);
+        if (body.replaceChildren) body.replaceChildren(...(root ? [root] : []));
+        this._applyFocusClasses();
+    },
+
+    _buildNode(node) {
+        if (!node) return null;
+        if (node.type === 'pane') return this._paneEl(node);
+        const el = document.createElement('div');
+        el.className = 'terminals-split terminals-split-' + node.dir;
+        if (el.dataset) el.dataset.splitId = node.id;
+        if (el.style && el.style.setProperty) el.style.setProperty('--ratio', String(node.ratio));
+        this._splitEls.set(node.id, el);
+        const a = this._buildNode(node.a);
+        const gutter = this._gutterEl(node);
+        const b = this._buildNode(node.b);
+        if (el.appendChild) {
+            if (a) el.appendChild(a);
+            if (gutter) el.appendChild(gutter);
+            if (b) el.appendChild(b);
+        }
+        return el;
+    },
+
+    _gutterEl(node) {
+        const g = document.createElement('div');
+        if (!g) return null;
+        g.className = 'terminals-gutter';
+        if (g.setAttribute) {
+            g.setAttribute('role', 'separator');
+            g.setAttribute('aria-orientation', node.dir === 'row' ? 'vertical' : 'horizontal');
+            g.setAttribute('aria-label', node.dir === 'row' ? 'Resize panes left and right' : 'Resize panes up and down');
+        }
+        g.tabIndex = 0;
+        if (g.dataset) g.dataset.splitId = node.id;
+        g.onpointerdown = (ev) => this._startGutterDrag(ev, node.id);
+        g.ondblclick = () => this._setSplitRatio(node.id, 0.5);
+        g.onkeydown = (ev) => this._onGutterKey(ev, node.id);
+        return g;
+    },
+
+    /** The pane shell is built once and kept: its head, picker, stage, and
+     *  banner are addressed directly afterwards so nothing ever rewrites the
+     *  element the terminal is drawing into. */
+    _paneEl(node) {
+        if (!this._panes) this._panes = new Map();
+        let rec = this._panes.get(node.id);
+        if (!rec) { rec = this._blankPane(node.id, node.taskId, node.taskIds); this._panes.set(node.id, rec); }
+        this._syncPaneGroup(rec, node);
+        if (!rec.el) {
+            const el = document.createElement('section');
+            el.className = 'terminals-pane';
+            if (el.dataset) el.dataset.paneId = node.id;
+            el.tabIndex = -1;
+            el.onmousedown = () => { this._focusPane(node.id); };
+            rec.headEl = document.createElement('div');
+            rec.headEl.className = 'terminals-pane-head';
+            // The handle is the head, not the pane: a drag that started over
+            // the terminal would swallow a text selection.
+            rec.headEl.draggable = false;
+            rec.headEl.onpointerdown = (ev) => this._onHeadPointerDown(ev, node.id);
+            rec.govEl = document.createElement('div');
+            rec.govEl.className = 'terminals-pane-gov';
+            rec.govEl.hidden = true;
+            rec.guardEl = document.createElement('div');
+            rec.guardEl.className = 'terminals-guard-banner';
+            rec.guardEl.hidden = true;
+            rec.guardEl.innerHTML = `
+              <span class="terminals-guard-banner-text"></span>
+              <span class="terminals-guard-banner-actions">
+                <button type="button" class="btn btn-sm btn-primary" data-guard="install">Install SecureVector Guard</button>
+                <button type="button" class="btn btn-sm" data-guard="recheck" hidden>Check again</button>
+                <button type="button" class="btn btn-sm btn-primary" data-guard="restart" hidden>Restart harness</button>
+              </span>`;
+            rec.guardCmdEl = document.createElement('pre');
+            rec.guardCmdEl.className = 'terminals-guard-commands';
+            rec.guardCmdEl.hidden = true;
+            rec.footEl = document.createElement('div');
+            rec.footEl.className = 'terminals-pane-foot';
+            rec.footEl.hidden = true;
+            rec.pickerEl = document.createElement('div');
+            rec.pickerEl.className = 'terminals-pane-picker';
+            rec.pickerEl.hidden = true;
+            rec.stageEl = document.createElement('div');
+            rec.stageEl.className = 'terminals-pane-stage';
+            rec.bannerEl = document.createElement('div');
+            rec.bannerEl.className = 'terminals-banner';
+            rec.bannerEl.hidden = true;
+            if (el.appendChild) {
+                el.appendChild(rec.headEl);
+                el.appendChild(rec.guardEl);
+                el.appendChild(rec.guardCmdEl);
+                el.appendChild(rec.pickerEl);
+                el.appendChild(rec.stageEl);
+                el.appendChild(rec.bannerEl);
+                el.appendChild(rec.footEl);
+            }
+            rec.el = el;
+            rec.headSig = null;
+        }
+        this._renderPaneHead(node.id);
+        this._renderPaneGov(node.id);
+        this._renderGuardBanner(node.id);
+        this._renderPaneFoot(node.id);
+        return rec.el;
+    },
+
+    /** Each pane head carries its own task's state, so the poll has to reach
+     *  all of them. Every head keeps its own signature, so this is cheap. */
+    _renderPaneHeads() {
+        if (!this._panes) return;
+        for (const id of this._panes.keys()) this._renderPaneHead(id);
+    },
+
+    /** Split and close controls. The same three buttons serve a pane head and,
+     *  when a single pane hides its head, the page head above it. */
+    _paneActButtons(chords) {
+        const box = 'viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false"';
+        const frame = '<rect x=".5" y=".5" width="11" height="11" rx="1.5" fill="none" stroke="currentColor"/>';
+        return `<button type="button" class="terminals-pane-act" data-act="row" aria-label="Split right" title="Split right (${this._esc(chords.splitRight.label)})"><svg ${box}>${frame}<line x1="6" y1=".5" x2="6" y2="11.5" stroke="currentColor"/></svg></button>`
+            + `<button type="button" class="terminals-pane-act" data-act="col" aria-label="Split down" title="Split down (${this._esc(chords.splitDown.label)})"><svg ${box}>${frame}<line x1=".5" y1="6" x2="11.5" y2="6" stroke="currentColor"/></svg></button>`
+            + `<button type="button" class="terminals-pane-act" data-act="close" aria-label="Close pane" title="Close pane (${this._esc(chords.close.label)}); the task keeps running"><svg ${box}><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke="currentColor"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke="currentColor"/></svg></button>`;
+    },
+
+    /** Wire a set of split/close buttons to one pane, wherever they were drawn. */
+    _bindPaneActs(root, paneId) {
+        const acts = root && root.querySelectorAll ? root.querySelectorAll('.terminals-pane-act') : [];
+        acts.forEach((b) => {
+            b.onclick = (ev) => {
+                if (ev && ev.stopPropagation) ev.stopPropagation();
+                const act = b.dataset ? b.dataset.act : null;
+                if (act === 'close') this._closePane(paneId);
+                else if (act === 'row' || act === 'col') this._openSplitPicker(paneId, act);
+            };
+        });
+    },
+
+    /** A single pane hides its own head, so its governance chip is re-homed in
+     *  the page head. The chip element is the pane's either way, so whichever
+     *  head renders last simply re-parents the same node. */
+    _placeSoloGov(paneId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        const slot = document.getElementById('terminals-head-pane-gov');
+        if (!rec || !rec.govEl || !slot || !slot.appendChild) return;
+        if (rec.govEl.parentNode !== slot) { slot.appendChild(rec.govEl); rec.govSig = null; }
+        this._renderPaneGov(paneId);
+    },
+
+    /** One tab per task the pane holds, in the order the group is in. */
+    _paneTabsHtml(rec) {
+        return this._paneTasks(rec).map((id) => {
+            const t = this._tasks.find(x => x.id === id);
+            const state = t ? this._taskState(t) : null;
+            const name = t ? (t.title || this._label(t.executor_id)) : 'No task';
+            const on = id === rec.taskId;
+            const avatar = t && window.TaskAvatar
+                ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 16 })
+                : '';
+            const live = state && state.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : '';
+            // The tab is the wrapper, not the button inside it: a tablist
+            // whose children are anything but tabs is a broken tablist, and
+            // the close control has to sit inside the tab it belongs to.
+            return `<span class="terminals-pane-session${on ? ' is-active' : ''}" role="tab" aria-selected="${on ? 'true' : 'false'}">`
+                + `<button type="button" class="terminals-pane-session-open" data-tab-id="${this._esc(id)}" title="${this._esc(name)}">${avatar}<span class="terminals-pane-session-title">${this._esc(name)}</span>${live}</button>`
+                + `<button type="button" class="terminals-pane-session-close" data-tab-close-id="${this._esc(id)}" aria-label="Close ${this._esc(name)}" title="Close ${this._esc(name)}; the task keeps running"><svg viewBox="0 0 12 12" width="9" height="9" aria-hidden="true" focusable="false"><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor"/><line x1="9" y1="3" x2="3" y2="9" stroke="currentColor"/></svg></button>`
+                + '</span>';
+        }).join('');
+    },
+
+    _renderPaneHead(paneId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !rec.headEl) return;
+        const group = this._paneTasks(rec);
+        // One pane needs no head of its own: the tab strip above already names
+        // the task, and a second bar repeating it reads as a duplicate header.
+        // A pane holding a group keeps its head whatever else is on screen,
+        // because that head is where the group's tabs live.
+        const solo = this._panes.size === 1 && group.length <= 1;
+        const t = this._tasks.find(x => x.id === rec.taskId);
+        const state = t ? this._taskState(t) : null;
+        const name = t ? (t.title || this._label(t.executor_id)) : 'No task';
+        const harness = t ? this._label(t.executor_id) : '';
+        const focused = this._focused === paneId;
+        const chords = this._chords();
+        // The group is part of the signature, so the 3 s poll still skips the
+        // rebuild when neither the tabs nor their states have moved.
+        const groupSig = group.map((id) => {
+            const g = this._tasks.find(x => x.id === id);
+            return [id, g ? this._taskState(g).kind : '', g ? (g.title || this._label(g.executor_id)) : ''].join(':');
+        }).join(',');
+        const sig = [rec.taskId || '', state ? state.kind : '', name, harness, focused ? 'on' : 'off', chords.close.label, chords.move.label, solo ? 'solo' : 'split', groupSig].join('|');
+        if (sig === rec.headSig) return;
+        rec.headSig = sig;
+        if (solo) {
+            rec.headEl.hidden = true;
+            rec.headEl.innerHTML = '';
+            this._placeSoloGov(paneId);
+            return;
+        }
+        rec.headEl.hidden = false;
+        const avatar = t && window.TaskAvatar
+            ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 16 })
+            : '';
+        const live = state && state.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : '';
+        const named = group.length > 1
+            ? `<span class="terminals-pane-sessions" role="tablist" aria-label="Tasks in this pane">${this._paneTabsHtml(rec)}</span>`
+            : `${avatar}
+          <span class="terminals-pane-name" title="${this._esc(name)}; drag to move, or ${this._esc(chords.move.label)}">${this._esc(name)}</span>
+          ${harness ? `<span class="terminals-pane-harness">${this._esc(harness)}</span>` : ''}
+          ${live}`;
+        rec.headEl.innerHTML = `
+          ${named}
+          <span class="terminals-head-spacer"></span>
+          <span class="terminals-pane-gov-slot"></span>
+          ${this._paneActButtons(chords)}`;
+        const slot = rec.headEl.querySelector ? rec.headEl.querySelector('.terminals-pane-gov-slot') : null;
+        if (slot && slot.appendChild && rec.govEl) { slot.appendChild(rec.govEl); rec.govSig = null; this._renderPaneGov(paneId); }
+        this._bindPaneActs(rec.headEl, paneId);
+        if (group.length > 1) this._bindPaneTabs(rec.headEl, paneId);
+    },
+
+    /** Wire one pane's tabs: the tab itself brings its task forward, the small
+     *  control beside it closes that tab only. */
+    _bindPaneTabs(root, paneId) {
+        const all = (sel) => (root && root.querySelectorAll ? root.querySelectorAll(sel) : []);
+        // Nothing awaits a click, so a failure has to land on the pane's own
+        // banner rather than in an unhandled rejection nobody ever sees.
+        const owned = (work) => work.catch((e) => {
+            this._banner((e && e.message) || 'Could not switch task.', paneId);
+        });
+        all('[data-tab-id]').forEach((b) => {
+            b.onclick = (ev) => {
+                if (ev && ev.stopPropagation) ev.stopPropagation();
+                return owned(this._activatePaneTask(paneId, b.dataset.tabId));
+            };
+        });
+        all('[data-tab-close-id]').forEach((b) => {
+            b.onclick = (ev) => {
+                if (ev && ev.stopPropagation) ev.stopPropagation();
+                return owned(this._closePaneTask(paneId, b.dataset.tabCloseId));
+            };
+        });
+    },
+
+    /** Splitting needs a task for the new half, so the pane head offers the
+     *  running tasks that are not already in a pane. */
+    _splitCandidates() {
+        const live = ['starting', 'working', 'blocked', 'idle'];
+        // Every task in every group, not just the tabs on screen: a task in a
+        // group already has a pane, and offering it would open a second one.
+        const taken = new Set();
+        for (const rec of this._panes.values()) for (const id of this._paneTasks(rec)) taken.add(id);
+        return this._tasks.filter(t => live.includes(t.status) && !taken.has(t.id));
+    },
+
+    _openSplitPicker(paneId, dir) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !rec.pickerEl) return;
+        this._focusPane(paneId);
+        const options = this._splitCandidates();
+        const label = dir === 'row' ? 'Open to the right' : 'Open below';
+        rec.pickerEl.hidden = false;
+        rec.pickerEl.innerHTML = `
+          <span class="terminals-pane-picker-label">${label}</span>
+          ${options.length
+            ? options.map(t => `<button type="button" class="terminals-pane-picker-opt" data-pick-id="${this._esc(t.id)}">${this._esc(t.title || this._label(t.executor_id))}</button>`).join('')
+            : '<span class="terminals-empty">No other running task. Launch one first.</span>'}
+          <span class="terminals-head-spacer"></span>
+          <button type="button" class="terminals-pane-picker-cancel" aria-label="Cancel the split">Cancel</button>`;
+        const opts = rec.pickerEl.querySelectorAll ? rec.pickerEl.querySelectorAll('[data-pick-id]') : [];
+        opts.forEach((b) => {
+            b.onclick = () => {
+                this._closeSplitPicker(paneId);
+                this._openInNewPane(b.dataset.pickId, dir);
+            };
+        });
+        const cancel = rec.pickerEl.querySelector ? rec.pickerEl.querySelector('.terminals-pane-picker-cancel') : null;
+        if (cancel) cancel.onclick = () => this._closeSplitPicker(paneId);
+    },
+
+    _closeSplitPicker(paneId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !rec.pickerEl) return;
+        rec.pickerEl.hidden = true;
+        rec.pickerEl.innerHTML = '';
+    },
+
+    // --- one pane's terminal --------------------------------------------
+
+    /** Give a pane its task: the linked stage, or an xterm on its own socket. */
+    async _mountPane(paneId) {
+        const rec = this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !rec.taskId) return;
+        const id = rec.taskId;
+        // Two mounts of the same pane can overlap across the refetch below.
+        // The later one owns the pane; the earlier one stops rather than
+        // opening a second socket nothing will ever close.
+        const token = {};
+        rec.mountToken = token;
+        this._closePaneSocket(rec);
         let task = this._tasks.find(x => x.id === id);
         if (!task) {
             // Opening a socket for a task the board cannot describe would
@@ -654,56 +1479,1006 @@ const TerminalsPage = {
                 const r = await API.terminalsTasks();
                 this._tasks = r.items || [];
             } catch (e) { /* keep whatever the board last had */ }
-            if (this._attached !== id) return;
+            const still = this._panes.get(paneId);
+            if (!still || still.taskId !== id || still.mountToken !== token) return;
             task = this._tasks.find(x => x.id === id);
         }
+        rec.headSig = null;
+        this._renderPaneHead(paneId);
         if (!task) {
-            body.innerHTML = '<div class="terminals-banner" id="terminals-banner" hidden></div>';
-            this._banner('Task not found.');
+            rec.mounted = true;
+            if (rec.stageEl) rec.stageEl.innerHTML = '';
+            this._banner('Task not found.', paneId);
             this._renderTaskList();
             this._renderAttachedHead();
             return;
         }
+        if (rec.bannerEl) { rec.bannerEl.hidden = true; rec.bannerEl.textContent = ''; }
         if (task.origin === 'linked') {
             // No PTY, so no socket: the governance panel keys off the
             // session id and works exactly as it does for a launched task.
-            body.innerHTML = `
+            rec.mounted = true;
+            if (rec.stageEl) rec.stageEl.innerHTML = `
               <div class="terminals-linked-stage">
                 <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
                 <h3>Runs outside SecureVector</h3>
                 <p>This session was started in your own terminal. There is no terminal here; governance is live.</p>
-              </div>
-              <div class="terminals-banner" id="terminals-banner" hidden></div>`;
+              </div>`;
             this._refreshRail();
             return;
         }
-        body.innerHTML = '<div class="terminals-xterm" id="terminals-xterm"></div><div class="terminals-banner" id="terminals-banner" hidden></div>';
-        const mount = body.querySelector('#terminals-xterm');
+        if (rec.stageEl) rec.stageEl.innerHTML = '<div class="terminals-xterm"></div>';
+        const mount = rec.stageEl && rec.stageEl.querySelector
+            ? (rec.stageEl.querySelector('.terminals-xterm') || rec.stageEl)
+            : rec.stageEl;
         const ws = new WebSocket(API.terminalsSocketUrl(id));
-        this._ws = ws;
-        this._view = new TerminalView(mount, {
+        rec.ws = ws;
+        rec.mounted = true;
+        const view = new TerminalView(mount, {
             onInput: (b64) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'input', data: b64 })); },
             onResize: (rows, cols) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'resize', rows, cols })); },
         });
+        rec.view = view;
         ws.onopen = () => {
-            const { rows, cols } = this._view.size;
+            const { rows, cols } = view.size;
             ws.send(JSON.stringify({ t: 'resize', rows, cols }));
-            this._view.focus();
+            if (this._focused === paneId) view.focus();
         };
         ws.onmessage = (ev) => {
             let f;
             try { f = JSON.parse(ev.data); } catch (e) { return; }
-            if (f.t === 'replay' || f.t === 'out') this._view.write(f.data);
+            if (f.t === 'replay' || f.t === 'out') view.write(f.data);
             else if (f.t === 'ping') ws.send(JSON.stringify({ t: 'pong' }));
-            else if (f.t === 'dropped') this._banner(`Output fell behind, ${f.n} chunks skipped. Reattach to replay.`);
-            else if (f.t === 'exit') this._banner(f.code === 0 ? 'Task finished.' : `Task ended with exit code ${f.code}.`);
+            else if (f.t === 'dropped') this._banner(`Output fell behind, ${f.n} chunks skipped. Reattach to replay.`, paneId);
+            else if (f.t === 'exit') this._banner(f.code === 0 ? 'Task finished.' : `Task ended with exit code ${f.code}.`, paneId);
         };
         ws.onclose = (ev) => {
-            if (ev.code === 4001) this._banner('Not authorised to attach from this origin.');
-            else if (ev.code === 4004) this._banner('Task no longer exists.');
-            else if (ev.code === 4008) this._banner('Connection timed out. Click the task to reattach.');
+            if (ev.code === 4001) this._banner('Not authorised to attach from this origin.', paneId);
+            else if (ev.code === 4004) this._banner('Task no longer exists.', paneId);
+            else if (ev.code === 4008) this._banner('Connection timed out. Click the task to reattach.', paneId);
         };
         this._refreshRail();
+    },
+
+    // --- per-pane governance strip ----------------------------------------
+    //
+    // Every pane answers "what has governance done here" without the person
+    // having to focus it first. One batched read per pane, throttled, cached
+    // against the session id so a pane that changed task starts clean.
+
+    PANE_GOV_TTL_MS: 10000,
+    // Below this a pane cannot hold the words; below PANE_GOV_HIDE_PX it
+    // cannot hold the counts either, and a truncated number is worse than none.
+    PANE_GOV_COMPACT_PX: 720,
+    PANE_GOV_HIDE_PX: 420,
+
+    async _refreshPaneGov() {
+        if (!this._panes || !this._panes.size) return;
+        const now = Date.now();
+        // The tab on screen, deliberately: the strip sits under one terminal
+        // and answers for the task that terminal is showing.
+        for (const [paneId, rec] of Array.from(this._panes)) {
+            const t = this._tasks.find(x => x.id === rec.taskId);
+            const sid = t && t.session_id;
+            if (!sid) {
+                if (rec.gov || rec.govSid) { rec.gov = null; rec.govSid = null; this._renderPaneGov(paneId); }
+                continue;
+            }
+            if (rec.govSid === sid && now - (rec.govAt || 0) < this.PANE_GOV_TTL_MS) continue;
+            // A pane that changed task must not show the previous one's counts
+            // for a tick: they would read as evidence about the wrong agent.
+            if (rec.govSid !== sid) { rec.gov = null; rec.govSig = null; }
+            rec.govSid = sid;
+            rec.govAt = now;
+            const taskId = rec.taskId;
+            let verdicts = null;
+            let egress = null;
+            try {
+                [verdicts, egress] = await Promise.all([
+                    API.terminalsVerdicts(taskId).catch(() => null),
+                    API.getEgressSessionDestinations
+                        ? API.getEgressSessionDestinations(sid).catch(() => null)
+                        : Promise.resolve(null),
+                ]);
+            } catch (e) { /* a failed tick keeps the last good counts */ }
+            const still = this._panes.get(paneId);
+            if (!still || still.taskId !== taskId) continue;
+            if (verdicts || egress) {
+                const items = (verdicts && verdicts.items) || [];
+                const dests = (egress && egress.destinations) || [];
+                still.gov = {
+                    calls: items.length,
+                    blocked: items.filter(x => x.action === 'block').length,
+                    hosts: dests.length,
+                };
+            }
+            this._renderPaneGov(paneId);
+        }
+    },
+
+    _renderPaneGov(paneId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !rec.govEl) return;
+        const g = rec.gov;
+        const width = rec.el && rec.el.getBoundingClientRect
+            ? (rec.el.getBoundingClientRect().width || 0) : 0;
+        const hidden = !g || (width > 0 && width < this.PANE_GOV_HIDE_PX);
+        const compact = width > 0 && width < this.PANE_GOV_COMPACT_PX;
+        const sig = [hidden ? 'off' : 'on', compact ? 'icon' : 'full',
+            g ? `${g.calls}:${g.blocked}:${g.hosts}` : ''].join('|');
+        if (sig === rec.govSig) return;
+        rec.govSig = sig;
+        rec.govEl.hidden = hidden;
+        if (rec.govEl.classList) rec.govEl.classList[compact ? 'add' : 'remove']('is-compact');
+        if (hidden) { rec.govEl.innerHTML = ''; return; }
+        const dot = '<span class="terminals-pane-gov-sep" aria-hidden="true">·</span>';
+        const cell = (n, word, cls) => compact
+            ? `<span class="terminals-pane-gov-item${cls}" title="${n} ${word}"><span class="terminals-pane-gov-n">${n}</span><span class="terminals-pane-gov-w">${word}</span></span>`
+            : `<span class="terminals-pane-gov-item${cls}">${n} ${word}</span>`;
+        rec.govEl.innerHTML = cell(g.calls, 'calls', '')
+            + dot + cell(g.blocked, 'blocked', g.blocked > 0 ? ' is-blocked' : '')
+            + dot + cell(g.hosts, 'hosts', '');
+    },
+
+    // --- stopping every task in the layout --------------------------------
+
+    _stoppablePanes() {
+        if (!this._panes) return [];
+        const seen = new Set();
+        const out = [];
+        // The whole group, not just the tab on screen: a task behind a tab is
+        // still running, and Stop all that left it running would be a lie.
+        for (const rec of this._panes.values()) {
+            for (const taskId of this._paneTasks(rec)) {
+                const t = this._tasks.find(x => x.id === taskId);
+                if (!t || seen.has(t.id)) continue;
+                if (!this._RUNNING_STATUSES.includes(t.status) || t.origin === 'linked') continue;
+                seen.add(t.id);
+                out.push(t);
+            }
+        }
+        return out;
+    },
+
+    _askStopAll() {
+        this._stopAllArmed = true;
+        clearTimeout(this._stopAllTimer);
+        this._stopAllTimer = setTimeout(() => {
+            this._stopAllArmed = false;
+            this._headSig = null;
+            this._renderAttachedHead();
+        }, this.REMOVE_CONFIRM_MS);
+        this._headSig = null;
+        this._renderAttachedHead();
+    },
+
+    _cancelStopAll() {
+        clearTimeout(this._stopAllTimer);
+        this._stopAllTimer = null;
+        this._stopAllArmed = false;
+        this._headSig = null;
+        this._renderAttachedHead();
+    },
+
+    /** Stop every running task that has a pane. The panes stay: the terminals
+     *  keep their scrollback, and the audit trail is untouched. */
+    async _stopAllPanes() {
+        const targets = this._stoppablePanes();
+        this._cancelStopAll();
+        for (const t of targets) {
+            try {
+                await API.terminalsStop(t.id);
+            } catch (e) {
+                this._banner(e.message || 'Could not stop that task.', this._paneForTask(t.id));
+            }
+        }
+        await this._refreshTasks();
+    },
+
+    // --- dragging a pane, or a task, onto a pane --------------------------
+    //
+    // Pointer events rather than HTML5 drag and drop: a dragstart on the head
+    // would also reach the terminal underneath, and the native drag image
+    // cannot be styled to match the drop zone it belongs to.
+    //
+    // One lifecycle serves every drag, because the part that has to be right
+    // is the teardown: a ghost, a drop zone, window listeners and a pointer
+    // capture that outlive their gesture are the bugs worth preventing, and
+    // they are the same bugs whatever was being dragged. What differs is
+    // where the drop is looked for and what the drop does, so those are the
+    // hooks each source hands in.
+
+    // Far enough that a click on the head or on a card is never read as a drag.
+    DRAG_THRESHOLD_PX: 6,
+    // How much of a pane's width or height counts as its edge. Inside the
+    // band the pane splits; the middle joins the group, and the zone drawn
+    // before the release says which.
+    DROP_EDGE_FRACTION: 0.28,
+
+    _beginDrag(spec, ev, hooks) {
+        if (this._drag || !ev) return false;
+        // Whatever the last gesture left behind is spent: this pointerdown is
+        // a fresh one, and a flag held over from an earlier drag would eat the
+        // click that ends this one.
+        this._clickAfterDrag = false;
+        const capture = hooks.capture || null;
+        const pointerId = ev.pointerId;
+        const start = { x: ev.clientX, y: ev.clientY };
+        const drag = Object.assign({ started: false, hit: null, finish: null }, spec);
+        this._drag = drag;
+
+        const move = (e) => {
+            if (!drag.started) {
+                // At the threshold it is still a click: a drag has to travel
+                // further than the hand wobbles on the way to a button.
+                if (Math.abs(e.clientX - start.x) <= this.DRAG_THRESHOLD_PX
+                    && Math.abs(e.clientY - start.y) <= this.DRAG_THRESHOLD_PX) return;
+                drag.started = true;
+                if (hooks.onStart) hooks.onStart();
+                if (capture && capture.setPointerCapture && pointerId !== undefined) {
+                    try { capture.setPointerCapture(pointerId); } catch (err) { /* no capture available */ }
+                }
+                this._showDragGhost(hooks.label);
+            }
+            this._moveDragGhost(e);
+            const hit = hooks.hit(e.clientX, e.clientY);
+            drag.hit = hit;
+            hooks.paint(hit);
+        };
+        const finish = (commit) => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', cancel);
+            window.removeEventListener('keydown', onEscape, true);
+            if (capture && capture.releasePointerCapture && pointerId !== undefined) {
+                try { capture.releasePointerCapture(pointerId); } catch (err) { /* never captured */ }
+            }
+            if (hooks.onStop) hooks.onStop();
+            this._clearDragGhost();
+            hooks.paint(null);
+            const hit = commit && drag.started ? drag.hit : null;
+            // A release is followed by a click on the element the pointer was
+            // captured by, and after a drag that click is the tail of the
+            // gesture rather than a request to open anything. Only the sources
+            // whose element opens something on click need it swallowed, and
+            // only when the gesture actually ended in a release: a cancelled
+            // drag, an Escape, or a teardown is followed by no click at all,
+            // and a flag left standing would eat an unrelated one later.
+            if (commit && drag.started && hooks.suppressClick) this._clickAfterDrag = true;
+            this._drag = null;
+            if (hit) hooks.drop(hit);
+        };
+        drag.finish = finish;
+        const up = () => finish(true);
+        const cancel = () => finish(false);
+        const onEscape = (e) => {
+            if (!e || e.key !== 'Escape') return;
+            if (e.preventDefault) e.preventDefault();
+            finish(false);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', cancel);
+        window.addEventListener('keydown', onEscape, true);
+        return true;
+    },
+
+    /** True once, straight after a drag that actually moved. The rail and the
+     *  board ask before treating a click as a request to open a task. */
+    consumeDragClick() {
+        const was = !!this._clickAfterDrag;
+        this._clickAfterDrag = false;
+        return was;
+    },
+
+    /** A drag must not outlive what it is dragging. The 3 s poll can end the
+     *  task under the pointer, and a pane can go with it, which would leave
+     *  the drop committing against something that is no longer there. */
+    _checkDragAlive() {
+        const d = this._drag;
+        if (!d || !d.finish) return;
+        if (d.kind === 'task' && !this._tasks.some(t => t.id === d.taskId)) { d.finish(false); return; }
+        if (d.kind === 'pane' && !(this._panes && this._panes.has(d.paneId))) { d.finish(false); return; }
+        const hitPane = d.hit && d.hit.paneId;
+        if (hitPane && this._panes && !this._panes.has(hitPane)) d.finish(false);
+    },
+
+    _onHeadPointerDown(ev, paneId) {
+        if (!ev) return;
+        if (ev.button !== undefined && ev.button !== 0) return;
+        const target = ev.target;
+        if (target && target.closest && target.closest('.terminals-pane-act, .terminals-pane-picker, button')) return;
+        const rec = this._panes ? this._panes.get(paneId) : null;
+        if (!rec) return;
+        this._focusPane(paneId);
+        const L = this._lay();
+        if (!L || !this._layout || L.panes(this._layout).length < 2) return;
+        this._beginDrag({ kind: 'pane', paneId }, ev, {
+            capture: rec.headEl,
+            label: this._dragLabel(rec.taskId) || 'Pane',
+            onStart: () => { if (rec.el && rec.el.classList) rec.el.classList.add('is-dragging'); },
+            onStop: () => { if (rec.el && rec.el.classList) rec.el.classList.remove('is-dragging'); },
+            hit: (x, y) => this._paneDropAt(x, y, paneId),
+            paint: (hit) => this._showDropZone(hit),
+            drop: (hit) => {
+                if (hit.edge === 'centre') this._mergePanes(paneId, hit.paneId);
+                else this._movePane(paneId, hit.paneId, hit.edge);
+            },
+        });
+    },
+
+    /** Pick a task up from the rail and drop it into a pane. The rail offers
+     *  every task it lists and does not know whether there is anywhere to put
+     *  one, so the refusal lives here. */
+    beginTaskDrag(taskId, ev) {
+        // Before the refusals, not after: a source that declines to drag must
+        // still not leave a click owed from some earlier drag.
+        this._clickAfterDrag = false;
+        if (!ev || !taskId) return false;
+        if (ev.button !== undefined && ev.button !== 0) return false;
+        // No panes means no workspace on screen, which is also what a page
+        // that has been torn down looks like.
+        if (!this._layout || !this._panes || !this._panes.size) return false;
+        if (!document.getElementById('terminals-attached-body')) return false;
+        if (!this._tasks.some(t => t.id === taskId)) return false;
+        return this._beginDrag({ kind: 'task', taskId }, ev, {
+            capture: ev.currentTarget || null,
+            label: this._dragLabel(taskId),
+            // The row opens its task on click, and the release lands on it.
+            suppressClick: true,
+            hit: (x, y) => this._taskDropAt(x, y, taskId),
+            paint: (hit) => this._showDropZone(hit),
+            drop: (hit) => { this._dropTaskOnPane(taskId, hit.paneId, hit.edge); },
+        });
+    },
+
+    /** Where a pane may be dropped: an edge of another pane, or its centre,
+     *  which joins that pane's group. Null when there is nothing under the
+     *  pointer to drop onto. */
+    _paneDropAt(x, y, paneId) {
+        const hit = this._dropTargetAt(x, y, paneId);
+        return hit.paneId && hit.edge ? hit : null;
+    },
+
+    /** The same, for a task. A task dropped on the centre of the pane that
+     *  already holds it changes nothing, so that is not offered as a target:
+     *  a drop zone has to promise something real. */
+    _taskDropAt(x, y, taskId) {
+        const hit = this._dropTargetAt(x, y, null);
+        if (!hit.paneId || !hit.edge) return null;
+        if (hit.edge === 'centre' && this._paneForTask(taskId) === hit.paneId) return null;
+        return hit;
+    },
+
+    _dragLabel(taskId) {
+        const t = taskId ? this._tasks.find(x => x.id === taskId) : null;
+        return t ? (t.title || this._label(t.executor_id)) : '';
+    },
+
+    /** Which pane is under the pointer, and which of its edges the pointer is
+     *  close enough to count as a drop. The centre is a drop of its own: it
+     *  is what joins a group rather than splitting the pane. */
+    _dropTargetAt(x, y, sourceId) {
+        const none = { paneId: null, edge: null, el: null };
+        if (!document.elementFromPoint) return none;
+        let el = document.elementFromPoint(x, y);
+        while (el && !(el.classList && el.classList.contains && el.classList.contains('terminals-pane'))) {
+            el = el.parentNode;
+        }
+        if (!el || !el.dataset || !el.getBoundingClientRect) return none;
+        const paneId = el.dataset.paneId;
+        if (!paneId || paneId === sourceId || !this._panes.has(paneId)) return none;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return none;
+        const fx = (x - r.left) / r.width;
+        const fy = (y - r.top) / r.height;
+        const f = this.DROP_EDGE_FRACTION;
+        const bands = [
+            { edge: 'left', d: fx },
+            { edge: 'right', d: 1 - fx },
+            { edge: 'top', d: fy },
+            { edge: 'bottom', d: 1 - fy },
+        ].filter(b => b.d < f).sort((a, b) => a.d - b.d);
+        if (!bands.length) return { paneId, edge: 'centre', el };
+        return { paneId, edge: bands[0].edge, el };
+    },
+
+    _showDropZone(hit) {
+        if (!hit || !hit.edge || !hit.paneId) { this._clearDropZone(); return; }
+        const rec = this._panes.get(hit.paneId);
+        if (!rec || !rec.el || !rec.el.appendChild) return;
+        if (!this._dropEl) {
+            this._dropEl = document.createElement('div');
+            this._dropEl.className = 'terminals-drop-zone';
+            if (this._dropEl.setAttribute) this._dropEl.setAttribute('aria-hidden', 'true');
+        }
+        const z = this._dropEl;
+        const s = z.style;
+        if (s) {
+            // The shape is decided before the release, so the zone covers
+            // exactly what the drop would claim: half the pane for an edge,
+            // the whole of it for the centre, which takes the pane as it is.
+            const centre = hit.edge === 'centre';
+            const sideways = hit.edge === 'left' || hit.edge === 'right';
+            s.left = hit.edge === 'right' ? '50%' : '0';
+            s.top = hit.edge === 'bottom' ? '50%' : '0';
+            s.width = centre || !sideways ? '100%' : '50%';
+            s.height = centre || sideways ? '100%' : '50%';
+        }
+        if (z.dataset) z.dataset.edge = hit.edge;
+        if (z.parentNode !== rec.el) rec.el.appendChild(z);
+    },
+
+    _clearDropZone() {
+        const z = this._dropEl;
+        if (z && z.parentNode && z.parentNode.removeChild) {
+            try { z.parentNode.removeChild(z); } catch (e) { /* already detached */ }
+        }
+    },
+
+    _showDragGhost(label) {
+        if (!this._ghostEl) {
+            this._ghostEl = document.createElement('div');
+            this._ghostEl.className = 'terminals-drag-ghost';
+            if (this._ghostEl.setAttribute) this._ghostEl.setAttribute('aria-hidden', 'true');
+        }
+        // textContent, not innerHTML: a task title is the user's text.
+        this._ghostEl.textContent = label || 'Task';
+        const host = document.body;
+        if (host && host.appendChild && this._ghostEl.parentNode !== host) host.appendChild(this._ghostEl);
+    },
+
+    _moveDragGhost(ev) {
+        const g = this._ghostEl;
+        if (!g || !g.style || !ev) return;
+        g.style.left = (ev.clientX + 12) + 'px';
+        g.style.top = (ev.clientY + 12) + 'px';
+    },
+
+    _clearDragGhost() {
+        const g = this._ghostEl;
+        if (g && g.parentNode && g.parentNode.removeChild) {
+            try { g.parentNode.removeChild(g); } catch (e) { /* already detached */ }
+        }
+    },
+
+    /** Drop a pane on another pane's centre: everything it holds joins that
+     *  pane's group as tabs, and the pane itself goes. */
+    _mergePanes(paneId, targetPaneId) {
+        const L = this._lay();
+        if (!L || !this._layout || !this._panes) return;
+        if (!this._panes.has(targetPaneId) || !this._panes.has(paneId)) return;
+        const next = L.mergePane(this._layout, paneId, targetPaneId);
+        // The model decides whether the two groups fit, so it is the only
+        // place that rule lives. A drop names two panes that exist and differ,
+        // so the one way it can refuse is that they would not fit.
+        if (next === this._layout) {
+            this._banner('This pane is full. Close a tab first.', targetPaneId);
+            return;
+        }
+        this._layout = next;
+        // The source pane left the tree, so _reapPanes hangs up its socket and
+        // disposes its terminal; the task it was showing is a tab now.
+        this._reapPanes();
+        this._syncPaneGroups();
+        if (!this._panes.has(this._focused)) {
+            this._focused = null;
+            this._focusPane(targetPaneId, { force: true });
+        }
+        this._renderLayout();
+        this._renderTaskList();
+        this._renderAttachedHead();
+        this._persistLayout();
+        this._refreshRail();
+        this._fitAll();
+    },
+
+    /** A task left a pane. If it was the tab that pane was showing, the pane
+     *  picks up the neighbour the model chose, with the socket swap any other
+     *  tab switch makes. */
+    _settlePaneAfterLeave(paneId, taskId) {
+        const L = this._lay();
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        if (!L || !rec || rec.taskId !== taskId) return Promise.resolve();
+        const node = this._layout ? L.find(this._layout, paneId) : null;
+        if (!node || !node.taskId) return Promise.resolve();
+        return this._attach(node.taskId, paneId);
+    },
+
+    /** Drop a task on a pane. The centre joins that pane's group and shows it;
+     *  an edge opens it in a half of its own. Either way the task leaves the
+     *  pane that held it first, because a task lives in exactly one pane. */
+    async _dropTaskOnPane(taskId, targetPaneId, edge) {
+        const L = this._lay();
+        if (!L || !this._layout || !taskId || !edge) return;
+        if (!this._panes || !this._panes.has(targetPaneId)) return;
+        const from = this._paneForTask(taskId);
+        if (edge === 'centre') {
+            if (from === targetPaneId) return;
+            const next = L.addTask(this._layout, targetPaneId, taskId);
+            if (next === this._layout) {
+                this._banner('This pane is full. Close a tab first.', targetPaneId);
+                return;
+            }
+            this._layout = next;
+            this._reapPanes();
+            this._syncPaneGroups();
+            await this._settlePaneAfterLeave(from, taskId);
+            // A mount inside that wait can re-read the board, and a destroy()
+            // inside it leaves no layout to put anything in. Attaching anyway
+            // would build a fresh pane and a socket on a page that is gone.
+            if (!this._layout) return;
+            await this._attach(taskId, targetPaneId);
+            if (!this._layout) return;
+            this._fitAll();
+            return;
+        }
+        const dir = L.EDGE_DIRS[edge];
+        if (!dir) return;
+        let tree = from ? L.removeTask(this._layout, taskId) : this._layout;
+        // The task was the only one in the only pane, so there is nothing for
+        // the half it would open in to sit beside.
+        if (!tree || !L.find(tree, targetPaneId)) return;
+        const before = new Set(L.panes(tree).map(p => p.id));
+        tree = L.split(tree, targetPaneId, dir, taskId);
+        const added = L.panes(tree).find(p => !before.has(p.id));
+        if (!added) return;
+        // split() always puts the new pane second; these two edges want it
+        // first, and move() is what knows how to put a pane on a given side.
+        if (edge === 'left' || edge === 'top') tree = L.move(tree, added.id, targetPaneId, edge);
+        this._layout = tree;
+        this._panes.set(added.id, this._blankPane(added.id, taskId));
+        this._reapPanes();
+        this._syncPaneGroups();
+        await this._settlePaneAfterLeave(from, taskId);
+        if (!this._layout || !this._panes.has(added.id)) return;
+        this._focusPane(added.id, { force: true });
+        this._renderLayout();
+        this._renderTaskList();
+        this._renderAttachedHead();
+        await this._mountPane(added.id);
+        if (!this._layout) return;
+        this._persistLayout();
+        this._fitAll();
+    },
+
+    /** Two cards on the board become one pane holding both: the card that was
+     *  dropped on opens first, and the card that was dragged joins it as the
+     *  tab on screen. This is how sessions are grouped without first opening
+     *  one of them, which is the only way to do it while the board is up. */
+    async _openTasksTogether(targetTaskId, draggedTaskId) {
+        if (!targetTaskId || !draggedTaskId || targetTaskId === draggedTaskId) return;
+        if (!this._tasks.some(t => t.id === targetTaskId)) return;
+        if (!this._tasks.some(t => t.id === draggedTaskId)) return;
+        await this._attach(targetTaskId);
+        const pane = this._paneForTask(targetTaskId);
+        if (!pane) return;
+        await this._dropTaskOnPane(draggedTaskId, pane, 'centre');
+    },
+
+    /** A card on the board is a drag source too. There are no panes to drop
+     *  onto while the board is showing, so the target is another card. */
+    _onCardPointerDown(ev, taskId) {
+        // Before the refusals, for the same reason beginTaskDrag clears here.
+        this._clickAfterDrag = false;
+        if (!ev || !taskId) return;
+        if (ev.button !== undefined && ev.button !== 0) return;
+        const target = ev.target;
+        if (target && target.closest && target.closest('.terminals-task-remove, .terminals-task-relaunch, .terminals-task-confirm')) return;
+        this._beginDrag({ kind: 'task', taskId }, ev, {
+            capture: ev.currentTarget || null,
+            label: this._dragLabel(taskId),
+            // A card opens its task on click, the same as a rail row.
+            suppressClick: true,
+            hit: (x, y) => this._cardDropAt(x, y, taskId),
+            paint: (hit) => this._paintCardTarget(hit),
+            drop: (hit) => { this._openTasksTogether(hit.taskId, taskId); },
+        });
+    },
+
+    /** The card under the pointer, when it is a different one from the card
+     *  being dragged. Empty space and the card itself are no drop. */
+    _cardDropAt(x, y, sourceTaskId) {
+        if (!document.elementFromPoint) return null;
+        let el = document.elementFromPoint(x, y);
+        while (el && !(el.classList && el.classList.contains && el.classList.contains('terminals-task'))) {
+            el = el.parentNode;
+        }
+        if (!el || !el.dataset) return null;
+        const taskId = el.dataset.id;
+        if (!taskId || taskId === sourceTaskId) return null;
+        if (!this._tasks.some(t => t.id === taskId)) return null;
+        return { taskId, el };
+    },
+
+    /** Hold the task id rather than the card element: the 3 s poll rebuilds
+     *  the board mid drag, and the node that was highlighted is detached by
+     *  the time the highlight comes off. */
+    _paintCardTarget(hit) {
+        const next = hit ? hit.taskId : null;
+        if (this._cardTargetId && this._cardTargetId !== next) {
+            const was = this._cardElFor(this._cardTargetId);
+            if (was && was.classList) was.classList.remove('is-drop-target');
+        }
+        this._cardTargetId = next;
+        const el = next ? this._cardElFor(next) : null;
+        if (el && el.classList) el.classList.add('is-drop-target');
+    },
+
+    _cardElFor(taskId) {
+        const list = document.getElementById('terminals-task-list');
+        const cards = list && list.querySelectorAll ? list.querySelectorAll('.terminals-task[data-id]') : [];
+        // Matched on the dataset rather than built into a selector: a task id
+        // is opaque and has no business being spliced into one.
+        return Array.from(cards).find(c => c.dataset && c.dataset.id === taskId) || null;
+    },
+
+    /** Commit a move: the pane keeps its id, so _renderLayout() moves its
+     *  element rather than building a new one and its terminal survives. */
+    _movePane(paneId, targetPaneId, edge) {
+        const L = this._lay();
+        if (!L || !this._layout) return;
+        const next = L.move(this._layout, paneId, targetPaneId, edge);
+        if (next === this._layout) return;
+        this._layout = next;
+        this._renderLayout();
+        this._focusPane(paneId);
+        this._persistLayout();
+        this._fitAll();
+    },
+
+    /** The keyboard equivalent: move the focused pane against that edge of
+     *  the nearest pane lying that way in the tree. */
+    _moveFocusedPane(edge) {
+        const L = this._lay();
+        if (!L || !this._focused || !this._layout) return;
+        const dir = L.EDGE_DIRS[edge];
+        if (!dir) return;
+        const wantA = edge === 'left' || edge === 'top';
+        let id = this._focused;
+        let holder = L.parent(this._layout, id);
+        while (holder) {
+            const onB = holder.b.id === id;
+            if (holder.dir === dir && (wantA ? onB : !onB)) {
+                const neighbour = L.panes(wantA ? holder.a : holder.b)[0];
+                if (neighbour && neighbour.id !== this._focused) {
+                    this._movePane(this._focused, neighbour.id, edge);
+                }
+                return;
+            }
+            id = holder.id;
+            holder = L.parent(this._layout, id);
+        }
+    },
+
+    // --- gutters ---------------------------------------------------------
+
+    _setSplitRatio(splitId, ratio) {
+        const L = this._lay();
+        if (!L) return;
+        const next = L.setRatio(this._layout, splitId, ratio);
+        if (next === this._layout) return;
+        this._layout = next;
+        this._applyRatios();
+    },
+
+    /** Write the ratios onto the split elements without rebuilding the tree:
+     *  a rebuild during a drag would move the terminals on every frame. */
+    _applyRatios() {
+        const L = this._lay();
+        if (!L || !this._layout) return;
+        const walk = (n) => {
+            if (!n || n.type !== 'split') return;
+            const el = this._splitEls.get(n.id);
+            if (el && el.style && el.style.setProperty) el.style.setProperty('--ratio', String(n.ratio));
+            walk(n.a);
+            walk(n.b);
+        };
+        walk(this._layout);
+    },
+
+    _startGutterDrag(ev, splitId) {
+        const L = this._lay();
+        const node = L ? L.find(this._layout, splitId) : null;
+        if (!node || node.type !== 'split') return;
+        const gutter = ev && ev.currentTarget;
+        if (!gutter) return;
+        const dir = node.dir;
+        const pointerId = ev.pointerId;
+        // The split element is looked up per frame rather than captured: a
+        // re-render mid drag replaces it, and measuring the detached one would
+        // read a zero rect and snap the ratio to its clamp.
+        const hostOf = () => {
+            const el = this._splitEls.get(splitId);
+            return el && el.getBoundingClientRect ? el : null;
+        };
+        if (!hostOf()) return;
+        if (ev.preventDefault) ev.preventDefault();
+        if (gutter.setPointerCapture && pointerId !== undefined) {
+            try { gutter.setPointerCapture(pointerId); } catch (e) { /* no capture available */ }
+        }
+        const move = (e) => {
+            const host = hostOf();
+            if (!host) return;
+            const r = host.getBoundingClientRect();
+            const span = dir === 'row' ? r.width : r.height;
+            if (!span) return;
+            const ratio = dir === 'row' ? (e.clientX - r.left) / span : (e.clientY - r.top) / span;
+            this._setSplitRatio(splitId, ratio);
+        };
+        // A cancelled pointer (a gesture taken over by the browser, a lost
+        // device) ends the drag exactly like a release: leaving the move
+        // listener behind would resize the panes on every later mouse move.
+        const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+            if (gutter.releasePointerCapture && pointerId !== undefined) {
+                try { gutter.releasePointerCapture(pointerId); } catch (e) { /* never captured */ }
+            }
+            this._persistLayout();
+            this._fitAll();
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+    },
+
+    _onGutterKey(ev, splitId) {
+        const L = this._lay();
+        const node = L ? L.find(this._layout, splitId) : null;
+        if (!node || node.type !== 'split') return;
+        const back = node.dir === 'row' ? 'ArrowLeft' : 'ArrowUp';
+        const fwd = node.dir === 'row' ? 'ArrowRight' : 'ArrowDown';
+        let step = 0;
+        if (ev.key === back) step = -this.GUTTER_STEP;
+        else if (ev.key === fwd) step = this.GUTTER_STEP;
+        else return;
+        if (ev.preventDefault) ev.preventDefault();
+        this._setSplitRatio(splitId, node.ratio + step);
+        this._persistLayout();
+        this._fitAll();
+    },
+
+    /** Refit every terminal to the space it now has, which also sends each
+     *  pane's PTY its new size. */
+    _fitAll() {
+        if (!this._panes) return;
+        for (const rec of this._panes.values()) {
+            if (rec.view && rec.view.fitNow) { try { rec.view.fitNow(); } catch (e) { /* not laid out yet */ } }
+        }
+    },
+
+    // --- keyboard --------------------------------------------------------
+
+    // Ctrl is load-bearing inside a terminal: Ctrl+W kills a word, Ctrl+\
+    // sends SIGQUIT, Ctrl+digits belong to the harness. Only Cmd is free, so
+    // the pane chords use it on macOS and take Shift as well everywhere else,
+    // leaving the bare Ctrl keys to reach the PTY untouched. One table, read
+    // both by the key handler and by the pane head tooltips.
+    PANE_CHORDS: {
+        mac: {
+            splitRight: { mod: true, shift: false, key: '\\', code: 'Backslash', label: 'Cmd+\\' },
+            splitDown: { mod: true, shift: true, key: '\\', code: 'Backslash', label: 'Cmd+Shift+\\' },
+            close: { mod: true, shift: false, key: 'w', code: 'KeyW', label: 'Cmd+W' },
+            focus: { mod: true, shift: false, label: 'Cmd+1 to Cmd+9' },
+            move: { mod: true, shift: true, alt: false, label: 'Cmd+Shift+Arrow' },
+        },
+        other: {
+            splitRight: { mod: true, shift: true, key: '\\', code: 'Backslash', label: 'Ctrl+Shift+\\' },
+            splitDown: { mod: true, shift: true, key: '-', code: 'Minus', label: 'Ctrl+Shift+-' },
+            close: { mod: true, shift: true, key: 'w', code: 'KeyW', label: 'Ctrl+Shift+W' },
+            focus: { mod: true, shift: true, label: 'Ctrl+Shift+1 to Ctrl+Shift+9' },
+            move: { mod: true, shift: true, alt: true, label: 'Ctrl+Shift+Alt+Arrow' },
+        },
+    },
+
+    /** Read the platform once. userAgentData is the modern answer and says
+     *  "macOS"; navigator.platform is the old one and says "MacIntel". */
+    _onMac() {
+        if (typeof this._mac !== 'boolean') {
+            let p = '';
+            try {
+                const nav = (typeof navigator !== 'undefined' && navigator) ? navigator : null;
+                p = (nav && nav.userAgentData && nav.userAgentData.platform)
+                    || (nav && nav.platform) || '';
+            } catch (e) { p = ''; }
+            this._mac = /mac/i.test(String(p));
+        }
+        return this._mac;
+    },
+
+    _chords() {
+        return this._onMac() ? this.PANE_CHORDS.mac : this.PANE_CHORDS.other;
+    },
+
+    /** The modifier the platform's chords use, and only it: Cmd+Ctrl+W on a
+     *  Mac is not Cmd+W, and Ctrl+Meta+Shift+W elsewhere is not Ctrl+Shift+W.
+     *  Either would steal a combo the harness or the window manager owns. */
+    _modKey(ev) {
+        return this._onMac()
+            ? (!!ev.metaKey && !ev.ctrlKey)
+            : (!!ev.ctrlKey && !ev.metaKey);
+    },
+
+    /** Shift rewrites the character a key produces, so a shifted chord is
+     *  matched on the physical key first and only falls back to the glyph. */
+    _chordHit(ev, spec) {
+        if (!spec || !spec.key) return false;
+        if (this._modKey(ev) !== !!spec.mod) return false;
+        if (!!ev.shiftKey !== !!spec.shift) return false;
+        if (!!ev.altKey !== !!spec.alt) return false;
+        if (ev.code && spec.code) return ev.code === spec.code;
+        return String(ev.key || '').toLowerCase() === spec.key;
+    },
+
+    /** Which pane a focus chord names, or 0 when it names none. */
+    _chordDigit(ev, spec) {
+        if (!spec) return 0;
+        if (this._modKey(ev) !== !!spec.mod) return 0;
+        if (!!ev.shiftKey !== !!spec.shift) return 0;
+        if (!!ev.altKey !== !!spec.alt) return 0;
+        const byCode = /^Digit([1-9])$/.exec(ev.code || '');
+        if (byCode) return Number(byCode[1]);
+        return /^[1-9]$/.test(ev.key) ? Number(ev.key) : 0;
+    },
+
+    /** Which edge an arrow chord names, or null when it is not one. */
+    _chordArrow(ev, spec) {
+        if (!spec) return null;
+        if (this._modKey(ev) !== !!spec.mod) return null;
+        if (!!ev.shiftKey !== !!spec.shift) return null;
+        if (!!ev.altKey !== !!spec.alt) return null;
+        return { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'top', ArrowDown: 'bottom' }[ev.key] || null;
+    },
+
+    _bindPaneKeys() {
+        if (this._keyHandler || !document.addEventListener) return;
+        this._keyHandler = (ev) => this._onPaneKey(ev);
+        document.addEventListener('keydown', this._keyHandler, true);
+    },
+
+    _unbindPaneKeys() {
+        if (this._keyHandler && document.removeEventListener) {
+            document.removeEventListener('keydown', this._keyHandler, true);
+        }
+        this._keyHandler = null;
+    },
+
+    _onPaneKey(ev) {
+        if (!ev) return;
+        const L = this._lay();
+        if (!L) return;
+        const chords = this._chords();
+        const edge = this._chordArrow(ev, chords.move);
+        if (edge) {
+            if (!this._focused) return;
+            if (ev.preventDefault) ev.preventDefault();
+            this._moveFocusedPane(edge);
+            return;
+        }
+        const dir = this._chordHit(ev, chords.splitDown) ? 'col'
+            : (this._chordHit(ev, chords.splitRight) ? 'row' : null);
+        if (dir) {
+            if (!this._focused) return;
+            if (ev.preventDefault) ev.preventDefault();
+            this._openSplitPicker(this._focused, dir);
+            return;
+        }
+        if (this._chordHit(ev, chords.close)) {
+            if (!this._focused) return;
+            if (ev.preventDefault) ev.preventDefault();
+            this._closePane(this._focused);
+            return;
+        }
+        const nth = this._chordDigit(ev, chords.focus);
+        if (!nth) return;
+        const target = L.panes(this._layout)[nth - 1];
+        if (!target) return;
+        if (ev.preventDefault) ev.preventDefault();
+        this._focusPane(target.id);
+        this._refreshRail();
+    },
+
+    // --- persistence -----------------------------------------------------
+
+    _store() {
+        try {
+            return (typeof localStorage !== 'undefined' && localStorage) ? localStorage : null;
+        } catch (e) { return null; }
+    },
+
+    _persistLayout() {
+        const L = this._lay();
+        const store = this._store();
+        if (!L || !store) return;
+        try {
+            if (!this._layout) { store.removeItem(this.LAYOUT_KEY); return; }
+            store.setItem(this.LAYOUT_KEY, JSON.stringify({
+                v: 2, root: L.serialize(this._layout), focused: this._focused,
+            }));
+        } catch (e) { /* storage unavailable or full */ }
+    },
+
+    _clearStoredLayout() {
+        const store = this._store();
+        if (!store) return;
+        try { store.removeItem(this.LAYOUT_KEY); } catch (e) { /* storage unavailable */ }
+    },
+
+    /** Rebuild the panes a previous visit left behind. Panes whose task is
+     *  gone are pruned first: a restored layout must never open a socket for
+     *  a task the server has forgotten. */
+    async _restoreLayout() {
+        const L = this._lay();
+        const store = this._store();
+        if (!L || !store || this._layout) return;
+        let stored = null;
+        let root = null;
+        try {
+            const raw = store.getItem(this.LAYOUT_KEY);
+            stored = raw ? JSON.parse(raw) : null;
+            // v1 stored one task per pane; parse() reads it back as a group of
+            // one, so a layout written before panes held groups still restores.
+            if (!stored || (stored.v !== 1 && stored.v !== 2)) return;
+            // Reading the tree back is part of the same untrusted read, so it
+            // belongs inside the same try: a stored shape that makes the
+            // parser give up must leave the page on the board, not throw out
+            // of the render before it has set its timers up.
+            //
+            // The board holds every task that still exists, archived ones
+            // having already been dropped from it, so this keeps running,
+            // finished, and interrupted panes and forgets only what the
+            // server no longer has.
+            root = L.prune(L.parse(stored.root), new Set(this._tasks.map(t => t.id)));
+        } catch (e) { root = null; }
+        if (!root) { this._clearStoredLayout(); return; }
+        // Every pane costs a terminal and a socket. Past six the restore is a
+        // memory bill nobody asked for, so the extras are dropped from the end
+        // and the last pane kept says so.
+        let trimmed = false;
+        for (let list = L.panes(root); list.length > this.MAX_RESTORED_PANES; list = L.panes(root)) {
+            root = L.close(root, list[list.length - 1].id);
+            trimmed = true;
+        }
+        // Panes are the memory bill only until a tab is brought forward, and
+        // then every task is a socket of its own, so the tasks are capped too,
+        // dropped from the end exactly as the panes are.
+        let trimmedTasks = false;
+        // Through the model, not the field: prune hands a node straight back
+        // when it drops nothing, so a pane can still be in the older shape.
+        const held = (tree) => L.panes(tree).reduce((n, p) => n + L._ids(p).length, 0);
+        while (held(root) > this.MAX_RESTORED_TASKS) {
+            const list = L.panes(root);
+            const last = list[list.length - 1];
+            const ids = last.taskIds || [];
+            const drop = ids[ids.length - 1];
+            const shorter = drop ? L.removeTask(root, drop) : null;
+            if (!shorter || shorter === root) break;
+            root = shorter;
+            trimmedTasks = true;
+        }
+        this._layout = root;
+        this._panes = new Map();
+        const nodes = L.panes(root);
+        for (const node of nodes) this._panes.set(node.id, this._blankPane(node.id, node.taskId, node.taskIds));
+        this._focused = null;
+        this._focusPane(this._panes.has(stored.focused) ? stored.focused : nodes[0].id, { force: true });
+        this._renderLayout();
+        this._renderTaskList();
+        this._renderAttachedHead();
+        for (const node of nodes) {
+            // destroy() clears the layout; a mount that resumes after it must
+            // not reopen a socket, and must not write the layout back out.
+            if (!this._layout) return;
+            await this._mountPane(node.id);
+        }
+        if (!this._layout) return;
+        if (trimmed) this._banner('Layout trimmed to six panes.', nodes[nodes.length - 1].id);
+        else if (trimmedTasks) this._banner('Layout trimmed to eight tasks.', nodes[nodes.length - 1].id);
+        this._persistLayout();
+        this._fitAll();
+        this._refreshPaneGov();
     },
 
     /** Drop everything the governance panels cached for one session. */
@@ -727,18 +2502,9 @@ const TerminalsPage = {
         if (this._govHas) { this._govHas.context = false; this._govHas.egress = false; }
     },
 
+    /** Close every pane. The tasks keep running; only the workspace goes. */
     _detach() {
-        if (this._ws) {
-            const ws = this._ws;
-            // Null the handlers before closing so frames from the old task
-            // queued on this socket cannot land in a newly attached terminal.
-            ws.onmessage = ws.onclose = ws.onopen = ws.onerror = null;
-            try { ws.close(); } catch (e) { /* closing */ }
-        }
-        if (this._view) { try { this._view.dispose(); } catch (e) { /* already gone */ } }
-        this._ws = null;
-        this._view = null;
-        this._attached = null;
+        this._closeAllPanes();
         // Counts belong to one task; a stale pair on the footer would read as
         // governance evidence for a task it never came from.
         this._govCounts = { governed: 0, blocked: 0 };
@@ -748,11 +2514,15 @@ const TerminalsPage = {
         this._renderGovHero();
         this._headSig = null;
         this._footSig = null;
+        this._guardBannerSig = null;
+        const body = document.getElementById('terminals-attached-body');
+        if (body && body.classList) body.classList.remove('is-layout');
         document.querySelector('.terminals-page')?.classList.remove('is-focused');
     },
 
-    _banner(text) {
-        const b = document.getElementById('terminals-banner');
+    _banner(text, paneId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : this._focusedPane();
+        const b = rec && rec.bannerEl;
         if (!b) return;
         b.textContent = text;
         b.hidden = false;
@@ -773,6 +2543,19 @@ const TerminalsPage = {
         return { shown, overflow: Math.max(0, all.length - shown.length) };
     },
 
+    /** Leave the attached task and show the board. The rail's Agent Tasks row
+     *  calls this too, so it cannot live inside the head renderer. */
+    showAllTasks() {
+        try { sessionStorage.removeItem('sv-agent-task-id'); } catch (e) { /* storage unavailable */ }
+        this._detach();
+        this._clearStoredLayout();
+        const body = document.getElementById('terminals-attached-body');
+        if (body) body.innerHTML = this.STAGE_EMPTY_HTML;
+        if (window.Sidebar?.setActive) Sidebar.setActive('terminals');
+        this._renderAttachedHead();
+        this._renderTaskList();
+    },
+
     _renderAttachedHead() {
         const head = document.getElementById('terminals-attached-head');
         if (!head) return;
@@ -791,32 +2574,49 @@ const TerminalsPage = {
         const running = ['starting', 'working', 'blocked', 'idle'].includes(t.status)
             && t.origin !== 'linked';
         const { shown, overflow } = this._tabTasks();
-        const headSig = [this._attached, running ? 'run' : 'idle', overflow]
-            .concat(shown.map(x => [x.id, this._taskState(x).kind, x.title || this._label(x.executor_id)].join(':')))
+        const stoppable = this._stoppablePanes();
+        // With one pane holding one task the pane head is hidden, so its
+        // controls belong here. A pane holding a group keeps its own head, and
+        // keeps its controls with it.
+        const onlyId = this._panes && this._panes.size === 1
+            ? (this._focused && this._panes.has(this._focused) ? this._focused : this._panes.keys().next().value)
+            : null;
+        const soloId = onlyId && this._paneTasks(this._panes.get(onlyId)).length <= 1 ? onlyId : null;
+        // Exactly one place names the open sessions. A pane head that carries
+        // tabs of its own, or several panes each naming their task, already
+        // does it, and a second row of the same names above them reads as a
+        // duplicate header. The one layout with nothing to say for itself is
+        // the lone pane holding a lone task, and that is this strip's row.
+        const tabbed = !!soloId;
+        const headSig = [this._attached, running ? 'run' : 'idle', tabbed ? overflow : 'untabbed',
+            stoppable.length, this._stopAllArmed ? 'armed' : '', soloId || '']
+            .concat(tabbed ? shown.map(x => [x.id, this._taskState(x).kind, x.title || this._label(x.executor_id)].join(':')) : [])
             .join('|');
         if (headSig === this._headSig) { this._renderPaneFoot(); this._renderGuardBanner(); return; }
         this._headSig = headSig;
-        const tabs = shown.map(x => {
+        const tabs = !tabbed ? '' : shown.map(x => {
             const st = this._taskState(x);
             const name = x.title || this._label(x.executor_id);
             const isActive = x.id === this._attached;
             return `<button type="button" class="terminals-pane-tab${isActive ? ' is-active' : ''}" role="tab" data-id="${this._esc(x.id)}" aria-selected="${isActive ? 'true' : 'false'}" title="${this._esc(name + ' · ' + this._label(x.executor_id))}">${window.TaskAvatar ? TaskAvatar.html({ id: x.id, harness: x.executor_id, state: st.kind, size: 18 }) : ''}<span class="terminals-pane-tab-title">${this._esc(name)}</span>${st.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : ''}</button>`;
         }).join('');
         head.innerHTML = `
-          <div class="terminals-pane-tabs" role="tablist" aria-label="Running tasks">${tabs}</div>
-          <div class="terminals-pane-tab-actions">${overflow ? `<button type="button" class="terminals-pane-tab terminals-pane-tab-more" title="Show all tasks">+${overflow}</button>` : ''}<button type="button" class="terminals-pane-tab terminals-pane-tab-new" title="Launch a task" aria-label="Launch a task">+</button></div>
+          ${tabbed ? `<div class="terminals-pane-tabs" role="tablist" aria-label="Running tasks">${tabs}</div>` : ''}
+          <div class="terminals-pane-tab-actions">${tabbed && overflow ? `<button type="button" class="terminals-pane-tab terminals-pane-tab-more" title="Show all tasks">+${overflow}</button>` : ''}<button type="button" class="terminals-pane-tab terminals-pane-tab-new" title="Launch a task" aria-label="Launch a task">+</button></div>
           <span class="terminals-head-spacer"></span>
+          ${soloId ? `<span class="terminals-head-pane-gov" id="terminals-head-pane-gov"></span><span class="terminals-head-pane-acts" id="terminals-head-pane-acts">${this._paneActButtons(this._chords())}</span>` : ''}
           <button class="btn btn-sm" id="terminals-all-tasks-btn">All tasks</button>
+          ${stoppable.length > 1
+            ? (this._stopAllArmed
+                ? `<span class="terminals-stop-all-confirm">Stop ${stoppable.length} running tasks? <button type="button" class="btn btn-sm" id="terminals-stop-all-keep">Keep</button><button type="button" class="btn btn-sm" id="terminals-stop-all-yes">Stop all</button></span>`
+                : '<button class="btn btn-sm" id="terminals-stop-all-btn">Stop all</button>')
+            : ''}
           ${running ? '<button class="btn btn-sm" id="terminals-stop-btn">Stop</button>' : ''}`;
-        const showAllTasks = () => {
-            sessionStorage.removeItem('sv-agent-task-id');
-            this._detach();
-            const attachedBody = document.getElementById('terminals-attached-body');
-            if (attachedBody) attachedBody.innerHTML = '';
-            if (window.Sidebar?.setActive) Sidebar.setActive('terminals');
-            this._renderAttachedHead();
-            this._renderTaskList();
-        };
+        if (soloId) {
+            this._bindPaneActs(head.querySelector('#terminals-head-pane-acts'), soloId);
+            this._placeSoloGov(soloId);
+        }
+        const showAllTasks = () => this.showAllTasks();
         const allTasksBtn = head.querySelector('#terminals-all-tasks-btn');
         if (allTasksBtn) allTasksBtn.onclick = showAllTasks;
         head.querySelectorAll('.terminals-pane-tab[data-id]').forEach(b => {
@@ -831,6 +2631,12 @@ const TerminalsPage = {
             if (form) form.hidden = false;
             document.getElementById('terminals-workspace')?.focus();
         };
+        const stopAllBtn = head.querySelector('#terminals-stop-all-btn');
+        if (stopAllBtn) stopAllBtn.onclick = () => this._askStopAll();
+        const stopAllKeep = head.querySelector('#terminals-stop-all-keep');
+        if (stopAllKeep) stopAllKeep.onclick = () => this._cancelStopAll();
+        const stopAllYes = head.querySelector('#terminals-stop-all-yes');
+        if (stopAllYes) stopAllYes.onclick = () => this._stopAllPanes();
         const stop = head.querySelector('#terminals-stop-btn');
         if (stop) stop.onclick = async () => {
             try {
@@ -844,37 +2650,61 @@ const TerminalsPage = {
 
     // The status line answers "where am I and what has governance done here"
     // without costing a row of the terminal itself.
-    _renderPaneFoot() {
-        const foot = document.getElementById('terminals-pane-foot');
+    _renderPaneFoot(paneId) {
+        if (paneId === undefined && this._panes && this._panes.size) {
+            for (const id of this._panes.keys()) this._renderPaneFoot(id);
+            return;
+        }
+        const rec = paneId && this._panes ? this._panes.get(paneId) : this._focusedPane();
+        const own = rec && rec.footEl ? rec : null;
+        const foot = own ? own.footEl : document.getElementById('terminals-pane-foot');
         if (!foot) return;
-        const t = this._tasks.find(x => x.id === this._attached);
-        if (!t) { foot.hidden = true; foot.innerHTML = ''; this._footSig = null; return; }
+        // A pane carries its own footer once its shell is built. The page
+        // level element is the fallback for the moment before that, so it has
+        // to go dark here or the workspace ends up showing the line twice.
+        if (own) {
+            const pageFoot = document.getElementById('terminals-pane-foot');
+            if (pageFoot && !pageFoot.hidden) {
+                pageFoot.hidden = true;
+                pageFoot.innerHTML = '';
+                this._footSig = null;
+            }
+        }
+        const setSig = (v) => { if (own) own.footSig = v; else this._footSig = v; };
+        const taskId = own ? own.taskId : this._attached;
+        const t = this._tasks.find(x => x.id === taskId);
+        if (!t) { foot.hidden = true; foot.innerHTML = ''; setSig(null); return; }
         foot.hidden = false;
         const state = this._taskState(t);
         const elapsed = this._elapsed(t.created_at, t.ended_at);
-        const counts0 = this._govCounts || { governed: 0, blocked: 0 };
+        // A pane's counts are its own; the page level pair belongs to the
+        // focused pane, which is what the fallback element shows.
+        const counts0 = own
+            ? (own.gov ? { governed: own.gov.calls, blocked: own.gov.blocked } : { governed: 0, blocked: 0 })
+            : (this._govCounts || { governed: 0, blocked: 0 });
         const footSig = [t.id, t.workspace, t.branch || '', t.executor_id, state.kind, counts0.governed, counts0.blocked].join('|');
-        if (footSig === this._footSig) {
+        if (footSig === (own ? own.footSig : this._footSig)) {
             // Only the clock moved. Patching one text node keeps the rest of
             // the line, including its title attributes, exactly as it was.
-            const clock = document.getElementById('terminals-foot-elapsed');
+            const clock = (foot.querySelector && foot.querySelector('.terminals-foot-elapsed'))
+                || document.getElementById('terminals-foot-elapsed');
             if (clock) clock.textContent = elapsed;
             return;
         }
-        this._footSig = footSig;
+        setSig(footSig);
         const dot = '<span class="terminals-foot-dot" aria-hidden="true">\u00b7</span>';
         const branch = typeof t.branch === 'string' && t.branch
             ? `<span class="terminals-foot-sep" aria-hidden="true">\u203a</span><span class="terminals-foot-item terminals-foot-branch">${this._esc(t.branch)}</span>`
             : '';
-        const counts = this._govCounts || { governed: 0, blocked: 0 };
+        const counts = counts0;
         foot.innerHTML = `
           <span class="terminals-foot-item terminals-foot-path" title="${this._esc(t.workspace)}">${this._esc(this._shortPath(t.workspace))}</span>
           ${branch}
           ${dot}<span class="terminals-foot-item">${this._esc(this._label(t.executor_id))}</span>
           ${dot}<span class="terminals-foot-item terminals-foot-state terminals-foot-state-${state.kind}">${this._esc(state.label.toLowerCase())}</span>
-          ${dot}<span class="terminals-foot-item" id="terminals-foot-elapsed">${this._esc(elapsed)}</span>
+          ${dot}<span class="terminals-foot-item terminals-foot-elapsed" id="terminals-foot-elapsed">${this._esc(elapsed)}</span>
           <span class="terminals-head-spacer"></span>
-          <span class="terminals-foot-item terminals-foot-gov" id="terminals-foot-gov">${counts.governed} governed \u00b7 ${counts.blocked} blocked</span>`;
+          <span class="terminals-foot-item terminals-foot-gov">${counts.governed} governed \u00b7 ${counts.blocked} blocked</span>`;
     },
 
     // Statuses in which the PTY is still alive. A restart has to wait for the
@@ -892,9 +2722,15 @@ const TerminalsPage = {
      *  attach to it. A relaunch deliberately creates a new task/session: the
      *  old audit trail remains immutable and still attachable.
      *  `stopFirst` is for restarting a task that is still running, where the
-     *  old process has to be gone before the new one starts.
+     *  old process has to be gone before the new one starts. `pane` keeps the
+     *  fresh session in the pane the restart came from.
      */
-    async _relaunchTask(task, { stopFirst = false } = {}) {
+    async _relaunchTask(task, { stopFirst = false, pane = null } = {}) {
+        // The task list's Relaunch names no pane, so the pane the task is
+        // already in stands in for one. Without it the fresh session would
+        // join the focused pane's group as one more tab beside the dead task
+        // it was meant to replace, and every relaunch would grow that group.
+        const holder = pane || this._paneForTask(task.id);
         if (stopFirst) {
             await API.terminalsStop(task.id);
             let stopped = false;
@@ -913,7 +2749,9 @@ const TerminalsPage = {
         const fresh = await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '');
         await this._refreshTasks();
         if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
-        await this._attach(fresh.id);
+        // A restart is the same tab with a new session behind it, so the new
+        // task takes the old one's place rather than disbanding the group.
+        await this._attach(fresh.id, holder, 'swap', task.id);
         return fresh;
     },
 
@@ -922,14 +2760,21 @@ const TerminalsPage = {
      *  harnesses without a reload command this is the only way out of the
      *  ungoverned window without leaving the app.
      */
-    async _restartHarnessFromBanner() {
-        const btn = document.getElementById('terminals-guard-banner-restart');
-        const text = document.getElementById('terminals-guard-banner-text');
-        const t = this._tasks.find(x => x.id === this._attached);
+    async _restartHarnessFromBanner(paneId) {
+        const els = this._guardEls(paneId);
+        const btn = els.restart;
+        const text = els.text;
+        // The banner belongs to a pane, so the task it restarts is that pane's,
+        // whether or not the pane happens to be the focused one.
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        const taskId = rec ? rec.taskId : this._attached;
+        const t = this._tasks.find(x => x.id === taskId);
         if (!t) return;
         if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
         try {
-            await this._relaunchTask(t, { stopFirst: true });
+            // Same pane, same place on screen: the restarted harness comes
+            // back where the banner was, not in whichever pane had the focus.
+            await this._relaunchTask(t, { stopFirst: true, pane: paneId });
         } catch (e) {
             if (text) text.textContent = e.message || 'Could not restart the harness.';
             if (btn) { btn.disabled = false; btn.textContent = 'Restart harness'; }
@@ -939,20 +2784,70 @@ const TerminalsPage = {
     // A task may launch before its Guard plugin is in place. Nothing is
     // silently ungoverned: the session carries this strip until the Guard
     // reports in (the first hook event gives the task a session_id).
-    _renderGuardBanner() {
-        const banner = document.getElementById('terminals-guard-banner');
+    /** The banner's elements for one pane, falling back to the page level
+     *  pair while no pane has been built yet. */
+    _guardEls(paneId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : this._focusedPane();
+        const own = rec && rec.guardEl;
+        const q = (sel, id) => {
+            const el = own && rec.guardEl.querySelector ? rec.guardEl.querySelector(sel) : null;
+            return el || document.getElementById(id);
+        };
+        return {
+            rec: own ? rec : null,
+            banner: own ? rec.guardEl : document.getElementById('terminals-guard-banner'),
+            text: q('.terminals-guard-banner-text', 'terminals-guard-banner-text'),
+            install: q('[data-guard="install"]', 'terminals-guard-banner-install'),
+            recheck: q('[data-guard="recheck"]', 'terminals-guard-banner-recheck'),
+            restart: q('[data-guard="restart"]', 'terminals-guard-banner-restart'),
+            commands: (own && rec.guardCmdEl) || document.getElementById('terminals-guard-banner-commands'),
+        };
+    },
+
+    /** Put the Install button away in its resting state. A finished install
+     *  leaves the label reading "Installing..." and the button disabled, and
+     *  the banner that comes back for the next task must not inherit that. */
+    _resetInstallButton(install) {
+        install.hidden = true;
+        install.disabled = false;
+        install.textContent = 'Install SecureVector Guard';
+    },
+
+    _renderGuardBanner(paneId) {
+        if (paneId === undefined && this._panes && this._panes.size) {
+            for (const id of this._panes.keys()) this._renderGuardBanner(id);
+            return;
+        }
+        const els = this._guardEls(paneId);
+        const banner = els.banner;
         if (!banner) return;
-        const text = document.getElementById('terminals-guard-banner-text');
-        const install = document.getElementById('terminals-guard-banner-install');
-        const recheck = document.getElementById('terminals-guard-banner-recheck');
-        const restart = document.getElementById('terminals-guard-banner-restart');
-        const commands = document.getElementById('terminals-guard-banner-commands');
+        // The page level banner is the fallback for the moment before a pane
+        // has built its own. Once the pane has one, the page level element has
+        // to go dark or the same Guard notice shows twice, stacked.
+        if (els.rec) {
+            const pageBanner = document.getElementById('terminals-guard-banner');
+            if (pageBanner && !pageBanner.hidden) {
+                pageBanner.hidden = true;
+                this._guardBannerSig = null;
+            }
+            const pageCmds = document.getElementById('terminals-guard-banner-commands');
+            if (pageCmds && pageCmds !== els.commands) pageCmds.hidden = true;
+        }
+        const text = els.text;
+        const install = els.install;
+        const recheck = els.recheck;
+        const restart = els.restart;
+        const commands = els.commands;
+        const own = els.rec;
+        const setSig = (v) => { if (own) own.guardSig = v; else this._guardBannerSig = v; };
+        const getSig = () => (own ? own.guardSig : this._guardBannerSig);
         const hide = () => {
             banner.hidden = true;
             if (commands) commands.hidden = true;
-            this._guardBannerSig = null;
+            setSig(null);
         };
-        const t = this._tasks.find(x => x.id === this._attached);
+        const taskId = own ? own.taskId : this._attached;
+        const t = this._tasks.find(x => x.id === taskId);
         if (!t) { hide(); return; }
         if (!['starting', 'working', 'blocked', 'idle'].includes(t.status)) { hide(); return; }
         if (this._guardReportedIn(t)) { hide(); return; }
@@ -966,18 +2861,19 @@ const TerminalsPage = {
         // so focus on Install or Check again survives a tick.
         const linked = t.origin === 'linked';
         const sig = [t.id, ex.governed ? 'gov' : 'ungov', pending ? 'pending' : '', linked ? 'linked' : ''].join('|');
-        if (sig === this._guardBannerSig) return;
-        this._guardBannerSig = sig;
+        if (sig === getSig()) return;
+        setSig(sig);
         banner.hidden = false;
-        if (install) install.onclick = () => this._installGuardFromBanner(ex.id);
-        if (recheck) recheck.onclick = () => this._recheckGuardFromBanner();
-        if (restart) restart.onclick = () => this._restartHarnessFromBanner();
+        const pane = own ? own.id : undefined;
+        if (install) install.onclick = () => this._installGuardFromBanner(ex.id, pane);
+        if (recheck) recheck.onclick = () => this._recheckGuardFromBanner(pane);
+        if (restart) restart.onclick = () => this._restartHarnessFromBanner(pane);
         if (!ex.governed) {
             banner.classList.remove('is-pending');
             if (pending) {
                 if (text) text.textContent = pending.text;
                 if (commands) { commands.textContent = pending.commands.join('\n'); commands.hidden = false; }
-                if (install) install.hidden = true;
+                if (install) this._resetInstallButton(install);
                 if (recheck) { recheck.hidden = false; recheck.disabled = false; recheck.textContent = 'Check again'; }
                 if (restart) restart.hidden = true;
                 return;
@@ -1000,10 +2896,10 @@ const TerminalsPage = {
         if (text) text.textContent = linked
             ? 'SecureVector Guard installed. Run /reload-plugins in that terminal (Claude Code) or restart the harness in your terminal, then link the new session id if it changed.'
             : (t.executor_id === 'claude-code'
-                ? 'SecureVector Guard installed. Run /reload-plugins in the terminal, or restart the harness to load it.'
-                : 'SecureVector Guard installed. Restart the harness to load it.');
+                ? 'SecureVector Guard installed. This session started before it, so run /reload-plugins in the terminal, or restart the harness.'
+                : 'SecureVector Guard installed. This session started before it, so restart the harness to load it.');
         if (commands) commands.hidden = true;
-        if (install) install.hidden = true;
+        if (install) this._resetInstallButton(install);
         if (recheck) { recheck.hidden = false; recheck.disabled = false; recheck.textContent = 'Check again'; }
         if (restart) {
             restart.hidden = linked;
@@ -1018,14 +2914,20 @@ const TerminalsPage = {
     _guardReportedIn(t) {
         if (!t) return false;
         if (t.origin === 'linked') return this._sessionReported !== false;
+        // A task spawned while the Guard was already in place is governed from
+        // its first call. The gap before that call is not an ungoverned
+        // window, so a banner telling the user to restart the harness in it
+        // would be telling them to throw away a session that is already fine.
+        if (t.governed_at_launch) return true;
         return Boolean(t.session_id);
     },
 
-    async _installGuardFromBanner(executorId) {
-        const banner = document.getElementById('terminals-guard-banner');
-        const text = document.getElementById('terminals-guard-banner-text');
-        const install = document.getElementById('terminals-guard-banner-install');
-        const recheck = document.getElementById('terminals-guard-banner-recheck');
+    async _installGuardFromBanner(executorId, paneId) {
+        const els0 = this._guardEls(paneId);
+        const banner = els0.banner;
+        const text = els0.text;
+        const install = els0.install;
+        const recheck = els0.recheck;
         if (install) { install.disabled = true; install.textContent = 'Installing…'; }
         try {
             const res = await API.installGuard(executorId);
@@ -1046,7 +2948,7 @@ const TerminalsPage = {
                 this._renderExecutorOptions(this._container);
                 this._showExecutorState(this._container);
             }
-            this._guardBannerSig = null;
+            this._forgetGuardSigs();
             this._renderGuardBanner();
             if (!cur || (!cur.governed && !(res.commands && res.commands.length))) {
                 if (banner) banner.hidden = false;
@@ -1059,12 +2961,18 @@ const TerminalsPage = {
             if (text) text.textContent = e.message || 'Guard install failed.';
             if (install) { install.hidden = false; install.disabled = false; install.textContent = 'Install SecureVector Guard'; }
             if (recheck) recheck.hidden = true;
-            this._guardBannerSig = null;
+            this._forgetGuardSigs();
         }
     },
 
-    async _recheckGuardFromBanner() {
-        const recheck = document.getElementById('terminals-guard-banner-recheck');
+    /** Drop every banner signature so the next render rewrites them all. */
+    _forgetGuardSigs() {
+        this._guardBannerSig = null;
+        if (this._panes) for (const rec of this._panes.values()) rec.guardSig = null;
+    },
+
+    async _recheckGuardFromBanner(paneId) {
+        const recheck = this._guardEls(paneId).recheck;
         if (recheck) { recheck.disabled = true; recheck.textContent = 'Checking…'; }
         try {
             const ex = await API.terminalsExecutors();
@@ -1074,13 +2982,22 @@ const TerminalsPage = {
                 this._showExecutorState(this._container);
             }
             await this._refreshTasks();
-            this._guardBannerSig = null;
+            this._forgetGuardSigs();
             this._renderGuardBanner();
+            // The check is about this session, not about the install. Saying
+            // what it found is the difference between a button that works and
+            // a button that looks dead, because an installed Guard that this
+            // session has not loaded leaves the banner exactly as it was.
+            const after = this._guardEls(paneId);
+            if (after.banner && !after.banner.hidden && after.text
+                && after.banner.classList && after.banner.classList.contains('is-pending')) {
+                after.text.textContent += ' Checked just now: no call from this session yet.';
+            }
         } catch (e) {
-            const text = document.getElementById('terminals-guard-banner-text');
+            const text = this._guardEls(paneId).text;
             if (text) text.textContent = e.message || 'Could not check the Guard.';
         } finally {
-            const btn = document.getElementById('terminals-guard-banner-recheck');
+            const btn = this._guardEls(paneId).recheck;
             if (btn && !btn.hidden) { btn.disabled = false; btn.textContent = 'Check again'; }
         }
     },
@@ -1324,6 +3241,16 @@ const TerminalsPage = {
         // Ungoverned is a different empty: nothing is coming until the Guard
         // is in place, so saying "listening" there would be a lie.
         const ungoverned = !!(ex && !ex.governed) && !this._guardReportedIn(t);
+        // So is a task that has already ended: nothing more is coming at all,
+        // and a listening ring over a finished session is a false promise.
+        const ended = ['done', 'failed', 'interrupted'].includes(t.status);
+        if (bot && bot.classList) bot.classList[ended && !ungoverned ? 'add' : 'remove']('is-quiet');
+        if (ended && !ungoverned) {
+            if (title) title.textContent = 'No governed activity recorded';
+            if (text) text.textContent = 'This task ended without a governed call.';
+            if (summary) summary.textContent = 'nothing recorded';
+            return;
+        }
         if (title) title.textContent = ungoverned
             ? 'Running without SecureVector Guard'
             : 'Governed session, listening';
@@ -1530,31 +3457,49 @@ const TerminalsPage = {
         setBadge(rows.length, blocked > 0);
         this._govHas.egress = rows.length > 0;
         this._renderGovHero();
-        const sig = [t.session_id, rows.length, blocked, failed,
-            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}`).join('|')].join('~');
+        // Codex's own web tool never reaches a hook, so its destinations are
+        // read back from the local transcript afterwards. That reading is the
+        // same consent the Cost Optimizer asks for once; without it the list
+        // is not "nothing happened", so the note says which of the two it is.
+        const isCodex = (t.executor_id || '') === 'codex';
+        const consent = !this._egress || this._egress.transcript_consent !== false;
+        const note = !isCodex ? '' : (consent
+            ? '<div class="terminals-egress-note">Codex\'s built-in web search is not hookable; its activity is listed here after the fact from the local transcript.</div>'
+            : '<div class="terminals-egress-note">Turn on transcript reading in Cost &amp; Tokens to list Codex web activity.</div>');
+        const sig = [t.session_id, rows.length, blocked, failed, isCodex, consent,
+            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}:${r.observed}`).join('|')].join('~');
         if (sig === this._egressSig) return;
         this._egressSig = sig;
         const stale = failed
             ? '<span class="terminals-empty">Egress unavailable right now.</span>' : '';
         if (!rows.length) {
-            el.innerHTML = failed
-                ? stale : '<span class="terminals-empty">No egress recorded yet.</span>';
+            el.innerHTML = (failed
+                ? stale : '<span class="terminals-empty">No egress recorded yet.</span>') + note;
             return;
         }
         const shown = rows.slice(0, 12);
         const more = rows.length - shown.length;
         el.innerHTML = shown.map(r => {
             const isBlocked = (r.blocked || 0) > 0;
+            const observed = r.observed || 0;
+            // Observed only: nothing here was evaluated, so the row carries no
+            // status colour at all. A green dot would read as "allowed", which
+            // is a verdict no policy gave.
+            const isObserved = observed > 0 && observed >= (r.calls || 0);
+            const host = r.host === 'web-search' ? 'Codex web search' : r.host;
             const meta = `${r.calls} call${r.calls === 1 ? '' : 's'}`
                 + (r.writes ? ` · ${r.writes} write${r.writes === 1 ? '' : 's'}` : '')
-                + (isBlocked ? ` · ${r.blocked} blocked` : '');
+                + (isBlocked ? ` · ${r.blocked} blocked` : '')
+                + (isObserved ? ' · observed, not governed' : '');
+            const cls = isBlocked ? 'blocked' : (isObserved ? 'observed' : 'allowed');
+            const dot = isObserved ? '' : ` sv-status-${isBlocked ? 'red' : 'green'}`;
             return `
-              <div class="terminals-egress-row terminals-egress-${isBlocked ? 'blocked' : 'allowed'}">
-                <span class="terminals-dot sv-status-${isBlocked ? 'red' : 'green'}"></span>
-                <span class="terminals-egress-host" title="${this._esc(r.host)}">${this._esc(r.host)}</span>
+              <div class="terminals-egress-row terminals-egress-${cls}">
+                <span class="terminals-dot${dot}"></span>
+                <span class="terminals-egress-host" title="${this._esc(r.host)}">${this._esc(host)}</span>
                 <span class="terminals-egress-meta">${this._esc(meta)}</span>
               </div>`;
-        }).join('') + stale + (more > 0
+        }).join('') + stale + note + (more > 0
             ? `<button type="button" class="terminals-egress-more" id="terminals-egress-more">+${more} more</button>`
             : '');
         const moreBtn = document.getElementById('terminals-egress-more');
