@@ -316,6 +316,10 @@ test('a keystroke reaches only the socket of the pane it was typed in', async ()
 
 test('focusing a pane moves _attached, the stored task id, and the focus class', async () => {
   const { Page, session } = loadPage();
+  let railRefreshes = 0;
+  let paneGovRefreshes = 0;
+  Page._refreshRail = () => { railRefreshes += 1; };
+  Page._refreshPaneGov = () => { paneGovRefreshes += 1; };
   Page._tasks = [task('t1'), task('t2')];
   await Page._attach('t1');
   const first = Page._focused;
@@ -327,6 +331,8 @@ test('focusing a pane moves _attached, the stored task id, and the focus class',
   assert.strictEqual(Page._focused, first);
   assert.strictEqual(Page._attached, 't1');
   assert.strictEqual(session.getItem('sv-agent-task-id'), 't1');
+  assert.ok(railRefreshes > 0, 'the workspace Governance Activity follows the focused task immediately');
+  assert.ok(paneGovRefreshes > 0, 'per-pane governance counts refresh with the focus change');
   assert.ok(Page._panes.get(first).el.classList.contains('is-focused'));
   const other = paneIds(Page).find((id) => id !== first);
   assert.ok(!Page._panes.get(other).el.classList.contains('is-focused'));
@@ -347,10 +353,12 @@ test('the pane head offers split right, split down, and close', async () => {
   const acts = head.querySelectorAll('.terminals-pane-act');
   assert.deepStrictEqual(Array.from(acts, (b) => b.dataset.act), ['row', 'col', 'close']);
   acts[0].onclick({ stopPropagation() {} });
-  const picker = Page._panes.get(Page._focused).pickerEl;
-  assert.strictEqual(picker.hidden, false, 'splitting asks which task goes in the new pane');
-  assert.match(picker.innerHTML, /data-pick-id="t2"/);
-  assert.ok(!picker.innerHTML.includes('data-pick-id="t1"'), 'a task already in a pane is not on offer');
+  const empty = Page._panes.get(Page._focused);
+  assert.strictEqual(Page._panes.size, 3, 'a split is visible immediately, before choosing a task');
+  assert.strictEqual(empty.taskId, null, 'the new half starts empty rather than moving the active task');
+  assert.match(empty.stageEl.innerHTML, /Choose a running task/);
+  assert.match(empty.stageEl.innerHTML, /data-empty-pane-task="t2"/);
+  assert.ok(!empty.stageEl.innerHTML.includes('data-empty-pane-task="t1"'), 'a task already in a pane is not on offer');
 });
 
 test('the picker says so when there is no other running task', async () => {
@@ -595,8 +603,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=5/);
-  assert.match(html, /terminals\.js\?v=35/);
-  assert.match(html, /styles\.css\?v=410/);
+  assert.match(html, /terminals\.js\?v=36/);
+  assert.match(html, /styles\.css\?v=411/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });

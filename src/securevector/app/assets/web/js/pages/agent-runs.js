@@ -367,7 +367,7 @@ const AgentRunsPage = {
             this._pendingOutcome = null;
         }
         if (window.Header) {
-            Header.setPageInfo('Traces', 'One trace per agent session: every LLM and tool run with its verdict, tokens and cost.');
+            Header.setPageInfo('Traces', 'Sessions contain traces; traces contain nested spans. Inspect every LLM and tool operation with its verdict, tokens and cost.');
         }
         this._injectStyle();
 
@@ -1758,7 +1758,7 @@ const AgentRunsPage = {
             `<span class="ar-det-title">${this._esc(this._agentLabel(trace))}</span>` +
             `<span class="ar-run-sub">${this._esc(trace.runtime_kind)}</span>` +
             (this._isLive(trace.ended_at) ? this._liveBadge('This agent is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
-            `<span class="ar-det-eyebrow" title="One recorded agent execution. Every row below is a run inside this trace.">Trace</span>` +
+            `<span class="ar-det-eyebrow" title="Session › trace › spans. Nested rows show the causal parent-child span relationship.">Trace</span>` +
             `<button type="button" class="ar-det-x" title="Collapse this trace (or click the agent row again)">×</button>`;
         head.querySelector('.ar-det-x').addEventListener('click', () => this._showList());
         const pauseBtn = head.querySelector('.ar-live-pause');
@@ -1941,7 +1941,7 @@ const AgentRunsPage = {
         const runsHead = document.createElement('div');
         runsHead.className = 'ar-runs-heading';
         const hb = document.createElement('b');
-        hb.textContent = 'Runs in this trace';
+        hb.textContent = 'Spans in this trace';
         runsHead.appendChild(hb);
         // In-trace search — filter the loaded runs by tool / model / reason.
         // Hidden during replay (replay owns row visibility). Typing toggles row

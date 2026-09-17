@@ -33,9 +33,19 @@ test('color() is fixed per harness and falls back to the id hash for unknown har
   assert.strictEqual(TaskAvatar.color('task-1', 'claude-code'), TaskAvatar.HARNESS_COLORS['claude-code']);
   assert.strictEqual(TaskAvatar.color('task-2', 'claude-code'), TaskAvatar.color('task-9', 'claude-code'), 'every task of one harness shares its colour');
   assert.notStrictEqual(TaskAvatar.color('task-1', 'codex'), TaskAvatar.color('task-1', 'claude-code'));
+  assert.notStrictEqual(TaskAvatar.color('task-1', 'openclaw'), TaskAvatar.color('task-1', 'cursor'));
   assert.strictEqual(TaskAvatar.color('task-1', 'unknown-harness'), TaskAvatar.color('task-1'));
   const out = TaskAvatar.html({ id: 'task-1', harness: 'codex', state: 'active' });
   assert.ok(out.includes(`--sv-bot-accent:${TaskAvatar.HARNESS_COLORS.codex}`));
+});
+
+test('all supported harnesses have a deliberate identity colour and task motion is phase-shifted', () => {
+  const TaskAvatar = loadTaskAvatar();
+  for (const harness of ['claude-code', 'codex', 'copilot-cli', 'opencode', 'openclaw', 'cursor']) {
+    assert.ok(TaskAvatar.HARNESS_COLORS[harness], `${harness} has a harness colour`);
+  }
+  assert.notStrictEqual(TaskAvatar._delay('task-1'), TaskAvatar._delay('task-2'));
+  assert.match(TaskAvatar.html({ id: 'task-1' }), /--sv-bot-delay:-[\d.]+s/);
 });
 
 test('color() falls back to the first palette entry for an empty id', () => {

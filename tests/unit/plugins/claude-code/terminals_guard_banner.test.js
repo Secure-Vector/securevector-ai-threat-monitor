@@ -81,6 +81,11 @@ test('the attached view template ships the guard banner elements', () => {
   assert.match(src, /id="terminals-attention"[\s\S]{0,120}id="terminals-guard-banner"/);
 });
 
+test('mounted panes always hide the page-level Guard fallback before rendering their own notices', () => {
+  const src = read('js/pages/terminals.js');
+  assert.match(src, /if \(paneId === undefined && this\._panes && this\._panes\.size\) \{[\s\S]{0,700}pageBanner\.hidden = true[\s\S]{0,250}this\._renderGuardBanner\(id\)/);
+});
+
 test('an ungoverned running task gets the loud banner and the install action', () => {
   const els = bannerElements();
   const Page = loadTerminalsPage(els);

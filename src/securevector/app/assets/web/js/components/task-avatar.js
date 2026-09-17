@@ -3,9 +3,8 @@
 // Same proportions as the Guardian bot (head rounded to about a third of its
 // height, a side pod each ear, a top-left sheen, a dark glass visor and two
 // LED eyes), drawn fresh rather than by reusing the bot's markup.
-// Colour is task identity (a stable hash of the task id into an eight-colour
-// palette that excludes red/amber/green, those stay reserved for state);
-// state is carried by the eyes, matching the
+// Colour is harness identity; a stable task-id hash is used only for an
+// unknown harness. State is carried by the eyes, matching the
 // task-row and task-card state vocabulary already used elsewhere (active,
 // approval, blocked, completed, interrupted, failed). The eyes are static:
 // nothing here blinks, wanders or breathes.
@@ -18,7 +17,14 @@ const TaskAvatar = {
     // One colour per harness, so every Claude Code task wears the same
     // pods and every Codex task another. Unknown harnesses fall back to
     // a stable hash of the task id.
-    HARNESS_COLORS: { 'claude-code': '#7b61ff', codex: '#3b7ddd', 'copilot-cli': '#b8478f', opencode: '#d3673a' },
+    HARNESS_COLORS: {
+        'claude-code': '#7b61ff',
+        codex: '#3b7ddd',
+        'copilot-cli': '#b8478f',
+        opencode: '#d3673a',
+        openclaw: '#2f8f9d',
+        cursor: '#6b8f2a',
+    },
 
     color(id, harness) {
         if (harness && this.HARNESS_COLORS[harness]) return this.HARNESS_COLORS[harness];
@@ -31,6 +37,15 @@ const TaskAvatar = {
         }
         const idx = (hash >>> 0) % this.PALETTE.length;
         return this.PALETTE[idx];
+    },
+
+    // A stable negative delay keeps a board of agents from bobbing as one
+    // mechanical row. It is visual only; harness identity still owns colour.
+    _delay(id) {
+        const str = String(id || 'task');
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) hash = ((hash * 31) + str.charCodeAt(i)) | 0;
+        return -((Math.abs(hash) % 32) / 10).toFixed(1);
     },
 
     _esc(s) {
@@ -68,9 +83,9 @@ const TaskAvatar = {
         style.id = 'sv-task-avatar-style';
         style.textContent =
             '.sv-task-avatar svg { width: 100%; height: 100%; overflow: visible; display: block; }' +
-            '.sv-task-avatar .ta-body { animation: sv-ta-bob 4s ease-in-out infinite; transform-origin: 32px 34px; }' +
-            '.sv-task-avatar svg { animation: sv-ta-sway 9s ease-in-out infinite; transform-origin: 50% 60%; }' +
-            '.sv-task-avatar .ta-shadow { fill: rgba(0,0,0,.38); animation: sv-ta-shade 4s ease-in-out infinite; transform-origin: 32px 58px; }' +
+            '.sv-task-avatar .ta-body { animation: sv-ta-bob 3.2s ease-in-out var(--sv-bot-delay, 0s) infinite; transform-origin: 32px 34px; }' +
+            '.sv-task-avatar svg { animation: sv-ta-sway 7s ease-in-out var(--sv-bot-delay, 0s) infinite; transform-origin: 50% 60%; }' +
+            '.sv-task-avatar .ta-shadow { fill: rgba(0,0,0,.38); animation: sv-ta-shade 3.2s ease-in-out var(--sv-bot-delay, 0s) infinite; transform-origin: 32px 58px; }' +
             '.sv-task-avatar .ta-head { fill: url(#ta-shell-d); }' +
             '[data-theme="light"] .sv-task-avatar .ta-head { fill: url(#ta-shell-l); }' +
             '[data-theme="light"] .sv-task-avatar .ta-shadow { fill: rgba(20,26,34,.25); }' +
@@ -90,8 +105,8 @@ const TaskAvatar = {
             /* Below 24px the blur filters cost more than they show: flat glow, no shadow. */
             '.sv-task-avatar-tiny .ta-halo { filter: none; opacity: .4; }' +
             '.sv-task-avatar-tiny .ta-shadow, .sv-task-avatar-tiny .ta-sheen { display: none; }' +
-            '@keyframes sv-ta-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.6px); } }' +
-            '@keyframes sv-ta-sway { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg); } }' +
+            '@keyframes sv-ta-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.4px); } }' +
+            '@keyframes sv-ta-sway { 0%, 100% { transform: rotate(-2.2deg); } 50% { transform: rotate(2.2deg); } }' +
             '@keyframes sv-ta-shade { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(.86); opacity: .7; } }' +
             '@media (prefers-reduced-motion: reduce) { .sv-task-avatar .ta-body, .sv-task-avatar svg, .sv-task-avatar .ta-shadow { animation: none; } }';
         document.head.appendChild(style);
@@ -129,7 +144,7 @@ const TaskAvatar = {
         this._injectDefs();
         this._injectStyle();
         const tiny = size < 24 ? ' sv-task-avatar-tiny' : '';
-        return `<span class="sv-task-avatar sv-task-avatar-${state} sv-task-avatar-posture-${this.POSTURE[state]}${tiny}" ${a11y} style="--sv-bot-accent:${hue};width:${size}px;height:${size}px">` +
+        return `<span class="sv-task-avatar sv-task-avatar-${state} sv-task-avatar-posture-${this.POSTURE[state]}${tiny}" ${a11y} style="--sv-bot-accent:${hue};--sv-bot-delay:${this._delay(o.id)}s;width:${size}px;height:${size}px">` +
             this._figure() + '</span>';
     },
 

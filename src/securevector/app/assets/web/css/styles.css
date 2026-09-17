@@ -8786,6 +8786,10 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-trace-open { background: transparent; border: 1px solid rgba(148, 163, 184, .3); border-radius: 3px; padding: 2px 6px; font-family: inherit; font-size: 10px; text-transform: uppercase; color: inherit; cursor: pointer; }
 .terminals-trace-open:hover { border-color: var(--accent-primary, #2dd4bf); }
 .terminals-traces { display: flex; flex-direction: column; }
+.terminals-trace-session { display: flex; flex-direction: column; gap: 4px; }
+.terminals-trace-session-head { display: flex; align-items: center; gap: 5px; padding: 2px 1px 5px; color: var(--text-muted, #94a3b8); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.terminals-trace-session-head code { max-width: 92px; overflow: hidden; text-overflow: ellipsis; font: inherit; color: var(--text-secondary, #cbd5e1); text-transform: none; }
+.terminals-trace-session-path { margin-left: auto; opacity: .72; font-size: 9px; }
 .terminals-trace { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 12px; }
 .terminals-trace-main { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 2px; }
 .terminals-trace-id { color: var(--accent-primary, #2dd4bf); opacity: .9; }
@@ -9145,6 +9149,12 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
 .terminals-pane-picker-opt:hover { border-color: rgba(45, 212, 191, .55); }
 /* The terminal surface stays dark whatever the page theme is doing. */
 .terminals-pane-stage { position: relative; flex: 1 1 auto; min-height: 0; background: #0b1017; }
+.terminals-empty-pane { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 20px; text-align: center; }
+.terminals-empty-pane-kicker { color: var(--accent-primary, #2dd4bf); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.terminals-empty-pane h3 { margin: 0; font-size: 14px; }.terminals-empty-pane p { margin: 0; max-width: 280px; color: var(--text-muted, #94a3b8); font-size: 11px; }
+.terminals-empty-pane-options { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 360px; }
+.terminals-empty-pane-options button { display: flex; flex-direction: column; gap: 2px; max-width: 155px; padding: 6px 9px; overflow: hidden; border: 1px solid var(--border-default, #24303c); border-radius: 5px; background: transparent; color: inherit; font: inherit; font-size: 11px; text-align: left; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-empty-pane-options button:hover { border-color: var(--accent-primary, #2dd4bf); background: color-mix(in srgb, var(--accent-primary, #2dd4bf) 8%, transparent); }.terminals-empty-pane-options button span { color: var(--text-muted, #94a3b8); font-size: 10px; }
 [data-theme="light"] .terminals-pane-stage { background: #0b1017; }
 [data-theme="light"] .terminals-pane { border-color: var(--border-default); }
 [data-theme="light"] .terminals-gutter::after { background: var(--border-default); }

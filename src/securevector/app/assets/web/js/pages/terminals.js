@@ -1145,6 +1145,13 @@ const TerminalsPage = {
         this._renderTaskList();
         this._renderAttachedHead();
         this._persistLayout();
+        // Clicking a different pane used to change only its visual focus.
+        // The workspace-level Governance Activity panel still held the prior
+        // session's cached data until the next poll. Refresh immediately so
+        // its verdicts, traces, egress and context always belong to the pane
+        // the operator just selected.
+        this._refreshRail();
+        this._refreshPaneGov();
         if (rec.view) { try { rec.view.focus(); } catch (e) { /* not mounted yet */ } }
     },
 
@@ -1301,7 +1308,7 @@ const TerminalsPage = {
                 if (ev && ev.stopPropagation) ev.stopPropagation();
                 const act = b.dataset ? b.dataset.act : null;
                 if (act === 'close') this._closePane(paneId);
-                else if (act === 'row' || act === 'col') this._openSplitPicker(paneId, act);
+                else if (act === 'row' || act === 'col') this._splitIntoEmptyPane(paneId, act);
             };
         });
     },
@@ -1447,6 +1454,48 @@ const TerminalsPage = {
         });
         const cancel = rec.pickerEl.querySelector ? rec.pickerEl.querySelector('.terminals-pane-picker-cancel') : null;
         if (cancel) cancel.onclick = () => this._closeSplitPicker(paneId);
+    },
+
+    /** A pointer split changes the workspace first. The new half then asks
+     * for a task in its own space, instead of making the operator choose in a
+     * transient bar before they can see whether they asked for right or down. */
+    _splitIntoEmptyPane(paneId, dir) {
+        const L = this._lay();
+        if (!L || !this._layout || !this._panes || !this._panes.has(paneId)) return;
+        const before = new Set(L.panes(this._layout).map(p => p.id));
+        const next = L.split(this._layout, paneId, dir, null);
+        if (next === this._layout) return;
+        this._layout = next;
+        const added = L.panes(next).find(p => !before.has(p.id));
+        if (!added) return;
+        this._panes.set(added.id, this._blankPane(added.id, null));
+        this._focusPane(added.id, { force: true });
+        this._renderLayout();
+        this._renderTaskList();
+        this._renderAttachedHead();
+        this._renderEmptyPaneChoice(added.id, dir);
+        this._persistLayout();
+        this._fitAll();
+    },
+
+    _renderEmptyPaneChoice(paneId, dir) {
+        const rec = this._panes && this._panes.get(paneId);
+        if (!rec || rec.taskId || !rec.stageEl) return;
+        const options = this._splitCandidates();
+        const placement = dir === 'row' ? 'right-hand' : 'lower';
+        rec.stageEl.innerHTML = `<div class="terminals-empty-pane">
+          <span class="terminals-empty-pane-kicker">New ${placement} pane</span>
+          <h3>Choose a running task</h3>
+          <p>This layout is ready. Select a task to view it here.</p>
+          <div class="terminals-empty-pane-options">${options.length
+            ? options.map(t => `<button type="button" data-empty-pane-task="${this._esc(t.id)}">${this._esc(t.title || this._label(t.executor_id))}<span>${this._esc(this._label(t.executor_id))}</span></button>`).join('')
+            : '<span class="terminals-empty">No other running task. Launch one, then select it here.</span>'}</div>
+        </div>`;
+        const buttons = rec.stageEl.querySelectorAll ? rec.stageEl.querySelectorAll('[data-empty-pane-task]') : [];
+        buttons.forEach((button) => {
+            button.onclick = () => this._attach(button.dataset.emptyPaneTask, paneId)
+                .catch((e) => this._banner((e && e.message) || 'Could not open task.', paneId));
+        });
     },
 
     _closeSplitPicker(paneId) {
@@ -2815,6 +2864,15 @@ const TerminalsPage = {
 
     _renderGuardBanner(paneId) {
         if (paneId === undefined && this._panes && this._panes.size) {
+            // The page-level notice only exists while no terminal pane has
+            // been mounted. Hide it before rendering the pane-local notices:
+            // otherwise a refresh can leave two identical Guard messages on
+            // screen (the fallback plus the selected pane's message).
+            const pageBanner = document.getElementById('terminals-guard-banner');
+            const pageCmds = document.getElementById('terminals-guard-banner-commands');
+            if (pageBanner) pageBanner.hidden = true;
+            if (pageCmds) pageCmds.hidden = true;
+            this._guardBannerSig = null;
             for (const id of this._panes.keys()) this._renderGuardBanner(id);
             return;
         }
@@ -3110,7 +3168,8 @@ const TerminalsPage = {
                     }
                     tEl.innerHTML = fetchFailed
                         ? '<span class="terminals-error">Traces unavailable.</span>'
-                        : (traceRuns.length ? traceRuns.map(r => {
+                        : (traceRuns.length ? `<div class="terminals-trace-session">
+                          <div class="terminals-trace-session-head"><span>Session</span><code>${this._esc(String(sessionId).slice(0, 12))}</code><span class="terminals-trace-session-path">› traces › spans</span></div>${traceRuns.map(r => {
                         const risk = (r.blocked > 0 || r.risk === 'red') ? 'red' : (r.risk === 'amber' ? 'amber' : 'green');
                         const riskLabel = risk === 'red' ? 'blocked' : (risk === 'amber' ? 'flagged' : 'clean');
                         const shortId = String(r.trace_id || '').slice(0, 12);
@@ -3124,12 +3183,12 @@ const TerminalsPage = {
                       <div class="terminals-trace" data-trace-id="${this._esc(r.trace_id)}">
                         <span class="terminals-dot sv-status-${risk}" role="img" aria-label="${this._esc(riskLabel)}"></span>
                         <span class="terminals-trace-main">
-                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace">trace ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span></span>
+                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">trace ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span></span>
                           <span class="terminals-trace-meta">${this._esc(metaParts.join(' · '))}</span>
                         </span>
-                        <button type="button" class="terminals-trace-open" data-trace-id="${this._esc(r.trace_id)}">Details</button>
+                        <button type="button" class="terminals-trace-open" data-trace-id="${this._esc(r.trace_id)}">Spans</button>
                       </div>`;
-                    }).join('') : '<span class="terminals-empty">No traces yet.</span>');
+                    }).join('')}</div>` : '<span class="terminals-empty">No traces yet.</span>');
                     setCount('terminals-traces-count', fetchFailed ? 0 : traceRuns.length);
                     // A transient fetch failure is not "no traces". Flipping
                     // this to false would let the hero pop over live sections
