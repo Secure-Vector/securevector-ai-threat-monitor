@@ -14,6 +14,8 @@ import logging
 import secrets
 from typing import Optional
 
+import anyio.to_thread
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -27,7 +29,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from securevector.app.terminals.auth import TerminalAuth, get_auth
 from securevector.app.terminals.executors import ExecutorUnavailable, UnknownExecutor
-from securevector.app.terminals.manager import GuardHooksMissing, TerminalManager
+from securevector.app.terminals.gitinfo import workspace_branch
+from securevector.app.terminals.manager import (
+    GuardHooksMissing,
+    NotLinkable,
+    SessionAlreadyLinked,
+    TerminalManager,
+)
 from securevector.app.terminals.pty_host import PtyUnavailable
 
 logger = logging.getLogger(__name__)
@@ -52,12 +60,61 @@ async def require_write(request: Request, auth: TerminalAuth = Depends(get_auth)
     await auth.require_write(request)
 
 
+def _with_branch(items):
+    # Runs in a worker thread (see the callers): every branch lookup is a
+    # blocking read of a folder the app does not control.
+    # One disk read per distinct folder, not per task: a list of tasks is
+    # usually several tasks in the same checkout.
+    cache: dict = {}
+    for item in items:
+        ws = item.get("workspace") or ""
+        if ws not in cache:
+            cache[ws] = workspace_branch(ws) if ws else None
+        item["branch"] = cache[ws]
+    return items
+
+
+async def _decorate(manager: TerminalManager, items):
+    """Branch (blocking, worker thread) plus governed_at_launch (async DB).
+
+    Also the poll for linked tasks: they have no PTY exit to wait on, so
+    every board read is what moves them between working, idle and done.
+    The refresh is derived state, never new facts: it only rewrites a linked
+    row's own status from audit rows the Guard already wrote, so running it
+    under the read dependency is deliberate rather than an oversight.
+    """
+    items = await manager.refresh_linked(items)
+    items = await anyio.to_thread.run_sync(_with_branch, items)
+    ungoverned = manager.ungoverned_ids()
+    # The in-memory set only covers launches from THIS process, so every task
+    # it does not name falls back to the audit trail, finished ones included:
+    # how a task launched is a fact about the past, and a restart must not
+    # turn an ungoverned launch into a governed-looking one. One query for the
+    # whole page, not one per task, because this list is polled every few
+    # seconds.
+    unknown = [item["id"] for item in items if item["id"] not in ungoverned]
+    audited = await manager.store.tasks_with_event("guard_missing", unknown)
+    for item in items:
+        item["governed_at_launch"] = not (item["id"] in ungoverned or item["id"] in audited)
+    return items
+
+
 class SpawnRequest(BaseModel):
     # extra="forbid": argv, env, command or any other field is a 422. The
     # host decides how a task runs; the client only names what and where.
     model_config = ConfigDict(extra="forbid")
     executor_id: str = Field(min_length=1, max_length=64)
     workspace: str = Field(min_length=1, max_length=4096)
+    title: Optional[str] = Field(default=None, max_length=120)
+
+
+class LinkRequest(BaseModel):
+    # Same closed shape as SpawnRequest: the client names a harness and a
+    # session, never a command or an environment.
+    model_config = ConfigDict(extra="forbid")
+    executor_id: str = Field(min_length=1, max_length=64)
+    session_id: str = Field(min_length=1, max_length=128)
+    workspace: Optional[str] = Field(default=None, max_length=4096)
     title: Optional[str] = Field(default=None, max_length=120)
 
 
@@ -76,13 +133,17 @@ async def list_executors(manager: TerminalManager = Depends(get_manager)):
 @router.get("/tasks", dependencies=[Depends(require_read)])
 async def list_tasks(manager: TerminalManager = Depends(get_manager)):
     items = await manager.store.list_tasks()
+    items = await _decorate(manager, items)
     return {"items": items, "running": manager.running_count()}
 
 
 @router.post("/tasks", status_code=201, dependencies=[Depends(require_write)])
 async def spawn_task(body: SpawnRequest, manager: TerminalManager = Depends(get_manager)):
     try:
-        return await manager.spawn(body.executor_id, body.workspace, title=body.title, origin="ui")
+        task = await manager.spawn(
+            body.executor_id, body.workspace, title=body.title, origin="ui"
+        )
+        return (await _decorate(manager, [task]))[0]
     except UnknownExecutor as exc:
         raise HTTPException(status_code=400, detail="Unknown executor") from exc
     except NotADirectoryError as exc:
@@ -95,12 +156,37 @@ async def spawn_task(body: SpawnRequest, manager: TerminalManager = Depends(get_
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
+@router.post("/tasks/link", status_code=201, dependencies=[Depends(require_write)])
+async def link_task(body: LinkRequest, manager: TerminalManager = Depends(get_manager)):
+    """Put a harness session started outside the app on the board."""
+    try:
+        task = await manager.link_session(
+            body.executor_id,
+            body.session_id,
+            workspace=body.workspace,
+            title=body.title,
+        )
+        return (await _decorate(manager, [task]))[0]
+    except UnknownExecutor as exc:
+        raise HTTPException(status_code=400, detail="Unknown executor") from exc
+    except SessionAlreadyLinked as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/sessions/unlinked", dependencies=[Depends(require_read)])
+async def unlinked_sessions(manager: TerminalManager = Depends(get_manager)):
+    """Recent harness sessions the Guard reported that no task claims yet."""
+    return {"items": await manager.unlinked_sessions()}
+
+
 @router.get("/tasks/{task_id}", dependencies=[Depends(require_read)])
 async def get_task(task_id: str, manager: TerminalManager = Depends(get_manager)):
     task = await manager.store.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Unknown task")
-    return task
+    return (await _decorate(manager, [task]))[0]
 
 
 @router.post("/tasks/{task_id}/stop", dependencies=[Depends(require_write)])
@@ -109,6 +195,8 @@ async def stop_task(task_id: str, manager: TerminalManager = Depends(get_manager
         raise HTTPException(status_code=404, detail="Unknown task")
     try:
         await manager.stop(task_id, origin="ui")
+    except NotLinkable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError:
         pass  # already gone from the host; the row is authoritative
     return {"ok": True}

@@ -12,6 +12,7 @@ and return a signed, chained verdict.
 """
 
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -252,6 +253,30 @@ async def get_destinations(days: int = 30):
         "window_days": days,
         "distinct_hosts": len(rows),
         "write_capable": sum(1 for r in rows if (r.get("writes") or 0) > 0),
+        "destinations": rows,
+    }
+
+
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+@router.get("/egress/sessions/{session_id}/destinations")
+async def get_session_destinations(session_id: str, limit: int = 50):
+    """The hosts one session reached, blocked ones first.
+
+    Scoped to a single session so an attached terminal can show the reach of
+    the task in front of the operator instead of the whole machine's history.
+    The id is pattern-checked rather than passed straight through: it arrives
+    from a path segment and ends up in a query parameter.
+    """
+    if not _SESSION_ID_RE.match(session_id or ""):
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    repo = EgressRepository(get_database())
+    rows = await repo.session_destinations(session_id, limit=limit)
+    return {
+        "session_id": session_id,
+        "distinct_hosts": len(rows),
+        "blocked_hosts": sum(1 for r in rows if (r.get("blocked") or 0) > 0),
         "destinations": rows,
     }
 

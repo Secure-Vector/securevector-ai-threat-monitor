@@ -195,6 +195,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         47: migrate_to_v47,
         48: migrate_to_v48,
         49: migrate_to_v49,
+        50: migrate_to_v50,
     }
 
     if version in migrations:
@@ -2434,3 +2435,28 @@ async def migrate_to_v49(db: DatabaseConnection) -> None:
         "VALUES (49, CURRENT_TIMESTAMP, 'Agent Task board archive marker')"
     )
     logger.info("Applied migration v49: terminal task archive marker")
+
+
+async def migrate_to_v50(db: DatabaseConnection) -> None:
+    """v49 -> v50: where an Agent Task came from.
+
+    ``origin`` is 'launch' for a task this app spawned and owns a PTY for,
+    and 'linked' for a harness session that was started outside the app and
+    is governed here by its session id alone. A linked row has no pid and no
+    process to stop, so liveness comes from its audit trail instead of a PTY
+    exit. Idempotent; existing rows keep the 'launch' default.
+    """
+    conn = await db.connect()
+    columns = {row[1] for row in await (await conn.execute("PRAGMA table_info(terminal_tasks)")).fetchall()}
+    if "origin" not in columns:
+        await conn.execute(
+            "ALTER TABLE terminal_tasks ADD COLUMN origin TEXT NOT NULL DEFAULT 'launch'"
+        )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_terminal_tasks_origin ON terminal_tasks (origin, archived_at)"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (50, CURRENT_TIMESTAMP, 'Agent Task origin: launched or linked')"
+    )
+    logger.info("Applied migration v50: terminal task origin")

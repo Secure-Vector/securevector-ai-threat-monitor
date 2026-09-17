@@ -175,3 +175,52 @@ class TestProofRetrieval:
     async def test_get_proof_by_id_returns_none_when_absent(self, tmp_path):
         repo = await _repo(tmp_path)
         assert await repo.get_proof("does-not-exist") is None
+
+
+class TestSessionDestinations:
+    """Per-session reach, for the attached-terminal governance panel.
+
+    The panel sits next to one running task, so a row from another session
+    leaking in would read as that task's reach and would be wrong evidence.
+    """
+
+    @pytest.mark.asyncio
+    async def test_only_the_named_session_is_returned(self, tmp_path):
+        repo = await _repo(tmp_path)
+        await repo.log_attempts([_verdict("mine.example.com")], session_id="s1")
+        await repo.log_attempts([_verdict("theirs.example.com")], session_id="s2")
+        rows = await repo.session_destinations("s1")
+        assert [r["host"] for r in rows] == ["mine.example.com"]
+
+    @pytest.mark.asyncio
+    async def test_blocked_hosts_sort_first(self, tmp_path):
+        repo = await _repo(tmp_path)
+        for _ in range(3):
+            await repo.log_attempts([_verdict("busy.example.com")], session_id="s1")
+        await repo.log_attempts(
+            [_verdict("bad.example.com", action="block", rule_id="policy.denylist")],
+            session_id="s1",
+        )
+        rows = await repo.session_destinations("s1")
+        assert [r["host"] for r in rows] == ["bad.example.com", "busy.example.com"]
+        assert rows[0]["blocked"] == 1
+        assert rows[0]["hard_blocked"] == 1
+        assert rows[1]["calls"] == 3
+
+    @pytest.mark.asyncio
+    async def test_counts_writes_and_respects_limit(self, tmp_path):
+        repo = await _repo(tmp_path)
+        await repo.log_attempts(
+            [_verdict("a.example.com", operation="write")] * 2, session_id="s1")
+        await repo.log_attempts([_verdict("b.example.com")], session_id="s1")
+        rows = await repo.session_destinations("s1", limit=1)
+        assert len(rows) == 1
+        assert rows[0]["host"] == "a.example.com"
+        assert rows[0]["writes"] == 2
+        assert rows[0]["first_seen"] and rows[0]["last_seen"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_session_is_empty_not_everything(self, tmp_path):
+        repo = await _repo(tmp_path)
+        await repo.log_attempts([_verdict("a.example.com")], session_id="s1")
+        assert await repo.session_destinations("nope") == []

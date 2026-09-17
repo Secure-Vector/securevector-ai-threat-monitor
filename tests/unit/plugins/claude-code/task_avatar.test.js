@@ -1,6 +1,6 @@
-/** The task avatar is the Guardian figure on a round badge shared by the rail rows
- * and the Agent Tasks board: colour is task identity, state rides the ring,
- * eyes, and (for failed) an error badge. */
+/** The task avatar is the Guardian as a small sphere, one per task: the
+ * head is shaded as a sphere, the pods and eye glow carry a stable per-task
+ * colour, the eyes carry the state, and the figure idles with a bob. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -28,6 +28,16 @@ test('color() is deterministic, palette-bound, and spreads across the palette', 
   assert.ok(seen.size >= 5, `expected at least 5 distinct colours across 40 ids, got ${seen.size}`);
 });
 
+test('color() is fixed per harness and falls back to the id hash for unknown harnesses', () => {
+  const TaskAvatar = loadTaskAvatar();
+  assert.strictEqual(TaskAvatar.color('task-1', 'claude-code'), TaskAvatar.HARNESS_COLORS['claude-code']);
+  assert.strictEqual(TaskAvatar.color('task-2', 'claude-code'), TaskAvatar.color('task-9', 'claude-code'), 'every task of one harness shares its colour');
+  assert.notStrictEqual(TaskAvatar.color('task-1', 'codex'), TaskAvatar.color('task-1', 'claude-code'));
+  assert.strictEqual(TaskAvatar.color('task-1', 'unknown-harness'), TaskAvatar.color('task-1'));
+  const out = TaskAvatar.html({ id: 'task-1', harness: 'codex', state: 'active' });
+  assert.ok(out.includes(`--sv-bot-accent:${TaskAvatar.HARNESS_COLORS.codex}`));
+});
+
 test('color() falls back to the first palette entry for an empty id', () => {
   const TaskAvatar = loadTaskAvatar();
   assert.strictEqual(TaskAvatar.color(''), TaskAvatar.PALETTE[0]);
@@ -42,14 +52,14 @@ test('html() renders the requested state and falls back to active for an unknown
   assert.match(unknown, /sv-task-avatar-active/);
 });
 
-test('html() carries the task colour as a CSS variable and the Guardian-style markup', () => {
+test('html() carries the task colour and draws the sphere figure', () => {
   const TaskAvatar = loadTaskAvatar();
   const out = TaskAvatar.html({ id: 'task-7', state: 'active', label: 'Refactor' });
   const color = TaskAvatar.color('task-7');
-  assert.ok(out.includes(`--sv-task-hue:${color}`), 'the task colour must be set as a CSS variable');
-  assert.match(out, /<circle class="sv-ta-tile" cx="12" cy="12" r="11"\/>/, 'the badge must be a circle');
-  assert.ok(!/<rect class="sv-ta-tile"/.test(out), 'no square tile behind the Guardian');
-  const eyeCount = (out.match(/class="sv-ta-eye"/g) || []).length;
+  assert.ok(out.includes(`--sv-bot-accent:${color}`), 'the task colour rides the accent variable the Guardian uses');
+  assert.ok(!out.includes('sv-ta-tile'), 'no badge of any shape behind the figure');
+  assert.match(out, /<circle class="ta-head" cx="32" cy="34" r="24"\/>/, 'the head is a sphere');
+  const eyeCount = (out.match(/class="ta-eye"/g) || []).length;
   assert.strictEqual(eyeCount, 2, 'exactly two eyes');
 });
 
@@ -64,7 +74,7 @@ test('sidebar.js draws the avatar in the task-row branch and refreshes the rail 
   const sidebar = read('js/components/sidebar.js');
   assert.match(sidebar, /if \(view\.taskId\) \{[\s\S]*?TaskAvatar\.el\([\s\S]*?\}/,
     'the task-row branch must draw the shared avatar when TaskAvatar is available');
-  assert.ok(sidebar.includes('TaskAvatar.el({ id: view.taskId'),
+  assert.ok(sidebar.includes('TaskAvatar.el({ id: view.taskId, harness: view.harness'),
     'the rail row avatar must be keyed by the task id');
   assert.match(sidebar, /_agentTaskTimer/,
     'the rail rows must poll for state changes like the JIT badge does');
@@ -108,13 +118,14 @@ test('styles.css hides the task list while a task is focused', () => {
 test('html() renders the error badge for a failed task', () => {
   const TaskAvatar = loadTaskAvatar();
   const out = TaskAvatar.html({ id: 'task-1', state: 'failed' });
-  assert.match(out, /class="sv-ta-err"/);
+  assert.match(out, /sv-task-avatar-failed/);
+  assert.match(out, /sv-task-avatar-posture-concerned/, 'failed narrows the eyes');
 });
 
 test('html() renders both happy-eye paths for a completed task', () => {
   const TaskAvatar = loadTaskAvatar();
   const out = TaskAvatar.html({ id: 'task-1', state: 'completed' });
-  const happyCount = (out.match(/class="sv-ta-happy"/g) || []).length;
+  const happyCount = (out.match(/class="ta-happy"/g) || []).length;
   assert.strictEqual(happyCount, 2, 'a completed task must show both happy-eye paths');
 });
 
@@ -131,6 +142,24 @@ test('html() is decorative and hidden from assistive tech when no label is given
   assert.match(out, /aria-hidden="true"/);
   assert.ok(!out.includes('role="img"'), 'a decorative avatar must not carry role="img"');
   assert.ok(!out.includes('aria-label='), 'a decorative avatar must not carry aria-label');
+});
+
+test('html() drops the blur filters below 24px and survives a missing document.body', () => {
+  const src = read('js/components/task-avatar.js');
+  const appended = [];
+  const sandbox = { window: {}, document: {
+    getElementById: () => null,
+    createElement: () => ({ style: {}, set innerHTML(v) { this.firstElementChild = { id: 'sv-task-avatar-defs' }; }, set textContent(v) { this._t = v; }, get textContent() { return this._t; } }),
+    head: { appendChild: (el) => appended.push('head') },
+    body: null,
+    documentElement: { appendChild: (el) => appended.push('root') },
+  } };
+  vm.runInNewContext(src, sandbox);
+  const TA = sandbox.window.TaskAvatar;
+  const small = TA.html({ id: 'x', state: 'active', size: 18 });
+  assert.match(small, /sv-task-avatar-tiny/, 'tiny avatars get the flat treatment');
+  assert.ok(!/sv-task-avatar-tiny/.test(TA.html({ id: 'x', state: 'active', size: 30 })));
+  assert.ok(appended.includes('root'), 'defs fall back to documentElement when body is missing');
 });
 
 test('html() falls back to size 22 for a non-numeric size', () => {
@@ -152,30 +181,59 @@ test('styles.css scopes failed and rail-specific avatar rules', () => {
     'the label after the avatar must take the remaining row width');
 });
 
-test('the avatar mirrors the Guardian bot figure: head, two pods, one visor', () => {
+test('the avatar is the Guardian figure: sphere head, two pods, one visor, glowing eyes', () => {
   const TaskAvatar = loadTaskAvatar();
   const out = TaskAvatar.html({ id: 'task-1', state: 'active' });
-  assert.match(out, /class="sv-ta-head"/, 'the Guardian head shape must be drawn');
-  assert.strictEqual((out.match(/class="sv-ta-pod"/g) || []).length, 2,
+  assert.match(out, /class="ta-head"/, 'the head must be drawn');
+  assert.strictEqual((out.match(/class="ta-pod"/g) || []).length, 2,
     'the bot has one side pod per ear');
-  assert.strictEqual((out.match(/class="sv-ta-visor"/g) || []).length, 1,
+  assert.strictEqual((out.match(/class="ta-visor"/g) || []).length, 1,
     'one dark visor carries the eyes');
+  assert.strictEqual((out.match(/class="ta-halo"/g) || []).length, 2,
+    'each eye glows in the task colour');
 });
 
-test('styles.css keeps the avatar round and carries light-theme state rings', () => {
+test('styles.css draws no badge or ring around the figure', () => {
   const css = read('css/styles.css');
-  assert.match(css, /\.sv-task-avatar \{[^}]*border-radius: 50%/, 'the state ring must follow the round badge');
-  for (const state of ['approval', 'completed', 'interrupted']) {
-    assert.match(css, new RegExp(`\\[data-theme="light"\\] \\.sv-task-avatar-${state} \\{ box-shadow`),
-      `the ${state} ring needs a light-theme shade`);
-  }
-  assert.match(css, /\[data-theme="light"\] \.sv-task-avatar-blocked, \[data-theme="light"\] \.sv-task-avatar-failed \{ box-shadow/);
+  assert.ok(!css.includes('.sv-ta-tile'), 'no tile rule may remain');
+  assert.ok(!/\.sv-task-avatar[^{]*\{[^}]*box-shadow/.test(css), 'no state ring around the figure');
+});
+
+test('html() injects its defs and style once per document and idles with a bob', () => {
+  const src = read('js/components/task-avatar.js');
+  const created = [];
+  const ids = new Set();
+  const mk = () => {
+    const el = { style: {}, children: [], set innerHTML(v) { this._html = v; this.firstElementChild = { id: /id="([^"]+)"/.exec(v)?.[1] }; }, get textContent() { return this._t; }, set textContent(v) { this._t = v; } };
+    created.push(el);
+    return el;
+  };
+  const sandbox = { window: {}, document: {
+    getElementById: (id) => (ids.has(id) ? {} : null),
+    createElement: () => mk(),
+    head: { appendChild: (el) => { ids.add(el.id); } },
+    body: { appendChild: (el) => { ids.add(el.id); } },
+  } };
+  vm.runInNewContext(src, sandbox);
+  const TA = sandbox.window.TaskAvatar;
+  TA.html({ id: 'a', state: 'active' });
+  TA.html({ id: 'b', state: 'completed' });
+  assert.ok(ids.has('sv-task-avatar-style'), 'the style block is injected');
+  assert.ok(ids.has('sv-task-avatar-defs'), 'the shared defs block is injected');
+  const style = created.find(e => e.id === 'sv-task-avatar-style');
+  assert.match(style.textContent, /@keyframes sv-ta-bob/, 'the figure bobs');
+  assert.match(style.textContent, /@keyframes sv-ta-sway/, 'the figure sways');
+  assert.match(style.textContent, /prefers-reduced-motion: reduce/, 'motion respects the OS setting');
+  assert.match(style.textContent, /\.sv-task-avatar \.ta-pod \{ fill: var\(--sv-bot-accent/, 'the pods carry the task colour');
+  assert.match(style.textContent, /\[data-theme="light"\] \.sv-task-avatar \.ta-head/, 'the sphere has a light-theme shade');
 });
 
 test('the eyes are static: nothing breathes, blinks, or wanders', () => {
   const css = read('css/styles.css');
-  assert.ok(!css.includes('sv-task-avatar-breathe'),
-    'the avatar eyes must not animate');
+  const avatar = read('js/components/task-avatar.js');
+  const eyeRule = /\.sv-task-avatar \.ta-eye \{([^}]*)\}/.exec(avatar);
+  assert.ok(eyeRule && !/animation/.test(eyeRule[1]), 'the eyes themselves never animate');
+  assert.ok(!avatar.includes('sv-ta-blink'), 'no blink keyframes');
   const bot = read('js/components/guardian-bot.js');
   assert.ok(!bot.includes('gb-blink'), 'the Guardian bot must not blink');
   assert.ok(!bot.includes('gb-wander'), 'the Guardian bot pupils must not wander');

@@ -963,6 +963,9 @@ const API = {
         return this.request(`/api/egress/destinations?days=${days}`)
             .catch(() => ({ destinations: [], distinct_hosts: 0 }));
     },
+    async getEgressSessionDestinations(sessionId) {
+        return this.request(`/api/egress/sessions/${encodeURIComponent(sessionId)}/destinations`);
+    },
     async getEgressScope(days = 7) {
         return this.request(`/api/egress/scope?days=${days}`).catch(() => null);
     },
@@ -1048,6 +1051,12 @@ const API = {
     async terminalsExecutors() {
         return this._terminalsRead('/api/terminals/executors');
     },
+    async installGuard(executorId) {
+        const res = await fetch(`/api/hooks/${encodeURIComponent(executorId)}/install`, { method: 'POST', credentials: 'same-origin' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || body.message || `Guard install failed (${res.status})`);
+        return body;
+    },
     async terminalsArchive(taskId) {
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(taskId)}/archive`, {});
     },
@@ -1059,6 +1068,17 @@ const API = {
     },
     async terminalsLaunch(executorId, workspace, title) {
         return this._terminalsWrite('/api/terminals/tasks', { executor_id: executorId, workspace, title: title || null });
+    },
+    async terminalsLink(executorId, sessionId, workspace, title) {
+        return this._terminalsWrite('/api/terminals/tasks/link', {
+            executor_id: executorId,
+            session_id: sessionId,
+            workspace: workspace || null,
+            title: title || null,
+        });
+    },
+    async terminalsUnlinkedSessions() {
+        return this._terminalsRead('/api/terminals/sessions/unlinked');
     },
     async terminalsStop(id) {
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`);

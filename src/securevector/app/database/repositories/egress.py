@@ -242,6 +242,41 @@ class EgressRepository:
             row["promotable"] = not row.pop("hard_blocked")
         return rows
 
+    async def session_destinations(self, session_id: str, limit: int = 50) -> list:
+        """Every external host one session reached, blocked ones first.
+
+        `destination_inventory` answers "where did this machine go"; the
+        attached-terminal panel needs "where did *this* task go", which is the
+        same grouping narrowed to one session so the operator reads the reach
+        of the agent in front of them rather than the machine's whole history.
+        """
+        conn = await self.db.connect()
+        placeholders = ", ".join("?" for _ in self.NON_PROMOTABLE_RULES)
+        cur = await conn.execute(
+            f"""
+            SELECT host,
+                   COUNT(*)                                        AS calls,
+                   SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked,
+                   SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) AS writes,
+                   MAX(CASE WHEN action = 'block'
+                             AND rule_id IN ({placeholders})
+                            THEN 1 ELSE 0 END)                     AS hard_blocked,
+                   MIN(timestamp)                                  AS first_seen,
+                   MAX(timestamp)                                  AS last_seen
+            FROM egress_audit
+            WHERE host IS NOT NULL
+              AND session_id = ?
+            GROUP BY host
+            ORDER BY blocked DESC, calls DESC
+            LIMIT ?
+            """,
+            (*self.NON_PROMOTABLE_RULES, session_id,
+             max(1, min(int(limit), 500))),
+        )
+        cols = ["host", "calls", "blocked", "writes", "hard_blocked",
+                "first_seen", "last_seen"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
     async def session_scope(self, days: int = 7, limit: int = 50) -> list:
         """Per-session egress shape: how wide, how novel, how fast.
 

@@ -1051,7 +1051,19 @@ const Sidebar = {
         const wrap = document.createElement('div');
         wrap.className = 'nav-views' + (open ? ' open' : '') + (item.id === 'terminals' ? ' nav-views-tasks' : '');
         wrap.dataset.viewsFor = item.id;
+        // One folder needs no headers; several do, or the rail reads as one
+        // undifferentiated pile of tasks.
+        const groups = new Set(item.views.filter(v => v.taskId).map(v => v.group));
+        const headed = new Set();
         item.views.forEach(view => {
+            if (view.taskId && groups.size > 1 && !headed.has(view.group)) {
+                headed.add(view.group);
+                const head = document.createElement('div');
+                head.className = 'nav-tasks-group';
+                head.title = view.group || '';
+                head.textContent = this._shortFolder(view.group);
+                wrap.appendChild(head);
+            }
             const row = document.createElement('div');
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
             row.dataset.page = view.id;
@@ -1066,7 +1078,7 @@ const Sidebar = {
             if (view.icon) row.appendChild(this.createIcon(view.icon));
             if (view.taskId) {
                 if (window.TaskAvatar) {
-                    row.appendChild(TaskAvatar.el({ id: view.taskId, state: view.state, size: 22 }));
+                    row.appendChild(TaskAvatar.el({ id: view.taskId, harness: view.harness, state: view.state, size: 30 }));
                 } else {
                     const agent = document.createElement('span');
                     agent.className = `sv-task-agent sv-task-agent-${view.state || 'active'}`;
@@ -1076,9 +1088,39 @@ const Sidebar = {
                     row.appendChild(agent);
                 }
             }
-            const lbl = document.createElement('span');
-            lbl.textContent = view.label;
-            row.appendChild(lbl);
+            if (view.taskId) {
+                const text = document.createElement('span');
+                text.className = 'nav-task-text';
+                const title = document.createElement('span');
+                title.className = 'nav-task-title';
+                title.textContent = view.label;
+                // A live task is the one thing on this rail that changes while
+                // nobody is looking at it, so it gets the only moving element.
+                if (view.state === 'active') {
+                    const live = document.createElement('i');
+                    live.className = 'nav-task-live';
+                    live.setAttribute('aria-hidden', 'true');
+                    title.appendChild(live);
+                }
+                // A session running in the user's own terminal reads the same
+                // on the rail as one the app launched, so it says which it is.
+                if (view.linked) {
+                    const chip = document.createElement('span');
+                    chip.className = 'nav-task-linked';
+                    chip.textContent = 'linked';
+                    title.appendChild(chip);
+                }
+                const sub = document.createElement('span');
+                sub.className = 'nav-task-sub';
+                sub.textContent = view.sub || '';
+                text.appendChild(title);
+                text.appendChild(sub);
+                row.appendChild(text);
+            } else {
+                const lbl = document.createElement('span');
+                lbl.textContent = view.label;
+                row.appendChild(lbl);
+            }
             if (view.count) {
                 const cnt = document.createElement('span');
                 cnt.className = 'nav-count';
@@ -1143,21 +1185,39 @@ const Sidebar = {
                 if (!parent) return;
                 const pendingSessions = new Set((approvals.items || []).map(item => item.session_id).filter(Boolean));
                 parent.views = [
-                    ...(result.items || []).map(task => ({
-                        id: 'terminals', taskId: task.id,
-                        state: this._agentTaskState(task, pendingSessions.has(task.session_id)),
-                        label: task.title || task.executor_id,
-                        tooltip: `${task.executor_id} · ${task.workspace}`,
-                    })),
+                    ...(result.items || []).map(task => {
+                        const state = this._agentTaskState(task, pendingSessions.has(task.session_id));
+                        return {
+                            id: 'terminals', taskId: task.id, harness: task.executor_id,
+                            state,
+                            label: task.title || task.executor_id,
+                            linked: task.origin === 'linked',
+                            sub: this._taskSubtitle(task, state),
+                            group: task.workspace || '',
+                            tooltip: `${task.executor_id} · ${task.workspace}`,
+                        };
+                    }),
                 ];
                 // Rows and states only: this signature does not include which
                 // row is selected, so it never forces a re-render on its own
                 // when only the attached/selected task changes.
-                const sig = parent.views.map(v => [v.taskId, v.state || '', v.label].join(':')).join('|');
+                const sig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.sub || '', v.group || ''].join(':')).join('|');
+                // Same rows, same states, same folders: only the subtitles can
+                // differ. Kept as its own signature rather than parsed back out
+                // of `sig`, whose fields may themselves contain a separator.
+                const rowSig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.group || ''].join(':')).join('|');
                 this._agentTaskViewsLoaded = true;
                 if (sig !== this._agentTaskSig) {
+                    const sameRows = this._agentTaskRowSig === rowSig;
                     this._agentTaskSig = sig;
+                    this._agentTaskRowSig = rowSig;
+                    // The subtitle carries a clock, so it changes on its own
+                    // every minute. Re-rendering the whole rail for that would
+                    // drop keyboard focus and reset scroll once a minute.
+                    if (sameRows && this._patchTaskSubtitles(parent.views)) return;
                     this.render();
+                } else {
+                    this._agentTaskRowSig = rowSig;
                 }
             })
             .catch(() => { this._agentTaskViewsLoaded = true; })
@@ -1170,9 +1230,57 @@ const Sidebar = {
             });
     },
 
+    // Writes each task row's subtitle in place. Returns false when the rail is
+    // not on screen in the expected shape, so the caller falls back to a full
+    // render rather than leaving stale text behind.
+    _patchTaskSubtitles(views) {
+        const root = document.querySelector('.nav-views.nav-views-tasks');
+        if (!root) return false;
+        const rows = new Map();
+        root.querySelectorAll('.nav-item.nav-view[data-task-id]').forEach(row => {
+            const sub = row.querySelector('.nav-task-sub');
+            if (sub) rows.set(row.dataset.taskId, sub);
+        });
+        const tasks = views.filter(v => v.taskId);
+        if (!tasks.length || rows.size !== tasks.length) return false;
+        for (const view of tasks) {
+            if (!rows.has(view.taskId)) return false;
+        }
+        for (const view of tasks) rows.get(view.taskId).textContent = view.sub || '';
+        return true;
+    },
+
     refreshAgentTaskViews() {
         this._agentTaskViewsLoaded = false;
         this._loadAgentTaskViews(true);
+    },
+
+    HARNESS_LABELS: { 'claude-code': 'Claude Code', codex: 'Codex', 'copilot-cli': 'Copilot CLI', opencode: 'OpenCode' },
+    // The rail answers "which harness, and is it waiting on me". A live task
+    // shows how long it has been going instead of repeating what the avatar
+    // already says with its ring.
+    _taskSubtitle(task, state) {
+        const harness = this.HARNESS_LABELS[task.executor_id] || task.executor_id;
+        if (state === 'approval') return `${harness} · needs approval`;
+        if (state === 'blocked') return `${harness} · blocked`;
+        if (state === 'completed') return `${harness} · done`;
+        if (state === 'failed') return `${harness} · stopped`;
+        if (state === 'interrupted') return `${harness} · interrupted`;
+        return `${harness} · ${this._sinceShort(task.created_at)}`;
+    },
+    // Minute granularity on purpose: the rail signature includes the subtitle,
+    // so a finer unit would redraw the whole rail every poll.
+    _sinceShort(iso) {
+        const s = Date.parse(iso);
+        if (!s) return 'running';
+        const m = Math.max(0, Math.floor((Date.now() - s) / 60000));
+        if (m < 1) return 'just launched';
+        if (m < 60) return `${m}m`;
+        return `${Math.floor(m / 60)}h ${m % 60}m`;
+    },
+    _shortFolder(p) {
+        const parts = (p || '').split('/').filter(Boolean);
+        return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : (p || '');
     },
 
     _agentTaskState(task, waitingApproval = false) {

@@ -30,8 +30,9 @@ test('finished tasks can be relaunched without replacing their original session'
     'the freshly-created task should be shown and attached after relaunch');
 });
 
-test('the page presents task sessions as a card-first governed workspace', () => {
-  assert.match(page, /terminals-eyebrow">Governed workspace/);
+test('the page presents task sessions as a quiet single-surface workspace', () => {
+  assert.doesNotMatch(page, /terminals-eyebrow/,
+    'the hero eyebrow is gone from the flattened task head');
   assert.match(page, /terminals-stage-empty/,
     'an unattached terminal should show a useful workspace state instead of a blank pane');
   assert.match(page, /terminals-task-select/,

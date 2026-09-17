@@ -107,6 +107,93 @@ def test_spawn_list_stop(env):
     assert [e["kind"] for e in r.json()["items"]][:2] == ["spawn", "stop"]
 
 
+def test_task_rows_carry_a_branch_key(env):
+    client, _, ws, _ = env
+    r = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    task_id = r.json()["id"]
+    # The fixture workspace is a plain tmp folder, not a checkout, so the
+    # branch is present but null rather than absent.
+    items = client.get("/api/terminals/tasks", headers=AUTH).json()["items"]
+    assert [t["branch"] for t in items] == [None]
+    assert client.get(f"/api/terminals/tasks/{task_id}", headers=AUTH).json()["branch"] is None
+
+
+def test_task_rows_carry_governed_at_launch(env):
+    client, manager, ws, _ = env
+    governed_id = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    ).json()["id"]
+    # Same manager, Guard plugin now gone: the next launch is ungoverned.
+    manager.settings.plugin_dir = lambda: None
+    r = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    ungoverned_id = r.json()["id"]
+
+    rows = {t["id"]: t for t in client.get("/api/terminals/tasks", headers=AUTH).json()["items"]}
+    assert rows[governed_id]["governed_at_launch"] is True
+    assert rows[ungoverned_id]["governed_at_launch"] is False
+    one = client.get(f"/api/terminals/tasks/{ungoverned_id}", headers=AUTH).json()
+    assert one["governed_at_launch"] is False
+
+    # The in-memory set is not the only source: a restart-equivalent clear
+    # still reads the ungoverned launch off the audit trail.
+    manager.ungoverned_ids().clear()
+    rows = {t["id"]: t for t in client.get("/api/terminals/tasks", headers=AUTH).json()["items"]}
+    assert rows[ungoverned_id]["governed_at_launch"] is False
+    assert rows[governed_id]["governed_at_launch"] is True
+
+
+def test_a_finished_ungoverned_task_still_reports_governed_at_launch_false(env):
+    client, manager, ws, _ = env
+    manager.settings.plugin_dir = lambda: None
+    task_id = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    ).json()["id"]
+    # The harness exits: the task is finished, but how it launched does not change.
+    asyncio.run(manager.store.set_exit(task_id, 0))
+
+    row = client.get(f"/api/terminals/tasks/{task_id}", headers=AUTH).json()
+    assert row["status"] == "done"
+    assert row["governed_at_launch"] is False
+
+    # Same answer after a restart, when the in-memory set is empty.
+    manager.ungoverned_ids().clear()
+    row = client.get(f"/api/terminals/tasks/{task_id}", headers=AUTH).json()
+    assert row["governed_at_launch"] is False
+    items = {t["id"]: t for t in client.get("/api/terminals/tasks", headers=AUTH).json()["items"]}
+    assert items[task_id]["governed_at_launch"] is False
+
+
+def test_task_rows_report_the_workspace_branch(env):
+    client, _, ws, _ = env
+    git = Path(ws) / ".git"
+    git.mkdir()
+    (git / "HEAD").write_text("ref: refs/heads/feat/x\n", encoding="utf-8")
+    r = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    task_id = r.json()["id"]
+    items = client.get("/api/terminals/tasks", headers=AUTH).json()["items"]
+    assert [t["branch"] for t in items] == ["feat/x"]
+    assert client.get(f"/api/terminals/tasks/{task_id}", headers=AUTH).json()["branch"] == "feat/x"
+
+
 def test_spawn_rejects_client_supplied_argv_or_env(env):
     client, _, ws, _ = env
     for extra in ({"argv": ["bash"]}, {"env": {"X": "1"}}, {"command": "rm -rf /"}):
@@ -132,14 +219,19 @@ def test_spawn_rejects_unknown_executor_and_bad_workspace(env):
     assert r.status_code == 400
 
 
-def test_spawn_refuses_without_guard_hooks(env):
+def test_spawn_without_guard_hooks_succeeds_and_is_audited(env):
     client, manager, ws, _ = env
     manager.settings.plugin_dir = lambda: None
     r = client.post(
         "/api/terminals/tasks", json={"executor_id": "claude-code", "workspace": ws}, headers=AUTH
     )
-    assert r.status_code == 409
-    assert "Guard" in r.json()["detail"]
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["governed_at_launch"] is False
+    events = client.get(
+        f"/api/terminals/tasks/{body['id']}/events", headers=AUTH
+    ).json()["items"]
+    assert [e["detail"] for e in events if e["kind"] == "guard_missing"]
 
 
 def test_spawn_without_ui_auth_is_forbidden(env):
@@ -376,3 +468,128 @@ def test_stop_all_stops_every_running_task(tmp_path):
         # "failed", matching test_manager.py's test_exit_marks_done_and_stop_marks_stopped.
         for task_id in ids:
             assert statuses[task_id] == "failed"
+
+
+# --- linked sessions -------------------------------------------------------
+
+
+def _stamp(minutes_ago: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
+def _seed_audit(db, *, session_id, function_name, called_at, runtime_kind="codex"):
+    asyncio.run(
+        db.execute(
+            "INSERT INTO tool_call_audit "
+            "(tool_id, function_name, action, risk, reason, is_essential, args_preview, "
+            "called_at, session_id, runtime_kind) "
+            "VALUES (?, ?, 'allow', NULL, NULL, 0, NULL, ?, ?, ?)",
+            (function_name, function_name, called_at, session_id, runtime_kind),
+        )
+    )
+
+
+def test_link_route_puts_an_outside_session_on_the_board(env):
+    client, _manager, ws, _db = env
+    r = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "sess-abc12345", "workspace": ws},
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    task = r.json()
+    assert task["origin"] == "linked" and task["pid"] is None
+    assert task["session_id"] == "sess-abc12345"
+    # _decorate still runs: branch and governed_at_launch are present.
+    assert "branch" in task and task["governed_at_launch"] is True
+
+    listed = client.get("/api/terminals/tasks", headers=AUTH).json()["items"]
+    assert [t["origin"] for t in listed] == ["linked"]
+    one = client.get(f"/api/terminals/tasks/{task['id']}", headers=AUTH).json()
+    assert one["origin"] == "linked"
+
+
+def test_link_route_validates_and_refuses_duplicates(env):
+    client, *_ = env
+    bad = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "short"},
+        headers=AUTH,
+    )
+    assert bad.status_code == 400
+
+    unknown = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "nope", "session_id": "sess-abc12345"},
+        headers=AUTH,
+    )
+    assert unknown.status_code == 400
+
+    extra = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "sess-abc12345", "argv": ["sh"]},
+        headers=AUTH,
+    )
+    assert extra.status_code == 422
+
+    first = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "sess-abc12345"},
+        headers=AUTH,
+    )
+    assert first.status_code == 201
+    again = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "sess-abc12345"},
+        headers=AUTH,
+    )
+    assert again.status_code == 409
+
+
+def test_stop_is_refused_for_a_linked_task(env):
+    client, *_ = env
+    task = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "sess-abc12345"},
+        headers=AUTH,
+    ).json()
+    r = client.post(f"/api/terminals/tasks/{task['id']}/stop", headers=AUTH)
+    assert r.status_code == 409
+    assert r.json()["detail"] == "This session runs outside SecureVector"
+
+
+def test_unlinked_sessions_route_lists_only_unclaimed_recent_sessions(env):
+    client, _manager, _ws, db = env
+    _seed_audit(db, session_id="sess-free1234", function_name="Bash", called_at=_stamp(2))
+    _seed_audit(db, session_id="sess-taken123", function_name="Read", called_at=_stamp(1))
+
+    rows = client.get("/api/terminals/sessions/unlinked", headers=AUTH).json()["items"]
+    assert {r["session_id"] for r in rows} == {"sess-free1234", "sess-taken123"}
+    assert rows[0]["session_id"] == "sess-taken123"  # newest first
+    assert rows[0]["label"] == "Codex"
+
+    client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "sess-taken123"},
+        headers=AUTH,
+    )
+    rows = client.get("/api/terminals/sessions/unlinked", headers=AUTH).json()["items"]
+    assert [r["session_id"] for r in rows] == ["sess-free1234"]
+
+
+def test_listing_the_board_moves_a_stale_linked_task_to_done(env):
+    client, _manager, _ws, db = env
+    task = client.post(
+        "/api/terminals/tasks/link",
+        json={"executor_id": "codex", "session_id": "sess-abc12345"},
+        headers=AUTH,
+    ).json()
+    _seed_audit(db, session_id="sess-abc12345", function_name="Bash", called_at=_stamp(45))
+
+    listed = client.get("/api/terminals/tasks", headers=AUTH).json()["items"]
+    row = next(t for t in listed if t["id"] == task["id"])
+    assert row["status"] == "done" and row["ended_at"] is not None

@@ -6,9 +6,11 @@ import pytest
 
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.migrations import run_migrations
+from securevector.app.terminals.executors import UnknownExecutor
 from securevector.app.terminals.manager import (
-    GuardHooksMissing,
     ManagerSettings,
+    NotLinkable,
+    SessionAlreadyLinked,
     TerminalManager,
     status_from_hook,
 )
@@ -106,6 +108,16 @@ def _fake_claude_bin(tmp_path) -> Path:
     return tmp_bin
 
 
+def _stub_binary(tmp_path, name: str) -> None:
+    """Put one more executable stub on the child PATH built by
+    _fake_claude_bin, so build_launch's which() check passes for it."""
+    tmp_bin = tmp_path / "bin"
+    tmp_bin.mkdir(exist_ok=True)
+    stub = tmp_bin / name
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 async def _manager(
     tmp_path, host=None, plugin_installed=True, plugin_enabled=False, codex_plugin_enabled=False,
     copilot_cli_plugin_enabled=False, opencode_plugin_enabled=False,
@@ -155,18 +167,34 @@ async def test_spawn_omits_plugin_dir_when_plugin_already_enabled(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_spawn_refuses_without_guard_hooks(tmp_path):
+async def test_spawn_without_guard_hooks_launches_ungoverned(tmp_path):
     m, ws = await _manager(tmp_path, plugin_installed=False)
-    with pytest.raises(GuardHooksMissing):
-        await m.spawn("claude-code", str(ws), title=None, origin="ui")
-    assert await m.store.list_tasks() == []
+    task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    assert task["id"] in m.ungoverned_ids()
+    assert "--plugin-dir" not in m.host.launches[task["id"]].argv
+    events = await m.store.list_events(task["id"])
+    missing = [e for e in events if e["kind"] == "guard_missing"]
+    assert len(missing) == 1
+    assert missing[0]["origin"] == "ui"
+    assert "Claude Code Guard" in missing[0]["detail"]
 
 
 @pytest.mark.asyncio
-async def test_codex_spawn_requires_its_own_guard_plugin_and_has_no_claude_flags(tmp_path):
+async def test_spawn_with_guard_hooks_records_no_guard_missing_event(tmp_path):
+    m, ws = await _manager(tmp_path, plugin_installed=True)
+    task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    assert task["id"] not in m.ungoverned_ids()
+    events = await m.store.list_events(task["id"])
+    assert not [e for e in events if e["kind"] == "guard_missing"]
+
+
+@pytest.mark.asyncio
+async def test_codex_spawn_without_its_guard_plugin_is_ungoverned_and_has_no_claude_flags(tmp_path):
     m, ws = await _manager(tmp_path)
-    with pytest.raises(GuardHooksMissing, match="Codex Guard"):
-        await m.spawn("codex", str(ws), title=None, origin="ui")
+    ungoverned = await m.spawn("codex", str(ws), title=None, origin="ui")
+    assert ungoverned["id"] in m.ungoverned_ids()
+    events = await m.store.list_events(ungoverned["id"])
+    assert [e["detail"] for e in events if e["kind"] == "guard_missing"]
     enabled_root = tmp_path / "enabled"
     enabled_root.mkdir()
     m, ws = await _manager(enabled_root, codex_plugin_enabled=True)
@@ -178,19 +206,23 @@ async def test_codex_spawn_requires_its_own_guard_plugin_and_has_no_claude_flags
 
 
 @pytest.mark.asyncio
-async def test_copilot_cli_spawn_requires_its_guard_plugin(tmp_path):
+async def test_copilot_cli_spawn_without_its_guard_plugin_is_ungoverned(tmp_path):
     m, ws = await _manager(tmp_path)
-    with pytest.raises(GuardHooksMissing, match="Copilot CLI Guard"):
-        await m.spawn("copilot-cli", str(ws), title=None, origin="ui")
-    assert await m.store.list_tasks() == []
+    _stub_binary(tmp_path, "copilot")
+    task = await m.spawn("copilot-cli", str(ws), title=None, origin="ui")
+    assert task["id"] in m.ungoverned_ids()
+    events = await m.store.list_events(task["id"])
+    assert any("Copilot CLI Guard" in e["detail"] for e in events if e["kind"] == "guard_missing")
 
 
 @pytest.mark.asyncio
-async def test_opencode_spawn_requires_its_guard_plugin(tmp_path):
+async def test_opencode_spawn_without_its_guard_plugin_is_ungoverned(tmp_path):
     m, ws = await _manager(tmp_path)
-    with pytest.raises(GuardHooksMissing, match="OpenCode Guard"):
-        await m.spawn("opencode", str(ws), title=None, origin="ui")
-    assert await m.store.list_tasks() == []
+    _stub_binary(tmp_path, "opencode")
+    task = await m.spawn("opencode", str(ws), title=None, origin="ui")
+    assert task["id"] in m.ungoverned_ids()
+    events = await m.store.list_events(task["id"])
+    assert any("OpenCode Guard" in e["detail"] for e in events if e["kind"] == "guard_missing")
 
 
 @pytest.mark.asyncio
@@ -207,7 +239,7 @@ async def test_executor_status_reports_installed_and_governed(tmp_path):
     codex = rows["codex"]
     assert codex["installed"] is True and codex["governed"] is False
     assert codex["hint"] == (
-        "Enable or reinstall the Codex Guard plugin in Integrations before launching a task."
+        "Codex Guard is not enabled. Tasks launch ungoverned until you install it."
     )
 
     copilot = rows["copilot-cli"]
@@ -221,8 +253,7 @@ async def test_executor_status_reports_claude_code_ungoverned_without_plugin(tmp
     claude = {row["id"]: row for row in m.executor_status()}["claude-code"]
     assert claude["installed"] is True and claude["governed"] is False
     assert claude["hint"] == (
-        "Enable or reinstall the Claude Code Guard plugin in Integrations "
-        "before launching a task."
+        "Claude Code Guard is not enabled. Tasks launch ungoverned until you install it."
     )
 
 
@@ -479,3 +510,167 @@ async def test_spawn_cleans_up_and_reraises_on_failed_spawn(tmp_path):
     # spawn that fails produces exactly one audit event.
     assert kinds == ["spawn_failed"]
     assert "RuntimeError" in events[0]["detail"]
+
+
+# --- linked sessions -------------------------------------------------------
+
+
+def _stamp(minutes_ago: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
+async def _audit(manager, *, session_id, function_name, called_at, runtime_kind="codex"):
+    await manager.store.db.execute(
+        "INSERT INTO tool_call_audit "
+        "(tool_id, function_name, action, risk, reason, is_essential, args_preview, "
+        "called_at, session_id, runtime_kind) "
+        "VALUES (?, ?, 'allow', NULL, NULL, 0, NULL, ?, ?, ?)",
+        (function_name, function_name, called_at, session_id, runtime_kind),
+    )
+
+
+@pytest.mark.asyncio
+async def test_link_session_creates_a_linked_task_and_audits_it(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace="/repo", title="Outside run")
+
+    assert task["origin"] == "linked" and task["pid"] is None
+    assert task["status"] == "working" and task["activity"] == "linked"
+    assert task["session_id"] == "sess-abc12345" and task["workspace"] == "/repo"
+    assert task["title"] == "Outside run"
+    kinds = [e["kind"] for e in await m.store.list_events(task["id"])]
+    assert kinds == ["linked"]
+    detail = (await m.store.list_events(task["id"]))[0]["detail"]
+    assert detail == "Linked Codex session sess-abc12345"
+
+
+@pytest.mark.asyncio
+async def test_link_session_without_a_folder_says_so_rather_than_guessing(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace=None, title=None)
+    assert task["workspace"] == "(unknown folder)"
+
+
+@pytest.mark.asyncio
+async def test_link_session_rejects_unknown_executors_and_bad_session_ids(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    with pytest.raises(UnknownExecutor):
+        await m.link_session("nope", "sess-abc12345", workspace=None, title=None)
+    for bad in ("short", "has space", "has/slash", "x" * 129, ""):
+        with pytest.raises(ValueError):
+            await m.link_session("codex", bad, workspace=None, title=None)
+
+
+@pytest.mark.asyncio
+async def test_link_session_refuses_a_session_already_on_the_board(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    await m.link_session("codex", "sess-abc12345", workspace=None, title=None)
+    with pytest.raises(SessionAlreadyLinked):
+        await m.link_session("codex", "sess-abc12345", workspace=None, title=None)
+
+
+@pytest.mark.asyncio
+async def test_stop_refuses_a_linked_task(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace=None, title=None)
+    with pytest.raises(NotLinkable):
+        await m.stop(task["id"], origin="ui")
+
+
+@pytest.mark.asyncio
+async def test_refresh_linked_walks_working_then_idle_then_done(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace="/repo", title=None)
+    sid = task["session_id"]
+
+    await _audit(m, session_id=sid, function_name="Bash", called_at=_stamp(1))
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["status"] == "working" and row["ended_at"] is None
+
+    await m.store.db.execute("DELETE FROM tool_call_audit")
+    await _audit(m, session_id=sid, function_name="Bash", called_at=_stamp(10))
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["status"] == "idle" and row["ended_at"] is None
+
+    await m.store.db.execute("DELETE FROM tool_call_audit")
+    await _audit(m, session_id=sid, function_name="Bash", called_at=_stamp(45))
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["status"] == "done" and row["ended_at"] is not None
+    # The derived state is persisted, not just decorated onto the response.
+    assert (await m.store.get_task(task["id"]))["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_refresh_linked_ends_the_task_on_a_reported_session_end(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace="/repo", title=None)
+    sid = task["session_id"]
+    await _audit(m, session_id=sid, function_name="Bash", called_at=_stamp(3))
+    await _audit(m, session_id=sid, function_name="__session_end__", called_at=_stamp(1))
+
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["status"] == "done" and row["activity"] == "session ended"
+    assert row["ended_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_a_linked_session_with_no_guard_waits_then_idles_but_never_ends(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace="/repo", title=None)
+
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["status"] == "working"
+    assert row["activity"] == "linked, waiting for the Guard"
+    assert row["ended_at"] is None
+
+    await m.store.db.execute(
+        "UPDATE terminal_tasks SET created_at = datetime('now', '-45 minutes') WHERE id = ?",
+        (task["id"],),
+    )
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["status"] == "idle" and row["ended_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_linked_leaves_launched_tasks_untouched(tmp_path):
+    m, ws = await _manager(tmp_path)
+    launched = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    (row,) = await m.refresh_linked([dict(launched)])
+    assert row["status"] == "starting" and row["origin"] == "launch"
+
+
+@pytest.mark.asyncio
+async def test_unlinked_sessions_carry_their_harness_label(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    await _audit(m, session_id="sess-loose1234", function_name="Bash", called_at=_stamp(2))
+    rows = await m.unlinked_sessions()
+    assert [r["session_id"] for r in rows] == ["sess-loose1234"]
+    assert rows[0]["label"] == "Codex" and rows[0]["executor_id"] == "codex"
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_links_for_one_session_make_exactly_one_row(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    results = await asyncio.gather(
+        m.link_session("codex", "sess-abc12345", workspace=None, title=None),
+        m.link_session("codex", "sess-abc12345", workspace=None, title=None),
+        return_exceptions=True,
+    )
+    created = [r for r in results if isinstance(r, dict)]
+    refused = [r for r in results if isinstance(r, SessionAlreadyLinked)]
+    assert len(created) == 1 and len(refused) == 1
+    rows = await m.store.list_linked_tasks()
+    assert [r["session_id"] for r in rows] == ["sess-abc12345"]
+
+
+@pytest.mark.asyncio
+async def test_session_id_pattern_rejects_a_trailing_newline(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    # "$" would accept a trailing newline, letting a pasted value carry one
+    # into the row and past the duplicate check.
+    with pytest.raises(ValueError):
+        await m.link_session("codex", "sess-abc12345\nx x", workspace=None, title=None)

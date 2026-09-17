@@ -67,6 +67,17 @@ test('terminals.js keeps the attach guard after the traces fetch', () => {
   assert.match(src, /_fetchTraceRuns\([\s\S]*?if \(this\._attached !== id\) return;/);
 });
 
+test('the trace id opens the same trace details as the Details control', () => {
+  const src = read('js/pages/terminals.js');
+  // Same data attribute the Details button carries, so the shared handler
+  // reads the trace id off either control.
+  assert.match(src, /<button type="button" class="terminals-trace-id" data-trace-id="\$\{this\._esc\(r\.trace_id\)\}" title="Open trace">/);
+  assert.match(src, /querySelectorAll\('\.terminals-trace-open, button\.terminals-trace-id'\)/);
+  const css = read('css/styles.css');
+  assert.match(css, /button\.terminals-trace-id\s*\{[^}]*cursor:\s*pointer/);
+  assert.match(css, /button\.terminals-trace-id:hover,\s*button\.terminals-trace-id:focus-visible\s*\{[^}]*text-decoration:\s*underline/);
+});
+
 test('terminals.js caps trace rows at 6', () => {
   const src = read('js/pages/terminals.js');
   assert.match(src, /slice\(0, 6\)/);
@@ -87,8 +98,8 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=388/);
-  assert.match(html, /terminals\.js\?v=9/);
+  assert.match(html, /styles\.css\?v=396/);
+  assert.match(html, /terminals\.js\?v=20/);
 });
 
 test('terminals.js coerces run counters with Number() before interpolating', () => {
@@ -210,8 +221,8 @@ test('_refreshRail() writes nothing to the traces panel if the task is detached 
 
 test('each governance section collapses on its own, and rows are cards not glyph lines', () => {
   const src = read('js/pages/terminals.js');
-  assert.strictEqual((src.match(/class="terminals-gov-section"/g) || []).length, 3,
-    'verdicts, traces and approvals each get their own disclosure');
+  assert.strictEqual((src.match(/class="terminals-gov-section/g) || []).length, 5,
+    'context, tool calls, traces, egress and approvals each get their own disclosure');
   const css = read('css/styles.css');
   assert.ok(!css.includes("content: '// '"),
     'the section headers must not carry a comment glyph');

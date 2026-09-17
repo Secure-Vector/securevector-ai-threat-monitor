@@ -8637,30 +8637,25 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .sv-task-agent-interrupted { border-radius: 3px; color: #9aa7b3; background: rgba(108,119,129,.15); }
 .sv-task-agent-failed { clip-path: polygon(50% 0, 100% 100%, 0 100%); border: 0; border-radius: 0; color: #f87171; background: #7f2631; padding-top: 3px; }
 @keyframes sv-task-agent-breathe { 50% { box-shadow: 0 0 0 3px rgba(77,228,223,0); } }
-.sv-task-avatar { display: inline-flex; flex: 0 0 auto; color: #eef4f8; border-radius: 50%; box-shadow: 0 0 0 0 transparent; }
+.sv-task-avatar { display: inline-flex; flex: 0 0 auto; color: #eef4f8; }
 .sv-task-avatar svg { width: 100%; height: 100%; display: block; }
-.sv-task-avatar .sv-ta-tile { fill: var(--sv-task-hue, #64748b); }
 .sv-task-avatar .sv-ta-head { fill: #dde4eb; }
-.sv-task-avatar .sv-ta-pod { fill: #c3cdd7; }
+.sv-task-avatar .sv-ta-pod { fill: var(--sv-task-hue, #c3cdd7); }
 .sv-task-avatar .sv-ta-sheen { fill: rgba(255,255,255,.55); }
 .sv-task-avatar .sv-ta-visor { fill: #10161e; }
 [data-theme="light"] .sv-task-avatar .sv-ta-head { fill: #333c48; }
-[data-theme="light"] .sv-task-avatar .sv-ta-pod { fill: #4a5462; }
+[data-theme="light"] .sv-task-avatar .sv-ta-pod { fill: var(--sv-task-hue, #4a5462); }
 [data-theme="light"] .sv-task-avatar .sv-ta-sheen { fill: rgba(255,255,255,.14); }
 .sv-task-avatar .sv-ta-eye { fill: currentColor; }
 .sv-task-avatar .sv-ta-happy { display: none; stroke: currentColor; stroke-width: 1.3; fill: none; stroke-linecap: round; }
 .sv-task-avatar-active { color: #4de4df; }
-.sv-task-avatar-approval { color: #fbbf24; box-shadow: 0 0 0 2px #f59e0b; }
-.sv-task-avatar-blocked, .sv-task-avatar-failed { color: #fb7185; box-shadow: 0 0 0 2px #ef4444; }
-.sv-task-avatar-completed { color: #50df9d; box-shadow: 0 0 0 2px #16a76c; }
+.sv-task-avatar-approval { color: #fbbf24; }
+.sv-task-avatar-blocked, .sv-task-avatar-failed { color: #fb7185; }
+.sv-task-avatar-completed { color: #50df9d; }
 .sv-task-avatar-completed .sv-ta-eye { display: none; }
 .sv-task-avatar-completed .sv-ta-happy { display: block; }
-.sv-task-avatar-interrupted { color: #9aa7b3; box-shadow: 0 0 0 2px #6c7781; }
-.sv-task-avatar-interrupted .sv-ta-tile { opacity: .55; }
-[data-theme="light"] .sv-task-avatar-approval { box-shadow: 0 0 0 2px #b45309; }
-[data-theme="light"] .sv-task-avatar-blocked, [data-theme="light"] .sv-task-avatar-failed { box-shadow: 0 0 0 2px #dc2626; }
-[data-theme="light"] .sv-task-avatar-completed { box-shadow: 0 0 0 2px #15803d; }
-[data-theme="light"] .sv-task-avatar-interrupted { box-shadow: 0 0 0 2px #8a949e; }
+.sv-task-avatar-interrupted { color: #9aa7b3; }
+.sv-task-avatar-interrupted .sv-ta-pod { opacity: .55; }
 .sv-task-avatar .sv-ta-err { display: none; }
 .sv-task-avatar-failed .sv-ta-err { display: block; }
 .sv-task-avatar-failed circle.sv-ta-err { fill: #ef4444; stroke: #eef4f8; stroke-width: 1; }
@@ -8684,6 +8679,14 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active, [data-theme="light"] .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active { background: rgba(94,173,184,0.14); color: var(--text-primary); font-weight: 600; box-shadow: none; }
 [data-theme="light"] .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active { background: rgba(94,173,184,0.16); }
 .sidebar .nav-views.nav-views-tasks .nav-item.nav-view:not(.active):hover { background: var(--bg-hover); color: var(--text-primary); }
+/* Rail task rows: two lines, harness and elapsed time under the title, with a
+   folder header once more than one checkout is in play. */
+.nav-views.nav-views-tasks .nav-item.nav-view { align-items: center; }
+.nav-task-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.nav-task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-task-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .02em; color: var(--text-muted); }
+.nav-tasks-group { padding: 8px 16px 2px 24px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar.collapsed .nav-tasks-group { display: none; }
 .terminals-page.is-focused { grid-template-rows: 1fr; }
 .terminals-launch { display: grid; grid-template-columns: minmax(130px, .65fr) minmax(220px, 1.3fr) minmax(160px, 1fr) auto; align-items: end; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid var(--border-default, #24303c); border-radius: 10px; background: rgba(0,0,0,.14); }
 .terminals-launch[hidden] { display: none; }
@@ -8809,4 +8812,225 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-verdict-amber .terminals-verdict-action, .terminals-trace-risk-amber { background: rgba(245,158,11,.16); color: #fcd34d; }
 .terminals-verdict-reason { margin-top: 2px; opacity: .65; font-size: 11px; }
 .terminals-executor-hint { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted, #94a3b8); }
+.terminals-guard-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; grid-column: 1 / -1; padding: 8px 10px; border: 1px solid rgba(245,158,11,.35); border-radius: 8px; background: rgba(245,158,11,.06); font-size: 12px; }
+.terminals-guard-row[hidden], .terminals-guard-commands[hidden] { display: none; }
+.terminals-guard-text { flex: 1 1 260px; min-width: 0; }
+.terminals-guard-commands { grid-column: 1 / -1; margin: 0; padding: 8px 10px; border: 1px solid var(--border-default, #24303c); border-radius: 8px; font-size: 11px; white-space: pre-wrap; user-select: all; }
+[data-theme="light"] .terminals-guard-row { border-color: rgba(180,83,9,.45); background: rgba(245,158,11,.10); }
 .terminals-launch select option:disabled { color: var(--text-muted, #94a3b8); }
+
+/* Terminal pane chrome: a tab per live task across the top, a status line along
+   the bottom. Both stay on the deliberately dark terminal surface in either
+   theme; colour here means operational state only. */
+.terminals-pane-tabs { display: flex; align-items: stretch; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.terminals-pane-tabs::-webkit-scrollbar { display: none; }
+.terminals-pane-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 4px 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: rgba(214, 226, 236, .62); font: inherit; font-size: 11px; letter-spacing: .02em; white-space: nowrap; cursor: pointer; }
+.terminals-pane-tab:hover { color: #e8f5f4; background: rgba(148, 163, 184, .08); }
+.terminals-pane-tab.is-active { color: #e8f5f4; border-bottom-color: var(--accent-primary, #2dd4bf); }
+.terminals-pane-tab-title { overflow: hidden; text-overflow: ellipsis; }
+.terminals-pane-tab-new, .terminals-pane-tab-more { padding: 4px 8px; }
+/* Overflow and launch sit outside the scrolling strip so they stay reachable
+   however many tabs are open. */
+.terminals-pane-tab-actions { display: flex; flex: 0 0 auto; align-items: stretch; gap: 2px; }
+.terminals-pane-foot { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 4px 12px; border-top: 1px solid rgba(148, 163, 184, .16); background: #0b1016; color: rgba(214, 226, 236, .62); font-size: 11px; letter-spacing: .02em; white-space: nowrap; overflow: hidden; }
+.terminals-pane-foot[hidden] { display: none; }
+.terminals-foot-item { overflow: hidden; text-overflow: ellipsis; }
+.terminals-foot-path, .terminals-foot-branch { color: #e8f5f4; }
+.terminals-foot-sep, .terminals-foot-dot { opacity: .45; }
+.terminals-foot-state-approval { color: #f59e0b; }
+.terminals-foot-state-blocked, .terminals-foot-state-failed { color: #ef4444; }
+.terminals-foot-state-completed { color: #22c55e; }
+.terminals-foot-state-active { color: var(--accent-primary, #2dd4bf); }
+.terminals-foot-gov { color: rgba(214, 226, 236, .62); }
+
+/* A hidden attention strip is display:flex by default, so it still paints a
+   thin bar under the head. */
+.terminals-attention[hidden] { display: none; }
+
+/* Light theme. Every Terminals surface follows the theme tokens except
+   `.terminals-centre` and its children: that is the terminal itself, and a
+   terminal stays dark in both themes. Additive overrides only. */
+[data-theme="light"] .terminals-tasks { background: var(--bg-secondary); border-color: var(--border-default); box-shadow: none; }
+[data-theme="light"] .terminals-tasks-head p { color: var(--text-muted); }
+[data-theme="light"] .terminals-task-search { background: var(--bg-primary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-task { background: var(--bg-primary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-task:hover { box-shadow: none; }
+[data-theme="light"] .terminals-task-empty { border-color: var(--border-default); color: var(--text-muted); }
+[data-theme="light"] .terminals-task-meta, [data-theme="light"] .terminals-task-activity { color: var(--text-muted); }
+[data-theme="light"] .terminals-group-name { color: var(--text-muted); }
+[data-theme="light"] .terminals-launch { background: var(--bg-primary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-launch input, [data-theme="light"] .terminals-launch select { background: var(--bg-secondary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-governance { background: var(--bg-secondary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-governance-summary { color: var(--text-muted); }
+[data-theme="light"] .terminals-governance-body { border-top-color: var(--border-default); }
+[data-theme="light"] .terminals-gov-section { border-top-color: var(--border-default); }
+[data-theme="light"] .terminals-gov-count { background: var(--bg-hover); color: var(--text-primary); }
+[data-theme="light"] .terminals-verdict, [data-theme="light"] .terminals-trace, [data-theme="light"] .terminals-approval { background: var(--bg-primary); border-color: var(--border-default); }
+[data-theme="light"] .terminals-verdict-tool, [data-theme="light"] .terminals-trace-id, [data-theme="light"] .terminals-approval-tool { color: var(--text-primary); }
+[data-theme="light"] .terminals-verdict-reason, [data-theme="light"] .terminals-trace-meta, [data-theme="light"] .terminals-approval-why { color: var(--text-muted); opacity: 1; }
+[data-theme="light"] .terminals-trace-open { border-color: var(--border-default); color: var(--text-primary); }
+/* State colours keep their meaning but darken for contrast on a light ground. */
+[data-theme="light"] .terminals-verdict-action, [data-theme="light"] .terminals-trace-risk { background: rgba(21, 128, 61, .12); color: #15803d; }
+[data-theme="light"] .terminals-verdict-block { border-color: rgba(239, 68, 68, .30); background: rgba(239, 68, 68, .10); }
+[data-theme="light"] .terminals-verdict-amber { border-color: rgba(245, 158, 11, .30); background: rgba(245, 158, 11, .12); }
+[data-theme="light"] .terminals-verdict-block .terminals-verdict-action, [data-theme="light"] .terminals-trace-risk-red { background: rgba(239, 68, 68, .10); color: #b91c1c; }
+[data-theme="light"] .terminals-verdict-amber .terminals-verdict-action, [data-theme="light"] .terminals-trace-risk-amber { background: rgba(245, 158, 11, .12); color: #b45309; }
+[data-theme="light"] .terminals-task-remove { border-color: rgba(239, 68, 68, .30); background: rgba(239, 68, 68, .10); color: #b91c1c; }
+[data-theme="light"] .terminals-state-active { color: #0f766e; }
+[data-theme="light"] .terminals-state-approval { color: #b45309; }
+[data-theme="light"] .terminals-state-blocked, [data-theme="light"] .terminals-state-failed { color: #b91c1c; }
+[data-theme="light"] .terminals-state-completed { color: #15803d; }
+[data-theme="light"] .terminals-state-interrupted { color: var(--text-muted); }
+/* The terminal surface stays dark in the light theme, so its own text must not inherit the light-theme ink. */
+[data-theme="light"] .terminals-centre { color: #e8f5f4; }
+[data-theme="light"] .terminals-centre .terminals-empty { color: rgba(214, 226, 236, .72); opacity: 1; }
+
+/* In-session Guard banner: an attached task that is running without its Guard
+   plugin, or with one the session has not loaded yet. Colour is state only. */
+.terminals-guard-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; border-bottom: 1px solid rgba(239,68,68,.35); background: rgba(239,68,68,.08); color: #fecaca; font-size: 12px; }
+.terminals-guard-banner[hidden] { display: none; }
+.terminals-guard-banner-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.terminals-guard-banner.is-pending { border-bottom-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); color: #fde68a; }
+
+/* The launch form is a narrow grid; its full-width rows must not be squeezed
+   into one cell, or a one-line message wraps onto three. */
+.terminals-launch-error, .terminals-executor-hint, .terminals-guard-row, .terminals-guard-commands { grid-column: 1 / -1; min-width: 0; }
+.terminals-launch-error { white-space: normal; line-height: 1.4; }
+
+/* The trace id is a control, not a label: same click target as Details. */
+button.terminals-trace-id { border: 0; background: none; padding: 0; font: inherit; font-family: inherit; color: var(--accent-primary, #2dd4bf); cursor: pointer; }
+button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-decoration: underline; }
+
+/* Context & cost: the stage badge and bar carry the only colour here, and
+   only ever to say how close this session is to its context limit. */
+.terminals-gov-stage { margin-left: auto; padding: 1px 6px; border-radius: 3px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.terminals-gov-stage.is-amber { color: #fcd34d; background: rgba(245,158,11,.16); }
+.terminals-gov-stage.is-red { color: #fca5a5; background: rgba(239,68,68,.16); }
+.terminals-context { display: grid; gap: 8px; padding: 6px 0 4px; font-size: 12px; }
+.terminals-context-fill { display: grid; gap: 4px; }
+.terminals-context-bar { height: 4px; border-radius: 2px; background: rgba(148,163,184,.18); overflow: hidden; }
+.terminals-context-bar i { display: block; height: 100%; background: rgba(148,163,184,.55); }
+.terminals-context-bar i.is-amber { background: #f59e0b; }
+.terminals-context-bar i.is-red { background: #ef4444; }
+.terminals-context-advice { margin: 0; padding-left: 16px; color: var(--text-muted); }
+.terminals-context-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.terminals-context-note { margin: 0; font-size: 11px; color: var(--text-muted); }
+[data-theme="light"] .terminals-gov-stage.is-amber { color: #b45309; background: rgba(245,158,11,.12); }
+[data-theme="light"] .terminals-gov-stage.is-red { color: #b91c1c; background: rgba(239,68,68,.10); }
+
+/* Egress: one line per host the attached task reached. */
+.terminals-egress { display: grid; gap: 4px; padding: 4px 0; font-size: 12px; }
+.terminals-egress-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.terminals-egress-host { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-egress-meta { flex: 0 0 auto; color: var(--text-muted); font-size: 11px; }
+.terminals-egress-more { color: var(--accent-primary, #2dd4bf); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.terminals-gov-count.is-warn { background: rgba(239,68,68,.18); color: #fca5a5; }
+[data-theme="light"] .terminals-gov-count.is-warn { background: rgba(239,68,68,.10); color: #b91c1c; }
+
+/* Removing a task confirms inside the card. A native confirm() halts the
+   whole window, cannot be styled, and cannot be tested. */
+.terminals-task-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.terminals-task-confirm-yes, .terminals-task-confirm-no { font: inherit; border: 0; background: transparent; cursor: pointer; padding: 2px 6px; }
+.terminals-task-confirm-yes { color: #fca5a5; }
+.terminals-task-confirm-no { color: var(--text-muted); }
+[data-theme="light"] .terminals-task-confirm-yes { color: #b91c1c; }
+
+/* Live marker: green means the task is running right now, a state. */
+.nav-task-live, .terminals-pane-live { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 0 rgba(34,197,94,.55); animation: sv-nav-live 1.8s ease-out infinite; vertical-align: middle; }
+@keyframes sv-nav-live {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,.55); }
+  70% { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-task-live, .terminals-pane-live { animation: none; }
+}
+[data-theme="light"] .nav-task-live, [data-theme="light"] .terminals-pane-live { background: #16a34a; }
+
+/* One governance empty state instead of five. The teal listening ring is the
+   single accent here; the bot's own harness colour is identity, not state. */
+.terminals-gov-hero { display: grid; justify-items: center; gap: 8px; padding: 22px 12px 16px; text-align: center; }
+.terminals-gov-hero[hidden] { display: none; }
+.terminals-governance-body.is-empty .terminals-gov-section { display: none; }
+.terminals-gov-hero-bot { position: relative; display: grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; }
+.terminals-gov-hero-bot::before, .terminals-gov-hero-bot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--accent-primary, #2dd4bf); opacity: 0; animation: sv-gov-listen 2.6s ease-out infinite; }
+.terminals-gov-hero-bot::after { animation-delay: 1.3s; }
+@keyframes sv-gov-listen {
+  0% { transform: scale(.55); opacity: .55; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminals-gov-hero-bot::before, .terminals-gov-hero-bot::after { animation: none; }
+}
+.terminals-gov-hero-title { margin: 4px 0 0; font-size: 13px; font-weight: 700; letter-spacing: .01em; }
+.terminals-gov-hero-text { margin: 0; max-width: 240px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+.terminals-gov-hero-list { display: grid; gap: 6px; width: 100%; margin: 10px 0 0; padding: 0; list-style: none; text-align: left; }
+.terminals-gov-hero-list li { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 6px 8px; border: 1px solid var(--border-default, #24303c); border-radius: 6px; font-size: 11px; color: var(--text-muted); }
+
+.terminals-gov-hero-k { font-weight: 600; color: var(--text-primary, #e6edf3); letter-spacing: .02em; }
+
+/* Quiet workspace: hairline frames, no shadows, one surface. */
+.terminals-page .terminals-tasks, .terminals-page .terminals-centre, .terminals-page .terminals-governance { border-radius: 4px; box-shadow: none; }
+.terminals-page .terminals-tasks { padding: 8px 10px; }
+.terminals-page .terminals-tasks-head { margin: 0 0 6px; min-height: 0; }
+.terminals-page .terminals-tasks-actions { width: 100%; }
+.terminals-page .terminals-task-search { flex: 1 1 220px; max-width: 360px; }
+.terminals-page .terminals-task-list { display: flex; flex-direction: column; gap: 0; overflow: visible; padding: 0; }
+.terminals-page .terminals-group { display: block; }
+.terminals-page .terminals-group-name { display: block; padding: 6px 2px 2px; color: var(--text-muted); font-size: 10.5px; letter-spacing: .02em; }
+.terminals-page .terminals-group.is-single .terminals-group-name { display: none; }
+.terminals-page .terminals-task { display: flex; align-items: center; width: auto; flex: none; margin: 0; padding: 0; border: 0; border-top: 1px solid var(--border-default, #24303c); border-radius: 0; background: transparent; transform: none; box-shadow: none; }
+.terminals-page .terminals-task:first-child { border-top: 0; }
+.terminals-page .terminals-task:hover { background: var(--bg-hover, rgba(148,163,184,.06)); transform: none; box-shadow: none; }
+.terminals-page .terminals-task.is-attached { box-shadow: inset 2px 0 0 var(--accent-primary, #2dd4bf); border-color: var(--border-default, #24303c); }
+.terminals-page .terminals-task-select { flex: 1; flex-direction: row; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px; }
+.terminals-page .terminals-task-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.terminals-page .terminals-task-sub { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }
+.terminals-page .terminals-task-when { flex: 0 0 auto; color: var(--text-muted); font-size: 11px; }
+.terminals-page .terminals-task-relaunch, .terminals-page .terminals-task-remove { position: static; margin: 0 6px 0 0; }
+.terminals-page .terminals-centre { border: 1px solid var(--border-default, #24303c); }
+.terminals-page .terminals-governance > summary { padding: 8px 10px; font-size: 11px; }
+.terminals-page .terminals-stage-mark { display: none; }
+
+/* Rail: tighten the task rows and quiet the group label. */
+.nav-views.nav-views-tasks .nav-item.nav-view { padding: 4px 14px 4px 22px; gap: 8px; }
+.nav-views.nav-views-tasks .nav-task-sub { font-size: 10px; }
+.nav-views.nav-views-tasks .nav-tasks-group { padding: 6px 14px 1px 22px; font-size: 10px; letter-spacing: .01em; text-transform: none; opacity: .8; }
+/* No task attached: the hero has no bot, so the listening ring must not draw around nothing. */
+.terminals-gov-hero-bot:empty { display: none; }
+/* Compact rows stack vertically, so the list needs its own scroll before it pushes the terminal off screen. */
+.terminals-page .terminals-task-list { max-height: 38vh; overflow-y: auto; }
+
+/* --- Link a harness session that runs outside the app ------------------- */
+/* The two launch-form modes. A segmented pair, not a colour choice: which
+   mode is active is structure, so the accent stays for security state. */
+.terminals-launch-modes { grid-column: 1 / -1; display: flex; gap: 0; align-self: start; width: fit-content; border: 1px solid var(--border-default, #24303c); border-radius: 8px; overflow: hidden; }
+.terminals-launch-mode { padding: 4px 10px; border: 0; background: transparent; color: var(--text-muted, #94a3b8); font: inherit; font-size: 11.5px; cursor: pointer; }
+.terminals-launch-mode + .terminals-launch-mode { border-left: 1px solid var(--border-default, #24303c); }
+.terminals-launch-mode:hover { color: var(--text-primary); }
+.terminals-launch-mode.is-active { background: var(--bg-hover, rgba(148,163,184,.10)); color: var(--text-primary); font-weight: 600; }
+.terminals-launch .terminals-link-only[hidden] { display: none; }
+.terminals-session-input { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* The unlinked-session picker under the link-mode fields. */
+.terminals-unlinked { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0; min-width: 0; margin-top: 2px; border: 1px solid var(--border-default, #24303c); border-radius: 8px; }
+.terminals-unlinked[hidden] { display: none; }
+.terminals-unlinked .terminals-empty { padding: 8px 10px; font-size: 11.5px; }
+.terminals-unlinked-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 10px; font-size: 11.5px; }
+.terminals-unlinked-row + .terminals-unlinked-row { border-top: 1px solid var(--border-default, #24303c); }
+.terminals-unlinked-harness { flex: 0 0 auto; font-weight: 600; }
+.terminals-unlinked-id { flex: 0 0 auto; font-family: var(--font-mono); color: var(--text-muted, #94a3b8); }
+.terminals-unlinked-when, .terminals-unlinked-calls { flex: 0 0 auto; color: var(--text-muted, #94a3b8); }
+.terminals-unlinked-folder { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #94a3b8); }
+.terminals-unlinked-link { flex: 0 0 auto; }
+
+/* "linked" chips. Neutral: where a session runs is not a security state. */
+.terminals-task-linked, .nav-task-linked { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border-default, #24303c); border-radius: 999px; color: var(--text-muted, #94a3b8); font-size: 9.5px; line-height: 15px; letter-spacing: .02em; text-transform: lowercase; vertical-align: middle; }
+.nav-task-linked { font-size: 9px; line-height: 14px; }
+
+/* The attached pane for a linked task: it says why there is no terminal. */
+.terminals-linked-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 220px; padding: 24px 20px; text-align: center; }
+.terminals-linked-stage h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.terminals-linked-stage p { max-width: 420px; margin: 0; color: var(--text-muted, #94a3b8); font-size: 12px; line-height: 1.5; }
+[data-theme="light"] .terminals-launch-modes, [data-theme="light"] .terminals-unlinked { border-color: var(--border-default); }
+[data-theme="light"] .terminals-launch-mode.is-active { background: var(--bg-secondary); }

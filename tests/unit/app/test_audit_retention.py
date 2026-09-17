@@ -90,12 +90,17 @@ async def test_schema_version_advances_to_45(tmp_path):
     # cleared before recording, so the veto stays countable on Threats.
     # v48: terminal_tasks and terminal_events for Agent Terminals — the task
     # board plus a hash-chained audit trail for spawn/input/stop/hook/exit.
+    # v49: terminal_tasks.archived_at so a finished Agent Task can leave the
+    # active board without deleting its hash-chained audit trail.
+    # v50: terminal_tasks.origin ('launch' | 'linked') so a harness session
+    # started outside the app can be linked by its session id and governed
+    # on the board with no PTY of its own.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 48
+    assert CURRENT_SCHEMA_VERSION == 50
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 48
+    assert row["v"] == 50
     exists = await db.fetch_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
     )
