@@ -55,8 +55,21 @@ function makeEl(tag = 'div') {
         '.terminals-task[data-id]': /class="terminals-task(?: [^"]*)?" data-id="([^"]+)"/g,
         '.terminals-task-select': /class="terminals-task-select" data-id="([^"]+)"/g,
       };
+      // A tab chip in the top strip carries its task on data-id. The strip's
+      // `+` and `+N` buttons share the class and carry no data-id, so this
+      // never matches them, which is what keeps them out of the drag wiring.
+      const chipFor = {
+        '.terminals-pane-tab[data-id]': /class="terminals-pane-tab(?: [^"]*)?" role="tab" data-id="([^"]+)"/g,
+      };
       let out = [];
-      if (cardFor[sel]) {
+      if (chipFor[sel]) {
+        out = [...this.innerHTML.matchAll(chipFor[sel])].map((m) => {
+          const el = makeEl('button');
+          el.dataset.id = m[1];
+          el.classList.add('terminals-pane-tab');
+          return el;
+        });
+      } else if (cardFor[sel]) {
         out = [...this.innerHTML.matchAll(cardFor[sel])].map((m) => {
           const el = makeEl('article');
           el.dataset.id = m[1];
@@ -603,8 +616,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=5/);
-  assert.match(html, /terminals\.js\?v=37/);
-  assert.match(html, /styles\.css\?v=416/);
+  assert.match(html, /terminals\.js\?v=40/);
+  assert.match(html, /styles\.css\?v=419/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -1027,6 +1040,38 @@ test('a pane dropped on the centre of another joins its group', async () => {
   assert.strictEqual(Page._focused, b);
 });
 
+test('a live drag holds the grabbing cursor on body, not just on the source', async () => {
+  const ctx = await twoPaneDrag();
+  const { Page, listeners, a, body } = ctx;
+  assert.ok(!body.classList.contains('terminals-dragging'), 'nothing is dragging yet');
+  drag(ctx, a).onpointerdown({ target: { closest: () => null }, button: 0, pointerId: 1, clientX: 100, clientY: 200 });
+  listeners.pointermove[0]({ clientX: 760, clientY: 200 });
+  assert.ok(body.classList.contains('terminals-dragging'), 'the class is set once the drag actually starts');
+  listeners.pointerup[0]();
+  assert.ok(!body.classList.contains('terminals-dragging'), 'and cleared once the drag ends');
+});
+
+test('a drop zone says what it will do, and a centre drop reads differently than an edge drop', async () => {
+  const ctx = await twoPaneDrag();
+  const { Page, listeners, a } = ctx;
+  drag(ctx, a).onpointerdown({ target: { closest: () => null }, button: 0, pointerId: 1, clientX: 100, clientY: 200 });
+
+  listeners.pointermove[0]({ clientX: 760, clientY: 200 });   // pane b, right band: an edge
+  assert.strictEqual(Page._dropEl.dataset.edge, 'right');
+  const edgeLabel = Page._dropLabelEl.textContent;
+  assert.ok(edgeLabel, 'an edge drop carries a label');
+  assert.ok(!/—/.test(edgeLabel), 'no em dash in the label');
+
+  listeners.pointermove[0]({ clientX: 600, clientY: 200 });   // dead centre of pane b
+  assert.strictEqual(Page._dropEl.dataset.edge, 'centre');
+  const centreLabel = Page._dropLabelEl.textContent;
+  assert.ok(centreLabel, 'a centre drop carries a label too');
+  assert.notStrictEqual(centreLabel, edgeLabel, 'joining a tab group reads differently than splitting');
+  assert.match(centreLabel, /tab/i, 'the centre label says it joins the tab group, not that it moves the pane');
+
+  listeners.pointerup[0]();
+});
+
 test('a drag under the threshold is a click, not a move', async () => {
   const ctx = await twoPaneDrag();
   const { Page, listeners, a } = ctx;
@@ -1257,6 +1302,36 @@ test('the drag styles are defined', () => {
     assert.ok(css.includes(rule), `styles.css is missing ${rule}`);
   }
   assert.match(css, /\.terminals-drop-zone \{[^}]*rgba\(45, 212, 191/, 'the drop zone is the one teal accent');
+});
+
+test('every draggable surface shows an open hand, and its inner controls keep the pointer', () => {
+  const css = read('css/styles.css');
+  // A pane head, a pane tab chip, a merged pane's own tab, a task card and a
+  // rail task row are the drag sources the owner asked to be able to spot.
+  const grabRule = /\.terminals-pane-head\s*\{[^}]*cursor:\s*grab\b/;
+  assert.match(css, grabRule, 'the pane head is grab at rest');
+  const grabSelectors = [
+    '.terminals-pane-tab\\[data-id\\]',
+    '.terminals-pane-session-open',
+    '.terminals-task-select',
+    '.nav-item\\[data-task-id\\]',
+  ];
+  const grabBlock = css.slice(css.search(/cursor affordance/i));
+  for (const sel of grabSelectors) {
+    assert.match(grabBlock, new RegExp(sel), `${sel} is missing from the grab-cursor rule`);
+  }
+  assert.match(grabBlock, /cursor:\s*grab\b/, 'the grouped selectors resolve to grab');
+  // The controls that live inside a drag source but are their own click
+  // target never turn into a hand: the tab close button, the two tab-strip
+  // buttons that never carry data-id, and any button in a pane head.
+  for (const sel of ['.terminals-pane-session-close', '.terminals-pane-tab-new',
+    '.terminals-pane-tab-more', '.terminals-pane-head button']) {
+    assert.ok(grabBlock.includes(sel), `${sel} is missing from the pointer-cursor exclusions`);
+  }
+  // The hand closes for the whole gesture, not just while over the source:
+  // one class on body, added and removed by the shared drag helper.
+  assert.match(css, /body\.terminals-dragging[^{]*\{[^}]*cursor:\s*grabbing\s*!important/,
+    'no rule holds the grabbing cursor for the life of the drag');
 });
 
 // --- Phase C: each pane answers for its own task ----------------------------
@@ -2514,4 +2589,124 @@ test('a drag source clears an owed click before it decides whether to drag', () 
     assert.ok(clear > -1 && clear < firstRefusal,
       `${fn} must clear the owed click before any refusal, or a source that declines strands it`);
   }
+});
+
+// --- the tab strip is a drag source -----------------------------------------
+//
+// The chip is the task on screen, so it is the first thing reached for when a
+// task wants a half of its own. Before this it carried a click handler only.
+
+const chipsOf = (ctx) => ctx.byId('terminals-attached-head')
+  .querySelectorAll('.terminals-pane-tab[data-id]');
+const chipFor = (ctx, id) => chipsOf(ctx).find((c) => c.dataset.id === id) || null;
+const chipEvent = (over = {}) => Object.assign(
+  { target: { closest: () => null }, button: 0, pointerId: 7, clientX: 10, clientY: 10 }, over);
+
+async function stripCtx() {
+  const ctx = loadPage();
+  ctx.Page._tasks = [task('t1'), task('t2'), task('t3')];
+  await ctx.Page._attach('t1');
+  const pane = ctx.Page._focused;
+  layOut(ctx, { [pane]: { left: 0, top: 0, width: 400, height: 400 } });
+  return Object.assign(ctx, { pane });
+}
+
+test('a tab chip is wired to the task drag, and dropping it on an edge splits the pane', async () => {
+  const ctx = await stripCtx();
+  const { Page, listeners } = ctx;
+  const chip = chipFor(ctx, 't2');
+  assert.ok(chip, 'the strip lists a task that has no pane of its own yet');
+  assert.strictEqual(typeof chip.onpointerdown, 'function', 'the chip has to be pressable, not clickable only');
+
+  chip.onpointerdown(chipEvent({ currentTarget: chip }));
+  assert.ok(Page._drag, 'pressing the chip picked something up');
+  assert.strictEqual(Page._drag.kind, 'task', 'and what it picked up is a task');
+  assert.strictEqual(Page._drag.taskId, 't2', 'the task the chip names');
+
+  listeners.pointermove[0]({ clientX: 380, clientY: 200 });   // the pane's right band
+  assert.strictEqual(Page._dropEl.dataset.edge, 'right');
+  listeners.pointerup[0]();
+  await settle();
+
+  assert.strictEqual(Page._panes.size, 2, 'the drop opened a pane rather than doing nothing');
+  assert.deepStrictEqual(Array.from(Page._lay().panes(Page._layout), (p) => p.taskId), ['t1', 't2'],
+    'and it landed on the side the drop zone promised');
+});
+
+test('a chip click still attaches its task, and the click that ends a drag does not', async () => {
+  const ctx = await stripCtx();
+  const { Page } = ctx;
+
+  chipFor(ctx, 't2').onclick();
+  await settle();
+  assert.strictEqual(Page._attached, 't2', 'a plain click works exactly as it always did');
+
+  // What a drag that actually moved leaves behind: the release is followed by
+  // a click on the chip, and that click is the tail of the gesture.
+  Page._clickAfterDrag = true;
+  const panes = Page._panes.size;
+  chipFor(ctx, 't3').onclick();
+  await settle();
+  assert.strictEqual(Page._attached, 't2', 'the tail of a drag is not a request to attach');
+  assert.strictEqual(Page._clickAfterDrag, false, 'and the owed click is spent, not left standing');
+  assert.strictEqual(Page._panes.size, panes, 'nothing moved');
+});
+
+test('the close, launch and overflow controls never start a drag', async () => {
+  const ctx = await stripCtx();
+  const { Page } = ctx;
+  const buttons = ['.terminals-pane-session-close', '[data-tab-close-id]',
+    '.terminals-pane-tab-new', '.terminals-pane-tab-more'];
+  for (const sel of buttons) {
+    Page._drag = null;
+    Page._onTabPointerDown(chipEvent({ target: { closest: (q) => (q.includes(sel) ? {} : null) } }), 't2');
+    assert.ok(!Page._drag, `${sel} is a button of its own, not a drag handle`);
+  }
+  // A secondary button is not a drag either, whatever it was pressed on.
+  Page._drag = null;
+  Page._onTabPointerDown(chipEvent({ button: 2 }), 't2');
+  assert.ok(!Page._drag, 'a right click is not a drag');
+
+  // The `+` and `+N` buttons share the chip class and carry no task id, so
+  // the selector that wires the drag cannot reach them in the first place.
+  const strip = ctx.byId('terminals-attached-head').innerHTML;
+  assert.match(strip, /terminals-pane-tab-new/, 'the launch action is on the strip');
+  assert.ok(!/terminals-pane-tab-(new|more)"[^>]*data-id=/.test(strip),
+    'neither action may carry a task id');
+});
+
+test('a tab inside a grouped pane head is the same chip, and drags the same way', async () => {
+  const ctx = loadPage();
+  ctx.Page._tasks = [task('t1'), task('t2')];
+  await ctx.Page._attach('t1');
+  const pane = ctx.Page._focused;
+  groupInto(ctx.Page, pane, 't2');
+  ctx.Page._renderPaneHead(pane);
+  const head = ctx.Page._panes.get(pane).headEl;
+
+  const tabs = head.querySelectorAll('[data-tab-id]');
+  assert.strictEqual(tabs.length, 2, 'the pane head names both tasks in the group');
+  tabs.forEach((b) => assert.strictEqual(typeof b.onpointerdown, 'function',
+    'every task chip in the head is a drag source'));
+  head.querySelectorAll('[data-tab-close-id]').forEach((b) => assert.ok(!b.onpointerdown,
+    'the close control beside a chip stays a button'));
+
+  const t2tab = tabs.find((b) => b.dataset.tabId === 't2');
+  t2tab.onpointerdown(chipEvent({ currentTarget: t2tab }));
+  assert.ok(ctx.Page._drag, 'pressing a pane-head tab picked its task up');
+  assert.strictEqual(ctx.Page._drag.kind, 'task');
+  assert.strictEqual(ctx.Page._drag.taskId, 't2');
+  ctx.listeners.pointercancel[0]();
+});
+
+test('both tab strips route their chips through the one task-drag entry point', () => {
+  const src = read('js/pages/terminals.js');
+  assert.match(src, /_onTabPointerDown\(ev, taskId\) \{[\s\S]*?this\.beginTaskDrag\(taskId, ev\);/,
+    'the chip handler must reuse beginTaskDrag, not a second drag implementation');
+  // The top strip and the grouped pane head both hand their chips over.
+  assert.match(src, /b\.onpointerdown = \(ev\) => this\._onTabPointerDown\(ev, b\.dataset\.id\);/);
+  assert.match(src, /b\.onpointerdown = \(ev\) => this\._onTabPointerDown\(ev, b\.dataset\.tabId\);/);
+  // And both swallow the click a drag leaves owed, through the one mechanism.
+  const strip = src.slice(src.indexOf(".terminals-pane-tab[data-id]').forEach"));
+  assert.match(strip.slice(0, 600), /this\.consumeDragClick\(\)/);
 });

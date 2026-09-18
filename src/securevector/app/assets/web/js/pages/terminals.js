@@ -133,8 +133,12 @@ const TerminalsPage = {
               </div>
               <div class="terminals-pane-foot" id="terminals-pane-foot" hidden></div>
             </section>
-            <details class="terminals-governance" id="terminals-governance" open>
-              <summary><span>Governance activity</span><span class="terminals-governance-summary" id="terminals-governance-summary">Attach a task to inspect its trace</span></summary>
+            <div class="terminals-gov-gutter" id="terminals-gov-gutter" role="separator" aria-orientation="horizontal" aria-label="Resize the governance dock" tabindex="0"></div>
+            <section class="terminals-governance" id="terminals-governance">
+              <div class="terminals-governance-head" id="terminals-governance-head">
+                <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body"><span class="terminals-governance-caret" aria-hidden="true"></span><span>Governance activity</span></button>
+                <span class="terminals-governance-summary" id="terminals-governance-summary">Attach a task to inspect its trace</span>
+              </div>
               <div class="terminals-governance-body" id="terminals-governance-body">
                 <div class="terminals-gov-hero" id="terminals-gov-hero" hidden>
                   <div class="terminals-gov-hero-bot" id="terminals-gov-hero-bot"></div>
@@ -156,7 +160,7 @@ const TerminalsPage = {
                 <details class="terminals-gov-section" open><summary><h3>Egress</h3><span class="terminals-gov-count" id="terminals-egress-count"></span></summary><div id="terminals-egress" class="terminals-egress"><span class="terminals-empty">No task attached.</span></div></details>
                 <details class="terminals-gov-section" open><summary><h3>Approval inbox</h3><span class="terminals-gov-count" id="terminals-approvals-count"></span></summary><div id="terminals-approvals" class="terminals-approvals"><span class="terminals-empty">Nothing waiting.</span></div></details>
               </div>
-            </details>
+            </section>
             </div>
           </div>`;
 
@@ -166,6 +170,7 @@ const TerminalsPage = {
             sessionStorage.removeItem('sv-agent-tasks-board');
         } catch (e) { this._wantBoard = false; }
         this._bindPaneKeys();
+        this._bindGovDock();
         this._bindLaunchForm(container);
         container.querySelector('#terminals-task-search').oninput = (ev) => {
             this._taskQuery = ev.target.value.trim().toLowerCase();
@@ -749,6 +754,19 @@ const TerminalsPage = {
     // being a jump.
     GUTTER_STEP: 0.05,
 
+    // --- governance dock -------------------------------------------------
+    // Governance sits under the panes, full width, because width is the
+    // scarce dimension for a terminal (wrapped output, broken diffs) while
+    // the governance lists read fine short and wide.
+    GOV_KEY: 'sv-terminals-gov',
+    GOV_MIN_H: 132,       // enough for the header strip plus one section
+    GOV_DEFAULT_H: 240,
+    PANE_MIN_H: 200,      // the panes never get dragged below a usable height
+    GOV_STEP: 24,         // px an arrow key moves the dock edge
+    _govHeight: 0,        // px; 0 until restored or defaulted
+    _govCollapsed: true,  // effective state, collapsed until a task attaches
+    _govUserSet: false,   // true once the person has clicked the toggle
+
     /** The layout model, however this page was loaded. */
     _lay() {
         if (typeof TerminalsLayout !== 'undefined' && TerminalsLayout) return TerminalsLayout;
@@ -970,6 +988,9 @@ const TerminalsPage = {
         // remove the stored layout the next visit is meant to bring back.
         if (!this._layout) return;
         this._persistLayout();
+        // A task is attached now, so the dock earns its body height unless the
+        // person has said otherwise.
+        this._syncGovDock();
     },
 
     /** Split the focused pane and open a task in the half that appeared. */
@@ -1407,8 +1428,13 @@ const TerminalsPage = {
             this._banner((e && e.message) || 'Could not switch task.', paneId);
         });
         all('[data-tab-id]').forEach((b) => {
+            // The same chip as the strip above the workspace: it names a task,
+            // so it picks that task up. The close control beside it is a
+            // sibling button and never starts a drag.
+            b.onpointerdown = (ev) => this._onTabPointerDown(ev, b.dataset.tabId);
             b.onclick = (ev) => {
                 if (ev && ev.stopPropagation) ev.stopPropagation();
+                if (this.consumeDragClick()) return;
                 return owned(this._activatePaneTask(paneId, b.dataset.tabId));
             };
         });
@@ -1764,6 +1790,11 @@ const TerminalsPage = {
                     && Math.abs(e.clientY - start.y) <= this.DRAG_THRESHOLD_PX) return;
                 drag.started = true;
                 if (hooks.onStart) hooks.onStart();
+                // One class on body, not one per source: the grabbing cursor
+                // has to hold everywhere the pointer travels, including past
+                // the edge of whatever started the drag, and every draggable
+                // surface goes through this same helper.
+                if (document.body && document.body.classList) document.body.classList.add('terminals-dragging');
                 if (capture && capture.setPointerCapture && pointerId !== undefined) {
                     try { capture.setPointerCapture(pointerId); } catch (err) { /* no capture available */ }
                 }
@@ -1783,6 +1814,7 @@ const TerminalsPage = {
                 try { capture.releasePointerCapture(pointerId); } catch (err) { /* never captured */ }
             }
             if (hooks.onStop) hooks.onStop();
+            if (document.body && document.body.classList) document.body.classList.remove('terminals-dragging');
             this._clearDragGhost();
             hooks.paint(null);
             const hit = commit && drag.started ? drag.hit : null;
@@ -1932,6 +1964,18 @@ const TerminalsPage = {
         return { paneId, edge: bands[0].edge, el };
     },
 
+    // What each drop actually does, said plainly before the release commits
+    // to it. The centre reads as joining the target's tab group, since that
+    // is easy to mistake for the source pane disappearing; an edge reads as
+    // the split it produces.
+    DROP_ZONE_LABELS: {
+        centre: 'Add as tab',
+        left: 'Split left',
+        right: 'Split right',
+        top: 'Split top',
+        bottom: 'Split bottom',
+    },
+
     _showDropZone(hit) {
         if (!hit || !hit.edge || !hit.paneId) { this._clearDropZone(); return; }
         const rec = this._panes.get(hit.paneId);
@@ -1955,6 +1999,15 @@ const TerminalsPage = {
             s.height = centre || sideways ? '100%' : '50%';
         }
         if (z.dataset) z.dataset.edge = hit.edge;
+        // The zone itself is aria-hidden and pointer-events: none, so the
+        // label is decoration, not content: it cannot be announced or hit,
+        // it can only be seen.
+        if (!this._dropLabelEl) {
+            this._dropLabelEl = document.createElement('span');
+            this._dropLabelEl.className = 'terminals-drop-zone-label';
+            z.appendChild(this._dropLabelEl);
+        }
+        this._dropLabelEl.textContent = this.DROP_ZONE_LABELS[hit.edge] || '';
         if (z.parentNode !== rec.el) rec.el.appendChild(z);
     },
 
@@ -2103,6 +2156,26 @@ const TerminalsPage = {
         const pane = this._paneForTask(targetTaskId);
         if (!pane) return;
         await this._dropTaskOnPane(draggedTaskId, pane, 'centre');
+    },
+
+    /** A tab chip is a drag source too, and the one the owner reaches for
+     *  first: the chip is the task on screen, so dragging it onto a pane edge
+     *  is the obvious way to give that task a half of its own. Both strips
+     *  hand their chips here (the tab row above the workspace, and the tabs
+     *  inside a grouped pane's head) because both name a task and both open
+     *  that task on click. The click that ends a drag is swallowed by
+     *  consumeDragClick() in the chip's own click handler, the same bargain
+     *  the rail rows and the board cards already keep. */
+    _onTabPointerDown(ev, taskId) {
+        if (!ev || !taskId) return;
+        if (ev.button !== undefined && ev.button !== 0) return;
+        const target = ev.target;
+        // A control that lives in or beside a chip is a button in its own
+        // right: closing a tab, launching a task or opening the overflow is
+        // never the opening move of a drag.
+        if (target && target.closest && target.closest(
+            '.terminals-pane-session-close, [data-tab-close-id], .terminals-pane-tab-new, .terminals-pane-tab-more')) return;
+        this.beginTaskDrag(taskId, ev);
     },
 
     /** A card on the board is a drag source too. There are no panes to drop
@@ -2287,6 +2360,184 @@ const TerminalsPage = {
         this._setSplitRatio(splitId, node.ratio + step);
         this._persistLayout();
         this._fitAll();
+    },
+
+    // --- governance dock -------------------------------------------------
+    //
+    // The dock is the pane gutter's sibling in spirit: same pointer drag, same
+    // arrow-key nudge, same "persist on release, then refit" ending. It moves
+    // one CSS variable (--gov-h) rather than a ratio because the pane area,
+    // not the dock, is what should absorb a window resize.
+
+    /** The flex column the dock lives in. Looked up rather than held: the page
+     *  rebuilds its markup on every render. */
+    _workspaceEl() {
+        if (typeof document === 'undefined' || !document || !document.querySelector) return null;
+        return document.querySelector('.terminals-workspace');
+    },
+
+    _govEls() {
+        return {
+            dock: document.getElementById('terminals-governance'),
+            gutter: document.getElementById('terminals-gov-gutter'),
+            toggle: document.getElementById('terminals-governance-toggle'),
+            head: document.getElementById('terminals-governance-head'),
+            body: document.getElementById('terminals-governance-body'),
+        };
+    },
+
+    _bindGovDock() {
+        const { gutter, toggle, head } = this._govEls();
+        if (toggle) toggle.onclick = () => this._toggleGovDock();
+        if (head) head.onclick = (ev) => {
+            // The button's own click already toggles; without this the click
+            // would bubble to the header and toggle straight back.
+            const t = ev && ev.target;
+            if (t && t.closest && t.closest('#terminals-governance-toggle')) return;
+            this._toggleGovDock();
+        };
+        if (gutter) {
+            gutter.onpointerdown = (ev) => this._startGovDrag(ev);
+            gutter.ondblclick = () => { this._setGovHeight(this.GOV_DEFAULT_H); this._persistGov(); this._fitAll(); };
+            gutter.onkeydown = (ev) => this._onGovKey(ev);
+        }
+        this._restoreGov();
+        this._syncGovDock();
+    },
+
+    /** Clamp a dock height against the space the workspace actually has, so
+     *  neither the panes nor the dock can be dragged to nothing. */
+    _clampGovHeight(px) {
+        let h = Number(px);
+        if (!isFinite(h)) h = this.GOV_DEFAULT_H;
+        const ws = this._workspaceEl();
+        const rect = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
+        let max = this.GOV_DEFAULT_H * 3;
+        if (rect && rect.height > 0) max = rect.height - this.PANE_MIN_H;
+        if (max < this.GOV_MIN_H) max = this.GOV_MIN_H;
+        return Math.max(this.GOV_MIN_H, Math.min(max, h));
+    },
+
+    _setGovHeight(px) {
+        this._govHeight = this._clampGovHeight(px);
+        const { dock } = this._govEls();
+        if (dock && dock.style && dock.style.setProperty) {
+            dock.style.setProperty('--gov-h', this._govHeight + 'px');
+        }
+    },
+
+    /** The one place that decides collapsed or expanded.
+     *
+     *  Until the person clicks the toggle the dock follows the task: no task
+     *  attached means the header strip alone and no body height reserved,
+     *  which is what made the old fixed right column feel like a tax. Once
+     *  they have clicked, their choice wins in both directions. */
+    _syncGovDock() {
+        const { dock, gutter, toggle, body } = this._govEls();
+        const attached = !!this._attached;
+        const collapsed = this._govUserSet ? !!this._govCollapsed : !attached;
+        this._govCollapsed = collapsed;
+        if (!this._govHeight) this._govHeight = this.GOV_DEFAULT_H;
+        if (dock) {
+            if (dock.classList) dock.classList[collapsed ? 'add' : 'remove']('is-collapsed');
+            if (!collapsed) this._setGovHeight(this._govHeight);
+        }
+        // Hidden rather than merely unstyled: a collapsed dock has no edge to
+        // drag, and a focusable separator that resizes nothing is a trap.
+        if (gutter) gutter.hidden = collapsed;
+        if (body) body.hidden = collapsed;
+        if (toggle && toggle.setAttribute) toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    },
+
+    _toggleGovDock() {
+        this._govUserSet = true;
+        this._govCollapsed = !this._govCollapsed;
+        this._syncGovDock();
+        this._persistGov();
+        this._fitAll();
+    },
+
+    /** Open the dock without recording a preference: the approval Review
+     *  button needs the inbox on screen, which is not the same as the person
+     *  choosing to keep it open. */
+    _expandGovDock() {
+        if (!this._govCollapsed) return;
+        this._govCollapsed = false;
+        if (this._govUserSet) this._govUserSet = false;
+        this._syncGovDock();
+        this._fitAll();
+    },
+
+    _startGovDrag(ev) {
+        if (!ev || (ev.button !== undefined && ev.button !== 0)) return;
+        if (this._govCollapsed) return;
+        const gutter = ev.currentTarget;
+        if (!gutter) return;
+        const pointerId = ev.pointerId;
+        if (ev.preventDefault) ev.preventDefault();
+        if (gutter.setPointerCapture && pointerId !== undefined) {
+            try { gutter.setPointerCapture(pointerId); } catch (e) { /* no capture available */ }
+        }
+        // Measured per frame, like the pane gutter: a re-render mid drag would
+        // otherwise leave us reading a detached rect and snapping to a clamp.
+        const move = (e) => {
+            const ws = this._workspaceEl();
+            const r = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
+            if (!r || !r.height) return;
+            this._setGovHeight(r.bottom - e.clientY);
+        };
+        const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+            if (gutter.releasePointerCapture && pointerId !== undefined) {
+                try { gutter.releasePointerCapture(pointerId); } catch (e) { /* never captured */ }
+            }
+            this._persistGov();
+            this._fitAll();
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+    },
+
+    _onGovKey(ev) {
+        if (!ev) return;
+        let step = 0;
+        if (ev.key === 'ArrowUp') step = this.GOV_STEP;
+        else if (ev.key === 'ArrowDown') step = -this.GOV_STEP;
+        else return;
+        if (ev.preventDefault) ev.preventDefault();
+        this._setGovHeight((this._govHeight || this.GOV_DEFAULT_H) + step);
+        this._persistGov();
+        this._fitAll();
+    },
+
+    _persistGov() {
+        const store = this._store();
+        if (!store) return;
+        try {
+            store.setItem(this.GOV_KEY, JSON.stringify({
+                v: 1, h: Math.round(this._govHeight || this.GOV_DEFAULT_H),
+                collapsed: !!this._govCollapsed, userSet: !!this._govUserSet,
+            }));
+        } catch (e) { /* storage unavailable or full */ }
+    },
+
+    _restoreGov() {
+        const store = this._store();
+        this._govHeight = this.GOV_DEFAULT_H;
+        this._govUserSet = false;
+        this._govCollapsed = true;
+        if (!store) return;
+        try {
+            const raw = store.getItem(this.GOV_KEY);
+            const saved = raw ? JSON.parse(raw) : null;
+            if (!saved || saved.v !== 1) return;
+            if (typeof saved.h === 'number' && isFinite(saved.h)) this._govHeight = saved.h;
+            this._govUserSet = !!saved.userSet;
+            this._govCollapsed = !!saved.collapsed;
+        } catch (e) { /* unreadable or not ours */ }
     },
 
     /** Refit every terminal to the space it now has, which also sends each
@@ -2567,6 +2818,9 @@ const TerminalsPage = {
         const body = document.getElementById('terminals-attached-body');
         if (body && body.classList) body.classList.remove('is-layout');
         document.querySelector('.terminals-page')?.classList.remove('is-focused');
+        // Nothing attached, so the dock goes back to its header strip and
+        // reserves no body height.
+        this._syncGovDock();
     },
 
     _banner(text, paneId) {
@@ -2668,8 +2922,18 @@ const TerminalsPage = {
         const showAllTasks = () => this.showAllTasks();
         const allTasksBtn = head.querySelector('#terminals-all-tasks-btn');
         if (allTasksBtn) allTasksBtn.onclick = showAllTasks;
+        // Only the chips carrying a task id are drag sources: the `+` new-task
+        // button and the `+N` overflow button share the class but have no
+        // data-id, so the selector leaves them out of both handlers.
         head.querySelectorAll('.terminals-pane-tab[data-id]').forEach(b => {
-            b.onclick = () => { if (b.dataset.id !== this._attached) this._attach(b.dataset.id); };
+            b.onpointerdown = (ev) => this._onTabPointerDown(ev, b.dataset.id);
+            b.onclick = () => {
+                // The release at the end of a drag lands here as a click, and
+                // that click is the tail of the gesture, not a request to
+                // bring the chip's task forward.
+                if (this.consumeDragClick()) return;
+                if (b.dataset.id !== this._attached) this._attach(b.dataset.id);
+            };
         });
         const moreTab = head.querySelector('.terminals-pane-tab-more');
         if (moreTab) moreTab.onclick = showAllTasks;
@@ -3069,6 +3333,10 @@ const TerminalsPage = {
         const tEl = document.getElementById('terminals-traces');
         const attention = document.getElementById('terminals-attention');
         const summary = document.getElementById('terminals-governance-summary');
+        // Cheap and idempotent, and it costs no extra request: whatever ended
+        // the last attachment (a closed pane, a task the poll dropped), the
+        // dock settles back to the right state here.
+        this._syncGovDock();
         if (!vEl || !aEl) return;
         // Section counts live in the summaries; the traces test stubs
         // getElementById with a fixed id map, so guard every lookup.
@@ -3222,7 +3490,7 @@ const TerminalsPage = {
                     : '';
                 const review = attention.querySelector('#terminals-review-approval');
                 if (review) review.onclick = () => {
-                    document.getElementById('terminals-governance').open = true;
+                    this._expandGovDock();
                     const sec = aEl.closest('details');
                     if (sec) sec.open = true;
                     aEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });

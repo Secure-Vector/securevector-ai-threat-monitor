@@ -725,18 +725,26 @@ const Sidebar = {
 
         // Collapse toggle button (at menu level)
         const collapseBtn = document.createElement('button');
+        collapseBtn.type = 'button';
         collapseBtn.className = 'sidebar-collapse-btn';
-        collapseBtn.setAttribute('aria-label', 'Toggle sidebar');
 
         const collapseIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         collapseIcon.setAttribute('viewBox', '0 0 24 24');
         collapseIcon.setAttribute('fill', 'none');
         collapseIcon.setAttribute('stroke', 'currentColor');
         collapseIcon.setAttribute('stroke-width', '2');
+        collapseIcon.setAttribute('aria-hidden', 'true');
         const collapsePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        collapsePath.setAttribute('d', this.collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
         collapseIcon.appendChild(collapsePath);
         collapseBtn.appendChild(collapseIcon);
+
+        // Every other control in the rail names itself under its icon. This
+        // one used to be a bare chevron in the bottom corner, which read as a
+        // stray dot rather than a control anybody could find.
+        const collapseLabel = document.createElement('span');
+        collapseLabel.className = 'product-rail-label sidebar-collapse-label';
+        collapseBtn.appendChild(collapseLabel);
+        this._syncCollapseBtn(collapseBtn);
 
         collapseBtn.addEventListener('click', () => this.toggleCollapse());
         productRail.appendChild(collapseBtn);
@@ -1861,14 +1869,24 @@ const Sidebar = {
             else if (row.dataset.tip) row.title = row.dataset.tip;
         });
 
-        // Update icon
-        const collapseBtn = container.querySelector('.sidebar-collapse-btn');
-        if (collapseBtn) {
-            const path = collapseBtn.querySelector('path');
-            if (path) {
-                path.setAttribute('d', this.collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
-            }
-        }
+        // Update icon, visible label and accessible name together: a control
+        // whose name says "Collapse" while it would expand is worse than one
+        // with no name at all.
+        this._syncCollapseBtn(container.querySelector('.sidebar-collapse-btn'));
+    },
+
+    /** Point the chevron the way the click goes, and say so in three places:
+     *  the visible label, the tooltip, and the accessible name. Called on
+     *  build and again on every toggle, so all three follow the state. */
+    _syncCollapseBtn(btn) {
+        if (!btn) return;
+        const path = btn.querySelector('path');
+        if (path) path.setAttribute('d', this.collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
+        const word = this.collapsed ? 'Expand' : 'Collapse';
+        const label = btn.querySelector('.sidebar-collapse-label');
+        if (label) label.textContent = word;
+        btn.title = `${word} sidebar`;
+        btn.setAttribute('aria-label', `${word} sidebar`);
     },
 
     createThemeIcon() {

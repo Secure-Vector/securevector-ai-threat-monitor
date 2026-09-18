@@ -182,8 +182,8 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=171/);
-  assert.match(html, /styles\.css\?v=416/);
+  assert.match(html, /sidebar\.js\?v=172/);
+  assert.match(html, /styles\.css\?v=419/);
   assert.match(html, /app\.js\?v=69/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -279,7 +279,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=416/);
+  assert.match(read('index.html'), /styles\.css\?v=419/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -512,4 +512,50 @@ test('the collapsed rail is complete, and nothing it owns is stranded, leaked or
   assert.doesNotMatch(src, /item\.id === 'terminals'\) \? 'button' : 'link'/);
   assert.match(src, /this\._makeRowFocusable\(row, activateView\);/);
   assert.match(css, /\.sidebar-context \.nav-item:focus-visible/);
+});
+
+test('the collapse control names itself, the way every other rail control does', () => {
+  const js = read('js/components/sidebar.js');
+  const css = read('css/styles.css');
+
+  // A visible label under the icon, carrying the rail's own label class so it
+  // reads as a member of the column rather than a stray dot in the corner.
+  assert.match(js, /collapseLabel\.className = 'product-rail-label sidebar-collapse-label';/);
+  assert.match(js, /collapseBtn\.appendChild\(collapseLabel\)/);
+
+  // One place sets the chevron, the label, the tooltip and the accessible
+  // name, and it says which way the click goes rather than "Toggle".
+  assert.match(js, /_syncCollapseBtn\(btn\) \{/);
+  assert.match(js, /const word = this\.collapsed \? 'Expand' : 'Collapse';/);
+  assert.match(js, /label\.textContent = word;/);
+  assert.match(js, /btn\.title = `\$\{word\} sidebar`;/);
+  assert.match(js, /btn\.setAttribute\('aria-label', `\$\{word\} sidebar`\);/);
+  assert.doesNotMatch(js, /aria-label', 'Toggle sidebar'/);
+  // The chevron still points the way it always did.
+  assert.match(js, /path\.setAttribute\('d', this\.collapsed \? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'\)/);
+  // Build and toggle both go through it, so the name can never drift.
+  const build = js.slice(js.indexOf('// Collapse toggle button (at menu level)'));
+  assert.match(build.slice(0, 1400), /this\._syncCollapseBtn\(collapseBtn\);/);
+  const toggle = js.slice(js.indexOf('    toggleCollapse() {'), js.indexOf('    _syncCollapseBtn(btn) {'));
+  assert.match(toggle, /this\._syncCollapseBtn\(container\.querySelector\('\.sidebar-collapse-btn'\)\)/);
+
+  // Visible at rest: a fill and border that separate from the rail, and the
+  // icon at --text-secondary rather than the muted grey it had.
+  const rail = css.slice(css.indexOf('.sidebar-product-rail .sidebar-collapse-btn {'));
+  const block = rail.slice(0, rail.indexOf('}'));
+  assert.match(block, /background: var\(--bg-tertiary\)/);
+  assert.match(block, /border-color: var\(--border-light\)/);
+  assert.match(block, /color: var\(--text-secondary\)/);
+  assert.match(block, /flex-direction: column/, 'icon over label, like a rail button');
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}/, 'tokens only, no new colour literals');
+  // Teal stays the hover state; at rest the control is neutral.
+  const hover = css.slice(css.indexOf('.sidebar-collapse-btn:hover {'));
+  assert.match(hover.slice(0, hover.indexOf('}')), /background: var\(--accent-primary\)/);
+
+  // The rules tuned around its absolute position clear the taller control.
+  assert.match(css, /clears the labelled collapse control pinned to the foot of the rail\s*\*\/\s*padding: 6px 0 60px;/);
+  assert.match(css, /clears the labelled collapse control pinned to the foot of the rail\s*\*\/\s*padding-bottom: 56px;/);
+  // Still hidden in the mobile drawer, where collapse is not a mode.
+  assert.match(css, /\.sidebar-product-rail \.sidebar-collapse-btn \{ display: none; \}/);
+  assert.match(read('index.html'), /sidebar\.js\?v=172/);
 });
