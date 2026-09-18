@@ -182,8 +182,8 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=172/);
-  assert.match(html, /styles\.css\?v=419/);
+  assert.match(html, /sidebar\.js\?v=173/);
+  assert.match(html, /styles\.css\?v=421/);
   assert.match(html, /app\.js\?v=69/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -279,7 +279,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=419/);
+  assert.match(read('index.html'), /styles\.css\?v=421/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -358,7 +358,11 @@ test('collapse hides only context on desktop and mobile restores both columns', 
   const css = read('css/styles.css');
   assert.match(src, /contextPanel\.className = 'sidebar-context'/);
   assert.match(src, /rail\.className = 'sidebar-product-rail'/);
-  assert.match(src, /productRail\.appendChild\(collapseBtn\)/);
+  // The collapse control belongs to the sidebar, not to either column: the
+  // outer right edge is the context panel's when that panel is up and the
+  // rail's when it is not, and only `.sidebar` spans both.
+  assert.match(src, /container\.appendChild\(collapseBtn\);/);
+  assert.doesNotMatch(src, /productRail\.appendChild\(collapseBtn\)/);
   assert.match(css, /\.sidebar\.collapsed \.sidebar-context \{ display: none; \}/);
   assert.match(css, /@media \(max-width: 768px\)[\s\S]*?\.sidebar\.collapsed \.sidebar-context \{ display: flex; \}/);
   assert.match(css, /width: clamp\(300px, var\(--sidebar-width\), 440px\)/);
@@ -514,48 +518,103 @@ test('the collapsed rail is complete, and nothing it owns is stranded, leaked or
   assert.match(css, /\.sidebar-context \.nav-item:focus-visible/);
 });
 
-test('the collapse control names itself, the way every other rail control does', () => {
+test('the collapse control sits on the sidebar edge, icon-only, and names itself', () => {
   const js = read('js/components/sidebar.js');
   const css = read('css/styles.css');
 
-  // A visible label under the icon, carrying the rail's own label class so it
-  // reads as a member of the column rather than a stray dot in the corner.
-  assert.match(js, /collapseLabel\.className = 'product-rail-label sidebar-collapse-label';/);
-  assert.match(js, /collapseBtn\.appendChild\(collapseLabel\)/);
+  // No visible word in the rail. On the divider the chevron is the
+  // convention, and a label there would sit half outside the rail.
+  assert.doesNotMatch(js, /sidebar-collapse-label/);
+  assert.doesNotMatch(js, /collapseLabel/);
+  assert.doesNotMatch(css, /\.sidebar-collapse-label/);
 
-  // One place sets the chevron, the label, the tooltip and the accessible
-  // name, and it says which way the click goes rather than "Toggle".
+  // Mounted on `.sidebar`, not on the rail: the rail's right border is an
+  // interior seam whenever the context panel is up, so anchoring there put
+  // the control inside the sidebar instead of on its outer edge.
+  const build = js.slice(js.indexOf('// Collapse toggle button'));
+  assert.match(build.slice(0, 1800), /container\.appendChild\(collapseBtn\);/);
+  assert.doesNotMatch(js, /productRail\.appendChild\(collapseBtn\)/);
+
+  // One place sets the chevron, the tooltip and the accessible name, and it
+  // says which way the click goes rather than "Toggle".
   assert.match(js, /_syncCollapseBtn\(btn\) \{/);
   assert.match(js, /const word = this\.collapsed \? 'Expand' : 'Collapse';/);
-  assert.match(js, /label\.textContent = word;/);
   assert.match(js, /btn\.title = `\$\{word\} sidebar`;/);
   assert.match(js, /btn\.setAttribute\('aria-label', `\$\{word\} sidebar`\);/);
   assert.doesNotMatch(js, /aria-label', 'Toggle sidebar'/);
+  // A real button, not a div with a click handler.
+  assert.match(build.slice(0, 400), /collapseBtn\.type = 'button';/);
   // The chevron still points the way it always did.
   assert.match(js, /path\.setAttribute\('d', this\.collapsed \? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'\)/);
   // Build and toggle both go through it, so the name can never drift.
-  const build = js.slice(js.indexOf('// Collapse toggle button (at menu level)'));
-  assert.match(build.slice(0, 1400), /this\._syncCollapseBtn\(collapseBtn\);/);
+  assert.match(build.slice(0, 1800), /this\._syncCollapseBtn\(collapseBtn\);/);
   const toggle = js.slice(js.indexOf('    toggleCollapse() {'), js.indexOf('    _syncCollapseBtn(btn) {'));
   assert.match(toggle, /this\._syncCollapseBtn\(container\.querySelector\('\.sidebar-collapse-btn'\)\)/);
 
-  // Visible at rest: a fill and border that separate from the rail, and the
-  // icon at --text-secondary rather than the muted grey it had.
-  const rail = css.slice(css.indexOf('.sidebar-product-rail .sidebar-collapse-btn {'));
-  const block = rail.slice(0, rail.indexOf('}'));
+  // Straddling the sidebar's right edge, near the top: the standard slot, and
+  // the one this control held before it was moved into the rail foot.
+  const btn = css.slice(css.indexOf('.sidebar-collapse-btn {'));
+  const block = btn.slice(0, btn.indexOf('}'));
+  assert.match(block, /position: absolute;/);
+  assert.match(block, /right: -12px;/);
+  assert.match(block, /top: 20px;/);
+  assert.doesNotMatch(block, /bottom:/, 'never pinned to the foot again');
+  // Visible at rest: a raised fill, the heavier of the two hairline tokens,
+  // and the icon at --text-secondary rather than the muted grey it had.
   assert.match(block, /background: var\(--bg-tertiary\)/);
-  assert.match(block, /border-color: var\(--border-light\)/);
+  assert.match(block, /border: 1px solid var\(--border-light\)/);
   assert.match(block, /color: var\(--text-secondary\)/);
-  assert.match(block, /flex-direction: column/, 'icon over label, like a rail button');
   assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}/, 'tokens only, no new colour literals');
+  assert.doesNotMatch(block, /opacity: 0/, 'must not be a hover-only reveal');
+  // The rail no longer redresses it as a rail row.
+  assert.doesNotMatch(css, /\.sidebar-product-rail \.sidebar-collapse-btn \{/);
   // Teal stays the hover state; at rest the control is neutral.
   const hover = css.slice(css.indexOf('.sidebar-collapse-btn:hover {'));
   assert.match(hover.slice(0, hover.indexOf('}')), /background: var\(--accent-primary\)/);
+  // Keyboard focus is still visible.
+  const focus = css.slice(css.indexOf('.sidebar-collapse-btn:focus-visible {'));
+  assert.match(focus.slice(0, focus.indexOf('}')), /outline: 2px solid var\(--accent-primary\)/);
 
-  // The rules tuned around its absolute position clear the taller control.
-  assert.match(css, /clears the labelled collapse control pinned to the foot of the rail\s*\*\/\s*padding: 6px 0 60px;/);
-  assert.match(css, /clears the labelled collapse control pinned to the foot of the rail\s*\*\/\s*padding-bottom: 56px;/);
+  // Nothing is pinned to the rail foot any more, so the clearances tuned for
+  // the labelled control are gone and the rail lays out on its own padding.
+  assert.doesNotMatch(css, /clears the labelled collapse control/);
+  assert.doesNotMatch(css, /padding: 6px 0 60px;/);
+  assert.doesNotMatch(css, /padding-bottom: 56px;/);
+  const groups = css.slice(css.indexOf('.product-rail-groups {'));
+  assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
-  assert.match(css, /\.sidebar-product-rail \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=172/);
+  assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
+  assert.match(read('index.html'), /sidebar\.js\?v=173/);
+});
+
+test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
+  const js = read('js/components/sidebar.js');
+
+  // Only the platform's own modifier counts, so Cmd+Ctrl+B on a Mac and
+  // Ctrl+Meta+B elsewhere stay somebody else's chord, as do Alt and Shift.
+  const chord = js.slice(js.indexOf('    _sidebarChord(e) {'), js.indexOf('    _chordInit() {'));
+  assert.ok(chord.length > 0, '_sidebarChord must exist');
+  assert.match(chord, /if \(e\.altKey \|\| e\.shiftKey\) return false;/);
+  assert.match(chord, /mac \? \(e\.metaKey && !e\.ctrlKey\) : \(e\.ctrlKey && !e\.metaKey\)/);
+  assert.match(chord, /e\.code === 'KeyB' \|\| String\(e\.key \|\| ''\)\.toLowerCase\(\) === 'b'/);
+
+  // Bound inside the one existing global keydown listener (the `g` chords),
+  // not a second competing one.
+  const init = js.slice(js.indexOf('    _chordInit() {'), js.indexOf('    toggleCollapse() {'));
+  assert.equal((init.match(/document\.addEventListener\('keydown'/g) || []).length, 1);
+  assert.match(init, /if \(this\._sidebarChord\(e\) && !typing\(e\.target\)\) \{/);
+  assert.match(init, /e\.preventDefault\(\);\n\s*this\.toggleCollapse\(\);/);
+  // A field with focus keeps the key: bold in a rich-text box and the
+  // browser's own Ctrl+B stay the user's.
+  assert.match(init, /const typing = \(t\) => t && \(t\.tagName === 'INPUT' \|\| t\.tagName === 'TEXTAREA' \|\| t\.tagName === 'SELECT' \|\| t\.isContentEditable\);/);
+  // The chord is checked before the `g`-chord guard drops modified keys,
+  // otherwise it could never fire.
+  assert.ok(
+    init.indexOf('this._sidebarChord(e)') < init.indexOf('if (e.metaKey || e.ctrlKey || e.altKey'),
+    'the sidebar chord must be handled before the modifier-key bail-out'
+  );
+
+  // No other handler in the app owns Cmd/Ctrl+B.
+  assert.doesNotMatch(read('js/components/command-palette.js'), /'b' \|\| e\.key === 'B'/);
+  assert.doesNotMatch(read('js/pages/terminals.js'), /key: 'b'/);
 });

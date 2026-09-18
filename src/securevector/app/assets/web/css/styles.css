@@ -1008,22 +1008,35 @@ html.desktop-mac .header {
     min-width: 0;
 }
 
+/* A chevron puck straddling the sidebar's right edge, the place a sidebar
+   toggle is looked for. Mounted on `.sidebar` (see Sidebar.render), so the
+   edge it sits on is the outer edge in every state: the context panel's when
+   that panel is up, the rail's when it is collapsed or the group has no rows.
+   Quiet at rest but never invisible: a raised fill, which carries it in the
+   light theme, and --border-light, which is the heavier of the two hairlines
+   in the dark theme and carries it there. Teal is the hover state, below. */
 .sidebar-collapse-btn {
     position: absolute;
     right: -12px;
     top: 20px;
     width: 24px;
     height: 24px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-default);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
     border-radius: 50%;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow: var(--shadow-sm);
     transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
     z-index: 21;
+}
+
+.sidebar-collapse-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 /* Desktop shell: the button follows the rail header down by the title-bar inset. */
@@ -8753,10 +8766,10 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-dot.sv-status-amber { background: #f59e0b; }
 .terminals-dot.sv-status-red { background: #ef4444; }
 .terminals-centre { display: flex; flex-direction: column; min-width: 0; border: 1px solid rgba(88, 116, 137, .48); border-radius: 14px; overflow: hidden; background: #090e13; box-shadow: 0 18px 40px rgba(0, 0, 0, .2); }
-.terminals-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-/* Width is the scarce dimension for a terminal, so governance docks
-   along the bottom edge and the panes keep the full width. */
-.terminals-workspace > .terminals-centre { flex: 1 1 auto; min-height: 0; }
+.terminals-workspace { display: flex; flex-direction: row; min-width: 0; min-height: 0; }
+/* Governance is a right column, but a dragged one: the panes take every
+   pixel it is not currently using, and a collapse hands the rest back. */
+.terminals-workspace > .terminals-centre { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .terminals-attached-head { display: flex; gap: 12px; align-items: center; min-height: 36px; padding: 7px 12px; font-size: 12px; border-bottom: 1px solid var(--border-default, #24303c); background: rgba(23, 34, 44, .75); }
 .terminals-head-spacer { flex: 1; }
 .terminals-head-status { text-transform: capitalize; }
@@ -8769,23 +8782,33 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-xterm { position: absolute; inset: 0; padding: 6px; }
 .terminals-banner { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; font-size: 12px; background: rgba(20, 28, 36, .95); border-top: 1px solid var(--border-default, #24303c); }
 .terminals-empty { font-size: 12px; opacity: .6; }
-/* The bottom dock: a header strip that is always there and a body whose
-   height the person drags. Collapsing drops the body out of the flex column
-   entirely, so the space is genuinely returned to the panes. */
-.terminals-governance { flex: 0 0 auto; display: flex; flex-direction: column; height: var(--gov-h, 240px); min-height: 0; overflow: hidden; border: 1px solid var(--border-default, #24303c); border-radius: 12px; background: rgba(12, 19, 26, .82); }
-.terminals-governance.is-collapsed { height: auto; margin-top: 12px; }
-.terminals-gov-gutter { position: relative; flex: 0 0 12px; background: transparent; border: 0; padding: 0; cursor: row-resize; touch-action: none; }
+/* The right column: a body whose width the person drags, and a collapse
+   that takes the column down to a 34px vertical strip. The strip is the
+   whole trick, and the reason the old <details> failed: it keeps the panel
+   findable while handing every other pixel back to the panes. */
+.terminals-governance { flex: 0 0 auto; display: flex; flex-direction: column; width: var(--gov-w, 320px); min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--border-default, #24303c); border-radius: 12px; background: rgba(12, 19, 26, .82); }
+.terminals-governance.is-collapsed { width: 34px; margin-left: 12px; }
+.terminals-gov-gutter { position: relative; flex: 0 0 12px; background: transparent; border: 0; padding: 0; cursor: col-resize; touch-action: none; }
 .terminals-gov-gutter[hidden] { display: none; }
-.terminals-gov-gutter::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-50%); background: var(--border-default, #24303c); transition: background .12s ease; }
+.terminals-gov-gutter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); background: var(--border-default, #24303c); transition: background .12s ease; }
 .terminals-gov-gutter:hover::after, .terminals-gov-gutter:focus-visible::after { background: rgba(45, 212, 191, .75); }
 .terminals-gov-gutter:focus-visible { outline: none; }
 .terminals-governance-head { display: flex; flex: 0 0 auto; align-items: center; gap: 14px; padding: 0 13px; }
 .terminals-governance-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 10px 0; border: 0; background: none; color: inherit; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
-.terminals-governance-caret { color: var(--accent-primary, #2dd4bf); font-size: 16px; line-height: 1; transform: rotate(90deg); transition: transform .14s ease; }
+.terminals-governance-caret { color: var(--accent-primary, #2dd4bf); font-size: 16px; line-height: 1; transform: rotate(0deg); transition: transform .14s ease; }
 .terminals-governance-caret::before { content: '›'; }
-.terminals-governance.is-collapsed .terminals-governance-caret { transform: rotate(0deg); }
 .terminals-governance-summary { margin-left: auto; color: rgba(214, 226, 236, .6); font-size: 11px; font-weight: 400; }
-.terminals-governance-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-content: start; gap: 8px; column-gap: 20px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 13px 12px; border-top: 1px solid rgba(255,255,255,.06); }
+/* Collapsed: the header becomes the whole column, and the button's own label
+   runs bottom-to-top so the panel stays named and stays clickable. */
+.terminals-governance.is-collapsed .terminals-governance-head { flex: 1 1 auto; align-items: stretch; gap: 0; padding: 0; }
+.terminals-governance.is-collapsed .terminals-governance-toggle { flex: 1 1 auto; justify-content: flex-start; width: 100%; padding: 12px 0; writing-mode: vertical-rl; }
+.terminals-governance.is-collapsed .terminals-governance-toggle:hover { background: rgba(45, 212, 191, .08); }
+.terminals-governance.is-collapsed .terminals-governance-name { letter-spacing: .04em; }
+.terminals-governance.is-collapsed .terminals-governance-caret { writing-mode: horizontal-tb; transform: rotate(180deg); }
+.terminals-governance.is-collapsed .terminals-governance-summary { display: none; }
+/* One column: the body is ~290px wide now, so an auto-fit track with a
+   320px floor would overflow the panel it lives in. */
+.terminals-governance-body { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 13px 12px; border-top: 1px solid rgba(255,255,255,.06); }
 .terminals-governance-body[hidden] { display: none; }
 .terminals-governance-body h3 { margin: 12px 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
 .terminals-verdict, .terminals-approval { display: flex; gap: 8px; padding: 6px 0; font-size: 12px; }
@@ -8794,7 +8817,7 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-approval { flex-direction: column; gap: 4px; }
 .terminals-approval-why { opacity: .7; }
 .terminals-approval-actions { display: flex; gap: 6px; }
-@media (max-width: 760px) { .terminals-page { grid-template-rows: auto minmax(460px, 1fr); height: auto; } .terminals-tasks-head { align-items: flex-start; } .terminals-tasks-head p { display: block; margin: 3px 0 0; } .terminals-task-search { width: 120px; } .terminals-launch { grid-template-columns: 1fr; } .terminals-gov-gutter { display: none; } .terminals-governance { height: auto; max-height: 60vh; margin-top: 12px; } .terminals-centre { min-height: 460px; } .terminals-attached-head { gap: 7px; flex-wrap: wrap; } .terminals-governance-summary { display: none; } }
+@media (max-width: 760px) { .terminals-page { grid-template-rows: auto minmax(460px, 1fr); height: auto; } .terminals-tasks-head { align-items: flex-start; } .terminals-tasks-head p { display: block; margin: 3px 0 0; } .terminals-task-search { width: 120px; } .terminals-launch { grid-template-columns: 1fr; } .terminals-gov-gutter { display: none; } .terminals-workspace { flex-direction: column; } .terminals-governance { width: auto; max-height: 60vh; margin-top: 12px; } .terminals-governance.is-collapsed { width: auto; margin-left: 0; } .terminals-governance.is-collapsed .terminals-governance-head { flex: 0 0 auto; align-items: center; padding: 0 13px; } .terminals-governance.is-collapsed .terminals-governance-toggle { flex: 0 0 auto; width: auto; padding: 10px 0; writing-mode: horizontal-tb; } .terminals-governance.is-collapsed .terminals-governance-caret { transform: rotate(90deg); } .terminals-centre { min-height: 460px; } .terminals-attached-head { gap: 7px; flex-wrap: wrap; } .terminals-governance-summary { display: none; } }
 
 /* Terminal look: monospace, flat surfaces, prompt glyphs. Additive overrides
    only, layered after the rules above per the higher-specificity-or-later
@@ -9316,8 +9339,9 @@ body.terminals-dragging * {
     display: flex;
     min-height: 0;
     flex-direction: column;
-    /* clears the labelled collapse control pinned to the foot of the rail */
-    padding: 6px 0 60px;
+    /* nothing is pinned to the foot of the rail any more: the collapse
+       control moved back onto the sidebar's right edge, near the top */
+    padding: 6px 0;
     overflow-y: auto;
     scrollbar-width: none;
 }
@@ -9402,35 +9426,10 @@ body.terminals-dragging * {
     white-space: nowrap;
 }
 
-/* In the rail this is a rail control, not the edge-straddling puck it was
-   when it sat on the sidebar's right border. There is no edge behind it in
-   the bottom corner, so it takes the rail's own shape — icon over label, the
-   same column as every destination above it — and a fill and border that
-   separate from the rail background instead of the hairline that only ever
-   worked against an edge. Still absolute: `.product-rail-groups` and the
-   collapsed `.sidebar-bottom` clear it with their own bottom padding. */
-.sidebar-product-rail .sidebar-collapse-btn {
-    top: auto;
-    right: 6px;
-    bottom: 10px;
-    left: 6px;
-    width: auto;
-    height: auto;
-    flex-direction: column;
-    gap: 3px;
-    padding: 5px 2px;
-    border-radius: 8px;
-    background: var(--bg-tertiary);
-    border-color: var(--border-light);
-    color: var(--text-secondary);
-}
-
 /* The product rail is the topmost chrome on the left, so it owns the
    title-strip inset the old .sidebar-header used to carry. Without this
    the shield renders under the traffic lights. */
 html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
-
-html.desktop-mac .sidebar-product-rail .sidebar-collapse-btn { top: auto; }
 
 .sidebar.collapsed { width: var(--sidebar-collapsed-width); }
 .sidebar.collapsed .sidebar-context { display: none; }
@@ -9469,8 +9468,8 @@ html.desktop-mac .sidebar-product-rail .sidebar-collapse-btn { top: auto; }
 .sidebar.sidebar-context-empty .sidebar-product-rail .sidebar-bottom {
     flex: 0 0 auto;
     margin-top: auto;
-    /* clears the labelled collapse control pinned to the foot of the rail */
-    padding-bottom: 56px;
+    /* the foot of the rail is free again; this is breathing room, not clearance */
+    padding-bottom: 6px;
 }
 .sidebar.collapsed .sidebar-product-rail .sidebar-theme-fixed,
 .sidebar.sidebar-context-empty .sidebar-product-rail .sidebar-theme-fixed { margin: 4px auto 6px; }
@@ -9487,5 +9486,5 @@ html.desktop-mac .sidebar-product-rail .sidebar-collapse-btn { top: auto; }
     .sidebar.collapsed .sidebar-context { display: flex; }
     .sidebar.collapsed .sidebar-product-rail { border-right: 1px solid var(--border-default); }
     .sidebar-resize-handle,
-    .sidebar-product-rail .sidebar-collapse-btn { display: none; }
+    .sidebar-collapse-btn { display: none; }
 }

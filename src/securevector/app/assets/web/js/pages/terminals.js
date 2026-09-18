@@ -133,10 +133,10 @@ const TerminalsPage = {
               </div>
               <div class="terminals-pane-foot" id="terminals-pane-foot" hidden></div>
             </section>
-            <div class="terminals-gov-gutter" id="terminals-gov-gutter" role="separator" aria-orientation="horizontal" aria-label="Resize the governance dock" tabindex="0"></div>
+            <div class="terminals-gov-gutter" id="terminals-gov-gutter" role="separator" aria-orientation="vertical" aria-label="Resize the governance column" tabindex="0"></div>
             <section class="terminals-governance" id="terminals-governance">
               <div class="terminals-governance-head" id="terminals-governance-head">
-                <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body"><span class="terminals-governance-caret" aria-hidden="true"></span><span>Governance activity</span></button>
+                <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body"><span class="terminals-governance-caret" aria-hidden="true"></span><span class="terminals-governance-name">Governance activity</span></button>
                 <span class="terminals-governance-summary" id="terminals-governance-summary">Attach a task to inspect its trace</span>
               </div>
               <div class="terminals-governance-body" id="terminals-governance-body">
@@ -755,15 +755,22 @@ const TerminalsPage = {
     GUTTER_STEP: 0.05,
 
     // --- governance dock -------------------------------------------------
-    // Governance sits under the panes, full width, because width is the
-    // scarce dimension for a terminal (wrapped output, broken diffs) while
-    // the governance lists read fine short and wide.
+    // Governance is a right column again, which is where the eye expects a
+    // trace to sit beside the thing it traces. What it is not is the old
+    // fixed column: the width here is dragged, persisted, and genuinely
+    // given back when the column collapses to its strip.
+    //
+    // Stored as v: 2. The v: 1 shape held a height for the bottom dock, and
+    // a height is not a width, so it is read as foreign and dropped: the
+    // person lands on the default column instead of a 132px sliver.
     GOV_KEY: 'sv-terminals-gov',
-    GOV_MIN_H: 132,       // enough for the header strip plus one section
-    GOV_DEFAULT_H: 240,
-    PANE_MIN_H: 200,      // the panes never get dragged below a usable height
-    GOV_STEP: 24,         // px an arrow key moves the dock edge
-    _govHeight: 0,        // px; 0 until restored or defaulted
+    GOV_STATE_V: 2,
+    GOV_MIN_W: 240,       // narrower than this and the section rows wrap badly
+    GOV_DEFAULT_W: 320,
+    PANE_MIN_W: 420,      // the panes never get dragged below a usable width
+    GOV_STRIP_W: 34,      // the collapsed strip, matching the CSS
+    GOV_STEP: 24,         // px an arrow key moves the column edge
+    _govWidth: 0,         // px; 0 until restored or defaulted
     _govCollapsed: true,  // effective state, collapsed until a task attaches
     _govUserSet: false,   // true once the person has clicked the toggle
 
@@ -988,7 +995,7 @@ const TerminalsPage = {
         // remove the stored layout the next visit is meant to bring back.
         if (!this._layout) return;
         this._persistLayout();
-        // A task is attached now, so the dock earns its body height unless the
+        // A task is attached now, so the column earns its body width unless the
         // person has said otherwise.
         this._syncGovDock();
     },
@@ -2366,10 +2373,10 @@ const TerminalsPage = {
     //
     // The dock is the pane gutter's sibling in spirit: same pointer drag, same
     // arrow-key nudge, same "persist on release, then refit" ending. It moves
-    // one CSS variable (--gov-h) rather than a ratio because the pane area,
-    // not the dock, is what should absorb a window resize.
+    // one CSS variable (--gov-w) rather than a ratio because the pane area,
+    // not the column, is what should absorb a window resize.
 
-    /** The flex column the dock lives in. Looked up rather than held: the page
+    /** The flex row the column lives in. Looked up rather than held: the page
      *  rebuilds its markup on every render. */
     _workspaceEl() {
         if (typeof document === 'undefined' || !document || !document.querySelector) return null;
@@ -2398,38 +2405,38 @@ const TerminalsPage = {
         };
         if (gutter) {
             gutter.onpointerdown = (ev) => this._startGovDrag(ev);
-            gutter.ondblclick = () => { this._setGovHeight(this.GOV_DEFAULT_H); this._persistGov(); this._fitAll(); };
+            gutter.ondblclick = () => { this._setGovWidth(this.GOV_DEFAULT_W); this._persistGov(); this._fitAll(); };
             gutter.onkeydown = (ev) => this._onGovKey(ev);
         }
         this._restoreGov();
         this._syncGovDock();
     },
 
-    /** Clamp a dock height against the space the workspace actually has, so
-     *  neither the panes nor the dock can be dragged to nothing. */
-    _clampGovHeight(px) {
-        let h = Number(px);
-        if (!isFinite(h)) h = this.GOV_DEFAULT_H;
+    /** Clamp a column width against the space the workspace actually has, so
+     *  neither the panes nor the column can be dragged to nothing. */
+    _clampGovWidth(px) {
+        let w = Number(px);
+        if (!isFinite(w)) w = this.GOV_DEFAULT_W;
         const ws = this._workspaceEl();
         const rect = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
-        let max = this.GOV_DEFAULT_H * 3;
-        if (rect && rect.height > 0) max = rect.height - this.PANE_MIN_H;
-        if (max < this.GOV_MIN_H) max = this.GOV_MIN_H;
-        return Math.max(this.GOV_MIN_H, Math.min(max, h));
+        let max = this.GOV_DEFAULT_W * 3;
+        if (rect && rect.width > 0) max = rect.width - this.PANE_MIN_W;
+        if (max < this.GOV_MIN_W) max = this.GOV_MIN_W;
+        return Math.max(this.GOV_MIN_W, Math.min(max, w));
     },
 
-    _setGovHeight(px) {
-        this._govHeight = this._clampGovHeight(px);
+    _setGovWidth(px) {
+        this._govWidth = this._clampGovWidth(px);
         const { dock } = this._govEls();
         if (dock && dock.style && dock.style.setProperty) {
-            dock.style.setProperty('--gov-h', this._govHeight + 'px');
+            dock.style.setProperty('--gov-w', this._govWidth + 'px');
         }
     },
 
     /** The one place that decides collapsed or expanded.
      *
-     *  Until the person clicks the toggle the dock follows the task: no task
-     *  attached means the header strip alone and no body height reserved,
+     *  Until the person clicks the toggle the column follows the task: no task
+     *  attached means the vertical strip alone and no body width reserved,
      *  which is what made the old fixed right column feel like a tax. Once
      *  they have clicked, their choice wins in both directions. */
     _syncGovDock() {
@@ -2437,13 +2444,15 @@ const TerminalsPage = {
         const attached = !!this._attached;
         const collapsed = this._govUserSet ? !!this._govCollapsed : !attached;
         this._govCollapsed = collapsed;
-        if (!this._govHeight) this._govHeight = this.GOV_DEFAULT_H;
+        if (!this._govWidth) this._govWidth = this.GOV_DEFAULT_W;
         if (dock) {
             if (dock.classList) dock.classList[collapsed ? 'add' : 'remove']('is-collapsed');
-            if (!collapsed) this._setGovHeight(this._govHeight);
+            if (!collapsed) this._setGovWidth(this._govWidth);
         }
-        // Hidden rather than merely unstyled: a collapsed dock has no edge to
-        // drag, and a focusable separator that resizes nothing is a trap.
+        // Hidden rather than merely unstyled: a collapsed column has no edge
+        // to drag, and a focusable separator that resizes nothing is a trap.
+        // The toggle itself stays on screen as the strip, which is how the
+        // person finds governance again.
         if (gutter) gutter.hidden = collapsed;
         if (body) body.hidden = collapsed;
         if (toggle && toggle.setAttribute) toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
@@ -2457,7 +2466,7 @@ const TerminalsPage = {
         this._fitAll();
     },
 
-    /** Open the dock without recording a preference: the approval Review
+    /** Open the column without recording a preference: the approval Review
      *  button needs the inbox on screen, which is not the same as the person
      *  choosing to keep it open. */
     _expandGovDock() {
@@ -2480,11 +2489,13 @@ const TerminalsPage = {
         }
         // Measured per frame, like the pane gutter: a re-render mid drag would
         // otherwise leave us reading a detached rect and snapping to a clamp.
+        // The column is dragged by its left edge, so the width is whatever is
+        // left between the pointer and the workspace's right edge.
         const move = (e) => {
             const ws = this._workspaceEl();
             const r = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
-            if (!r || !r.height) return;
-            this._setGovHeight(r.bottom - e.clientY);
+            if (!r || !r.width) return;
+            this._setGovWidth(r.right - e.clientX);
         };
         const up = () => {
             window.removeEventListener('pointermove', move);
@@ -2503,12 +2514,14 @@ const TerminalsPage = {
 
     _onGovKey(ev) {
         if (!ev) return;
+        // Left widens because the edge being moved is the column's left one:
+        // pushing it left gives governance more room.
         let step = 0;
-        if (ev.key === 'ArrowUp') step = this.GOV_STEP;
-        else if (ev.key === 'ArrowDown') step = -this.GOV_STEP;
+        if (ev.key === 'ArrowLeft') step = this.GOV_STEP;
+        else if (ev.key === 'ArrowRight') step = -this.GOV_STEP;
         else return;
         if (ev.preventDefault) ev.preventDefault();
-        this._setGovHeight((this._govHeight || this.GOV_DEFAULT_H) + step);
+        this._setGovWidth((this._govWidth || this.GOV_DEFAULT_W) + step);
         this._persistGov();
         this._fitAll();
     },
@@ -2518,7 +2531,7 @@ const TerminalsPage = {
         if (!store) return;
         try {
             store.setItem(this.GOV_KEY, JSON.stringify({
-                v: 1, h: Math.round(this._govHeight || this.GOV_DEFAULT_H),
+                v: this.GOV_STATE_V, w: Math.round(this._govWidth || this.GOV_DEFAULT_W),
                 collapsed: !!this._govCollapsed, userSet: !!this._govUserSet,
             }));
         } catch (e) { /* storage unavailable or full */ }
@@ -2526,15 +2539,18 @@ const TerminalsPage = {
 
     _restoreGov() {
         const store = this._store();
-        this._govHeight = this.GOV_DEFAULT_H;
+        this._govWidth = this.GOV_DEFAULT_W;
         this._govUserSet = false;
         this._govCollapsed = true;
         if (!store) return;
         try {
             const raw = store.getItem(this.GOV_KEY);
             const saved = raw ? JSON.parse(raw) : null;
-            if (!saved || saved.v !== 1) return;
-            if (typeof saved.h === 'number' && isFinite(saved.h)) this._govHeight = saved.h;
+            // Anything that is not v: 2 is dropped, which includes the bottom
+            // dock's saved height: restoring it as a width would hand someone
+            // a column too narrow to read.
+            if (!saved || saved.v !== this.GOV_STATE_V) return;
+            if (typeof saved.w === 'number' && isFinite(saved.w)) this._govWidth = saved.w;
             this._govUserSet = !!saved.userSet;
             this._govCollapsed = !!saved.collapsed;
         } catch (e) { /* unreadable or not ours */ }
@@ -2818,8 +2834,8 @@ const TerminalsPage = {
         const body = document.getElementById('terminals-attached-body');
         if (body && body.classList) body.classList.remove('is-layout');
         document.querySelector('.terminals-page')?.classList.remove('is-focused');
-        // Nothing attached, so the dock goes back to its header strip and
-        // reserves no body height.
+        // Nothing attached, so the column goes back to its vertical strip and
+        // reserves no body width.
         this._syncGovDock();
     },
 

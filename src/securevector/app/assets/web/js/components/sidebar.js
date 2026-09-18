@@ -723,7 +723,8 @@ const Sidebar = {
             nav.querySelectorAll('.nav-item, .nav-section-label').forEach((el, i) => el.style.setProperty('--i', String(i)));
         }
 
-        // Collapse toggle button (at menu level)
+        // Collapse toggle button — a chevron puck straddling the sidebar's
+        // right edge, the position every shell that has one puts it in.
         const collapseBtn = document.createElement('button');
         collapseBtn.type = 'button';
         collapseBtn.className = 'sidebar-collapse-btn';
@@ -738,16 +739,18 @@ const Sidebar = {
         collapseIcon.appendChild(collapsePath);
         collapseBtn.appendChild(collapseIcon);
 
-        // Every other control in the rail names itself under its icon. This
-        // one used to be a bare chevron in the bottom corner, which read as a
-        // stray dot rather than a control anybody could find.
-        const collapseLabel = document.createElement('span');
-        collapseLabel.className = 'product-rail-label sidebar-collapse-label';
-        collapseBtn.appendChild(collapseLabel);
+        // No text label: on the divider the chevron is the convention and
+        // reads on its own, and a word here would sit half outside the rail.
+        // The tooltip and the accessible name carry the wording instead.
         this._syncCollapseBtn(collapseBtn);
 
         collapseBtn.addEventListener('click', () => this.toggleCollapse());
-        productRail.appendChild(collapseBtn);
+        // Mounted on the sidebar itself, not the rail: the sidebar is the two
+        // columns together, so its box is the outer edge whether the context
+        // panel is showing, collapsed away, or empty for this group. Mounting
+        // it on the rail pinned it to the rail's edge, which is an interior
+        // seam whenever the context panel is up.
+        container.appendChild(collapseBtn);
 
         // Drag-to-resize handle on the right edge of the sidebar. Disabled
         // (display:none via CSS) while the rail is in collapsed state.
@@ -1828,11 +1831,35 @@ const Sidebar = {
               // Pages folded under Policies: the fold must not cost a keystroke.
               l: 'tool-permissions', r: 'rules', x: 'egress-policy', b: 'cost-settings', m: 'mcp-policies' },
 
+    /** True for the platform's sidebar chord and nothing else. Mac reads Cmd
+     *  without Ctrl, everywhere else Ctrl without Cmd; Alt or Shift on top
+     *  makes it somebody else's combo, so it is left alone. */
+    _sidebarChord(e) {
+        if (e.altKey || e.shiftKey) return false;
+        const mac = /Mac|iPhone|iPad/i.test(
+            (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''
+        );
+        const mod = mac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey);
+        if (!mod) return false;
+        return e.code === 'KeyB' || String(e.key || '').toLowerCase() === 'b';
+    },
+
     _chordInit() {
         if (this._chordBound) return;
         this._chordBound = true;
         const typing = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
         document.addEventListener('keydown', (e) => {
+            // Cmd+B / Ctrl+B toggles the sidebar, the binding every editor
+            // and workspace app already uses. Only the platform's own
+            // modifier counts: Cmd+Ctrl+B on a Mac is a different chord, and
+            // a field with focus keeps the key (bold in a rich-text box, and
+            // the browser's own Ctrl+B, both stay the user's).
+            if (this._sidebarChord(e) && !typing(e.target)) {
+                if (!document.getElementById('sidebar')) return;
+                e.preventDefault();
+                this.toggleCollapse();
+                return;
+            }
             if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
             const sidebar = document.getElementById('sidebar');
             if (!sidebar) return;
@@ -1869,22 +1896,19 @@ const Sidebar = {
             else if (row.dataset.tip) row.title = row.dataset.tip;
         });
 
-        // Update icon, visible label and accessible name together: a control
-        // whose name says "Collapse" while it would expand is worse than one
-        // with no name at all.
+        // Update icon and accessible name together: a control whose name says
+        // "Collapse" while it would expand is worse than one with no name.
         this._syncCollapseBtn(container.querySelector('.sidebar-collapse-btn'));
     },
 
-    /** Point the chevron the way the click goes, and say so in three places:
-     *  the visible label, the tooltip, and the accessible name. Called on
-     *  build and again on every toggle, so all three follow the state. */
+    /** Point the chevron the way the click goes, and say so in two places:
+     *  the tooltip and the accessible name. Called on build and again on
+     *  every toggle, so both follow the state. */
     _syncCollapseBtn(btn) {
         if (!btn) return;
         const path = btn.querySelector('path');
         if (path) path.setAttribute('d', this.collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
         const word = this.collapsed ? 'Expand' : 'Collapse';
-        const label = btn.querySelector('.sidebar-collapse-label');
-        if (label) label.textContent = word;
         btn.title = `${word} sidebar`;
         btn.setAttribute('aria-label', `${word} sidebar`);
     },
