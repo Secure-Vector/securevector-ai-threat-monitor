@@ -5,14 +5,16 @@
 
 const Sidebar = {
     navItems: [
-        // v5.3 rail: eleven destinations in three groups, plus Guide and Settings
-        // docked at the bottom. Pages that used to be their own rows are
+        // v6 session-first navigation. Agent Tasks is the first/default work
+        // surface. Pages that used to be their own rows are
         // `views` of a destination: they render indented under the active row
-        // (expanded rail) or inside the hover flyout (icon rail). Every old page
+        // or inside the hover flyout. Every old page
         // id stays routable and highlights its parent via `views` or `aliases`,
         // so deep links, the palette and Governance gap cards still land.
+        { id: 'terminals', label: 'Agent Tasks', icon: 'terminal',
+          tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline'],
+        { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'],
           tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
           views: [
             { id: 'agent-runs', label: 'Runs' },
@@ -47,10 +49,10 @@ const Sidebar = {
               tooltip: 'Budgets and model pricing used for spend tracking' },
             { id: 'mcp-policies', label: 'MCP Policies', icon: 'integrations', cloud: true,
               tooltip: 'Allow and block MCP servers, synced from your SecureVector account' },
-            { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan',
+            { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', aliases: ['skill-permissions'],
               tooltip: 'Static scan of installed agent skills before they run' },
           ] },
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['connect-wizard', 'integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
           tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
         { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
           tooltip: 'SIEM forwarding and Cloud Connect activity',
@@ -58,15 +60,25 @@ const Sidebar = {
             { id: 'siem-export', label: 'SIEM Forwarder' },
             { id: 'cloud-activity', label: 'Cloud Activity', cloud: true },
           ] },
-        // Agent Tasks sits last in Connect: the tasks you launch hang off it as
-        // their own rail group, so they stay near the agents they run on.
-        { id: 'terminals', label: 'Agent Tasks', icon: 'terminal',
-          tooltip: 'Launch, return to, and govern an agent task', views: [] },
-        { id: 'guide', label: 'Guide', icon: 'book', dock: true, aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
+        { id: 'guide', label: 'Guide', icon: 'book', aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
           tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
-        { id: 'settings', label: 'Settings', icon: 'settings', dock: true },
+        { id: 'settings', label: 'Settings', icon: 'settings', aliases: ['guardian-ml'] },
     ],
-    currentPage: 'dashboard',
+    productGroups: [
+        { id: 'tasks', label: 'Agent Tasks', icon: 'terminal', landing: 'terminals',
+          subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
+        { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
+          subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
+        { id: 'governance', label: 'Governance', icon: 'gauge', landing: 'governance',
+          subtitle: 'Review protection posture and approvals', items: ['governance'] },
+        { id: 'policies', label: 'Policies', icon: 'sliders', landing: 'policies',
+          subtitle: 'Set the controls agents must follow', items: ['policies'] },
+        { id: 'connect', label: 'Connect', icon: 'plug', landing: 'guide-connect-agents',
+          subtitle: 'Connect agents and forward security events', items: ['guide-connect-agents', 'siem-export'] },
+        { id: 'more', label: 'More', icon: 'more', landing: 'guide',
+          subtitle: 'Open product guides and settings', items: ['guide', 'settings'] },
+    ],
+    currentPage: 'terminals',
 
     // The parent is the consolidated command centre; these direct session
     // entries are hydrated once terminal authentication is ready.
@@ -76,11 +88,10 @@ const Sidebar = {
 
     collapsed: false,
 
-    // Min/max bounds for the resize handle. Stays narrower than the CSS
-    // default of 240px on the low end so power users can squeeze, and wide
-    // enough on the high end to avoid letting the rail eat the page.
-    SIDEBAR_MIN_PX: 180,
-    SIDEBAR_MAX_PX: 380,
+    // Min/max bounds apply to the full two-column navigation. The minimum
+    // leaves a readable context panel beside the 72px product rail.
+    SIDEBAR_MIN_PX: 300,
+    SIDEBAR_MAX_PX: 440,
 
     _applySavedSidebarWidth() {
         const saved = parseInt(localStorage.getItem('sidebar-width') || '', 10);
@@ -126,6 +137,9 @@ const Sidebar = {
         const savedCollapsed = localStorage.getItem('sidebar-collapsed');
         // Icon rail by default on narrower windows; the user's choice wins once made.
         this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : window.innerWidth < 1280;
+        // Mobile uses an off-canvas drawer: once open, it always needs both
+        // product and context columns regardless of the saved desktop state.
+        if (window.innerWidth <= 768) this.collapsed = false;
         container.classList.toggle('collapsed', this.collapsed);
 
         // Restore the user's last sidebar width before rendering so the
@@ -147,21 +161,25 @@ const Sidebar = {
         // Clear container
         container.textContent = '';
 
-        // Create header with favicon logo (clickable)
+        const activeGroup = this._activeProductGroup(this.currentPage);
+        this._renderedProductGroup = activeGroup.id;
+        const productRail = this._createProductRail(activeGroup);
+        const contextPanel = document.createElement('div');
+        contextPanel.className = 'sidebar-context';
+        contextPanel.dataset.productGroup = activeGroup.id;
+        container.appendChild(productRail);
+        container.appendChild(contextPanel);
+
+        // The compact product rail owns the shield. The context header keeps
+        // the existing wordmark and version so product identity remains clear
+        // without duplicating the logo in both columns.
         const header = document.createElement('div');
         header.className = 'sidebar-header';
 
         const logoLink = document.createElement('div');
         logoLink.className = 'sidebar-logo-link';
         logoLink.style.cursor = 'pointer';
-        logoLink.addEventListener('click', () => this.navigate('dashboard'));
-
-        // Favicon logo
-        const logoImg = document.createElement('img');
-        logoImg.src = '/images/favicon.png';
-        logoImg.alt = 'SecureVector';
-        logoImg.className = 'sidebar-logo-img';
-        logoLink.appendChild(logoImg);
+        logoLink.addEventListener('click', () => this.navigate('terminals'));
 
         // Wrap the brand text + tagline in a column so the tagline sits
         // under the wordmark without pushing the favicon around.
@@ -203,8 +221,20 @@ const Sidebar = {
         logoLink.appendChild(logoTextCol);
 
         header.appendChild(logoLink);
-        container.appendChild(header);
-        container.appendChild(this._createSearchRow());
+        contextPanel.appendChild(header);
+        contextPanel.appendChild(this._createSearchRow());
+
+        const contextHeading = document.createElement('div');
+        contextHeading.className = 'sidebar-context-heading';
+        const contextTitle = document.createElement('div');
+        contextTitle.className = 'sidebar-context-title';
+        contextTitle.textContent = activeGroup.label;
+        const contextSubtitle = document.createElement('div');
+        contextSubtitle.className = 'sidebar-context-subtitle';
+        contextSubtitle.textContent = activeGroup.subtitle;
+        contextHeading.appendChild(contextTitle);
+        contextHeading.appendChild(contextSubtitle);
+        contextPanel.appendChild(contextHeading);
 
         // Create nav
         const nav = document.createElement('nav');
@@ -228,28 +258,15 @@ const Sidebar = {
         // lands. CLOUD_TIER (above) is the set that gets this treatment.
         this._probeEnrollment();
 
-        // v5 IA — three verbs. "Visibility" (not "Observe") heads the first
-        // section: the group now contains an "Observability" destination, and
-        // "Observe → Observability" stutters. "Visibility" is the word both
-        // audiences use — SOC operators ("visibility into agent activity") and
-        // business buyers alike — and doesn't echo the child.
-        //   Visibility — what the agents are doing (dashboard, threats, observability)
-        //   Configure  — what the human sets (permissions, rules, egress, budgets, MCP, skills)
-        //   Connect    — pipes in and out (wizard, integrations, SIEM, cloud)
-        // Page ids are untouched, so every old deep link still lands.
-        const SECTION_BEFORE = {
-            'dashboard':            'Visibility',
-            'policies':             'Configure',
-            'guide-connect-agents': 'Connect',
-        };
+        // The product rail is the only top-level grouping. Keep the existing
+        // row/view renderer below, filtered to the active group's destinations.
+        const SECTION_BEFORE = {};
 
         const sections = [];
         let currentSection = null;
 
         this.navItems.forEach(item => {
-            // Guide and Settings live in the bottom dock, the way every
-            // reference product does it, so the scrolling rail ends at Connect.
-            if (item.dock) return;
+            if (!activeGroup.items.includes(item.id)) return;
 
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
             // to be enrolled. The row still renders (discoverability) but gets
@@ -410,34 +427,14 @@ const Sidebar = {
                     return;
                 }
                 if (item.id === 'terminals') {
-                    // Agent Tasks means the board, not whatever task was last
-                    // attached. The flag survives the navigation so a mount
-                    // that would otherwise restore its panes stands down.
-                    try {
-                        sessionStorage.removeItem('sv-agent-task-id');
-                        sessionStorage.setItem('sv-agent-tasks-board', '1');
-                    } catch (err) { /* storage unavailable */ }
-                    if (this.currentPage === 'terminals' && window.TerminalsPage?.showAllTasks) {
-                        try { sessionStorage.removeItem('sv-agent-tasks-board'); } catch (err) { /* storage unavailable */ }
-                        TerminalsPage.showAllTasks();
-                        return;
-                    }
+                    this._showAgentTasksBoard();
+                    return;
                 }
                 this.navigate(item.id);
             });
 
-            if (item.id === 'terminals') {
-                // A hairline instead of a fourth section header: Agent Tasks is
-                // its own block under Connect, and the rail still shows three
-                // group names. Neither the divider nor the rows below it join
-                // the section: folding Connect must never hide the tasks.
-                const divider = document.createElement('div');
-                divider.className = 'nav-tasks-divider';
-                divider.setAttribute('aria-hidden', 'true');
-                nav.appendChild(divider);
-            }
             nav.appendChild(navItem);
-            const foldsWithSection = currentSection && item.id !== 'terminals';
+            const foldsWithSection = currentSection;
             if (foldsWithSection) {
                 currentSection.els.push(navItem);
                 // A section holding the active page must never start
@@ -648,7 +645,7 @@ const Sidebar = {
             this._countsTimer = setInterval(() => this.loadLiveCounts(), 60000);
         }
 
-        container.appendChild(nav);
+        contextPanel.appendChild(nav);
         this._flyoutInit(container, nav);
         this._indicatorInit(nav);
         this._loadAgentTaskViews();
@@ -683,7 +680,7 @@ const Sidebar = {
         collapseBtn.appendChild(collapseIcon);
 
         collapseBtn.addEventListener('click', () => this.toggleCollapse());
-        container.appendChild(collapseBtn);
+        productRail.appendChild(collapseBtn);
 
         // Drag-to-resize handle on the right edge of the sidebar. Disabled
         // (display:none via CSS) while the rail is in collapsed state.
@@ -728,7 +725,6 @@ const Sidebar = {
         // Bottom section - proxy status, try it, uninstall, server status
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
-        bottomSection.appendChild(this._createDock());
 
         // Collapsible status stack — the proxy / plugin / SIEM banners live
         // in one foldable group (the user asked to be able to put them away).
@@ -1026,7 +1022,7 @@ const Sidebar = {
         // list scrolls — genuinely fixed to the bottom, not merely last.
         bottomSection.appendChild(this.createThemeFooter());
 
-        container.appendChild(bottomSection);
+        contextPanel.appendChild(bottomSection);
 
         // Check all five indicators — AFTER the bottom section is attached.
         // The pollers look themselves up via document.getElementById and exit
@@ -1051,6 +1047,82 @@ const Sidebar = {
 
     _itemMatches(item, page) {
         return item.id === page || this._itemPageIds(item).includes(page);
+    },
+
+    _activeProductGroup(page) {
+        return this.productGroups.find(group => group.items.some(itemId => {
+            const item = this.navItems.find(candidate => candidate.id === itemId);
+            return item && this._itemMatches(item, page);
+        })) || this.productGroups[0];
+    },
+
+    _createProductRail(activeGroup) {
+        const rail = document.createElement('div');
+        rail.className = 'sidebar-product-rail';
+        rail.setAttribute('role', 'navigation');
+        rail.setAttribute('aria-label', 'SecureVector product areas');
+
+        const home = document.createElement('button');
+        home.type = 'button';
+        home.className = 'product-rail-home';
+        home.title = 'SecureVector Agent Tasks';
+        home.setAttribute('aria-label', 'SecureVector Agent Tasks');
+        const shield = document.createElement('img');
+        shield.src = '/images/favicon.png';
+        shield.alt = '';
+        shield.setAttribute('aria-hidden', 'true');
+        shield.className = 'sidebar-logo-img';
+        home.appendChild(shield);
+        home.addEventListener('click', () => this._showAgentTasksBoard());
+        rail.appendChild(home);
+
+        const groupList = document.createElement('div');
+        groupList.className = 'product-rail-groups';
+        this.productGroups.forEach(group => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'product-rail-button' + (group.id === activeGroup.id ? ' active' : '');
+            button.dataset.productGroup = group.id;
+            button.dataset.baseLabel = group.label;
+            button.title = group.label;
+            button.setAttribute('aria-label', group.label);
+            if (group.id === activeGroup.id) button.setAttribute('aria-current', 'page');
+            button.appendChild(this.createIcon(group.icon));
+
+            const label = document.createElement('span');
+            label.className = 'product-rail-label';
+            label.textContent = group.label;
+            button.appendChild(label);
+
+            if (group.id === 'tasks' || group.id === 'governance') {
+                const badge = document.createElement('span');
+                badge.className = 'product-rail-attention';
+                badge.dataset.jitProductBadge = group.id;
+                badge.hidden = true;
+                button.appendChild(badge);
+            }
+
+            button.addEventListener('click', () => {
+                if (group.id === 'tasks') this._showAgentTasksBoard();
+                else this.navigate(group.landing);
+            });
+            groupList.appendChild(button);
+        });
+        rail.appendChild(groupList);
+        return rail;
+    },
+
+    _showAgentTasksBoard() {
+        try {
+            sessionStorage.removeItem('sv-agent-task-id');
+            sessionStorage.setItem('sv-agent-tasks-board', '1');
+        } catch (err) { /* storage unavailable */ }
+        if (this.currentPage === 'terminals' && window.TerminalsPage?.showAllTasks) {
+            try { sessionStorage.removeItem('sv-agent-tasks-board'); } catch (err) { /* storage unavailable */ }
+            TerminalsPage.showAllTasks();
+            return;
+        }
+        this.navigate('terminals');
     },
 
     _viewActive(view) {
@@ -1966,6 +2038,22 @@ const Sidebar = {
                 parent.title = n === 1 ? '1 request waiting for you' : n + ' requests waiting for you';
                 parent.hidden = n === 0;
             }
+            // Reuse this single poll for the persistent product rail. Agent
+            // Tasks and Governance both need to signal that an agent is
+            // waiting for a human decision, even while another group is open.
+            document.querySelectorAll('[data-jit-product-badge]').forEach(productBadge => {
+                const meaning = n === 1 ? '1 pending approval' : n + ' pending approvals';
+                productBadge.textContent = String(n);
+                productBadge.setAttribute('aria-label', meaning);
+                productBadge.title = meaning;
+                productBadge.hidden = n === 0;
+                const productButton = productBadge.closest('.product-rail-button');
+                if (productButton) {
+                    productButton.setAttribute('aria-label', n > 0
+                        ? `${productButton.dataset.baseLabel}: ${meaning}`
+                        : productButton.dataset.baseLabel);
+                }
+            });
         } catch (_) { /* fail-quiet: badge just stays hidden */ }
     },
 
@@ -2357,6 +2445,11 @@ const Sidebar = {
                 { tag: 'path', attrs: { d: 'M7 8h10v3a5 5 0 0 1-10 0V8z' } },
                 { tag: 'path', attrs: { d: 'M12 16v6' } },
             ],
+            more: [
+                { tag: 'circle', attrs: { cx: '5', cy: '12', r: '1', fill: 'currentColor' } },
+                { tag: 'circle', attrs: { cx: '12', cy: '12', r: '1', fill: 'currentColor' } },
+                { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor' } },
+            ],
         };
 
         (paths[name] || []).forEach(({ tag, attrs }) => {
@@ -2383,6 +2476,8 @@ const Sidebar = {
     },
 
     navigate(page) {
+        const targetGroup = this._activeProductGroup(page);
+        const groupChanged = targetGroup.id !== this._renderedProductGroup;
         // Auto-expand parent section when navigating to a sub-item
         for (const item of this.navItems) {
             if (item.collapsible && item.subItems && item.subItems.some(sub => sub.id === page)) {
@@ -2393,6 +2488,8 @@ const Sidebar = {
 
         this.currentPage = page;
         this.markSeen(page);
+
+        if (groupChanged) this.render();
 
         // Remove core icon badge dot on first visit
 
@@ -2455,6 +2552,11 @@ const Sidebar = {
     setActive(page) {
         this.currentPage = page;
         this.markSeen(page);
+        const activeGroup = this._activeProductGroup(page);
+        if (activeGroup.id !== this._renderedProductGroup) {
+            this.render();
+            return;
+        }
         document.querySelectorAll('.nav-item').forEach(item => {
             const isSubItem = item.classList.contains('nav-sub-item') || item.classList.contains('nav-view');
             const matchesPage = item.dataset.page === page ||

@@ -1,9 +1,4 @@
-/**
- * Source-assertion guards for the v5.3 rail: ten destinations in three
- * groups, pages folded into `views`, a search row, live counts and the
- * icon-rail flyout. The rail is config plus a renderer, so the config is
- * what a regression would touch first.
- */
+/** Source-assertion guards for the v6 session-first product rail. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -15,21 +10,50 @@ const read = (rel) => fs.readFileSync(path.join(WEB, rel), 'utf8');
 function navItemsSource() {
   const src = read('js/components/sidebar.js');
   const start = src.indexOf('navItems: [');
-  const end = src.indexOf("currentPage: 'dashboard'", start);
+  const end = src.indexOf('productGroups: [', start);
   return src.slice(start, end);
 }
 
-test('the rail has ten destinations plus Guide and Settings', () => {
+function productGroupsSource() {
+  const src = read('js/components/sidebar.js');
+  const start = src.indexOf('productGroups: [');
+  const end = src.indexOf("currentPage: 'terminals'", start);
+  return src.slice(start, end);
+}
+
+test('product rail order and contextual route mappings are stable', () => {
+  const groups = productGroupsSource();
+  const ids = [...groups.matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
+  assert.deepStrictEqual(ids, ['tasks', 'visibility', 'governance', 'policies', 'connect', 'more']);
+  assert.match(groups, /id: 'tasks'[\s\S]*?landing: 'terminals',[\s\S]*?items: \['terminals'\]/);
+  assert.match(groups, /id: 'visibility'[\s\S]*?items: \['dashboard', 'agent-runs', 'threats', 'costs', 'egress'\]/);
+  assert.match(groups, /id: 'governance'[\s\S]*?items: \['governance'\]/);
+  assert.match(groups, /id: 'policies'[\s\S]*?items: \['policies'\]/);
+  assert.match(groups, /id: 'connect'[\s\S]*?items: \['guide-connect-agents', 'siem-export'\]/);
+  assert.match(groups, /id: 'more'[\s\S]*?items: \['guide', 'settings'\]/);
+  assert.match(read('js/components/sidebar.js'), /return this\.productGroups\.find\(group => group\.items\.some/);
+});
+
+test('Agent Tasks is first and root/fallback navigation is session-first', () => {
   const ids = [...navItemsSource().matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
-  // Visibility is what you read, Configure is what you set: the posture report
-  // moved out of the settings group, and Skills Scanner sits with the policies where its
-  // hub card already lived.
-  assert.deepStrictEqual(ids, [
-    'dashboard', 'agent-runs', 'threats', 'governance', 'costs', 'egress',
-    'policies',
-    'guide-connect-agents', 'siem-export', 'terminals',
-    'guide', 'settings',
-  ]);
+  assert.equal(ids[0], 'terminals');
+  const sidebar = read('js/components/sidebar.js');
+  const app = read('js/app.js');
+  assert.match(sidebar, /currentPage: 'terminals'/);
+  assert.match(app, /currentPage: 'terminals'/);
+  assert.match(app, /return this\.pages\[path\] \? path : 'terminals';/);
+  assert.match(app, /initialPage = await this\.maybeAutoLaunchWizard\(initialPage\)/);
+  assert.match(app, /if \(initialPage !== 'terminals'\) return initialPage;/);
+});
+
+test('product controls are real accessible buttons and retain the SecureVector shield', () => {
+  const src = read('js/components/sidebar.js');
+  assert.match(src, /home = document\.createElement\('button'\)/);
+  assert.match(src, /shield\.src = '\/images\/favicon\.png'/);
+  assert.match(src, /button = document\.createElement\('button'\)/);
+  assert.match(src, /button\.setAttribute\('aria-label', group\.label\)/);
+  assert.match(src, /button\.title = group\.label/);
+  assert.doesNotMatch(src, /sv-nav-redesign|reference-logo|logo-mark/);
 });
 
 test('folded pages are views of a destination, so every old page id still lands', () => {
@@ -45,7 +69,6 @@ test('folded pages are views of a destination, so every old page id still lands'
   const src = read('js/components/sidebar.js');
   assert.match(src, /if \(view\.icon\) row\.appendChild\(this\.createIcon\(view\.icon\)\);/);
   assert.match(read('css/styles.css'), /\.nav-item\.nav-view svg \{ width: 14px; height: 14px;/);
-  assert.match(read('js/components/sidebar.js'), /'policies':\s+'Configure',/);
   // no page is both a destination and a stray sub-item list
   assert.doesNotMatch(nav, /subItems:/);
   // deep links to the retired group id still highlight Policies
@@ -66,7 +89,7 @@ test('views render under the active destination only and the flyout serves the i
 
 test('the search row opens the palette and live counts hide at zero', () => {
   const src = read('js/components/sidebar.js');
-  assert.match(src, /container\.appendChild\(this\._createSearchRow\(\)\);/);
+  assert.match(src, /contextPanel\.appendChild\(this\._createSearchRow\(\)\);/);
   assert.match(src, /CommandPalette\.open\(\)/);
   assert.match(src, /count: 'threats'/);
   assert.match(src, /count: 'egress'/);
@@ -76,14 +99,25 @@ test('the search row opens the palette and live counts hide at zero', () => {
   assert.match(read('js/api.js'), /queryParams\.set\('is_threat'/);
 });
 
-test('the Policies hub is routed and versioned', () => {
+test('context rendering filters destinations and More owns Guide and Settings', () => {
+  const src = read('js/components/sidebar.js');
+  assert.match(src, /if \(!activeGroup\.items\.includes\(item\.id\)\) return;/);
+  assert.match(src, /contextTitle\.textContent = activeGroup\.label/);
+  assert.match(src, /contextSubtitle\.textContent = activeGroup\.subtitle/);
+  assert.match(productGroupsSource(), /id: 'more'.*landing: 'guide',[\s\S]*?items: \['guide', 'settings'\]/);
+  assert.doesNotMatch(navItemsSource(), /dock: true/);
+  assert.doesNotMatch(src, /bottomSection\.appendChild\(this\._createDock\(\)\)/);
+});
+
+test('the Policies hub is routed and touched assets are versioned', () => {
   const app = read('js/app.js');
   assert.match(app, /policies:\s+PoliciesHubPage,/);
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=167/);
-  assert.match(html, /styles\.css\?v=411/);
+  assert.match(html, /sidebar\.js\?v=168/);
+  assert.match(html, /styles\.css\?v=412/);
+  assert.match(html, /app\.js\?v=69/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -178,7 +212,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=411/);
+  assert.match(read('index.html'), /styles\.css\?v=412/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -234,6 +268,33 @@ test('folding Policies keeps every signal reachable from outside it', () => {
   assert.doesNotMatch(src, /if \(CLOUD_TIER\.has\(item\.id\)\) \{\s+const tier/);
 });
 
+test('one JIT poll updates accessible Agent Tasks and Governance attention badges', () => {
+  const src = read('js/components/sidebar.js');
+  const loader = src.slice(src.indexOf('async loadJitPendingCount()'), src.indexOf('async loadRulesCount()'));
+  assert.equal((loader.match(/API\.getJitRequests\('pending'\)/g) || []).length, 1,
+    'the product badges must be updated by the existing approval poll');
+  assert.match(src, /group\.id === 'tasks' \|\| group\.id === 'governance'/);
+  assert.match(src, /badge\.dataset\.jitProductBadge = group\.id/);
+  assert.match(src, /document\.querySelectorAll\('\[data-jit-product-badge\]'\)/);
+  assert.match(src, /productBadge\.setAttribute\('aria-label', meaning\)/);
+  assert.match(src, /productBadge\.textContent = String\(n\)/);
+  assert.match(src, /productButton\.setAttribute\('aria-label', n > 0/);
+  assert.match(read('css/styles.css'), /\.product-rail-attention \{[\s\S]*?color: var\(--warning\)/);
+});
+
+test('collapse hides only context on desktop and mobile restores both columns', () => {
+  const src = read('js/components/sidebar.js');
+  const css = read('css/styles.css');
+  assert.match(src, /contextPanel\.className = 'sidebar-context'/);
+  assert.match(src, /rail\.className = 'sidebar-product-rail'/);
+  assert.match(src, /productRail\.appendChild\(collapseBtn\)/);
+  assert.match(css, /\.sidebar\.collapsed \.sidebar-context \{ display: none; \}/);
+  assert.match(css, /@media \(max-width: 768px\)[\s\S]*?\.sidebar\.collapsed \.sidebar-context \{ display: flex; \}/);
+  assert.match(css, /width: clamp\(300px, var\(--sidebar-width\), 440px\)/);
+  assert.match(css, /\.product-rail-home,\s*\.product-rail-button \{[\s\S]*?min-height: 52px/);
+  assert.match(css, /\.product-rail-button:focus-visible/);
+});
+
 test('the Policies fold has a chevron, a hover peek and a chord for every page behind it', () => {
   const src = read('js/components/sidebar.js');
   const css = read('css/styles.css');
@@ -281,12 +342,12 @@ test('terminal-view.js swallows clipboard, iTerm2 file transfer, cwd and notific
   assert.match(disposeBody, /\(this\._oscDisposables \|\| \[\]\)\.forEach\(\(d\) => d\.dispose\(\)\)/);
 });
 
-test('Agent Tasks is its own rail group: full-width rows under a hairline', () => {
+test('Agent Tasks keeps its full-width session rows inside the Tasks context', () => {
   const src = read('js/components/sidebar.js');
   assert.ok(src.includes('nav-views-tasks'),
     'the task views need their own class so they can take the whole rail width');
-  assert.ok(src.includes('nav-tasks-divider'),
-    'a hairline stands in for a fourth section header');
+  assert.match(productGroupsSource(), /id: 'tasks'[\s\S]*?items: \['terminals'\]/,
+    'the task destination belongs only to the first product group');
   assert.ok(!src.includes('allTasks'),
     'the top-level Agent Tasks row is the all-tasks destination, so the extra row is gone');
   const css = read('css/styles.css');
@@ -294,14 +355,11 @@ test('Agent Tasks is its own rail group: full-width rows under a hairline', () =
     'an active task row must light its whole rectangle, like a top-level row');
 });
 
-test('the Agent Tasks block never folds with the Connect section', () => {
+test('the product-group filter keeps Agent Tasks out of Connect', () => {
   const sidebar = read('js/components/sidebar.js');
-  assert.ok(!sidebar.includes('currentSection.els.push(divider)'),
-    'the tasks divider must not join the Connect section');
-  assert.ok(sidebar.includes("const foldsWithSection = currentSection && item.id !== 'terminals';"),
-    'the terminals row must be excluded from the section fold');
-  assert.ok(sidebar.includes('if (foldsWithSection) currentSection.els.push(viewsEl);'),
-    'the task rows must be excluded from the section fold');
+  assert.match(sidebar, /if \(!activeGroup\.items\.includes\(item\.id\)\) return;/);
+  assert.match(productGroupsSource(), /id: 'connect'[\s\S]*?items: \['guide-connect-agents', 'siem-export'\]/);
+  assert.doesNotMatch(productGroupsSource(), /id: 'connect'[\s\S]*?items: \[[^\]]*'terminals'/);
 });
 
 test('the rail Agent Tasks row asks for the board, not the task it left attached', () => {
