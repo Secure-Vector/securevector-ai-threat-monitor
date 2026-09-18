@@ -82,8 +82,8 @@ test('styles.css defines .terminals-executor-hint', () => {
 
 test('index.html pins the bumped executor cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=41/);
-  assert.match(html, /styles\.css\?v=421/);
+  assert.match(html, /terminals\.js\?v=43/);
+  assert.match(html, /styles\.css\?v=422/);
 });
 
 test('no em dash in the executor-hint UI strings', () => {

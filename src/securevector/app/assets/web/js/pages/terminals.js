@@ -133,10 +133,13 @@ const TerminalsPage = {
               </div>
               <div class="terminals-pane-foot" id="terminals-pane-foot" hidden></div>
             </section>
-            <div class="terminals-gov-gutter" id="terminals-gov-gutter" role="separator" aria-orientation="vertical" aria-label="Resize the governance column" tabindex="0"></div>
+            <div class="terminals-gov-edge" id="terminals-gov-edge">
+              <div class="terminals-gov-gutter" id="terminals-gov-gutter" role="separator" aria-orientation="vertical" aria-label="Resize the governance column" tabindex="0"></div>
+              <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body" aria-label="Collapse governance activity"><span class="terminals-governance-caret" aria-hidden="true"></span></button>
+            </div>
             <section class="terminals-governance" id="terminals-governance">
               <div class="terminals-governance-head" id="terminals-governance-head">
-                <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body"><span class="terminals-governance-caret" aria-hidden="true"></span><span class="terminals-governance-name">Governance activity</span></button>
+                <span class="terminals-governance-name">Governance activity</span>
                 <span class="terminals-governance-summary" id="terminals-governance-summary">Attach a task to inspect its trace</span>
               </div>
               <div class="terminals-governance-body" id="terminals-governance-body">
@@ -753,6 +756,10 @@ const TerminalsPage = {
     // Arrow keys nudge a gutter by this much, which is a visible step without
     // being a jump.
     GUTTER_STEP: 0.05,
+    // The gutter between two panes, matching .terminals-gutter in the CSS.
+    // The pixels it takes are not available to either side, so the width
+    // checks have to subtract it before they halve anything.
+    GUTTER_W: 6,
 
     // --- governance dock -------------------------------------------------
     // Governance is a right column again, which is where the eye expects a
@@ -768,6 +775,18 @@ const TerminalsPage = {
     GOV_MIN_W: 240,       // narrower than this and the section rows wrap badly
     GOV_DEFAULT_W: 320,
     PANE_MIN_W: 420,      // the panes never get dragged below a usable width
+    // One pane's own floor, in CSS pixels, and a different number from the one
+    // above: that one keeps the whole pane area usable while the governance
+    // column is dragged, this one keeps a single pane readable.
+    //
+    // The terminal runs at 13px in an SF Mono stack, whose advance is 0.6em,
+    // so a column costs 7.8px. Forty columns is the narrowest width at which
+    // ordinary harness output still reads as sentences rather than as a
+    // ladder of one and two letter fragments: 40 x 7.8 = 312px of glyphs,
+    // plus the 12px the xterm mount is padded by and the pane's own 2px of
+    // border, rounded up for the head's controls.
+    PANE_USABLE_W: 340,
+    GOV_GUTTER_W: 12,     // edge wrapper between the panes and governance
     GOV_STRIP_W: 34,      // the collapsed strip, matching the CSS
     GOV_STEP: 24,         // px an arrow key moves the column edge
     _govWidth: 0,         // px; 0 until restored or defaulted
@@ -863,6 +882,11 @@ const TerminalsPage = {
             gov: null, govSid: null, govAt: 0, govSig: null, guardSig: null, footSig: null,
             el: null, headEl: null, pickerEl: null, stageEl: null, bannerEl: null,
             headSig: null, mounted: false,
+            // A pane with no task is normally something the page is about to
+            // tidy away. This one is not: the operator split it open a moment
+            // ago and is choosing what to put in it. The task poll reads this
+            // so it prunes the leftovers and leaves that one alone.
+            keepEmpty: false, emptyDir: null, emptySig: null,
         };
     },
 
@@ -887,6 +911,9 @@ const TerminalsPage = {
         const was = (swapFor && this._paneTasks(rec).includes(swapFor)) ? swapFor : rec.taskId;
         this._closePaneSocket(rec);
         rec.taskId = taskId || null;
+        // The pane has a task now, so it is no longer the transient blank the
+        // poll has to be told to spare.
+        if (rec.taskId) { rec.keepEmpty = false; rec.emptyDir = null; rec.emptySig = null; }
         rec.headSig = null;
         rec.guardSig = null;
         rec.footSig = null;
@@ -916,6 +943,7 @@ const TerminalsPage = {
         if (rec) {
             this._closePaneSocket(rec);
             rec.taskId = taskId || null;
+            if (rec.taskId) { rec.keepEmpty = false; rec.emptyDir = null; rec.emptySig = null; }
             rec.headSig = null;
             if (L && this._layout) this._layout = L.replaceTask(this._layout, rec.id, rec.taskId);
             this._syncPaneGroup(rec);
@@ -1015,6 +1043,9 @@ const TerminalsPage = {
             return;
         }
         if (!this._layout || !this._focused) { await this._attach(taskId); return; }
+        // Same floor as a pointer split: an unreadable pane is not a place to
+        // put a task, so the task stays where it is and the operator is told.
+        if (this._splitWouldCrush(this._focused, dir)) { this._refuseSplit(this._focused); return; }
         const before = new Set(L.panes(this._layout).map(p => p.id));
         const next = L.split(this._layout, this._focused, dir, taskId);
         if (next === this._layout) return;
@@ -1099,7 +1130,10 @@ const TerminalsPage = {
     _pruneLayoutToTasks() {
         const L = this._lay();
         if (!L || !this._layout) return;
-        const next = L.prune(this._layout, new Set(this._tasks.map(t => t.id)));
+        // The panes the operator has just split open and not yet filled are
+        // spared. Only this caller passes them: a restore prunes without the
+        // set, so a blank pane that reached storage still collapses.
+        const next = L.prune(this._layout, new Set(this._tasks.map(t => t.id)), this._transientEmptyPanes());
         if (next === this._layout) return;
         this._layout = next;
         this._reapPanes();
@@ -1119,6 +1153,19 @@ const TerminalsPage = {
         }
         this._renderLayout();
         this._persistLayout();
+        // A pane that lost a neighbour is wider than the terminal inside it
+        // still believes it is. Without this the survivor keeps drawing at
+        // the old column count and the space it gained stays a dark band.
+        this._fitAll();
+    },
+
+    /** The panes that are empty on purpose right now: split open by hand and
+     *  still waiting for a task. Everything else with no task is a leftover. */
+    _transientEmptyPanes() {
+        const out = new Set();
+        if (!this._panes) return out;
+        for (const [id, rec] of this._panes) if (rec && rec.keepEmpty && !rec.taskId) out.add(id);
+        return out;
     },
 
     /** Dispose the runtime of every pane the tree no longer contains. */
@@ -1207,6 +1254,7 @@ const TerminalsPage = {
         const root = this._buildNode(this._layout);
         if (body.replaceChildren) body.replaceChildren(...(root ? [root] : []));
         this._applyFocusClasses();
+        this._renderEmptyPaneChoices();
     },
 
     _buildNode(node) {
@@ -1316,6 +1364,7 @@ const TerminalsPage = {
     _renderPaneHeads() {
         if (!this._panes) return;
         for (const id of this._panes.keys()) this._renderPaneHead(id);
+        this._renderEmptyPaneChoices();
     },
 
     /** Split and close controls. The same three buttons serve a pane head and,
@@ -1495,13 +1544,21 @@ const TerminalsPage = {
     _splitIntoEmptyPane(paneId, dir) {
         const L = this._lay();
         if (!L || !this._layout || !this._panes || !this._panes.has(paneId)) return;
+        // Two unreadable panes are worse than one usable one, so a split that
+        // cannot leave both halves wide enough is declined out loud.
+        if (this._splitWouldCrush(paneId, dir)) { this._refuseSplit(paneId); return; }
         const before = new Set(L.panes(this._layout).map(p => p.id));
         const next = L.split(this._layout, paneId, dir, null);
         if (next === this._layout) return;
         this._layout = next;
         const added = L.panes(next).find(p => !before.has(p.id));
         if (!added) return;
-        this._panes.set(added.id, this._blankPane(added.id, null));
+        const blank = this._blankPane(added.id, null);
+        // Deliberately empty: the task poll leaves it standing until the
+        // operator has chosen what goes in it, or closed it.
+        blank.keepEmpty = true;
+        blank.emptyDir = dir;
+        this._panes.set(added.id, blank);
         this._focusPane(added.id, { force: true });
         this._renderLayout();
         this._renderTaskList();
@@ -1511,24 +1568,51 @@ const TerminalsPage = {
         this._fitAll();
     },
 
+    /** Every pane that is waiting for a task keeps its chooser on screen. The
+     *  chooser is the only thing in such a pane, so losing it leaves a dark
+     *  rectangle with no way out of it; this runs on every render and on
+     *  every poll so it comes back whatever cleared it, and it tracks the
+     *  task list, which moves under it. */
+    _renderEmptyPaneChoices() {
+        if (!this._panes) return;
+        for (const [id, rec] of this._panes) {
+            if (!rec || rec.taskId) continue;
+            this._renderEmptyPaneChoice(id);
+        }
+    },
+
     _renderEmptyPaneChoice(paneId, dir) {
         const rec = this._panes && this._panes.get(paneId);
         if (!rec || rec.taskId || !rec.stageEl) return;
+        if (dir === 'row' || dir === 'col') rec.emptyDir = dir;
         const options = this._splitCandidates();
-        const placement = dir === 'row' ? 'right-hand' : 'lower';
+        const placement = rec.emptyDir === 'col' ? 'lower' : (rec.emptyDir === 'row' ? 'right-hand' : 'empty');
+        // Cheap enough to run on the poll: the markup is only rewritten when
+        // the offered tasks or the placement have actually moved, and the
+        // stage having been emptied by anything else counts as a move.
+        const sig = [placement, options.map(t => t.id).join(',')].join('|');
+        if (sig === rec.emptySig && rec.stageEl.innerHTML
+            && String(rec.stageEl.innerHTML).indexOf('terminals-empty-pane') >= 0) return;
+        rec.emptySig = sig;
         rec.stageEl.innerHTML = `<div class="terminals-empty-pane">
-          <span class="terminals-empty-pane-kicker">New ${placement} pane</span>
+          <span class="terminals-empty-pane-kicker">${placement === 'empty' ? 'Empty pane' : 'New ' + placement + ' pane'}</span>
           <h3>Choose a running task</h3>
           <p>This layout is ready. Select a task to view it here.</p>
           <div class="terminals-empty-pane-options">${options.length
             ? options.map(t => `<button type="button" data-empty-pane-task="${this._esc(t.id)}">${this._esc(t.title || this._label(t.executor_id))}<span>${this._esc(this._label(t.executor_id))}</span></button>`).join('')
             : '<span class="terminals-empty">No other running task. Launch one, then select it here.</span>'}</div>
+          <button type="button" class="btn btn-sm" data-empty-pane-close="1">Close this pane</button>
         </div>`;
         const buttons = rec.stageEl.querySelectorAll ? rec.stageEl.querySelectorAll('[data-empty-pane-task]') : [];
         buttons.forEach((button) => {
             button.onclick = () => this._attach(button.dataset.emptyPaneTask, paneId)
                 .catch((e) => this._banner((e && e.message) || 'Could not open task.', paneId));
         });
+        // With no task to offer, the chooser would otherwise be a dead end.
+        // The way out is always on screen, beside the choices when there are
+        // any and on its own when there are not.
+        const shut = rec.stageEl.querySelectorAll ? rec.stageEl.querySelectorAll('[data-empty-pane-close]') : [];
+        shut.forEach((button) => { button.onclick = () => this._closePane(paneId); });
     },
 
     _closeSplitPicker(paneId) {
@@ -2280,15 +2364,106 @@ const TerminalsPage = {
         }
     },
 
+    // --- usable width ----------------------------------------------------
+    //
+    // Every measurement here is taken off the element that is actually on
+    // screen, never off the window: the panes live inside the centre column,
+    // so an expanded governance column has already been subtracted by the
+    // time a pane or a split reports its width. The fallback below does the
+    // same subtraction by hand for the moment before anything has been laid
+    // out.
+
+    /** The width the panes have between them right now, in CSS pixels, or 0
+     *  when nothing is measurable yet. */
+    _availablePaneWidth() {
+        const ws = this._workspaceEl();
+        const r = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
+        if (!r || !(r.width > 0)) return 0;
+        const gov = this._govCollapsed ? this.GOV_STRIP_W : (this._govWidth || this.GOV_DEFAULT_W);
+        return Math.max(0, r.width - gov - this.GOV_GUTTER_W);
+    },
+
+    /** One pane's width on screen, falling back to the whole pane area. */
+    _paneWidth(paneId) {
+        const rec = paneId && this._panes ? this._panes.get(paneId) : null;
+        const el = rec && rec.el;
+        const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        if (r && r.width > 0) return r.width;
+        return this._availablePaneWidth();
+    },
+
+    /** Would splitting this pane that way leave a half too narrow to read?
+     *  Only a side-by-side split changes a pane's width, so a split downwards
+     *  is never refused on width. Unmeasurable geometry answers no: refusing
+     *  a split because the page has not been laid out yet would be a worse
+     *  failure than the one this guards against. */
+    _splitWouldCrush(paneId, dir) {
+        if (dir !== 'row') return false;
+        const width = this._paneWidth(paneId);
+        if (!(width > 0)) return false;
+        const half = (width - this.GUTTER_W) / 2;
+        // An already-too-narrow pane is not made worse by the check refusing;
+        // it is made worse by the split, which is exactly what is refused.
+        return half < this.PANE_USABLE_W;
+    },
+
+    /** Say no, in the pane the operator asked in, and say why. */
+    _refuseSplit(paneId) {
+        this._banner('Not enough width to split. The panes need at least '
+            + this.PANE_USABLE_W + 'px each; even out or close a pane first.', paneId);
+    },
+
+    /** The ratio range a split may take without either side falling under the
+     *  usable width. Null when the split is not measurable, or runs down the
+     *  page, or is already too narrow to honour, in which case the model's own
+     *  proportional floor is the only clamp and the layout is left as it is
+     *  rather than snapped about under the operator. */
+    _ratioBounds(splitId) {
+        const L = this._lay();
+        const node = L ? L.find(this._layout, splitId) : null;
+        if (!node || node.type !== 'split' || node.dir !== 'row') return null;
+        const el = this._splitEls ? this._splitEls.get(splitId) : null;
+        const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        const span = r && r.width > 0 ? r.width - this.GUTTER_W : 0;
+        if (!(span > 0)) return null;
+        const lo = this.PANE_USABLE_W / span;
+        const hi = 1 - lo;
+        // Two usable panes do not fit in this split at all. An existing layout
+        // in that state stays exactly as it is: there is no honest clamp, and
+        // the way out of it is the even-out control, not a silent jump.
+        if (lo >= hi) return null;
+        return { lo, hi };
+    },
+
     // --- gutters ---------------------------------------------------------
 
     _setSplitRatio(splitId, ratio) {
         const L = this._lay();
         if (!L) return;
-        const next = L.setRatio(this._layout, splitId, ratio);
+        const bounds = this._ratioBounds(splitId);
+        let want = ratio;
+        if (bounds && typeof want === 'number' && isFinite(want)) {
+            want = Math.min(bounds.hi, Math.max(bounds.lo, want));
+        }
+        const next = L.setRatio(this._layout, splitId, want);
         if (next === this._layout) return;
         this._layout = next;
         this._applyRatios();
+    },
+
+    /** Put every split back to an even share. Ratios only: nothing detaches,
+     *  nothing closes, every terminal keeps its socket and is simply refitted
+     *  into the width it ends up with. */
+    _rebalancePanes() {
+        const L = this._lay();
+        if (!L || !this._layout || !L.rebalance) return false;
+        const next = L.rebalance(this._layout);
+        if (next === this._layout) return false;
+        this._layout = next;
+        this._applyRatios();
+        this._persistLayout();
+        this._fitAll();
+        return true;
     },
 
     /** Write the ratios onto the split elements without rebuilding the tree:
@@ -2386,23 +2561,16 @@ const TerminalsPage = {
     _govEls() {
         return {
             dock: document.getElementById('terminals-governance'),
+            edge: document.getElementById('terminals-gov-edge'),
             gutter: document.getElementById('terminals-gov-gutter'),
             toggle: document.getElementById('terminals-governance-toggle'),
-            head: document.getElementById('terminals-governance-head'),
             body: document.getElementById('terminals-governance-body'),
         };
     },
 
     _bindGovDock() {
-        const { gutter, toggle, head } = this._govEls();
+        const { gutter, toggle } = this._govEls();
         if (toggle) toggle.onclick = () => this._toggleGovDock();
-        if (head) head.onclick = (ev) => {
-            // The button's own click already toggles; without this the click
-            // would bubble to the header and toggle straight back.
-            const t = ev && ev.target;
-            if (t && t.closest && t.closest('#terminals-governance-toggle')) return;
-            this._toggleGovDock();
-        };
         if (gutter) {
             gutter.onpointerdown = (ev) => this._startGovDrag(ev);
             gutter.ondblclick = () => { this._setGovWidth(this.GOV_DEFAULT_W); this._persistGov(); this._fitAll(); };
@@ -2420,7 +2588,7 @@ const TerminalsPage = {
         const ws = this._workspaceEl();
         const rect = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
         let max = this.GOV_DEFAULT_W * 3;
-        if (rect && rect.width > 0) max = rect.width - this.PANE_MIN_W;
+        if (rect && rect.width > 0) max = rect.width - this.PANE_MIN_W - this.GOV_GUTTER_W;
         if (max < this.GOV_MIN_W) max = this.GOV_MIN_W;
         return Math.max(this.GOV_MIN_W, Math.min(max, w));
     },
@@ -2440,7 +2608,7 @@ const TerminalsPage = {
      *  which is what made the old fixed right column feel like a tax. Once
      *  they have clicked, their choice wins in both directions. */
     _syncGovDock() {
-        const { dock, gutter, toggle, body } = this._govEls();
+        const { dock, edge, gutter, toggle, body } = this._govEls();
         const attached = !!this._attached;
         const collapsed = this._govUserSet ? !!this._govCollapsed : !attached;
         this._govCollapsed = collapsed;
@@ -2449,13 +2617,17 @@ const TerminalsPage = {
             if (dock.classList) dock.classList[collapsed ? 'add' : 'remove']('is-collapsed');
             if (!collapsed) this._setGovWidth(this._govWidth);
         }
+        if (edge && edge.classList) edge.classList[collapsed ? 'add' : 'remove']('is-collapsed');
         // Hidden rather than merely unstyled: a collapsed column has no edge
         // to drag, and a focusable separator that resizes nothing is a trap.
-        // The toggle itself stays on screen as the strip, which is how the
-        // person finds governance again.
+        // The separate edge toggle stays reachable while the static strip
+        // keeps the panel named.
         if (gutter) gutter.hidden = collapsed;
         if (body) body.hidden = collapsed;
-        if (toggle && toggle.setAttribute) toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        if (toggle && toggle.setAttribute) {
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            toggle.setAttribute('aria-label', collapsed ? 'Expand governance activity' : 'Collapse governance activity');
+        }
     },
 
     _toggleGovDock() {
@@ -2878,8 +3050,13 @@ const TerminalsPage = {
     _renderAttachedHead() {
         const head = document.getElementById('terminals-attached-head');
         if (!head) return;
-        const t = this._tasks.find(x => x.id === this._attached);
-        if (!t) {
+        const t = this._tasks.find(x => x.id === this._attached) || null;
+        // A focused pane with no task in it yet is still a workspace, and a
+        // workspace keeps its controls. Dropping them here is how someone
+        // ends up in front of a blank pane with no way to even the layout
+        // out or get back to the board, so the strip only stands down when
+        // there are no panes at all.
+        if (!t && !(this._panes && this._panes.size)) {
             if (this._headSig !== 'empty') {
                 this._headSig = 'empty';
                 head.innerHTML = '<span class="terminals-empty">Pick a task to attach, or launch one.</span>';
@@ -2890,7 +3067,7 @@ const TerminalsPage = {
         }
         // A linked session has no process the app owns, so there is nothing
         // here to stop; the Stop button would be a lie.
-        const running = ['starting', 'working', 'blocked', 'idle'].includes(t.status)
+        const running = !!t && ['starting', 'working', 'blocked', 'idle'].includes(t.status)
             && t.origin !== 'linked';
         const { shown, overflow } = this._tabTasks();
         const stoppable = this._stoppablePanes();
@@ -2907,8 +3084,12 @@ const TerminalsPage = {
         // duplicate header. The one layout with nothing to say for itself is
         // the lone pane holding a lone task, and that is this strip's row.
         const tabbed = !!soloId;
-        const headSig = [this._attached, running ? 'run' : 'idle', tabbed ? overflow : 'untabbed',
-            stoppable.length, this._stopAllArmed ? 'armed' : '', soloId || '']
+        // Several panes bring the even-out control with them, so the count
+        // has to be in the signature or the strip would not redraw when a
+        // split appears or a pane closes.
+        const panes = this._panes ? this._panes.size : 0;
+        const headSig = [this._attached || '', running ? 'run' : 'idle', tabbed ? overflow : 'untabbed',
+            stoppable.length, this._stopAllArmed ? 'armed' : '', soloId || '', panes]
             .concat(tabbed ? shown.map(x => [x.id, this._taskState(x).kind, x.title || this._label(x.executor_id)].join(':')) : [])
             .join('|');
         if (headSig === this._headSig) { this._renderPaneFoot(); this._renderGuardBanner(); return; }
@@ -2925,6 +3106,7 @@ const TerminalsPage = {
           <span class="terminals-head-spacer"></span>
           ${soloId ? `<span class="terminals-head-pane-gov" id="terminals-head-pane-gov"></span><span class="terminals-head-pane-acts" id="terminals-head-pane-acts">${this._paneActButtons(this._chords())}</span>` : ''}
           <button class="btn btn-sm" id="terminals-all-tasks-btn">All tasks</button>
+          ${panes > 1 ? '<button class="btn btn-sm" id="terminals-even-panes-btn" title="Give every pane an equal share; no task is closed or detached">Even panes</button>' : ''}
           ${stoppable.length > 1
             ? (this._stopAllArmed
                 ? `<span class="terminals-stop-all-confirm">Stop ${stoppable.length} running tasks? <button type="button" class="btn btn-sm" id="terminals-stop-all-keep">Keep</button><button type="button" class="btn btn-sm" id="terminals-stop-all-yes">Stop all</button></span>`
@@ -2938,6 +3120,10 @@ const TerminalsPage = {
         const showAllTasks = () => this.showAllTasks();
         const allTasksBtn = head.querySelector('#terminals-all-tasks-btn');
         if (allTasksBtn) allTasksBtn.onclick = showAllTasks;
+        // The way back from slivers: a layout dragged or split into unusable
+        // strips is recoverable without giving up a single running task.
+        const evenBtn = head.querySelector('#terminals-even-panes-btn');
+        if (evenBtn) evenBtn.onclick = () => { if (!this._rebalancePanes()) this._banner('The panes are already even.'); };
         // Only the chips carrying a task id are drag sources: the `+` new-task
         // button and the `+N` overflow button share the class but have no
         // data-id, so the selector leaves them out of both handlers.

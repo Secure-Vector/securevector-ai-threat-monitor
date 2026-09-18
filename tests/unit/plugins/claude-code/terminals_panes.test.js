@@ -393,19 +393,49 @@ test('a gutter drag sets the ratio from the split rect and clamps at the minimum
   await Page._openInNewPane('t2', 'row');
   const splitId = Page._layout.id;
   const splitEl = Page._splitEls.get(splitId);
+  // Wide enough that a quarter is still a readable pane: the clamp below is
+  // in CSS pixels now, so the split has to be measured at a real size for a
+  // quarter to mean anything.
+  splitEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 400 });
   const gutter = splitEl.children[1];
   assert.strictEqual(gutter.className, 'terminals-gutter');
   assert.strictEqual(gutter['aria-orientation'], 'vertical');
 
   gutter.onpointerdown({ currentTarget: gutter, pointerId: 1, preventDefault() {} });
-  listeners.pointermove[0]({ clientX: 200, clientY: 0 });
-  assert.strictEqual(Page._layout.ratio, 0.25, '200 of 800 wide is a quarter');
+  listeners.pointermove[0]({ clientX: 400, clientY: 0 });
+  assert.strictEqual(Page._layout.ratio, 0.25, '400 of 1600 wide is a quarter');
   assert.strictEqual(splitEl.style['--ratio'], '0.25', 'the ratio is written straight onto the element');
 
   listeners.pointermove[0]({ clientX: 8, clientY: 0 });
-  assert.strictEqual(Page._layout.ratio, 0.15, 'a pane can never be dragged below the minimum');
+  const span = 1600 - Page.GUTTER_W;
+  assert.ok(Page._layout.ratio > Page._lay().MIN_RATIO,
+    'the pixel floor binds before the proportional one on a wide split');
+  assert.strictEqual(Math.round(Page._layout.ratio * span), Page.PANE_USABLE_W,
+    'a pane can never be dragged below the usable width');
+  assert.ok(Math.round((1 - Page._layout.ratio) * span) >= Page.PANE_USABLE_W,
+    'and the side that grew is still at least usable');
   listeners.pointerup[0]();
   assert.strictEqual((listeners.pointermove || []).length, 0, 'the drag listeners come off at the end');
+});
+
+test('a narrow split keeps the proportional clamp rather than snapping about', async () => {
+  const { Page, listeners } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  await Page._openInNewPane('t2', 'row');
+  const splitEl = Page._splitEls.get(Page._layout.id);
+  // Two usable panes do not fit here at all. The owner already has a layout
+  // in this state, so it has to keep working: the drag falls back to the
+  // model's proportional floor instead of throwing or jumping.
+  splitEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 400 });
+  const gutter = splitEl.children[1];
+
+  gutter.onpointerdown({ currentTarget: gutter, pointerId: 1, preventDefault() {} });
+  listeners.pointermove[0]({ clientX: 250, clientY: 0 });
+  assert.strictEqual(Page._layout.ratio, 0.5, 'the drag still tracks the pointer');
+  listeners.pointermove[0]({ clientX: 2, clientY: 0 });
+  assert.strictEqual(Page._layout.ratio, 0.15, 'and still stops at the proportional minimum');
+  listeners.pointerup[0]();
 });
 
 test('a gutter resets on double click and moves by a step on arrow keys', async () => {
@@ -615,9 +645,9 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
-  assert.match(html, /terminals-layout\.js\?v=5/);
-  assert.match(html, /terminals\.js\?v=41/);
-  assert.match(html, /styles\.css\?v=421/);
+  assert.match(html, /terminals-layout\.js\?v=6/);
+  assert.match(html, /terminals\.js\?v=43/);
+  assert.match(html, /styles\.css\?v=422/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -784,6 +814,162 @@ test('when every task goes the workspace closes and forgets the layout', async (
   assert.strictEqual(session.getItem('sv-agent-task-id'), null);
 });
 
+// --- the pane split open and not yet filled ---------------------------------
+
+test('pruning does not immediately remove a user-created blank split', async () => {
+  const { Page } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  const first = Page._lay().panes(Page._layout)[0].id;
+  Page._splitIntoEmptyPane(first, 'row');
+
+  assert.strictEqual(Page._panes.size, 2, 'the split opened a second, empty pane');
+  const blank = Array.from(Page._panes.values()).find((r) => !r.taskId);
+  assert.ok(blank, 'and that pane holds no task yet');
+  assert.strictEqual(blank.keepEmpty, true, 'which it is allowed to, on purpose');
+  assert.match(blank.stageEl.innerHTML, /terminals-empty-pane/, 'it shows its chooser rather than nothing');
+
+  // The 3 s task poll runs. Nothing about the board has changed.
+  Page._pruneLayoutToTasks();
+
+  assert.strictEqual(Page._panes.size, 2, 'the poll leaves the pane the operator just opened alone');
+  assert.ok(Page._panes.has(blank.id), 'and it is still the same pane');
+  assert.match(blank.stageEl.innerHTML, /Choose a running task/, 'still asking which task goes in it');
+  assert.match(blank.stageEl.innerHTML, /data-empty-pane-close/, 'with a way out of it either way');
+});
+
+test('a blank pane loses its reprieve the moment it is given a task', async () => {
+  const { Page } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  Page._splitIntoEmptyPane(Page._lay().panes(Page._layout)[0].id, 'row');
+  const blank = Array.from(Page._panes.values()).find((r) => !r.taskId);
+
+  await Page._attach('t2', blank.id);
+  assert.strictEqual(blank.taskId, 't2');
+  assert.strictEqual(blank.keepEmpty, false, 'a pane with a task is pruned on its task, like any other');
+
+  Page._tasks = [task('t1')];
+  Page._pruneLayoutToTasks();
+  assert.strictEqual(Page._panes.size, 1, 'so losing that task closes it');
+});
+
+test('a blank pane that reached storage does not come back on the next visit', async () => {
+  const store = makeStore();
+  const first = loadPage({ store });
+  first.Page._tasks = [task('t1'), task('t2')];
+  await first.Page._attach('t1');
+  first.Page._splitIntoEmptyPane(first.Page._lay().panes(first.Page._layout)[0].id, 'row');
+  assert.strictEqual(first.Page._panes.size, 2);
+  const saved = JSON.parse(store.getItem('sv-terminals-layout'));
+  assert.strictEqual(saved.root.type, 'split', 'the split did reach storage');
+
+  const next = loadPage({ store });
+  next.Page._tasks = [task('t1'), task('t2')];
+  await next.Page._restoreLayout();
+
+  assert.strictEqual(next.Page._panes.size, 1, 'the blank half is collapsed rather than restored');
+  assert.strictEqual(next.Page._layout.type, 'pane');
+  assert.strictEqual(next.Page._layout.taskId, 't1');
+});
+
+// --- a minimum usable pane width --------------------------------------------
+
+test('a split that would leave an unusable pane is refused, and says why', async () => {
+  const { Page } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  const paneId = Page._lay().panes(Page._layout)[0].id;
+  const rec = Page._panes.get(paneId);
+  // Two panes of the usable width do not fit in this much room.
+  rec.el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 400 });
+
+  Page._splitIntoEmptyPane(paneId, 'row');
+  assert.strictEqual(Page._panes.size, 1, 'no unusable pane is created');
+  assert.strictEqual(Page._layout.type, 'pane');
+  assert.strictEqual(rec.bannerEl.hidden, false, 'the refusal is on screen');
+  assert.match(rec.bannerEl.textContent, /Not enough width to split/);
+  assert.match(rec.bannerEl.textContent, new RegExp(String(Page.PANE_USABLE_W)), 'and names the width it needs');
+
+  await Page._openInNewPane('t2', 'row');
+  assert.strictEqual(Page._panes.size, 1, 'opening a task in a new pane is held to the same floor');
+  assert.strictEqual(Page._attached, 't1', 'and the task that could not fit is left where it was');
+});
+
+test('a downward split is never refused on width, and a wide pane splits fine', async () => {
+  const { Page } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  const paneId = Page._lay().panes(Page._layout)[0].id;
+  Page._panes.get(paneId).el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 400 });
+
+  Page._splitIntoEmptyPane(paneId, 'col');
+  assert.strictEqual(Page._panes.size, 2, 'splitting downwards does not change a pane\'s width');
+  assert.strictEqual(Page._layout.dir, 'col');
+});
+
+// --- evening out a layout that has gone to slivers --------------------------
+
+test('the workspace strip offers an even-out control once there is more than one pane', async () => {
+  const { Page, byId } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  const head = byId('terminals-attached-head');
+  assert.ok(!head.innerHTML.includes('terminals-even-panes-btn'), 'one pane has nothing to even out');
+
+  await Page._openInNewPane('t2', 'row');
+  assert.ok(head.innerHTML.includes('id="terminals-even-panes-btn"'), 'two panes do');
+  assert.ok(head.innerHTML.includes('>Even panes<'));
+  assert.ok(head.innerHTML.includes('All tasks'), 'it sits with the controls that were already there');
+});
+
+test('a focused blank pane keeps the workspace controls on screen', async () => {
+  const { Page, byId } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  Page._splitIntoEmptyPane(Page._lay().panes(Page._layout)[0].id, 'row');
+  assert.strictEqual(Page._attached, null, 'the new pane holds no task, so nothing is attached');
+
+  const head = byId('terminals-attached-head');
+  assert.ok(!head.innerHTML.includes('Pick a task to attach'),
+    'a blank pane in a live workspace is not an empty workspace');
+  assert.ok(head.innerHTML.includes('All tasks'), 'the board is still one click away');
+  assert.ok(head.innerHTML.includes('terminals-even-panes-btn'), 'and so is the way to even the panes out');
+  assert.ok(!head.innerHTML.includes('id="terminals-stop-btn"'), 'with nothing attached there is nothing to stop');
+
+  Page._closePane(Array.from(Page._panes.values()).find((r) => !r.taskId).id);
+  Page._renderAttachedHead();
+  assert.ok(head.innerHTML.includes('All tasks'), 'and the strip survives the pane going again');
+});
+
+test('evening out the panes rebalances the ratios and detaches nothing', async () => {
+  const { Page, sockets, views } = loadPage();
+  Page._tasks = [task('t1'), task('t2'), task('t3')];
+  await Page._attach('t1');
+  await Page._openInNewPane('t2', 'row');
+  await Page._openInNewPane('t3', 'col');
+  const before = Array.from(Page._panes.values(), (r) => r.taskId).sort();
+
+  // A layout dragged down to slivers, the way the owner's was.
+  const L = Page._lay();
+  Page._layout = { ...Page._layout, ratio: 0.16 };
+  Page._layout = { ...Page._layout, b: { ...Page._layout.b, ratio: 0.85 } };
+
+  const fitsBefore = views.map((v) => v.fits);
+  assert.strictEqual(Page._rebalancePanes(), true);
+
+  const ratios = [];
+  (function walk(n) { if (n && n.type === 'split') { ratios.push(n.ratio); walk(n.a); walk(n.b); } })(Page._layout);
+  assert.deepStrictEqual(ratios, [0.5, 0.5], 'every split is back to an even share');
+  assert.strictEqual(Page._panes.size, 3, 'no pane closed');
+  assert.deepStrictEqual(Array.from(Page._panes.values(), (r) => r.taskId).sort(), before,
+    'and every task is still in the pane it was in');
+  assert.ok(!sockets.some((s) => s.closed), 'nothing was detached');
+  assert.ok(views.every((v, i) => v.fits > fitsBefore[i]), 'every terminal refits into its new width');
+  assert.strictEqual(L.rebalance(Page._layout), Page._layout, 'an even tree is handed straight back');
+  assert.strictEqual(Page._rebalancePanes(), false, 'so a second press has nothing to do');
+});
+
 test('removing a task from the board no longer detaches the whole workspace', () => {
   const src = read('js/pages/terminals.js');
   assert.ok(!/this\._attached === task\.id\) this\._detach\(\)/.test(src),
@@ -828,8 +1014,9 @@ test('a re-render mid drag does not snap the ratio to the clamp', async () => {
   Page._renderLayout();
   // The element the drag started on is detached now, so it measures as zero.
   stale.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 });
+  Page._splitEls.get(splitId).getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 400 });
 
-  listeners.pointermove[0]({ clientX: 200, clientY: 0 });
+  listeners.pointermove[0]({ clientX: 400, clientY: 0 });
   assert.strictEqual(Page._layout.ratio, 0.25, 'the ratio is read from the element on screen');
   assert.notStrictEqual(Page._splitEls.get(splitId), stale, 'and that is not the one it started on');
 });

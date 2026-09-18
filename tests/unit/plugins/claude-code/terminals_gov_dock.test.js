@@ -9,9 +9,9 @@
  * traces, but not that one: the width is dragged by the column's left edge and
  * persisted, and a collapse takes the column down to a narrow vertical strip
  * that genuinely returns the width to the panes while keeping the panel named
- * and clickable. These tests pin that, plus the four-way task/choice state and
- * the persistence, because each of the old faults was invisible to the suite
- * that shipped them.
+ * beside a dedicated edge toggle. These tests pin that, plus the four-way
+ * task/choice state and the persistence, because each of the old faults was
+ * invisible to the suite that shipped them.
  *
  * DOM stub mirrors terminals_context_cost.test.js / terminals_pane.test.js.
  */
@@ -65,6 +65,7 @@ function workspaceEl(width = 1200) {
 function dockEls() {
   return {
     'terminals-governance': makeEl(),
+    'terminals-gov-edge': makeEl(),
     'terminals-gov-gutter': makeEl(),
     'terminals-governance-toggle': makeEl(),
     'terminals-governance-head': makeEl(),
@@ -98,15 +99,21 @@ function loadPage(elements, extra = {}) {
 
 // --------------------------------------------------------------- structure
 
-test('the column is the pane area\'s right sibling, with the gutter between them', () => {
+test('the column is the pane area\'s right sibling, with one edge wrapper between them', () => {
   const src = read('js/pages/terminals.js');
   const open = src.indexOf('<div class="terminals-workspace">');
   const centre = src.indexOf('<section class="terminals-centre">', open);
+  const edge = src.indexOf('<div class="terminals-gov-edge" id="terminals-gov-edge">', open);
   const gutter = src.indexOf('id="terminals-gov-gutter"', open);
+  const toggle = src.indexOf('id="terminals-governance-toggle"', open);
   const dock = src.indexOf('<section class="terminals-governance" id="terminals-governance">', open);
   assert.ok(open > 0 && centre > open, 'the pane area opens the workspace');
-  assert.ok(gutter > centre, 'the resize gutter comes after the pane area');
-  assert.ok(dock > gutter, 'the column comes after the gutter, so it sits to the right of the panes');
+  assert.ok(edge > centre, 'the edge wrapper comes after the pane area');
+  assert.ok(gutter > edge && toggle > gutter, 'separator and toggle are separate controls inside the edge');
+  assert.ok(dock > toggle, 'the column comes after the edge, so it sits to the right of the panes');
+  const edgeMarkup = src.slice(edge, dock);
+  assert.doesNotMatch(edgeMarkup, /role="separator"[^>]*>\s*<button/,
+    'the real button must not be nested inside the focusable separator');
   // The old markup was a <details>, whose collapse could not reclaim the grid
   // column it lived in. Nothing should bring it back.
   assert.ok(!/<details class="terminals-governance"/.test(src),
@@ -118,33 +125,33 @@ test('the workspace lays out in a row, and no fixed governance column survives',
   assert.match(css, /\.terminals-workspace \{ display: flex; flex-direction: row; min-width: 0; min-height: 0; \}/);
   assert.ok(!/\.terminals-workspace \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(230px, 285px\)/.test(css),
     'no fixed 230-285px governance column survives');
-  assert.match(css, /\.terminals-workspace > \.terminals-centre \{ flex: 1 1 auto; min-width: 0; min-height: 0; \}/,
-    'the pane area takes the width the column does not');
+  assert.match(css, /\.terminals-workspace > \.terminals-centre \{ flex: 1 1 auto; min-width: 420px; min-height: 0; \}/,
+    'desktop panes retain the same 420px floor used by the JavaScript clamp');
 });
 
 test('the column width is one variable, and collapsing drops it to the strip', () => {
   const css = read('css/styles.css');
   assert.match(css, /\.terminals-governance \{[^}]*width: var\(--gov-w, 320px\)/);
-  assert.match(css, /\.terminals-governance\.is-collapsed \{ width: 34px; margin-left: 12px; \}/,
+  assert.match(css, /\.terminals-governance\.is-collapsed \{ width: 34px; \}/,
     'collapsed is a narrow strip, not a shortened body inside a kept column');
   assert.ok(!/\.terminals-governance\.is-collapsed \{ width: 0/.test(css),
     'the strip is never zero width: the person has to be able to find it again');
   assert.match(css, /\.terminals-governance-body\[hidden\] \{ display: none; \}/,
     'the body is a grid, so [hidden] needs saying out loud or it keeps its size');
   assert.match(css, /\.terminals-gov-gutter \{[^}]*cursor: col-resize/);
+  assert.match(css, /\.terminals-gov-edge \{[^}]*flex: 0 0 12px; width: 12px; min-width: 12px/,
+    'the measured 12px gutter is owned by one explicit edge wrapper');
   assert.match(css, /\.terminals-gov-gutter\[hidden\] \{ display: none; \}/);
 });
 
-test('the collapsed strip still shows the panel name, running vertically', () => {
+test('the collapsed strip shows a static vertical name while the edge owns the control', () => {
   const css = read('css/styles.css');
-  assert.match(css, /\.terminals-governance\.is-collapsed \.terminals-governance-toggle \{[^}]*writing-mode: vertical-rl/,
+  assert.match(css, /\.terminals-governance\.is-collapsed \.terminals-governance-name \{[^}]*writing-mode: vertical-rl/,
     'the name runs down the strip rather than disappearing');
-  assert.match(css, /\.terminals-governance\.is-collapsed \.terminals-governance-toggle \{[^}]*flex: 1 1 auto/,
-    'the button fills the strip, so the whole strip is the click target');
   assert.match(css, /\.terminals-governance\.is-collapsed \.terminals-governance-head \{[^}]*flex: 1 1 auto/);
-  assert.ok(!/\.terminals-governance\.is-collapsed \.terminals-governance-toggle \{[^}]*display: none/.test(css),
-    'the strip is visible, not hidden');
-  // The body is what goes away, not the control that brings it back.
+  assert.match(css, /\.terminals-governance-toggle \{[^}]*position: absolute;[^}]*top: 50%;[^}]*left: 50%/,
+    'the independent button is centered on the panel edge');
+  // The body is what goes away, not the static panel name or edge control.
   assert.match(css, /\.terminals-governance\.is-collapsed \.terminals-governance-summary \{ display: none; \}/);
 });
 
@@ -164,10 +171,14 @@ test('the narrow layout still stacks into one usable column', () => {
     'nothing to drag when the page scrolls instead of filling the viewport');
   assert.match(block, /\.terminals-workspace \{ flex-direction: column; \}/,
     'the row becomes a stack, so the column becomes a band under the panes');
-  assert.match(block, /\.terminals-governance \{ width: auto; max-height: 60vh; margin-top: 12px; \}/);
-  assert.match(block, /\.terminals-governance\.is-collapsed \{ width: auto; margin-left: 0; \}/,
+  assert.match(block, /\.terminals-workspace > \.terminals-centre \{ min-width: 0; \}/,
+    'the desktop pane floor is explicitly released in the stacked layout');
+  assert.match(block, /\.terminals-gov-edge \{ flex: 0 0 0; width: auto; min-width: 0; height: 0; \}/,
+    'the edge becomes a zero-height boundary rather than a vertical column');
+  assert.match(block, /\.terminals-governance \{ width: auto; min-width: 0; max-height: 60vh; margin-top: 12px; \}/);
+  assert.match(block, /\.terminals-governance\.is-collapsed \{ width: auto; \}/,
     'a 34px strip beside nothing is not a layout');
-  assert.match(block, /\.terminals-governance\.is-collapsed \.terminals-governance-toggle \{[^}]*writing-mode: horizontal-tb/,
+  assert.match(block, /\.terminals-governance\.is-collapsed \.terminals-governance-name \{[^}]*writing-mode: horizontal-tb/,
     'and the name reads across again once it is a band');
   assert.match(block, /\.terminals-centre \{ min-height: 460px; \}/);
 });
@@ -246,8 +257,10 @@ test('the gutter drag clamps so neither the panes nor the column go unusable', (
   assert.strictEqual(Page._govWidth, Page.GOV_MIN_W);
   // Dragged to the left edge: the panes keep theirs.
   Page._setGovWidth(5000);
-  assert.strictEqual(Page._govWidth, 1200 - Page.PANE_MIN_W);
-  assert.strictEqual(els['terminals-governance'].style.props['--gov-w'], (1200 - Page.PANE_MIN_W) + 'px');
+  const exactMax = 1200 - Page.PANE_MIN_W - Page.GOV_GUTTER_W;
+  assert.strictEqual(Page.GOV_GUTTER_W, 12);
+  assert.strictEqual(Page._govWidth, exactMax);
+  assert.strictEqual(els['terminals-governance'].style.props['--gov-w'], exactMax + 'px');
 });
 
 test('arrow keys move the column edge, which is the keyboard route to a resize', () => {
@@ -283,26 +296,36 @@ test('double-clicking the gutter puts the column back to its default width', () 
   assert.strictEqual(els['terminals-governance'].style.props['--gov-w'], Page.GOV_DEFAULT_W + 'px');
 });
 
-test('the collapse control is a button with an accessible name, and the gutter is a focusable vertical separator', () => {
+test('the edge has a separate named toggle and focusable resize separator', () => {
   const src = read('js/pages/terminals.js');
-  assert.match(src, /<button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body">/);
-  assert.match(src, /<span class="terminals-governance-name">Governance activity<\/span><\/button>/,
-    'the name is in the button, not only in the summary line beside it, so the collapsed strip has one');
+  assert.match(src, /<div class="terminals-gov-edge" id="terminals-gov-edge">[\s\S]*?<button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body" aria-label="Collapse governance activity">/);
+  assert.match(src, /<div class="terminals-governance-head" id="terminals-governance-head">\s*<span class="terminals-governance-name">Governance activity<\/span>/,
+    'the expanded header is a static title row, not a button');
   assert.match(src, /id="terminals-gov-gutter" role="separator" aria-orientation="vertical" aria-label="Resize the governance column" tabindex="0"/);
+  const separator = src.match(/<div class="terminals-gov-gutter"[^>]*>([\s\S]*?)<\/div>/);
+  assert.ok(separator && !separator[1].includes('<button'), 'the button is not nested in the separator');
 });
 
-test('aria-expanded tracks the strip in both directions', () => {
+test('edge toggle aria tracks both directions and the header does not toggle', () => {
   const els = dockEls();
   const Page = loadPage(els);
   const toggle = els['terminals-governance-toggle'];
+  const head = els['terminals-governance-head'];
   Page._bindGovDock();
   assert.strictEqual(toggle.attrs['aria-expanded'], 'false');
-  toggle.onclick();                            // the strip is the control
+  assert.strictEqual(toggle.attrs['aria-label'], 'Expand governance activity');
+  assert.strictEqual(head.onclick, undefined, 'the static title/summary row has no click handler');
+  const beforeHeaderClick = Page._govCollapsed;
+  if (head.onclick) head.onclick({ target: head });
+  assert.strictEqual(Page._govCollapsed, beforeHeaderClick, 'clicking the header changes nothing');
+  toggle.onclick();                            // the edge is the control
   assert.strictEqual(toggle.attrs['aria-expanded'], 'true');
+  assert.strictEqual(toggle.attrs['aria-label'], 'Collapse governance activity');
   assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'),
-    'clicking the strip reopens the column');
+    'clicking the edge reopens the column');
   toggle.onclick();
   assert.strictEqual(toggle.attrs['aria-expanded'], 'false');
+  assert.strictEqual(toggle.attrs['aria-label'], 'Expand governance activity');
   assert.ok(els['terminals-governance'].classList.contains('is-collapsed'));
 });
 

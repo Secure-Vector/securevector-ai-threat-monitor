@@ -8769,7 +8769,7 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-workspace { display: flex; flex-direction: row; min-width: 0; min-height: 0; }
 /* Governance is a right column, but a dragged one: the panes take every
    pixel it is not currently using, and a collapse hands the rest back. */
-.terminals-workspace > .terminals-centre { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.terminals-workspace > .terminals-centre { flex: 1 1 auto; min-width: 420px; min-height: 0; }
 .terminals-attached-head { display: flex; gap: 12px; align-items: center; min-height: 36px; padding: 7px 12px; font-size: 12px; border-bottom: 1px solid var(--border-default, #24303c); background: rgba(23, 34, 44, .75); }
 .terminals-head-spacer { flex: 1; }
 .terminals-head-status { text-transform: capitalize; }
@@ -8787,24 +8787,27 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
    whole trick, and the reason the old <details> failed: it keeps the panel
    findable while handing every other pixel back to the panes. */
 .terminals-governance { flex: 0 0 auto; display: flex; flex-direction: column; width: var(--gov-w, 320px); min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--border-default, #24303c); border-radius: 12px; background: rgba(12, 19, 26, .82); }
-.terminals-governance.is-collapsed { width: 34px; margin-left: 12px; }
-.terminals-gov-gutter { position: relative; flex: 0 0 12px; background: transparent; border: 0; padding: 0; cursor: col-resize; touch-action: none; }
+.terminals-governance.is-collapsed { width: 34px; }
+.terminals-gov-edge { position: relative; flex: 0 0 12px; width: 12px; min-width: 12px; z-index: 2; }
+.terminals-gov-gutter { position: absolute; inset: 0; background: transparent; border: 0; padding: 0; cursor: col-resize; touch-action: none; }
 .terminals-gov-gutter[hidden] { display: none; }
 .terminals-gov-gutter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); background: var(--border-default, #24303c); transition: background .12s ease; }
 .terminals-gov-gutter:hover::after, .terminals-gov-gutter:focus-visible::after { background: rgba(45, 212, 191, .75); }
 .terminals-gov-gutter:focus-visible { outline: none; }
 .terminals-governance-head { display: flex; flex: 0 0 auto; align-items: center; gap: 14px; padding: 0 13px; }
-.terminals-governance-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 10px 0; border: 0; background: none; color: inherit; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.terminals-governance-name { padding: 10px 0; font-size: 12px; font-weight: 650; }
+.terminals-governance-toggle { position: absolute; top: 50%; left: 50%; z-index: 2; display: inline-flex; width: 24px; height: 32px; padding: 0; align-items: center; justify-content: center; transform: translate(-50%, -50%); border: 1px solid var(--border-default, #24303c); border-radius: 999px; background: var(--bg-secondary, #0d1319); color: inherit; font: inherit; cursor: pointer; }
+.terminals-governance-toggle:hover { border-color: var(--accent-primary, #2dd4bf); background: var(--bg-hover, #151d26); }
+.terminals-governance-toggle:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 2px; }
 .terminals-governance-caret { color: var(--accent-primary, #2dd4bf); font-size: 16px; line-height: 1; transform: rotate(0deg); transition: transform .14s ease; }
 .terminals-governance-caret::before { content: '›'; }
 .terminals-governance-summary { margin-left: auto; color: rgba(214, 226, 236, .6); font-size: 11px; font-weight: 400; }
-/* Collapsed: the header becomes the whole column, and the button's own label
-   runs bottom-to-top so the panel stays named and stays clickable. */
-.terminals-governance.is-collapsed .terminals-governance-head { flex: 1 1 auto; align-items: stretch; gap: 0; padding: 0; }
-.terminals-governance.is-collapsed .terminals-governance-toggle { flex: 1 1 auto; justify-content: flex-start; width: 100%; padding: 12px 0; writing-mode: vertical-rl; }
-.terminals-governance.is-collapsed .terminals-governance-toggle:hover { background: rgba(45, 212, 191, .08); }
-.terminals-governance.is-collapsed .terminals-governance-name { letter-spacing: .04em; }
-.terminals-governance.is-collapsed .terminals-governance-caret { writing-mode: horizontal-tb; transform: rotate(180deg); }
+/* Collapsed: the static header becomes the whole strip. The reliable control
+   stays independently focusable on the edge rather than turning the title
+   into a button. */
+.terminals-governance.is-collapsed .terminals-governance-head { flex: 1 1 auto; align-items: center; justify-content: flex-start; gap: 0; padding: 12px 0; }
+.terminals-governance.is-collapsed .terminals-governance-name { padding: 0; letter-spacing: .04em; writing-mode: vertical-rl; }
+.terminals-gov-edge.is-collapsed .terminals-governance-caret { transform: rotate(180deg); }
 .terminals-governance.is-collapsed .terminals-governance-summary { display: none; }
 /* One column: the body is ~290px wide now, so an auto-fit track with a
    320px floor would overflow the panel it lives in. */
@@ -8817,7 +8820,7 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-approval { flex-direction: column; gap: 4px; }
 .terminals-approval-why { opacity: .7; }
 .terminals-approval-actions { display: flex; gap: 6px; }
-@media (max-width: 760px) { .terminals-page { grid-template-rows: auto minmax(460px, 1fr); height: auto; } .terminals-tasks-head { align-items: flex-start; } .terminals-tasks-head p { display: block; margin: 3px 0 0; } .terminals-task-search { width: 120px; } .terminals-launch { grid-template-columns: 1fr; } .terminals-gov-gutter { display: none; } .terminals-workspace { flex-direction: column; } .terminals-governance { width: auto; max-height: 60vh; margin-top: 12px; } .terminals-governance.is-collapsed { width: auto; margin-left: 0; } .terminals-governance.is-collapsed .terminals-governance-head { flex: 0 0 auto; align-items: center; padding: 0 13px; } .terminals-governance.is-collapsed .terminals-governance-toggle { flex: 0 0 auto; width: auto; padding: 10px 0; writing-mode: horizontal-tb; } .terminals-governance.is-collapsed .terminals-governance-caret { transform: rotate(90deg); } .terminals-centre { min-height: 460px; } .terminals-attached-head { gap: 7px; flex-wrap: wrap; } .terminals-governance-summary { display: none; } }
+@media (max-width: 760px) { .terminals-page { grid-template-rows: auto minmax(460px, 1fr); height: auto; } .terminals-tasks-head { align-items: flex-start; } .terminals-tasks-head p { display: block; margin: 3px 0 0; } .terminals-task-search { width: 120px; } .terminals-launch { grid-template-columns: 1fr; } .terminals-workspace { flex-direction: column; } .terminals-workspace > .terminals-centre { min-width: 0; } .terminals-gov-edge { flex: 0 0 0; width: auto; min-width: 0; height: 0; } .terminals-gov-gutter { display: none; } .terminals-governance-toggle { top: 6px; right: 12px; left: auto; width: 32px; height: 24px; transform: translateY(-50%); } .terminals-governance-caret { transform: rotate(-90deg); } .terminals-gov-edge.is-collapsed .terminals-governance-caret { transform: rotate(90deg); } .terminals-governance { width: auto; min-width: 0; max-height: 60vh; margin-top: 12px; } .terminals-governance.is-collapsed { width: auto; } .terminals-governance.is-collapsed .terminals-governance-head { flex: 0 0 auto; align-items: center; padding: 0 13px; } .terminals-governance.is-collapsed .terminals-governance-name { padding: 10px 0; writing-mode: horizontal-tb; } .terminals-centre { min-height: 460px; } .terminals-attached-head { gap: 7px; flex-wrap: wrap; } .terminals-governance-summary { display: none; } }
 
 /* Terminal look: monospace, flat surfaces, prompt glyphs. Additive overrides
    only, layered after the rules above per the higher-specificity-or-later
@@ -9062,7 +9065,7 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
 .terminals-page .terminals-task-confirm { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 9px; }
 .terminals-page .terminals-centre { border: 1px solid var(--border-default, #24303c); }
 .terminals-page .terminals-governance-head { padding: 0 10px; }
-.terminals-page .terminals-governance-toggle { padding: 8px 0; font-size: 11px; }
+.terminals-page .terminals-governance-toggle { padding: 0; font-size: 11px; }
 .terminals-page .terminals-stage-mark { display: none; }
 
 /* Rail: tighten the task rows and quiet the group label. */

@@ -205,6 +205,46 @@ test('prune() drops panes whose task is gone and collapses the splits', () => {
   assert.strictEqual(L.prune(null, ['t1']), null);
 });
 
+test('prune() keeps the empty panes it is told to, and only those', () => {
+  const L = loadLayout();
+  let root = L.create('t1');
+  root = L.split(root, root.id, 'row', null);
+  const blank = root.b.id;
+  assert.strictEqual(L._ids(root.b).length, 0, 'the split opened an empty pane');
+
+  assert.strictEqual(L.prune(root, ['t1']).type, 'pane', 'an empty pane is a leftover by default');
+  const kept = L.prune(root, ['t1'], [blank]);
+  assert.strictEqual(kept.type, 'split', 'named, it stays and the split stays with it');
+  assert.strictEqual(kept.b.id, blank);
+  assert.strictEqual(kept, root, 'and the tree is handed straight back when nothing moved');
+
+  const other = L.prune(root, ['t1'], ['some-other-pane']);
+  assert.strictEqual(other.type, 'pane', 'naming a different pane spares nothing');
+  assert.strictEqual(L.prune(root, [], [blank]).id, blank,
+    'a spared empty pane can be all that is left');
+  assert.strictEqual(L.prune(root, ['t1'], new Set([blank])), root, 'a Set works as well as an array');
+});
+
+test('rebalance() evens every split and keeps every pane and group', () => {
+  const L = loadLayout();
+  let root = L.create('t1');
+  root = L.split(root, root.id, 'row', 't2');
+  root = L.split(root, root.b.id, 'col', 't3');
+  root = L.setRatio(root, root.id, 0.16);
+  root = L.setRatio(root, root.b.id, 0.84);
+
+  const even = L.rebalance(root);
+  assert.strictEqual(even.ratio, 0.5);
+  assert.strictEqual(even.b.ratio, 0.5);
+  assert.deepStrictEqual(Array.from(L.panes(even), p => p.taskId), ['t1', 't2', 't3'],
+    'no pane and no task moves');
+  assert.deepStrictEqual(Array.from(L.panes(even), p => p.id), Array.from(L.panes(root), p => p.id),
+    'and every pane keeps its id, so no terminal is restarted');
+  assert.strictEqual(L.rebalance(even), even, 'an even tree is returned unchanged');
+  assert.strictEqual(L.rebalance(null), null);
+  assert.strictEqual(L.rebalance(L.create('t9')).type, 'pane', 'a lone pane has no ratio to even');
+});
+
 test('prune() accepts a Set as well as an array', () => {
   const L = loadLayout();
   let root = L.create('t1');

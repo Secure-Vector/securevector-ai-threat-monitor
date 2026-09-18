@@ -260,6 +260,25 @@ const TerminalsLayout = {
         return this._map(tree, (n) => (n === holder ? this._pane(n, ids, holder.taskId === from ? to : holder.taskId) : n));
     },
 
+    /** Every split back to an even share. A layout can be dragged, or grown
+     *  one split at a time, into slivers too narrow to read; this is the way
+     *  back that costs nothing. It touches ratios only: no pane closes, no
+     *  group changes, so every task stays attached to the terminal it had. */
+    rebalance(root) {
+        if (!root) return root;
+        let moved = false;
+        const walk = (n) => {
+            if (!n || n.type !== 'split') return n;
+            const a = walk(n.a);
+            const b = walk(n.b);
+            if (n.ratio === 0.5 && a === n.a && b === n.b) return n;
+            moved = true;
+            return { ...n, ratio: 0.5, a, b };
+        };
+        const out = walk(root);
+        return moved ? out : root;
+    },
+
     serialize(root) {
         if (!root) return null;
         if (root.type === 'pane') return { type: 'pane', id: root.id, taskIds: this._ids(root), taskId: root.taskId };
@@ -327,15 +346,23 @@ const TerminalsLayout = {
 
     /** Drop the tasks that no longer exist from every group, and the panes
      *  that leaves empty, collapsing the splits behind them. A restored layout
-     *  must never open a socket for a task the server has forgotten. */
-    prune(root, aliveTaskIds) {
+     *  must never open a socket for a task the server has forgotten.
+     *
+     *  `keepEmptyPaneIds` names the panes that are deliberately empty right
+     *  now: a split the operator just made is waiting for them to pick a task
+     *  for it, and the 3 s task poll must not close it under their hand. Only
+     *  the live page passes that set. A restore never does, so a blank pane
+     *  that reached storage still collapses on the next visit rather than
+     *  coming back as a void nobody remembers asking for. */
+    prune(root, aliveTaskIds, keepEmptyPaneIds) {
         const alive = aliveTaskIds instanceof Set ? aliveTaskIds : new Set(aliveTaskIds || []);
+        const keep = keepEmptyPaneIds instanceof Set ? keepEmptyPaneIds : new Set(keepEmptyPaneIds || []);
         const walk = (n) => {
             if (!n) return null;
             if (n.type === 'pane') {
                 const ids = this._ids(n);
                 const kept = ids.filter(x => alive.has(x));
-                if (!kept.length) return null;
+                if (!kept.length) return keep.has(n.id) ? n : null;
                 if (kept.length === ids.length) return n;
                 // The pane stays because it still holds something; only the
                 // tab it was showing has to be replaced when that one went.
