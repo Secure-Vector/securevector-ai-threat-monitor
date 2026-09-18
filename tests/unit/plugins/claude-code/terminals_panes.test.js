@@ -604,7 +604,7 @@ test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=5/);
   assert.match(html, /terminals\.js\?v=37/);
-  assert.match(html, /styles\.css\?v=411/);
+  assert.match(html, /styles\.css\?v=416/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });

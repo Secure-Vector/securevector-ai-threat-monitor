@@ -38,7 +38,13 @@ const Sidebar = {
         { id: 'policies', label: 'Policies', icon: 'sliders', aliases: ['policies-controls'],
           tooltip: 'Everything that decides what an agent may do, with live status for each control',
           views: [
-            { id: 'policies', label: 'Overview', tooltip: 'Every control at a glance, with live status for each' },
+            // The hoist (below, where a group's sole item is also its
+            // landing) skips the parent `policies` row entirely, which was
+            // the only row carrying `policies-controls` (the item's own
+            // alias). Without this, that live route resolves to no active
+            // row and the sliding indicator hides. Carried here instead so
+            // the hoisted Overview row still matches it.
+            { id: 'policies', label: 'Overview', aliases: ['policies-controls'], tooltip: 'Every control at a glance, with live status for each' },
             { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
               tooltip: 'Which tools each agent may call, and requests waiting on you' },
             { id: 'rules', label: 'Rules', icon: 'rules',
@@ -133,10 +139,20 @@ const Sidebar = {
         const container = document.getElementById('sidebar');
         if (!container) return;
 
+        // A group switch clears the container below, detaching whatever
+        // product-rail button opened the flyout — its mouseleave never fires,
+        // so the flyout would otherwise be stranded open over the content
+        // area. Hide it up front, before anything is torn down.
+        this._flyoutHide(true);
+
         // Check saved collapsed state
         const savedCollapsed = localStorage.getItem('sidebar-collapsed');
-        // Icon rail by default on narrower windows; the user's choice wins once made.
-        this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : window.innerWidth < 1280;
+        // Desktop opens EXPANDED. The icon rail is a deliberate space-saving
+        // choice, never a state someone lands in by accident: the desktop shell
+        // opens at 1200px, so a width-derived default started every fresh
+        // profile collapsed, with six destinations behind a hover. The user's
+        // own choice still wins once they have made one.
+        this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : false;
         // Mobile uses an off-canvas drawer: once open, it always needs both
         // product and context columns regardless of the saved desktop state.
         if (window.innerWidth <= 768) this.collapsed = false;
@@ -157,6 +173,23 @@ const Sidebar = {
             Sidebar._loadDefaultsApplied = true;
             ['integrations', 'guide'].forEach(id => localStorage.removeItem(`nav-${id}-expanded`));
         }
+
+        // A group switch re-renders the whole rail, so the node the user is
+        // standing on is removed and focus falls back to <body>. Record where
+        // focus and the destination list were, and put them back after the
+        // rebuild. Only a rail button inside THIS sidebar counts, so a render
+        // triggered while the user is typing in the page never steals focus.
+        const priorFocus = document.activeElement;
+        const focusedRailGroup = priorFocus && container.contains(priorFocus)
+            && priorFocus.classList && priorFocus.classList.contains('product-rail-button')
+            ? priorFocus.dataset.productGroup : null;
+        const priorNav = container.querySelector('.sidebar-nav');
+        const priorNavScroll = priorNav ? priorNav.scrollTop : 0;
+        // Only meaningful alongside the group it was captured from — applying
+        // it after a group switch drops the old offset onto a different,
+        // possibly shorter, list.
+        const priorContext = container.querySelector('.sidebar-context');
+        const priorNavGroup = priorContext ? priorContext.dataset.productGroup : null;
 
         // Clear container
         container.textContent = '';
@@ -268,6 +301,21 @@ const Sidebar = {
         this.navItems.forEach(item => {
             if (!activeGroup.items.includes(item.id)) return;
 
+            // A group with exactly one item, which is that group's own
+            // landing page, would otherwise show the same label three times:
+            // the rail button, the context heading, and this single
+            // destination row. Skip the row and hoist the item's views (if
+            // it has any) straight into the list instead, so every page
+            // behind it stays reachable without the redundant parent.
+            if (activeGroup.items.length === 1 && activeGroup.landing === item.id) {
+                if (item.views && item.views.length) {
+                    const viewsEl = this._renderViews(item, true);
+                    viewsEl.classList.add('nav-views-flat');
+                    nav.appendChild(viewsEl);
+                }
+                return;
+            }
+
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
             // to be enrolled. The row still renders (discoverability) but gets
             // a dimmed, "locked" treatment below instead of being hidden.
@@ -367,21 +415,10 @@ const Sidebar = {
                 navItem.appendChild(hint);
             }
 
-            // Pending just-in-time requests: an agent waiting on a human
-            // decision is the one time-sensitive signal in Configure. The count
-            // sits on Policies so it shows from anywhere, including the icon
-            // rail, where the flyout mirrors it. Filled by loadJitPendingCount().
-            if (item.id === 'policies') {
-                const jitBadge = document.createElement('span');
-                jitBadge.id = 'jit-pending-parent-badge';
-                jitBadge.className = 'nav-count nav-count-warn';
-                jitBadge.hidden = true;
-                navItem.appendChild(jitBadge);
-            }
-
-
-
-
+            // Pending-approval badge lives on the rail buttons instead
+            // (`data-jit-product-badge`, see _createProductRail below): the
+            // `policies` navItem is always hoisted (its group's sole item),
+            // so this row is never reached — see the hoist in render() above.
             // Collapsible parents carry a right-edge chevron: without it a
             // collapsed row is indistinguishable from a leaf, so users never
             // learn there are sub-items. Points right when collapsed, down
@@ -389,9 +426,11 @@ const Sidebar = {
             // section headers. Appended last so expandSection()'s
             // `svg:last-child` lookup finds it.
             let rowChev = null;
-            if (item.collapsible && hasSubItems) {
+            const isCollapsibleRow = item.collapsible && hasSubItems;
+            let startsExpanded = false;
+            if (isCollapsibleRow) {
                 const stored = localStorage.getItem(`nav-${item.id}-expanded`);
-                const startsExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
+                startsExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
                 rowChev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 rowChev.setAttribute('viewBox', '0 0 24 24');
                 rowChev.setAttribute('fill', 'none');
@@ -411,14 +450,15 @@ const Sidebar = {
             // the first sub-item, so e.g. clicking "Agent Replay" lands the
             // user on the Timeline and shows the sub-list. A second click
             // (collapse) just hides the sub-list without changing the page.
-            navItem.addEventListener('click', (e) => {
-                if (item.collapsible && hasSubItems) {
+            const activateRow = () => {
+                if (isCollapsibleRow) {
                     const subNav = nav.querySelector(`[data-sub-for="${item.id}"]`);
                     if (subNav) {
                         const isVisible = subNav.style.display !== 'none';
                         const willExpand = !isVisible;
                         subNav.style.display = willExpand ? 'block' : 'none';
                         if (rowChev) rowChev.style.transform = willExpand ? 'rotate(0deg)' : 'rotate(-90deg)';
+                        navItem.setAttribute('aria-expanded', String(willExpand));
                         localStorage.setItem(`nav-${item.id}-expanded`, String(willExpand));
                         if (willExpand && item.navigable && item.subItems[0]) {
                             this.navigate(item.subItems[0].id);
@@ -426,11 +466,18 @@ const Sidebar = {
                     }
                     return;
                 }
-                if (item.id === 'terminals') {
-                    this._showAgentTasksBoard();
-                    return;
-                }
+                // The `terminals` item is always hoisted (its group's sole
+                // item — see the hoist in render() above), so this row is
+                // never reached; its own click handling lives on the
+                // hoisted views and the rail button instead.
                 this.navigate(item.id);
+            };
+            navItem.addEventListener('click', activateRow);
+            // A collapsible parent toggles a sub-list rather than navigating.
+            // Every other row here genuinely navigates.
+            this._makeRowFocusable(navItem, activateRow, {
+                role: isCollapsibleRow ? 'button' : 'link',
+                expanded: isCollapsibleRow ? startsExpanded : undefined,
             });
 
             nav.appendChild(navItem);
@@ -645,8 +692,20 @@ const Sidebar = {
             this._countsTimer = setInterval(() => this.loadLiveCounts(), 60000);
         }
 
+        // A hoisted single-item group (see the hoist above) with no views at
+        // all (Governance) or none yet (Agent Tasks before any task exists —
+        // its views arrive asynchronously via _loadAgentTaskViews) would
+        // otherwise render only a heading, a subtitle and an empty list.
+        // When the group's context list would render zero destination rows,
+        // skip the context panel entirely: the rail stays visible and its
+        // button still navigates to the group's landing. Every non-hoisted
+        // group always adds at least one row per item, so `nav` is empty
+        // only in that hoisted, no-rows case.
+        const contextEmpty = nav.children.length === 0;
+        container.classList.toggle('sidebar-context-empty', contextEmpty);
+
         contextPanel.appendChild(nav);
-        this._flyoutInit(container, nav);
+        this._flyoutInit(container);
         this._indicatorInit(nav);
         this._loadAgentTaskViews();
         if (!this._agentTaskTimer) {
@@ -1024,6 +1083,11 @@ const Sidebar = {
 
         contextPanel.appendChild(bottomSection);
 
+        // Collapsed hides the context panel, which used to take the search row,
+        // the plugin banners and the theme control down with it. Move them into
+        // the product rail instead — the same single nodes, relocated.
+        this._syncCollapsedControls(container);
+
         // Check all five indicators — AFTER the bottom section is attached.
         // The pollers look themselves up via document.getElementById and exit
         // (without rescheduling) when the node isn't in the document yet;
@@ -1035,6 +1099,68 @@ const Sidebar = {
         this.checkCodexPluginStatus();
         this.checkCopilotPluginStatus();
         this.checkOpenCodePluginStatus();
+
+        // Put the user back where the rebuild found them (see the capture at
+        // the top of render): same rail button focused, same scroll offset —
+        // but only the scroll offset of the SAME group; a group switch always
+        // starts its list at the top.
+        if (priorNavScroll && priorNavGroup === activeGroup.id) nav.scrollTop = priorNavScroll;
+        if (focusedRailGroup) {
+            const refocus = productRail.querySelector(`.product-rail-button[data-product-group="${focusedRailGroup}"]`);
+            if (refocus) {
+                // Chromium focuses a button on click, so this restore can
+                // itself trigger the collapsed rail's focus-opens-flyout
+                // handler (wired above by _flyoutInit) and reopen the flyout
+                // we just hid at the top of this render. Mark this one
+                // programmatic focus so that handler skips it.
+                this._suppressFlyoutFocus = true;
+                refocus.focus();
+                this._suppressFlyoutFocus = false;
+            }
+        }
+    },
+
+    // Context destination rows are divs, so they carry counts, badges and drag
+    // behaviour but get no keyboard path of their own. Make them real tab stops
+    // that activate on Enter and Space; the focus ring already defined for
+    // `.sidebar-context .nav-item:focus-visible` then has something to paint.
+    // `role` defaults to 'link' for rows that genuinely navigate to a page.
+    // A row that instead toggles a sub-list or opens something other than a
+    // URL (a collapsible parent, the task board) must pass role: 'button',
+    // and a collapsible parent also passes its open/closed state as
+    // `expanded` so the two stay in sync instead of each caller hardcoding
+    // the ARIA attribute itself.
+    _makeRowFocusable(row, activate, { role = 'link', expanded } = {}) {
+        row.tabIndex = 0;
+        row.setAttribute('role', role);
+        if (expanded !== undefined) row.setAttribute('aria-expanded', String(expanded));
+        row.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+            // Space scrolls the page by default, which a destination row must not.
+            if (e.key !== 'Enter') e.preventDefault();
+            activate(e);
+        });
+    },
+
+    // One instance of each control, relocated between the two columns — never
+    // cloned, so no state is duplicated and no copy is ever visible twice.
+    _syncCollapsedControls(container) {
+        const rail = container.querySelector('.sidebar-product-rail');
+        const context = container.querySelector('.sidebar-context');
+        if (!rail || !context) return;
+        const search = container.querySelector('.nav-search');
+        const bottom = container.querySelector('.sidebar-bottom');
+        // The context panel is also absent — not just visually collapsed —
+        // when the active group's destination list would render zero rows
+        // (see the `sidebar-context-empty` toggle in render()). These
+        // controls need the same rail relocation as a real collapse then,
+        // without touching the user's own expand/collapse preference.
+        const toRail = this.collapsed || container.classList.contains('sidebar-context-empty');
+        if (search) {
+            if (toRail) rail.insertBefore(search, rail.querySelector('.product-rail-groups'));
+            else context.insertBefore(search, context.querySelector('.sidebar-context-heading'));
+        }
+        if (bottom) (toRail ? rail : context).appendChild(bottom);
     },
 
     // ---- v5.3 rail: views, search row, live counts, icon-rail flyout ----
@@ -1250,8 +1376,8 @@ const Sidebar = {
                     if (window.TerminalsPage?.beginTaskDrag) TerminalsPage.beginTaskDrag(view.taskId, ev);
                 });
             }
-            row.addEventListener('click', (e) => {
-                e.stopPropagation();
+            const activateView = (e) => {
+                if (e) e.stopPropagation();
                 if (view.taskId) {
                     // The click that ends a drag belongs to the drag.
                     if (window.TerminalsPage?.consumeDragClick && TerminalsPage.consumeDragClick()) return;
@@ -1260,7 +1386,9 @@ const Sidebar = {
                     return;
                 }
                 this.navigate(view.id);
-            });
+            };
+            row.addEventListener('click', activateView);
+            this._makeRowFocusable(row, activateView);
             wrap.appendChild(row);
         });
         return wrap;
@@ -1492,7 +1620,7 @@ const Sidebar = {
             }).catch(() => {});
     },
 
-    _flyoutInit(container, nav) {
+    _flyoutInit(container) {
         let fly = document.getElementById('nav-flyout');
         if (!fly) {
             fly = document.createElement('div');
@@ -1502,65 +1630,120 @@ const Sidebar = {
             document.body.appendChild(fly);
             fly.addEventListener('mouseenter', () => clearTimeout(this._flyHide));
             fly.addEventListener('mouseleave', () => this._flyoutHide());
-        }
-        nav.querySelectorAll('.nav-item[data-page]:not(.nav-view):not(.nav-sub-item)').forEach(row => {
-            row.addEventListener('mouseenter', () => {
-                if (container.classList.contains('collapsed')) this._flyoutShow(row);
+            fly.addEventListener('focusin', () => clearTimeout(this._flyHide));
+            fly.addEventListener('focusout', () => this._flyoutHide());
+            fly.addEventListener('keydown', (e) => {
+                if (e.key !== 'Escape') return;
+                const opener = this._flyoutOpener;
+                this._flyoutHide(true);
+                if (opener && opener.isConnected) opener.focus();
             });
-            row.addEventListener('mouseleave', () => this._flyoutHide());
+        }
+        // The flyout hangs off the PRODUCT RAIL, not off the context rows.
+        // Collapsed hides the context panel outright, so a flyout bound to
+        // those rows could never open and six of the twelve destinations had
+        // no mouse path at all. Hover or keyboard focus on a group button now
+        // lists that group's destinations; ArrowRight/ArrowDown steps into the
+        // list and Escape comes back out.
+        container.querySelectorAll('.product-rail-button').forEach(button => {
+            const open = () => {
+                if (container.classList.contains('collapsed')) this._flyoutShow(button);
+            };
+            button.addEventListener('mouseenter', open);
+            button.addEventListener('mouseleave', () => this._flyoutHide());
+            // render()'s focus-restore programmatically focuses this same
+            // button after a click (Chromium already gave it native focus,
+            // and the restore repeats it once the rebuilt node replaces the
+            // old one). That restore is not a hover/keyboard request to see
+            // the flyout, so it is suppressed for that one call only.
+            button.addEventListener('focus', () => {
+                if (this._suppressFlyoutFocus) return;
+                open();
+            });
+            button.addEventListener('blur', () => this._flyoutHide());
+            button.addEventListener('keydown', (e) => {
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
+                if (!container.classList.contains('collapsed')) return;
+                e.preventDefault();
+                this._flyoutShow(button);
+                const first = document.querySelector('#nav-flyout .nav-flyout-view');
+                if (first) first.focus();
+            });
         });
     },
 
-    _flyoutShow(row) {
+    _flyoutShow(button) {
         clearTimeout(this._flyHide);
-        const item = this.navItems.find(i => i.id === row.dataset.page);
+        const group = this.productGroups.find(g => g.id === button.dataset.productGroup);
         const fly = document.getElementById('nav-flyout');
-        if (!item || !fly) return;
+        if (!group || !fly) return;
+        this._flyoutOpener = button;
         fly.textContent = '';
         const title = document.createElement('div');
         title.className = 'nav-flyout-title';
-        title.textContent = item.label;
-        const cnt = row.querySelector('.nav-count');
-        if (cnt && !cnt.hidden) {
+        title.textContent = group.label;
+        // Whatever the button itself is already showing — the pending-approval
+        // count is the only one — is mirrored here rather than polled again.
+        const cnt = [...button.querySelectorAll('.nav-count, .product-rail-attention')]
+            .find(el => !el.hidden);
+        if (cnt) {
             const c = document.createElement('span');
             c.className = 'nav-count';
             c.textContent = cnt.textContent;
             title.appendChild(c);
         }
         fly.appendChild(title);
-        if (row.dataset.tip) {
+        if (group.subtitle) {
             const d = document.createElement('div');
             d.className = 'nav-flyout-desc';
-            d.textContent = row.dataset.tip;
+            d.textContent = group.subtitle;
             fly.appendChild(d);
         }
-        (item.views || []).forEach(v => {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'nav-flyout-view' + (this._viewActive(v) ? ' active' : '');
-            if (v.icon) b.appendChild(this.createIcon(v.icon));
-            const lbl = document.createElement('span');
-            lbl.textContent = v.label;
-            b.appendChild(lbl);
-            if (v.tooltip) b.title = v.tooltip;
-            if (v.cloud && this._enrolled !== true) {
-                const tier = document.createElement('span');
-                tier.className = 'nav-view-tier';
-                tier.textContent = 'Cloud';
-                b.appendChild(tier);
-            }
-            b.addEventListener('click', () => {
-                this._flyoutHide(true);
-                if (v.taskId) {
-                    sessionStorage.setItem('sv-agent-task-id', v.taskId);
-                    this.navigate('terminals');
-                    return;
-                }
-                this.navigate(v.id);
+        // Every destination in the group, which is what makes the collapsed
+        // rail complete. Views stay inside their destination: the page that
+        // owns them is one click away and lists them itself.
+        group.items
+            .map(id => this.navItems.find(item => item.id === id))
+            .filter(Boolean)
+            .forEach(v => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'nav-flyout-view' + (this._itemMatches(v, this.currentPage) ? ' active' : '');
+                if (v.icon) b.appendChild(this.createIcon(v.icon));
+                const lbl = document.createElement('span');
+                lbl.textContent = v.label;
+                b.appendChild(lbl);
+                if (v.tooltip) b.title = v.tooltip;
+                b.addEventListener('click', () => {
+                    // The flyout lives on document.body, outside #sidebar, so
+                    // render()'s own focus-restore guard (container.contains)
+                    // never matches it and focus would otherwise fall to
+                    // <body> once navigation replaces the rail. Send it back
+                    // to the rail button that opened this flyout instead —
+                    // by group id, since navigate() may rebuild the rail and
+                    // `button` itself can end up detached.
+                    const openerGroupId = button.dataset.productGroup;
+                    this._flyoutHide(true);
+                    if (v.id === 'terminals') {
+                        this._showAgentTasksBoard();
+                    } else {
+                        this.navigate(v.id);
+                    }
+                    const rail = document.querySelector('.sidebar-product-rail');
+                    const refocus = rail && rail.querySelector(`.product-rail-button[data-product-group="${openerGroupId}"]`);
+                    if (refocus) {
+                        // Same reopen risk as render()'s own restore: this
+                        // focus() would otherwise immediately trip the
+                        // focus-opens-flyout handler and pop the flyout back
+                        // open right after we just hid it above.
+                        this._suppressFlyoutFocus = true;
+                        refocus.focus();
+                        this._suppressFlyoutFocus = false;
+                    }
+                });
+                fly.appendChild(b);
             });
-            fly.appendChild(b);
-        });
-        const r = row.getBoundingClientRect();
+        const r = button.getBoundingClientRect();
         fly.style.left = `${Math.round(r.right + 6)}px`;
         fly.hidden = false;
         const h = fly.offsetHeight || 120;
@@ -1583,6 +1766,11 @@ const Sidebar = {
         const sync = () => nav.classList.toggle('nav-more', nav.scrollHeight - nav.clientHeight - nav.scrollTop > 4);
         nav.addEventListener('scroll', sync, { passive: true });
         nav.addEventListener('scrollend', sync, { passive: true });
+        // render() runs this on every navigation, so the previous listener has
+        // to come off first — the same discipline the observers below already
+        // follow, and without it every group switch leaks another callback.
+        if (this._fadeResize) window.removeEventListener('resize', this._fadeResize);
+        this._fadeResize = sync;
         window.addEventListener('resize', sync);
         if (typeof ResizeObserver !== 'undefined') {
             if (this._fadeRo) this._fadeRo.disconnect();
@@ -1665,6 +1853,7 @@ const Sidebar = {
         localStorage.setItem('sidebar-collapsed', this.collapsed);
 
         container.classList.toggle('collapsed', this.collapsed);
+        this._syncCollapsedControls(container);
         this._flyoutHide(true);
         setTimeout(() => this._moveIndicator(true), 260);
         container.querySelectorAll('.nav-item[data-tip]').forEach(row => {
@@ -2132,8 +2321,12 @@ const Sidebar = {
         } catch (e) {
             // Ignore errors
         }
-        // Refresh every 5 seconds
-        setTimeout(() => this.checkProxyStatus(), 5000);
+        // Refresh every 5 seconds. render() runs on every group switch and
+        // kicks all six pollers again, so each one owns a single timer handle
+        // and cancels its own pending tick before booking the next: calling a
+        // poller twice leaves exactly one chain, never two.
+        clearTimeout(this._proxyStatusTimer);
+        this._proxyStatusTimer = setTimeout(() => this.checkProxyStatus(), 5000);
     },
 
     async checkSiemStatus() {
@@ -2161,7 +2354,8 @@ const Sidebar = {
                 }
             }
         } catch (_) { /* ignore */ }
-        setTimeout(() => this.checkSiemStatus(), 5000);
+        clearTimeout(this._siemStatusTimer);
+        this._siemStatusTimer = setTimeout(() => this.checkSiemStatus(), 5000);
     },
 
     async checkClaudeCodePluginStatus() {
@@ -2202,7 +2396,8 @@ const Sidebar = {
             && document.getElementById('cc-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
+            clearTimeout(this._ccPluginStatusTimer);
+            this._ccPluginStatusTimer = setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
         }
     },
 
@@ -2235,7 +2430,8 @@ const Sidebar = {
             && document.getElementById('copilot-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkCopilotPluginStatus(), delay);
+            clearTimeout(this._copilotPluginStatusTimer);
+            this._copilotPluginStatusTimer = setTimeout(() => this.checkCopilotPluginStatus(), delay);
         }
     },
 
@@ -2268,7 +2464,8 @@ const Sidebar = {
             && document.getElementById('opencode-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkOpenCodePluginStatus(), delay);
+            clearTimeout(this._opencodePluginStatusTimer);
+            this._opencodePluginStatusTimer = setTimeout(() => this.checkOpenCodePluginStatus(), delay);
         }
     },
 
@@ -2302,7 +2499,8 @@ const Sidebar = {
             && document.getElementById('codex-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkCodexPluginStatus(), delay);
+            clearTimeout(this._codexPluginStatusTimer);
+            this._codexPluginStatusTimer = setTimeout(() => this.checkCodexPluginStatus(), delay);
         }
     },
 
@@ -2471,6 +2669,10 @@ const Sidebar = {
             if (navItem) {
                 const chevron = navItem.querySelector('svg:last-child');
                 if (chevron) chevron.style.transform = 'rotate(0deg)';
+                // Keep the ARIA state in sync with the visible one — without
+                // this a `_makeRowFocusable(..., { role: 'button', expanded })`
+                // row would announce "collapsed" while visibly open.
+                navItem.setAttribute('aria-expanded', 'true');
             }
         }
     },
@@ -2573,7 +2775,11 @@ const Sidebar = {
             }
         });
         // Views show under their destination only while it is the active one.
+        // A hoisted top-level group (see render(): a single-item group whose
+        // item is its own landing) has no parent row to key off, and stays
+        // open unconditionally, so its views are excluded here.
         document.querySelectorAll('.nav-views').forEach(v => {
+            if (v.classList.contains('nav-views-flat')) return;
             const parent = v.previousElementSibling;
             const open = !!(parent && parent.classList.contains('active'));
             v.classList.toggle('open', open);

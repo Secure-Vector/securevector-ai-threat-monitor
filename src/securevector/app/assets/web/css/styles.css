@@ -8407,13 +8407,29 @@ thead tr:hover #records-select-all,
 .nav-search-label { flex: 1; text-align: left; }
 .nav-search-kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
     border: 1px solid var(--border-default); color: var(--text-secondary); }
-.sidebar.collapsed .nav-search { width: 40px; margin: 4px 12px 0; padding: 7px 0; justify-content: center; }
-.sidebar.collapsed .nav-search-label, .sidebar.collapsed .nav-search-kbd { display: none; }
+.sidebar.collapsed .nav-search,
+.sidebar.sidebar-context-empty .nav-search { width: 40px; margin: 4px 12px 0; padding: 7px 0; justify-content: center; }
+.sidebar.collapsed .nav-search-label, .sidebar.collapsed .nav-search-kbd,
+.sidebar.sidebar-context-empty .nav-search-label, .sidebar.sidebar-context-empty .nav-search-kbd { display: none; }
 
 /* Views: the pages folded into a destination. Visible only under the active row. */
 .nav-views { display: none; margin: 0 0 4px 26px; padding-left: 6px; border-left: 1px solid var(--border-default); }
 .nav-views.open { display: block; }
 .nav-views.peek { display: block; }
+/* A single-item group whose item is its own landing hoists that item's
+   views straight into the list (see render()): no parent row, so no fold
+   indent or guide line either — these read as the top-level destinations. */
+.nav-views.nav-views-flat { margin: 0; padding-left: 0; border-left: 0; }
+/* Agent Tasks is hoisted (nav-views-flat, from the render() hoist) AND
+   renders task rows (nav-views-tasks, from _renderViews), so its wrap
+   carries both classes. This rule and `.nav-views.nav-views-tasks
+   .nav-item.nav-view` below have identical specificity — with both
+   selectors bare, whichever sits later in the file would silently win, so
+   moving either block would retune every task row. The `:not()` here makes
+   the tasks rule (below) the sole, order-independent source of truth for a
+   wrap carrying both classes; this rule only ever applies to a flat group
+   with no task styling (Governance's hoisted views). */
+.nav-views.nav-views-flat:not(.nav-views-tasks) .nav-item.nav-view { padding: 8px 16px; gap: 12px; font-size: 12.5px; }
 .nav-item .nav-fold-chev { width: 10px; height: 10px; flex-shrink: 0; margin-left: auto; opacity: 0.45; transform: rotate(-90deg); transition: transform 0.15s, opacity 0.15s; }
 .nav-item.nav-has-views .nav-count:not([hidden]) + .nav-fold-chev { margin-left: 6px; }
 .nav-item.nav-fold-open .nav-fold-chev { transform: rotate(0deg); }
@@ -8681,6 +8697,8 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 /* Task rows take the whole rail width and light the full rectangle, the way
    a top-level row does, instead of the indented tick-list treatment. */
 .nav-views.nav-views-tasks { margin-left: 0; padding-left: 0; border-left: 0; }
+/* Wins over `.nav-views.nav-views-flat .nav-item.nav-view` above for a wrap
+   carrying both classes (Agent Tasks) — see the `:not()` note up there. */
 .nav-views.nav-views-tasks .nav-item.nav-view { padding: 6px 16px 6px 24px; gap: 10px; margin: 1px 0; border-radius: var(--radius-md); font-size: 12px; }
 .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active, [data-theme="light"] .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active { background: rgba(94,173,184,0.14); color: var(--text-primary); font-weight: 600; box-shadow: none; }
 [data-theme="light"] .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active { background: rgba(94,173,184,0.16); }
@@ -9347,11 +9365,55 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
     height: 28px;
 }
 
+/* The product rail is the topmost chrome on the left, so it owns the
+   title-strip inset the old .sidebar-header used to carry. Without this
+   the shield renders under the traffic lights. */
+html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
+
 html.desktop-mac .sidebar-product-rail .sidebar-collapse-btn { top: auto; }
 
 .sidebar.collapsed { width: var(--sidebar-collapsed-width); }
 .sidebar.collapsed .sidebar-context { display: none; }
 .sidebar.collapsed .sidebar-product-rail { border-right: 0; }
+
+/* A group whose context list would render zero destination rows (see the
+   `sidebar-context-empty` toggle in render()) hides the same `.sidebar-context`
+   panel for the same reason — nothing to show — without touching the user's
+   own expand/collapse preference (`.collapsed` stays whatever it was). Reuses
+   the collapsed-mode width and border math so the main content reflows into
+   the reclaimed space with no gap or double border. */
+.sidebar.sidebar-context-empty { width: var(--sidebar-collapsed-width); }
+.sidebar.sidebar-context-empty .sidebar-context { display: none; }
+.sidebar.sidebar-context-empty .sidebar-product-rail { border-right: 0; }
+.sidebar.sidebar-context-empty .sidebar-resize-handle {
+    /* No point letting the user drag a rail with no context beside it. */
+    display: none;
+}
+
+/* Collapsed (or context-empty, above), the context panel is gone, so the
+   controls that must outlive it are relocated into the product rail
+   (Sidebar._syncCollapsedControls moves the one instance of each, it never
+   clones one): the search row, the plugin and SIEM status banners, and the
+   theme control. The icon-only treatment for each of them is already defined
+   further up this file; these rules only give them room inside the 72px rail. */
+.sidebar.collapsed .sidebar-product-rail,
+.sidebar.sidebar-context-empty .sidebar-product-rail {
+    /* the theme menu opens out of the rail and must not be clipped */
+    overflow: visible;
+}
+.sidebar.collapsed .sidebar-product-rail .product-rail-groups,
+.sidebar.sidebar-context-empty .sidebar-product-rail .product-rail-groups { padding-bottom: 6px; }
+.sidebar.collapsed .sidebar-product-rail .nav-search,
+.sidebar.sidebar-context-empty .sidebar-product-rail .nav-search { margin: 6px auto 2px; }
+.sidebar.collapsed .sidebar-product-rail .sidebar-bottom,
+.sidebar.sidebar-context-empty .sidebar-product-rail .sidebar-bottom {
+    flex: 0 0 auto;
+    margin-top: auto;
+    /* clears the collapse button pinned to the foot of the rail */
+    padding-bottom: 46px;
+}
+.sidebar.collapsed .sidebar-product-rail .sidebar-theme-fixed,
+.sidebar.sidebar-context-empty .sidebar-product-rail .sidebar-theme-fixed { margin: 4px auto 6px; }
 
 @media (max-width: 768px) {
     .sidebar,

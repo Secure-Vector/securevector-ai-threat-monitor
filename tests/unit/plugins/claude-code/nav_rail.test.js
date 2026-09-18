@@ -37,6 +37,21 @@ test('product rail order and contextual route mappings are stable', () => {
 test('Agent Tasks is first and root/fallback navigation is session-first', () => {
   const ids = [...navItemsSource().matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
   assert.equal(ids[0], 'terminals');
+  // Every destination the product rail offers must resolve to a real navItems
+  // entry, and every navItem must be reachable from some group. Deleting a
+  // destination (say `threats`) has to fail here, instead of silently
+  // degrading its deep link into the Agent Tasks context.
+  const navIds = new Set(ids);
+  const groupItemIds = [...productGroupsSource().matchAll(/items: \[([^\]]*)\]/g)]
+    .flatMap(m => [...m[1].matchAll(/'([a-z0-9-]+)'/g)].map(x => x[1]));
+  assert.equal(groupItemIds.length, 12, 'the rail must offer all twelve destinations');
+  assert.equal(new Set(groupItemIds).size, groupItemIds.length, 'a destination belongs to one group only');
+  for (const id of groupItemIds) {
+    assert.ok(navIds.has(id), `productGroups lists '${id}', which is not a navItems destination`);
+  }
+  for (const id of navIds) {
+    assert.ok(groupItemIds.includes(id), `navItems destination '${id}' is in no product group`);
+  }
   const sidebar = read('js/components/sidebar.js');
   const app = read('js/app.js');
   assert.match(sidebar, /currentPage: 'terminals'/);
@@ -75,12 +90,64 @@ test('folded pages are views of a destination, so every old page id still lands'
   assert.match(nav, /id: 'policies'.*aliases: \['policies-controls'\]/);
 });
 
+test('single-item groups whose item is the landing hoist views instead of duplicating the label', () => {
+  const src = read('js/components/sidebar.js');
+  // Tasks, Governance and Policies each have exactly one item, and that item
+  // is the group's own landing page. Rendering it as a normal row would show
+  // the same label three times: the rail button, the context heading, and
+  // this single destination row.
+  const groups = productGroupsSource();
+  for (const id of ['tasks', 'governance', 'policies']) {
+    const m = groups.match(new RegExp(`id: '${id}'[\\s\\S]*?landing: '([a-z0-9-]+)',[\\s\\S]*?items: \\[([^\\]]*)\\]`));
+    assert.ok(m, `${id} group must exist`);
+    const landing = m[1];
+    const items = [...m[2].matchAll(/'([a-z0-9-]+)'/g)].map(x => x[1]);
+    assert.deepStrictEqual(items, [landing], `${id} must stay a single-item group whose item is its own landing`);
+  }
+  assert.match(src, /if \(activeGroup\.items\.length === 1 && activeGroup\.landing === item\.id\) \{/);
+  assert.match(src, /viewsEl\.classList\.add\('nav-views-flat'\);/);
+  // No parent row exists for the hoisted wrap, so it cannot key its open
+  // state off a previous sibling the way a folded destination's views do.
+  assert.match(src, /if \(v\.classList\.contains\('nav-views-flat'\)\) return;/);
+  const css = read('css/styles.css');
+  assert.match(css, /\.nav-views\.nav-views-flat \{ margin: 0; padding-left: 0; border-left: 0; \}/);
+});
+
+test('every Policies view stays a reachable destination once the parent row is hoisted away', () => {
+  const nav = navItemsSource();
+  const policiesBlock = nav.match(/\{ id: 'policies', label: 'Policies'[\s\S]*?\] \},/)[0];
+  const viewIds = [...policiesBlock.matchAll(/\{ id: '([a-z0-9-]+)', label: '([^']+)'/g)]
+    // the outer item itself is uniquely labelled 'Policies'; everything else
+    // matched here is one of its views (the first of which reuses the
+    // 'policies' id for its Overview view)
+    .filter(m => m[2] !== 'Policies')
+    .map(m => m[1]);
+  assert.deepStrictEqual(viewIds,
+    ['policies', 'tool-permissions', 'rules', 'egress-policy', 'cost-settings', 'mcp-policies', 'skill-scanner'],
+    'every policy surface must still exist as a view, in order');
+  // The Overview view keeps the 'policies' id itself, so deep links and
+  // aliases that used to hit the parent row still resolve to the same group.
+  assert.match(policiesBlock, /\{ id: 'policies', label: 'Overview'/);
+  const src = read('js/components/sidebar.js');
+  // Hoisting only changes where a view renders, not what clicking it does —
+  // _renderViews still wires every row to navigate to its own page.
+  assert.match(src, /this\.navigate\(view\.id\);/);
+});
+
 test('views render under the active destination only and the flyout serves the icon rail', () => {
   const src = read('js/components/sidebar.js');
   assert.match(src, /_renderViews\(item, matchesSelf\)/);
   assert.match(src, /document\.querySelectorAll\('\.nav-views'\)\.forEach/);
-  assert.match(src, /_flyoutInit\(container, nav\)/);
-  assert.match(src, /if \(container\.classList\.contains\('collapsed'\)\) this\._flyoutShow\(row\);/);
+  assert.match(src, /this\._flyoutInit\(container\);/);
+  // The flyout hangs off the PRODUCT RAIL. Bound to the context rows it could
+  // never open, because collapsed hides the context panel outright — which is
+  // also what stranded six of the twelve destinations.
+  assert.match(src, /container\.querySelectorAll\('\.product-rail-button'\)\.forEach\(button => \{/);
+  assert.match(src, /if \(container\.classList\.contains\('collapsed'\)\) this\._flyoutShow\(button\);/);
+  assert.match(src, /if \(this\._suppressFlyoutFocus\) return;\s*\n\s*open\(\);/);
+  assert.match(src, /group\.items\s*\n\s*\.map\(id => this\.navItems\.find\(item => item\.id === id\)\)/);
+  assert.doesNotMatch(src, /nav\.querySelectorAll\('\.nav-item\[data-page\]/,
+    'no dead flyout path may be left on the context rows');
   const css = read('css/styles.css');
   assert.match(css, /\.nav-views\.open \{ display: block; \}/);
   assert.match(css, /\.sidebar\.collapsed \.nav-views \{ display: none !important; \}/);
@@ -115,8 +182,8 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=168/);
-  assert.match(html, /styles\.css\?v=412/);
+  assert.match(html, /sidebar\.js\?v=171/);
+  assert.match(html, /styles\.css\?v=416/);
   assert.match(html, /app\.js\?v=69/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -212,7 +279,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=412/);
+  assert.match(read('index.html'), /styles\.css\?v=416/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -247,9 +314,13 @@ test('the plugin status observer settles on WebKit, which re-fires a style mutat
 
 test('folding Policies keeps every signal reachable from outside it', () => {
   const src = read('js/components/sidebar.js');
-  // pending just-in-time count on the parent row, mirrored by the icon-rail flyout
-  assert.match(src, /jitBadge\.id = 'jit-pending-parent-badge';/);
+  // pending just-in-time count lives on the product-rail button instead: the
+  // `policies` navItem is always hoisted (its group's sole item — see the
+  // hoist in render()), so the parent-row badge creation was dead code and
+  // has been removed; the (null-safe) reader stays so nothing throws.
+  assert.doesNotMatch(src, /jitBadge\.id = 'jit-pending-parent-badge';/);
   assert.match(src, /getElementById\('jit-pending-parent-badge'\)/);
+  assert.match(src, /badge\.dataset\.jitProductBadge = group\.id/);
   // views keep their own badges, the cloud lock and the chord hint
   assert.match(src, /badge\.id = 'rules-count-badge';\s+row\.appendChild/);
   assert.match(src, /if \(locked\) row\.classList\.add\('nav-item-locked'\);/);
@@ -373,4 +444,72 @@ test('the rail Agent Tasks row asks for the board, not the task it left attached
     'the page reads the request at mount');
   assert.match(terminals, /this\._wantBoard = false;\s*\n\s*this\._clearStoredLayout\(\);/,
     'and a board request forgets the stored panes rather than reopening them');
+});
+
+test('the collapsed rail is complete, and nothing it owns is stranded, leaked or unreachable', () => {
+  const src = read('js/components/sidebar.js');
+  const css = read('css/styles.css');
+
+  // Desktop opens expanded: the shell window is 1200px, so a width-derived
+  // default put every fresh profile into the icon rail.
+  assert.match(src, /this\.collapsed = savedCollapsed !== null \? savedCollapsed === 'true' : false;/);
+  assert.doesNotMatch(src, /window\.innerWidth < 1280/);
+  assert.match(src, /if \(window\.innerWidth <= 768\) this\.collapsed = false;/);
+
+  // The controls that must outlive the context panel are moved, never cloned,
+  // and both render() and the collapse toggle have to place them. They also
+  // relocate when the context panel is absent for having zero rows (not just
+  // when truly collapsed) — see `toRail` below.
+  assert.match(src, /_syncCollapsedControls\(container\) \{/);
+  assert.match(src, /const toRail = this\.collapsed \|\| container\.classList\.contains\('sidebar-context-empty'\);/);
+  assert.match(src, /if \(bottom\) \(toRail \? rail : context\)\.appendChild\(bottom\);/);
+  assert.equal((src.match(/this\._syncCollapsedControls\(container\);/g) || []).length, 2,
+    'render() and toggleCollapse() must both place the movable controls');
+  assert.match(css, /\.sidebar\.collapsed \.sidebar-product-rail \.sidebar-bottom,\n\.sidebar\.sidebar-context-empty \.sidebar-product-rail \.sidebar-bottom \{/);
+  assert.match(css, /\.sidebar\.collapsed \.sidebar-product-rail \.nav-search,\n\.sidebar\.sidebar-context-empty \.sidebar-product-rail \.nav-search \{/);
+
+  // render() is on the navigation path now, so every self-rescheduling poller
+  // owns one cancellable handle: calling it twice must leave one pending tick.
+  for (const [handle, method] of [
+    ['_proxyStatusTimer', 'checkProxyStatus'],
+    ['_siemStatusTimer', 'checkSiemStatus'],
+    ['_ccPluginStatusTimer', 'checkClaudeCodePluginStatus'],
+    ['_copilotPluginStatusTimer', 'checkCopilotPluginStatus'],
+    ['_opencodePluginStatusTimer', 'checkOpenCodePluginStatus'],
+    ['_codexPluginStatusTimer', 'checkCodexPluginStatus'],
+  ]) {
+    assert.match(src, new RegExp(`clearTimeout\\(this\\.${handle}\\);\\s*\\n\\s*this\\.${handle} = setTimeout\\(\\(\\) => this\\.${method}\\(\\)`),
+      `${method} must cancel its pending tick before booking the next`);
+  }
+  assert.doesNotMatch(src, /^\s*setTimeout\(\(\) => this\.check/m,
+    'an unassigned poll timer cannot be cancelled and stacks on every render');
+
+  // A group switch rebuilds the rail, so focus and scroll have to survive it.
+  assert.match(src, /priorFocus && container\.contains\(priorFocus\)/);
+  assert.match(src, /const priorNavScroll = priorNav \? priorNav\.scrollTop : 0;/);
+  // The offset only means something next to the group it was captured from —
+  // a group switch always starts the new list at the top.
+  assert.match(src, /const priorNavGroup = priorContext \? priorContext\.dataset\.productGroup : null;/);
+  assert.match(src, /if \(priorNavScroll && priorNavGroup === activeGroup\.id\) nav\.scrollTop = priorNavScroll;/);
+  // Programmatic focus restore must not trip the collapsed rail's
+  // focus-opens-flyout handler and reopen what render() just hid.
+  assert.match(src, /this\._suppressFlyoutFocus = true;\s*\n\s*refocus\.focus\(\);\s*\n\s*this\._suppressFlyoutFocus = false;/);
+
+  // One resize listener, replaced on each render like the observers beside it.
+  assert.match(src, /if \(this\._fadeResize\) window\.removeEventListener\('resize', this\._fadeResize\);/);
+
+  // Context destination rows are divs, so they need their own keyboard path
+  // before the focus ring the stylesheet defines can ever be seen.
+  assert.match(src, /_makeRowFocusable\(row, activate, \{ role = 'link', expanded \} = \{\}\) \{/);
+  assert.match(src, /row\.tabIndex = 0;/);
+  assert.match(src, /row\.setAttribute\('role', role\);/);
+  assert.match(src, /if \(e\.key !== 'Enter'\) e\.preventDefault\(\);/);
+  // Collapsible parents toggle rather than navigate to a URL, so they are
+  // not links. The `terminals` navItem is always hoisted (its group's sole
+  // item), so its own row-level click/role branch was dead code and has
+  // been removed; the hoisted views and the rail button own that behaviour.
+  assert.match(src, /role: isCollapsibleRow \? 'button' : 'link',/);
+  assert.doesNotMatch(src, /item\.id === 'terminals'\) \? 'button' : 'link'/);
+  assert.match(src, /this\._makeRowFocusable\(row, activateView\);/);
+  assert.match(css, /\.sidebar-context \.nav-item:focus-visible/);
 });
