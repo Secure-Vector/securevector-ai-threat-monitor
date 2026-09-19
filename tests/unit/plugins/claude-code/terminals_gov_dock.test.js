@@ -550,3 +550,24 @@ test('the approval Review button opens the column without recording a preference
   assert.strictEqual(Page._govUserSet, false,
     'showing the inbox is the page acting, not the person choosing');
 });
+
+test('the governance column reads context, then the trail, then the decisions', () => {
+  // Context frames the session, Traces and Egress are what it did, Tool calls
+  // is the per-call detail under them, and the inbox is what is still owed.
+  const src = read('js/pages/terminals.js');
+  const at = (needle) => {
+    const i = src.indexOf(needle);
+    assert.ok(i > 0, `${needle} is still in the column`);
+    return i;
+  };
+  const context = at('id="terminals-gov-context"');
+  const traces = at('<h3>Traces</h3>');
+  const egress = at('<h3>Egress</h3>');
+  const toolCalls = at('<h3>Tool calls</h3>');
+  const inbox = at('<h3>Approval inbox</h3>');
+
+  assert.ok(context < traces, 'context first');
+  assert.ok(traces < egress, 'traces before egress');
+  assert.ok(egress < toolCalls, 'tool calls sits after egress, not above the trail');
+  assert.ok(toolCalls < inbox, 'the inbox stays last');
+});

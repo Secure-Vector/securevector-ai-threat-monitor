@@ -198,9 +198,9 @@ const TerminalsPage = {
                   <summary><h3>Context &amp; cost</h3><span class="terminals-gov-stage" id="terminals-context-stage"></span></summary>
                   <div id="terminals-context" class="terminals-context"><span class="terminals-empty">No task attached.</span></div>
                 </details>
-                <details class="terminals-gov-section" open><summary><h3>Tool calls</h3><span class="terminals-gov-count" id="terminals-verdicts-count"></span></summary><div id="terminals-verdicts" class="terminals-verdicts"><span class="terminals-empty">No task attached.</span></div></details>
                 <details class="terminals-gov-section" open><summary class="terminals-traces-head"><h3>Traces</h3><a href="#" class="terminals-traces-all" id="terminals-traces-all">All traces</a><span class="terminals-gov-count" id="terminals-traces-count"></span></summary><div id="terminals-traces" class="terminals-traces"><span class="terminals-empty">No task attached.</span></div></details>
                 <details class="terminals-gov-section" open><summary><h3>Egress</h3><span class="terminals-gov-count" id="terminals-egress-count"></span></summary><div id="terminals-egress" class="terminals-egress"><span class="terminals-empty">No task attached.</span></div></details>
+                <details class="terminals-gov-section" open><summary><h3>Tool calls</h3><span class="terminals-gov-count" id="terminals-verdicts-count"></span></summary><div id="terminals-verdicts" class="terminals-verdicts"><span class="terminals-empty">No task attached.</span></div></details>
                 <details class="terminals-gov-section" open><summary><h3>Approval inbox</h3><span class="terminals-gov-count" id="terminals-approvals-count"></span></summary><div id="terminals-approvals" class="terminals-approvals"><span class="terminals-empty">Nothing waiting.</span></div></details>
               </div>
             </section>

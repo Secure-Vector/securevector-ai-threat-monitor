@@ -172,7 +172,7 @@ test('the Codex Guard card tells the user how to bring web access under the Guar
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=49/);
+  assert.match(html, /terminals\.js\?v=50/);
   assert.match(html, /styles\.css\?v=430/);
   assert.match(html, /integrations\.js\?v=50/);
 });
