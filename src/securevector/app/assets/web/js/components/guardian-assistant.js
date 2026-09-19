@@ -1084,7 +1084,7 @@ const GuardianAssistant = {
             cta: 'See what was blocked', page: 'blocked-ledger',
         },
         terminals: {
-            noun: 'Agent Tasks',
+            noun: 'Agent Sessions',
             what: 'Launch a governed harness task here, then return to its card for its live terminal, verdicts, approvals, and audit trail. Guardian remains your product-level guide; task cards carry their own compact operating state.',
             look: 'Waiting approval is the urgent state: your agent is paused until you allow or deny that exact tool call.',
             cta: 'Review tool permissions', page: 'tool-permissions',

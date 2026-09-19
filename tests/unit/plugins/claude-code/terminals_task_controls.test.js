@@ -266,8 +266,12 @@ test('the confirm control archives the task and does not open the card it sits i
   const fn = src.slice(src.indexOf("el.querySelectorAll('[data-confirm-remove-id]')"),
     src.indexOf('REMOVE_CONFIRM_MS'));
   assert.match(fn, /ev\.stopPropagation\(\)/, 'the click must not reach the card open handler');
-  assert.match(fn, /API\.terminalsArchive\(task\.id\)/);
-  assert.match(fn, /this\._refreshTasks\(\)/);
+  // The archive itself moved into _removeFromBoard so the card and the linked
+  // pane cannot drift apart on what removal means. Follow it there.
+  assert.match(fn, /this\._removeFromBoard\(task\.id\)/);
+  const shared = src.slice(src.indexOf('async _removeFromBoard(taskId) {'));
+  assert.match(shared.slice(0, 700), /API\.terminalsArchive\(taskId\)/);
+  assert.match(shared.slice(0, 700), /this\._refreshTasks\(\)/);
   assert.match(src, /REMOVE_CONFIRM_MS: 6000/, 'the timeout is a named constant, not a literal in the timer');
   assert.match(src, /\.terminals-task-confirm|terminals-task-confirm/);
   const confirmSpan = src.slice(src.indexOf("el.querySelectorAll('.terminals-task-confirm')"));

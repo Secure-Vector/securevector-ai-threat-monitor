@@ -582,7 +582,8 @@ const TerminalsPage = {
         const shown = this._adoptExpanded ? rows : rows.slice(0, this.ADOPT_PREVIEW);
         const body = shown.map(r => {
             const calls = `${r.calls || 0} call${r.calls === 1 ? '' : 's'}`;
-            const folder = r.workspace ? this._shortPath(r.workspace) : '';
+            const known = this._knownWorkspace(r.workspace);
+            const folder = known ? this._shortPath(known) : 'folder not reported';
             return `
               <div class="terminals-adopt-row">
                 <span class="terminals-adopt-harness">${this._esc(r.label || r.executor_id)}</span>
@@ -794,11 +795,19 @@ const TerminalsPage = {
         let html = '';
         const isSingleGroup = groups.size === 1;
         for (const [ws, tasks] of groups) {
-            html += `<div class="terminals-group${isSingleGroup ? ' is-single' : ''}"><div class="terminals-group-name" title="${this._esc(ws)}">${this._esc(this._shortPath(ws))}</div>`;
+            // The placeholder is a sentinel, not a path, so it must not be
+            // printed as one: shortPath would show it verbatim.
+            const knownWs = this._knownWorkspace(ws);
+            const groupName = knownWs ? this._shortPath(knownWs) : 'Folder not reported';
+            html += `<div class="terminals-group${isSingleGroup ? ' is-single' : ''}"><div class="terminals-group-name" title="${this._esc(knownWs || 'This session never reported a working folder')}">${this._esc(groupName)}</div>`;
             for (const t of tasks) {
                 const active = t.id === this._attached ? ' is-attached' : '';
                 const state = this._taskState(t);
-                const canRelaunch = this._isEnded(t);
+                // A linked session that ended can carry the folder placeholder
+                // rather than a path, and relaunch spawns into the folder. No
+                // real folder, no offer: the alternative is a button whose only
+                // outcome is "Workspace folder does not exist".
+                const canRelaunch = this._isEnded(t) && !!this._knownWorkspace(t.workspace);
                 // The launching state lives on the page, not on the button: the
                 // 3 s poll rebuilds every card, and a disabled flag set on the
                 // old DOM node would be gone by the next tick, leaving a live
@@ -806,10 +815,25 @@ const TerminalsPage = {
                 const relaunching = this._relaunchingId === t.id;
                 const relaunch = canRelaunch
                     ? `<button class="terminals-task-relaunch" data-relaunch-id="${this._esc(t.id)}" aria-label="Relaunch task" title="Relaunch with the same harness and folder"${relaunching ? ' disabled' : ''}>${relaunching ? 'Launching…' : '↻'}</button>` : '';
-                const removable = !['starting', 'working', 'blocked', 'idle'].includes(t.status)
+                // A linked row is always removable. The app owns no process for a
+                // session started in someone's own terminal, so there is nothing
+                // to stop first, and its status is derived from the audit trail:
+                // it sits at working or idle until the harness reports an end,
+                // which most never do. Gating it the way a launched task is
+                // gated strands an adopted session on the board for good.
+                const isLinked = t.origin === 'linked';
+                const canRemove = isLinked || !['starting', 'working', 'blocked', 'idle'].includes(t.status);
+                const verb = isLinked ? 'Unlink' : 'Remove';
+                const ask = isLinked
+                    ? 'Stop governing this session? Its audit trace is kept.'
+                    : 'Remove from the board? Its audit trace is kept.';
+                const hint = isLinked
+                    ? 'Stop governing this session; it keeps running in your own terminal and the audit record remains'
+                    : 'Remove from board; the audit record remains';
+                const removable = canRemove
                     ? (this._removeConfirmId === t.id
-                        ? `<span class="terminals-task-confirm">Remove from the board? Its audit trace is kept. <button type="button" class="terminals-task-confirm-yes" data-confirm-remove-id="${this._esc(t.id)}">Remove</button><button type="button" class="terminals-task-confirm-no" data-cancel-remove-id="${this._esc(t.id)}">Keep</button></span>`
-                        : `<button class="terminals-task-remove" data-remove-id="${this._esc(t.id)}" title="Remove from board; the audit record remains">Remove</button>`)
+                        ? `<span class="terminals-task-confirm">${this._esc(ask)} <button type="button" class="terminals-task-confirm-yes" data-confirm-remove-id="${this._esc(t.id)}">${this._esc(verb)}</button><button type="button" class="terminals-task-confirm-no" data-cancel-remove-id="${this._esc(t.id)}">Keep</button></span>`
+                        : `<button class="terminals-task-remove" data-remove-id="${this._esc(t.id)}" title="${this._esc(hint)}">${this._esc(verb)}</button>`)
                     : '';
                 const elapsed = this._elapsed(t.created_at, t.ended_at);
                 const guard = this._guardState(t);
@@ -824,8 +848,7 @@ const TerminalsPage = {
                       <span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>
                       <span class="terminals-task-when">${branch}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
                     </button>
-                    ${relaunch}
-                    ${removable}
+                    ${relaunch || removable ? `<div class="terminals-task-actions">${relaunch}${removable}</div>` : ''}
                   </article>`;
             }
             html += '</div>';
@@ -875,15 +898,7 @@ const TerminalsPage = {
                 if (!task) return;
                 b.disabled = true;
                 try {
-                    await API.terminalsArchive(task.id);
-                    this._removeConfirmId = null;
-                    // The pane holding it is closed by the prune in
-                    // _refreshTasks(); the rest of the workspace stays up.
-                    if (sessionStorage.getItem('sv-agent-task-id') === task.id) sessionStorage.removeItem('sv-agent-task-id');
-                    await this._refreshTasks();
-                    if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
-                    this._renderAttachedHead();
-                    this._refreshRail();
+                    await this._removeFromBoard(task.id);
                 } catch (e) {
                     b.disabled = false;
                     this._banner(e.message || 'Could not remove task.');
@@ -1988,6 +2003,25 @@ const TerminalsPage = {
      *  the ungoverned session the offer was meant to replace. A task that is
      *  still reporting gets no button at all.
      */
+    /** Take one task off the board, from its card or from its own pane.
+     *
+     *  For a linked row this is the unlink: nothing is stopped, because the
+     *  app owns no process for a session started in someone's own terminal.
+     *  The audit trail is kept either way, and archiving frees the session id
+     *  so the adopt panel can offer it again.
+     */
+    async _removeFromBoard(taskId) {
+        await API.terminalsArchive(taskId);
+        this._removeConfirmId = null;
+        // The pane holding it is closed by the prune in _refreshTasks(); the
+        // rest of the workspace stays up.
+        if (sessionStorage.getItem('sv-agent-task-id') === taskId) sessionStorage.removeItem('sv-agent-task-id');
+        await this._refreshTasks();
+        if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
+        this._renderAttachedHead();
+        this._refreshRail();
+    },
+
     _linkedStageHtml(task) {
         // The backend derives a linked task's status from its audit trail:
         // `working` while calls arrive, `idle` after a long silence, and an
@@ -2011,16 +2045,31 @@ const TerminalsPage = {
         } else {
             note = '<p class="terminals-linked-note">This session is active. Its terminal is in the window you started it in.</p>';
         }
-        const action = (ended || quiet)
-            ? `<button type="button" class="btn btn-sm btn-primary" data-linked-open="${this._esc(task.id)}">Open a governed terminal here</button>`
-            : '';
+        // "Here" has to mean somewhere. A session whose cwd was never reported
+        // carries the placeholder, and spawning into that fails at the host, so
+        // point at the launch form where a folder can be chosen instead.
+        const folder = this._knownWorkspace(task.workspace);
+        let action = '';
+        if ((ended || quiet) && folder) {
+            action = `<button type="button" class="btn btn-sm btn-primary" data-linked-open="${this._esc(task.id)}">Open a governed terminal here</button>`;
+        } else if (ended || quiet) {
+            action = '<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to open a terminal. Use + Launch to start one in a folder you pick.</p>';
+        }
+        // Unlinking belongs here as much as on the card: this pane is where a
+        // person lands when they open the session, and the card may be scrolled
+        // far away behind it.
+        const unlink = this._removeConfirmId === task.id
+            ? '<span class="terminals-linked-unlink terminals-task-confirm">Stop governing this session? Its audit trace is kept.'
+                + ` <button type="button" class="terminals-task-confirm-yes" data-linked-unlink-yes="${this._esc(task.id)}">Unlink</button>`
+                + `<button type="button" class="terminals-task-confirm-no" data-linked-unlink-no="${this._esc(task.id)}">Keep</button></span>`
+            : `<button type="button" class="terminals-linked-unlink btn btn-sm" data-linked-unlink="${this._esc(task.id)}" title="Stop governing this session; it keeps running in your own terminal and the audit record remains">Unlink this session</button>`;
         return `
               <div class="terminals-linked-stage">
                 <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
                 <h3>Runs outside SecureVector</h3>
                 <p>This session was started in your own terminal. There is no terminal here; governance is live.</p>
                 ${note}
-                ${action}
+                <div class="terminals-linked-actions">${action}${unlink}</div>
               </div>`;
     },
 
@@ -2032,6 +2081,31 @@ const TerminalsPage = {
     _bindLinkedStage(paneId, task) {
         const rec = this._panes ? this._panes.get(paneId) : null;
         if (!rec || !rec.stageEl || !rec.stageEl.querySelectorAll) return;
+        // The stage is rebuilt from _linkedStageHtml on each of these, which is
+        // what swaps the button for the confirm and back again.
+        const restage = () => {
+            rec.stageEl.innerHTML = this._linkedStageHtml(task);
+            this._bindLinkedStage(paneId, task);
+        };
+        rec.stageEl.querySelectorAll('[data-linked-unlink]').forEach(b => {
+            b.onclick = () => { this._removeConfirmId = task.id; restage(); };
+        });
+        rec.stageEl.querySelectorAll('[data-linked-unlink-no]').forEach(b => {
+            b.onclick = () => { this._removeConfirmId = null; restage(); };
+        });
+        rec.stageEl.querySelectorAll('[data-linked-unlink-yes]').forEach(b => {
+            b.onclick = async () => {
+                b.disabled = true;
+                try {
+                    // The pane goes with it: _refreshTasks prunes the layout
+                    // once the row is archived, so nothing is left to restage.
+                    await this._removeFromBoard(task.id);
+                } catch (e) {
+                    b.disabled = false;
+                    this._banner(e.message || 'Could not unlink the session.', paneId);
+                }
+            };
+        });
         const buttons = rec.stageEl.querySelectorAll('[data-linked-open]');
         buttons.forEach(b => {
             b.onclick = async () => {
@@ -3761,6 +3835,20 @@ const TerminalsPage = {
     // The other side of the same coin. Stopping a task yourself leaves it
     // `interrupted` and a crash leaves it `failed`, so gating a restart on
     // `done` alone hid the button on exactly the tasks worth restarting.
+    // Mirrors UNKNOWN_WORKSPACE in app/terminals/manager.py. No hook forwards
+    // a cwd today, so a linked session's folder is scraped from whatever an
+    // audit preview happens to spell out, and is this placeholder far more
+    // often than not. It is a label, never a path: anything that spawns into
+    // it gets "Workspace folder does not exist" back from the host.
+    UNKNOWN_WORKSPACE: '(unknown folder)',
+
+    /** The row's folder when it is a real one, else null. */
+    _knownWorkspace(w) {
+        const v = typeof w === 'string' ? w.trim() : '';
+        if (!v || v === this.UNKNOWN_WORKSPACE) return null;
+        return v;
+    },
+
     _ENDED_STATUSES: ['done', 'failed', 'interrupted'],
 
     /** Ended means the session is over for good: no more output is

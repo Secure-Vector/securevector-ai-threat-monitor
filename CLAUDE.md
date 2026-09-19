@@ -95,7 +95,7 @@ Every ~10 user-message interactions, write a fresh session summary so the conver
 
 6.0.0 is a multi-feature release built over ten weeks. Dates: **code freeze
 Fri 20 Nov 2026**, **launch Tue 1 Dec 2026**. Headline feature: **Agent
-Terminals** (rail label "Terminals"): launch a Claude Code task from the app,
+Terminals** (rail label "Agents"): launch a Claude Code session from the app,
 click it to attach to its live terminal (PTY owned by the app, xterm.js over
 a per-session WebSocket), verdict rail beside it, approvals through the
 existing JIT inbox.
@@ -166,8 +166,30 @@ alone unless they changed.
   crash-dump and telemetry redaction at parity with disk; unverified marking
   plus heartbeat timeout for screen-manifest status; startup reaper,
   orphaned-tasks view, and "stop all tasks" before uninstall or upgrade.
-- Naming: "Agent Terminals" and "Terminals" only. Never "Mission Control",
-  never "firewall", never "Command" or "Control" next to "Agent". Unit of
-  work is a task; the verb is launch.
+- Naming: the feature is "Agent Terminals" or "Terminals". The rail button and
+  context heading read **"Agents"**; the page header and the destination itself
+  read **"Agent Sessions"** (changed 2026-09-19, see below). The rail is an
+  index and the panel is ~200px wide, so the long form clipped there. Never
+  "Mission Control", never "firewall", never "Command" or "Control" next to
+  "Agent". The verb is launch.
+- The unit is a **session**, not a task. "Agent Tasks" was the label until
+  2026-09-19. Three reasons it changed: "task" means a queued unit of work
+  with a todo/in-progress/done lifecycle in the orchestrator tools people
+  arrive from, and 6.0.0 explicitly ships no board or kanban, so the label
+  promised a queue that does not exist; the board now also holds sessions
+  adopted from someone's own terminal, which were never tasks anyone launched
+  here; and the harnesses themselves say session, as does `session_id`, which
+  is what the whole governance layer keys off. "Runs" was rejected because
+  `agent-runs` already owns it one level down, where its first view is
+  literally labelled Runs. Internal ids (`tasks`, `terminals`) and API paths
+  (`/api/terminals/tasks`) are unchanged, so deep links still resolve.
+- **The page body copy is still "task"** ("All tasks", "Stop N running tasks",
+  "No task attached", roughly 60 strings). Renaming it is owed and is its own
+  slice. Do NOT attempt it with a find-and-replace across the file: an attempt
+  on 2026-09-19 rewrote the Claude Code `Task` **tool identifier** in the
+  governed built-ins list, and the scripted revert then corrupted
+  `session_id`/`sessionId` into `task_id`/`taskId` throughout the link and
+  adopt code. Failures went 0 to 70 and `terminals.js` had to be reset to HEAD
+  and rebuilt by hand. One anchored edit at a time, or a spec and a subagent.
 
 <!-- MANUAL ADDITIONS END -->

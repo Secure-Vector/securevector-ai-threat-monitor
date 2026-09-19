@@ -8753,11 +8753,15 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-task-meta, .terminals-task-open { font-size: 10px; opacity: .62; }
 .terminals-task-open { color: var(--accent-primary, #2dd4bf); opacity: 1; }
 .terminals-task-activity { font-size: 11px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.terminals-task-relaunch, .terminals-task-remove { position: absolute; bottom: 9px; z-index: 1; padding: 3px 7px; border-radius: 999px; font: 650 10px/1.35 inherit; cursor: pointer; }
-.terminals-task-relaunch { right: 10px; width: 20px; height: 20px; padding: 0; border: 1px solid rgba(45,212,191,.42); background: rgba(45,212,191,.08); color: var(--accent-primary, #2dd4bf); font-size: 14px; line-height: 18px; }
+/* A real row under the card body, not an overlay. These used to be absolutely
+   positioned at the bottom right, which put them on top of the card's own
+   click target: the corner they covered stopped opening the task, and they sat
+   over the branch and elapsed time on the line below. */
+.terminals-task-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 13px 11px; }
+.terminals-task-relaunch, .terminals-task-remove { padding: 3px 7px; border-radius: 999px; font: 650 10px/1.35 inherit; cursor: pointer; }
+.terminals-task-relaunch { width: 20px; height: 20px; padding: 0; border: 1px solid rgba(45,212,191,.42); background: rgba(45,212,191,.08); color: var(--accent-primary, #2dd4bf); font-size: 14px; line-height: 18px; }
 .terminals-task-relaunch:hover { background: rgba(45,212,191,.16); }
-.terminals-task-relaunch + .terminals-task-remove { right: 30px; }
-.terminals-task-remove { right: 10px; border: 1px solid rgba(248,113,113,.34); background: rgba(248,113,113,.06); color: #fca5a5; }
+.terminals-task-remove { border: 1px solid rgba(248,113,113,.34); background: rgba(248,113,113,.06); color: #fca5a5; }
 .terminals-task-remove:hover { background: rgba(248,113,113,.14); }
 .terminals-task-empty { display: flex; flex: 1; flex-direction: row; align-items: center; gap: 9px; padding: 12px 14px; border: 1px dashed rgba(109, 136, 156, .42); border-radius: 12px; color: rgba(214, 226, 236, .7); font-size: 11px; line-height: 1.45; }
 .terminals-task-empty strong { color: inherit; font-size: 13px; }
@@ -9113,6 +9117,8 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
 .terminals-guard-ungoverned { border-color: rgba(245, 158, 11, .5); color: #fbbf24; }
 [data-theme="light"] .terminals-guard-ungoverned { border-color: rgba(180, 83, 9, .4); color: var(--warning-text, #b45309); }
 .terminals-page .terminals-task-when { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; }
+.terminals-page .terminals-task-elapsed { white-space: nowrap; }
+.terminals-page .terminals-task-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .terminals-task-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .terminals-task-elapsed { flex: 0 0 auto; margin-left: auto; }
 
@@ -9473,14 +9479,32 @@ body.terminals-dragging * {
     letter-spacing: .04em;
 }
 
+/* Two lines rather than one clipped line. The panel is ~200px wide and these
+   subtitles are full sentences, so nowrap truncated nearly all of them. */
 .sidebar-context-subtitle {
     margin-top: 2px;
     overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     color: var(--text-muted);
     font-size: 10.5px;
     line-height: 1.3;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+}
+
+/* The linked stage's own controls: opening a governed terminal, and unlinking
+   the session without going back to find its card on the board. */
+.terminals-linked-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
+.terminals-linked-unlink { white-space: nowrap; }
+
+/* The heading doubles as the route to the group's landing page, so it needs to
+   look and behave like the destination it is. */
+.sidebar-context-heading.is-clickable { cursor: pointer; border-radius: 6px; }
+.sidebar-context-heading.is-clickable:hover .sidebar-context-title,
+.sidebar-context-heading.is-clickable:focus-visible .sidebar-context-title { color: var(--accent-primary); }
+.sidebar-context-heading.is-clickable:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
 }
 
 /* The product rail is the topmost chrome on the left, so it owns the

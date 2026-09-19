@@ -314,7 +314,15 @@ class TerminalStore:
         task = await self.get_task(task_id)
         if task is None:
             return False
-        if task["status"] in RUNNING:
+        # A linked row is exempt. The app owns no process for a session started
+        # in someone's own terminal, so there is nothing here to stop, and the
+        # advice to stop it first is unfollowable: a linked task's status is
+        # derived from the audit trail and only a reported session end moves it
+        # out of RUNNING. Without this exemption an adopted session can never
+        # leave the board. Archiving stops nothing either way, it takes the row
+        # off the board and keeps the audit, and it frees the session id to be
+        # adopted again later.
+        if task["status"] in RUNNING and task.get("origin") != "linked":
             raise ValueError("Stop the task before removing it from the board")
         await self.db.execute(
             "UPDATE terminal_tasks SET archived_at = ? WHERE id = ? AND archived_at IS NULL",

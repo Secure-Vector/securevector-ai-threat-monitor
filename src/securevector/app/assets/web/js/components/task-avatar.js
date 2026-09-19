@@ -1,5 +1,5 @@
 // Task Avatar — the Guardian figure in miniature on a round badge in the task
-// hue, identifying one agent task across the rail and the Agent Tasks board.
+// hue, identifying one agent task across the rail and the Agent Sessions board.
 // Same proportions as the Guardian bot (head rounded to about a third of its
 // height, a side pod each ear, a top-left sheen, a dark glass visor and two
 // LED eyes), drawn fresh rather than by reusing the bot's markup.

@@ -171,7 +171,7 @@ test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
   assert.match(html, /guardian-bot\.js\?v=14/);
   assert.match(html, /guardian-3d\.js\?v=18/);
-  assert.match(html, /guardian-assistant\.js\?v=48/);
+  assert.match(html, /guardian-assistant\.js\?v=49/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {

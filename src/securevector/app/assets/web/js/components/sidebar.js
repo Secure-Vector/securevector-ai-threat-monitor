@@ -5,13 +5,13 @@
 
 const Sidebar = {
     navItems: [
-        // v6 session-first navigation. Agent Tasks is the first/default work
+        // v6 session-first navigation. Agent Sessions is the first/default work
         // surface. Pages that used to be their own rows are
         // `views` of a destination: they render indented under the active row
         // or inside the hover flyout. Every old page
         // id stays routable and highlights its parent via `views` or `aliases`,
         // so deep links, the palette and Governance gap cards still land.
-        { id: 'terminals', label: 'Agent Tasks', icon: 'terminal',
+        { id: 'terminals', label: 'Agent Sessions', icon: 'terminal',
           tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'],
@@ -71,7 +71,7 @@ const Sidebar = {
         { id: 'settings', label: 'Settings', icon: 'settings', aliases: ['guardian-ml'] },
     ],
     productGroups: [
-        { id: 'tasks', label: 'Agent Tasks', icon: 'terminal', landing: 'terminals',
+        { id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',
           subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
         { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
           subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
@@ -267,6 +267,24 @@ const Sidebar = {
         contextSubtitle.textContent = activeGroup.subtitle;
         contextHeading.appendChild(contextTitle);
         contextHeading.appendChild(contextSubtitle);
+        // The heading is the group's own landing, and for a single-item group
+        // it is the ONLY way to reach it from this panel: the hoist below drops
+        // the destination row to avoid saying the same label three times, which
+        // also drops the one thing that led to the landing page. The rail button
+        // still goes there, but nothing in the panel did.
+        if (activeGroup.landing) {
+            // The tasks group wants the board, not the task the person left
+            // attached. navigate() alone restores that task, so this takes the
+            // same route the rail button and the logo already take.
+            const goToLanding = () => {
+                if (activeGroup.id === 'tasks') { this._showAgentTasksBoard(); return; }
+                this.navigate(activeGroup.landing);
+            };
+            contextHeading.classList.add('is-clickable');
+            contextHeading.title = `Open ${activeGroup.label}`;
+            contextHeading.addEventListener('click', goToLanding);
+            this._makeRowFocusable(contextHeading, goToLanding);
+        }
         contextPanel.appendChild(contextHeading);
 
         // Create nav
@@ -693,7 +711,7 @@ const Sidebar = {
         }
 
         // A hoisted single-item group (see the hoist above) with no views at
-        // all (Governance) or none yet (Agent Tasks before any task exists —
+        // all (Governance) or none yet (Agent Sessions before any task exists —
         // its views arrive asynchronously via _loadAgentTaskViews) would
         // otherwise render only a heading, a subtitle and an empty list.
         // When the group's context list would render zero destination rows,
@@ -1202,8 +1220,8 @@ const Sidebar = {
         const home = document.createElement('button');
         home.type = 'button';
         home.className = 'product-rail-home';
-        home.title = 'SecureVector Agent Tasks';
-        home.setAttribute('aria-label', 'SecureVector Agent Tasks');
+        home.title = 'SecureVector Agent Sessions';
+        home.setAttribute('aria-label', 'SecureVector Agent Sessions');
         const shield = document.createElement('img');
         shield.src = '/images/favicon.png';
         shield.alt = '';

@@ -74,6 +74,50 @@ async def test_archive_refuses_a_running_task(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_archive_unlinks_a_live_linked_session(tmp_path):
+    """A linked row has no process to stop, and its status only leaves RUNNING
+    when the harness reports a session end, which most never do. Refusing to
+    archive it the way a running task is refused strands it on the board for
+    good, so the exemption is what makes unlinking possible at all."""
+    store = await _store(tmp_path)
+    await store.create_task(
+        "adopted", executor_id="codex", workspace="/w", title=None, pid=None,
+        origin="linked", status="working", session_id="sess-1",
+    )
+
+    assert await store.archive_task("adopted") is True
+    assert await store.list_tasks() == []
+    assert (await store.get_task("adopted"))["archived_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_archive_still_refuses_a_running_launched_task_with_a_session(tmp_path):
+    """The exemption is about origin, not about carrying a session id: a task
+    the app spawned still owns a process, so the stop-first rule stands."""
+    store = await _store(tmp_path)
+    await store.create_task("spawned", executor_id="claude-code", workspace="/w",
+                            title=None, pid=1, status="working")
+    await store.set_session("spawned", "sess-2")
+    with pytest.raises(ValueError, match="Stop the task"):
+        await store.archive_task("spawned")
+
+
+@pytest.mark.asyncio
+async def test_an_archived_linked_session_can_be_adopted_again(tmp_path):
+    """Archiving frees the session id: unlinked_sessions excludes only rows
+    that are still on the board, so a session comes back on offer."""
+    store = await _store(tmp_path)
+    await store.create_task(
+        "adopted", executor_id="codex", workspace="/w", title=None, pid=None,
+        origin="linked", status="working", session_id="sess-3",
+    )
+    assert await store.task_for_session("sess-3") is not None
+
+    await store.archive_task("adopted")
+    assert await store.task_for_session("sess-3") is None
+
+
+@pytest.mark.asyncio
 async def test_mark_running_interrupted(tmp_path):
     store = await _store(tmp_path)
     await store.create_task("a", executor_id="claude-code", workspace="/w", title=None, pid=1)
