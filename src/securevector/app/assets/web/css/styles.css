@@ -9188,6 +9188,12 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
 .terminals-linked-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 220px; padding: 24px 20px; text-align: center; }
 .terminals-linked-stage h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .terminals-linked-stage p { max-width: 420px; margin: 0; color: var(--text-muted, #94a3b8); font-size: 12px; line-height: 1.5; }
+.terminals-linked-stage .btn { margin-top: 8px; }
+/* What the audit trail last saw, and the caveat on acting on it. Both are
+   informational, not a security state, so neither takes a hue: the note sits
+   a step brighter than the body copy, the caveat stays muted. */
+.terminals-linked-note { color: var(--text-secondary, #cbd5e1); }
+.terminals-linked-warn { border-top: 1px solid var(--border-default, #24303c); padding-top: 8px; }
 
 /* The attached pane for a task whose output the app no longer holds. Same
    shape as the linked stage; neutral throughout, because "this ended" is a

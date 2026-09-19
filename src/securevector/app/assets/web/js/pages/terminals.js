@@ -1930,12 +1930,8 @@ const TerminalsPage = {
             // No PTY, so no socket: the governance panel keys off the
             // session id and works exactly as it does for a launched task.
             rec.mounted = true;
-            if (rec.stageEl) rec.stageEl.innerHTML = `
-              <div class="terminals-linked-stage">
-                <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
-                <h3>Runs outside SecureVector</h3>
-                <p>This session was started in your own terminal. There is no terminal here; governance is live.</p>
-              </div>`;
+            if (rec.stageEl) rec.stageEl.innerHTML = this._linkedStageHtml(task);
+            this._bindLinkedStage(paneId, task);
             this._refreshRail();
             return;
         }
@@ -1981,6 +1977,86 @@ const TerminalsPage = {
             else if (ev.code === 4008) this._banner('Connection timed out. Click the task to reattach.', paneId);
         };
         this._refreshRail();
+    },
+
+    /** The stage for a session the app does not own. Beyond saying why there
+     *  is no terminal, it offers a governed one in the same folder with the
+     *  same harness, but only when the outside session looks quiet.
+     *
+     *  The gate is the hazard `_relaunchTask` already refuses to create: two
+     *  harnesses in one working folder editing the same files is worse than
+     *  the ungoverned session the offer was meant to replace. A task that is
+     *  still reporting gets no button at all.
+     */
+    _linkedStageHtml(task) {
+        // The backend derives a linked task's status from its audit trail:
+        // `working` while calls arrive, `idle` after a long silence, and an
+        // ended status only when a session end was actually reported.
+        const ended = this._isEnded(task);
+        const quiet = task.status === 'idle';
+        let note;
+        if (ended) {
+            // The Guard reported an end, so nothing is left running to collide
+            // with. This is the only strong evidence of the three.
+            note = '<p class="terminals-linked-note">This session has ended.</p>';
+        } else if (quiet) {
+            // Silence is not proof. No end was reported, so the agent may still
+            // be sitting at a prompt in the person's own terminal. Say what is
+            // actually known and let them decide, rather than implying safety.
+            // `_ago` gives '' for a row with no timestamp, which would leave the
+            // sentence dangling, so name the gap loosely instead of not at all.
+            const when = this._ago(task.last_activity_at) || 'a while';
+            note = `<p class="terminals-linked-note">No activity reported for ${this._esc(when)}.</p>`
+                + '<p class="terminals-linked-warn">Opening a terminal here starts a separate session in this folder. Close the other one first if it is still open.</p>';
+        } else {
+            note = '<p class="terminals-linked-note">This session is active. Its terminal is in the window you started it in.</p>';
+        }
+        const action = (ended || quiet)
+            ? `<button type="button" class="btn btn-sm btn-primary" data-linked-open="${this._esc(task.id)}">Open a governed terminal here</button>`
+            : '';
+        return `
+              <div class="terminals-linked-stage">
+                <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
+                <h3>Runs outside SecureVector</h3>
+                <p>This session was started in your own terminal. There is no terminal here; governance is live.</p>
+                ${note}
+                ${action}
+              </div>`;
+    },
+
+    /** Wire the linked stage's offer of a governed terminal. Launching is the
+     *  same shape as a relaunch, so it ends the same way: the fresh session
+     *  swaps into this pane's tab in place of the linked task rather than
+     *  growing the tab group by one every time the button is pressed.
+     */
+    _bindLinkedStage(paneId, task) {
+        const rec = this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !rec.stageEl || !rec.stageEl.querySelectorAll) return;
+        const buttons = rec.stageEl.querySelectorAll('[data-linked-open]');
+        buttons.forEach(b => {
+            b.onclick = async () => {
+                // Its own flag rather than `_relaunchingId`: a restart running
+                // in some other pane must not silently swallow this click, and
+                // this launch must not block that restart.
+                if (this._openingHereId) return;
+                this._openingHereId = task.id;
+                b.disabled = true;
+                b.textContent = 'Opening…';
+                try {
+                    // Same harness, same folder, swapped into this pane: that
+                    // is `_relaunchTask` exactly, so it is called rather than
+                    // copied. `stopFirst` stays off because the app owns no
+                    // process here; there is nothing of ours left to stop.
+                    await this._relaunchTask(task, { pane: paneId });
+                } catch (e) {
+                    this._banner(e.message || 'Could not open a terminal here.', paneId);
+                    b.disabled = false;
+                    b.textContent = 'Open a governed terminal here';
+                } finally {
+                    this._openingHereId = null;
+                }
+            };
+        });
     },
 
     /** Stand in for a terminal whose output the app no longer holds. The

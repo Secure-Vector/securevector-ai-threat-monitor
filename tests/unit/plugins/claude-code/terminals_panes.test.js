@@ -48,7 +48,7 @@ function makeEl(tag = 'div') {
       if (this._cache[sel]) return this._cache[sel];
       const attrFor = { '.terminals-pane-act': 'data-act', '[data-pick-id]': 'data-pick-id',
         '[data-tab-id]': 'data-tab-id', '[data-tab-close-id]': 'data-tab-close-id',
-        '[data-ended-restart]': 'data-ended-restart' };
+        '[data-ended-restart]': 'data-ended-restart', '[data-linked-open]': 'data-linked-open' };
       // A board card carries data-id and so does the button inside it, so the
       // two are told apart by the class that precedes the attribute.
       const cardFor = {
@@ -683,8 +683,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=6/);
-  assert.match(html, /terminals\.js\?v=47/);
-  assert.match(html, /styles\.css\?v=425/);
+  assert.match(html, /terminals\.js\?v=48/);
+  assert.match(html, /styles\.css\?v=426/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -3088,4 +3088,115 @@ test('a task that never reported an exit code says so rather than showing null',
   const html = stageHtml(Page, paneId);
   assert.match(html, /Stopped before it reported an exit code/);
   assert.doesNotMatch(html, /Exit code/, 'there is no code to name');
+});
+
+// --- the linked stage's offer of a governed terminal ------------------------
+//
+// A linked task runs in the person's own terminal, so the app owns no process
+// and the pane has no terminal. The offer to open a governed one in the same
+// folder is gated on the same hazard a relaunch refuses to create: two
+// harnesses editing one working folder. The board's status is the only
+// evidence there is, and how strong it is decides what the copy claims.
+
+const linked = (id, over = {}) => task(id, {
+  origin: 'linked', session_id: 'sess-' + id, workspace: '/w', title: 'Fix the parser', ...over,
+});
+
+/** Attach a linked task and hand back its pane id and the stage's button. */
+async function mountLinked(t, api = {}) {
+  const ctx = loadPage({ api });
+  ctx.Page._tasks = [t];
+  await ctx.Page._attach(t.id);
+  const paneId = paneIds(ctx.Page)[0];
+  return { ...ctx, paneId, html: stageHtml(ctx.Page, paneId),
+    btn: ctx.Page._panes.get(paneId).stageEl.querySelector('[data-linked-open]') };
+}
+
+test('a linked task that is still reporting is not offered a terminal here', async () => {
+  const { html, btn } = await mountLinked(linked('L1', { status: 'working' }));
+
+  assert.strictEqual(btn, null, 'a live outside session must never be raced with a second harness');
+  assert.doesNotMatch(html, /Open a governed terminal here/);
+  assert.match(html, /Its terminal is in the window you started it in/,
+    'instead it says where the terminal actually is');
+});
+
+test('a quiet linked task is offered a terminal, with the silence named and not oversold', async () => {
+  const when = new Date(Date.now() - 45 * 60000).toISOString();
+  const { html, btn } = await mountLinked(linked('L1', { status: 'idle', last_activity_at: when }));
+
+  assert.ok(btn, 'silence is enough to offer, not enough to promise');
+  assert.match(html, /Open a governed terminal here/);
+  assert.match(html, /No activity reported for 45m ago\./, 'the gap is named from last_activity_at');
+  assert.match(html, /starts a separate session in this folder/,
+    'idle is a gap in the audit trail, not a reported end, so the caveat stands');
+});
+
+for (const status of ['done', 'interrupted']) {
+  test(`a linked task reported as ${status} is offered a terminal without the idle caveat`, async () => {
+    const { html, btn } = await mountLinked(linked('L1', { status }));
+
+    assert.ok(btn);
+    assert.match(html, /This session has ended\./);
+    assert.doesNotMatch(html, /starts a separate session in this folder/,
+      'a reported end is strong evidence; hedging it would be noise');
+    assert.doesNotMatch(html, /No activity reported for/);
+  });
+}
+
+test('the offer launches the same harness in the same folder with the same title', async () => {
+  const calls = [];
+  const { btn } = await mountLinked(linked('L1', { status: 'done', executor_id: 'codex' }), {
+    terminalsLaunch: async (...args) => { calls.push(args); return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  });
+
+  await btn.onclick();
+
+  assert.deepStrictEqual(calls, [['codex', '/w', 'Fix the parser']]);
+});
+
+test('a second click while the launch is in flight does not launch twice', async () => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { Page, btn } = await mountLinked(linked('L1', { status: 'done' }), {
+    terminalsLaunch: async () => { calls += 1; await gate; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  });
+
+  const first = btn.onclick();
+  await btn.onclick();
+  assert.strictEqual(calls, 1, 'two harnesses in one folder is the whole thing this guards');
+  release();
+  await first;
+  assert.ok(!Page._openingHereId, 'the in-flight guard is released');
+});
+
+test('the fresh session takes the linked task place in the pane the button was in', async () => {
+  const attached = [];
+  const { Page, paneId, btn } = await mountLinked(linked('L1', { status: 'idle' }), {
+    terminalsLaunch: async () => ({ id: 'T2' }),
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  });
+  Page._attach = async (...args) => { attached.push(args); };
+
+  await btn.onclick();
+
+  assert.strictEqual(attached.length, 1);
+  assert.deepStrictEqual(attached[0], ['T2', paneId, 'swap', 'L1'],
+    'swapping keeps the pane tab group from growing on every open');
+});
+
+test('a launch that fails puts the button back rather than stranding the pane', async () => {
+  const { Page, paneId, btn } = await mountLinked(linked('L1', { status: 'done' }), {
+    terminalsLaunch: async () => { throw new Error('No such folder.'); },
+  });
+
+  await btn.onclick();
+
+  assert.strictEqual(btn.disabled, false, 'the person can try again');
+  assert.strictEqual(btn.textContent, 'Open a governed terminal here');
+  assert.strictEqual(Page._panes.get(paneId).bannerEl.textContent, 'No such folder.');
+  assert.ok(!Page._openingHereId);
 });
