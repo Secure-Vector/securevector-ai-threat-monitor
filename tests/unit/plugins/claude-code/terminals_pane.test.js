@@ -134,7 +134,7 @@ test('index.html pins the versions this change ships', () => {
   const html = read('index.html');
   assert.match(html, /styles\.css\?v=432/);
   assert.match(html, /sidebar\.js\?v=177/);
-  assert.match(html, /terminals\.js\?v=52/);
+  assert.match(html, /terminals\.js\?v=53/);
 });
 
 // --- DOM stub for the behavioural pane tests ---------------------------

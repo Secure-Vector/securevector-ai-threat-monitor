@@ -3922,6 +3922,12 @@ const TerminalsPage = {
         const v = typeof w === 'string' ? w.trim() : '';
         if (!v || v === this.UNKNOWN_WORKSPACE) return null;
         if (v.length > this.WORKSPACE_MAX_CHARS || /[\r\n]/.test(v)) return null;
+        // Shape, not just size. The row that prompted this was exactly at the
+        // cap with no real newlines in it, because the blob's line breaks were
+        // literal backslash-n pairs, so length and newlines both let it
+        // through. A working folder starts at a filesystem root; matches
+        // _CWD_LIKE in app/terminals/store.py.
+        if (!/^(?:\/|~\/|~$|[A-Za-z]:[\\/])/.test(v)) return null;
         return v;
     },
 

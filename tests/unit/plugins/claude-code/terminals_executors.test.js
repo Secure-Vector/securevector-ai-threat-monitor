@@ -82,7 +82,7 @@ test('styles.css defines .terminals-executor-hint', () => {
 
 test('index.html pins the bumped executor cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=52/);
+  assert.match(html, /terminals\.js\?v=53/);
   assert.match(html, /styles\.css\?v=432/);
 });
 

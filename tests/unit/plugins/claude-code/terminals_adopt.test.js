@@ -398,6 +398,13 @@ test('a folder that is not a folder never reaches the board', () => {
   const blob = "str(workspace))''', ''' resume_args: list[str] = []\n    if resume_session_id:";
 
   assert.equal(page._knownWorkspace(blob), null, 'multi-line is not a path');
+  // The row that prompted this sat exactly at the 1024 cap with no real
+  // newlines: the blob's breaks were literal backslash-n pairs. Size and
+  // newlines both passed it, so shape is what actually catches it.
+  assert.equal(page._knownWorkspace("str(workspace))''', ''' resume_args = []".padEnd(1024, ' x')), null,
+    'at the cap, single line, still not a path');
+  assert.equal(page._knownWorkspace('~/work'), '~/work', 'home relative is a path');
+  assert.equal(page._knownWorkspace('relative/path'), null, 'a relative fragment is not');
   assert.equal(page._knownWorkspace('/' + 'a'.repeat(2000)), null, 'nor is an enormous one');
   assert.equal(page._knownWorkspace('(unknown folder)'), null);
   assert.equal(page._knownWorkspace('/Users/y/repo'), '/Users/y/repo', 'a real one still passes');
