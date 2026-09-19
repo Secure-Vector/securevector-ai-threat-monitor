@@ -47,7 +47,8 @@ function makeEl(tag = 'div') {
       if (!this._cache) this._cache = {};
       if (this._cache[sel]) return this._cache[sel];
       const attrFor = { '.terminals-pane-act': 'data-act', '[data-pick-id]': 'data-pick-id',
-        '[data-tab-id]': 'data-tab-id', '[data-tab-close-id]': 'data-tab-close-id' };
+        '[data-tab-id]': 'data-tab-id', '[data-tab-close-id]': 'data-tab-close-id',
+        '[data-ended-restart]': 'data-ended-restart' };
       // A board card carries data-id and so does the button inside it, so the
       // two are told apart by the class that precedes the attribute.
       const cardFor = {
@@ -418,24 +419,60 @@ test('a gutter drag sets the ratio from the split rect and clamps at the minimum
   assert.strictEqual((listeners.pointermove || []).length, 0, 'the drag listeners come off at the end');
 });
 
-test('a narrow split keeps the proportional clamp rather than snapping about', async () => {
+test('an infeasible measured row rejects ratio changes and stays put', async () => {
   const { Page, listeners } = loadPage();
   Page._tasks = [task('t1'), task('t2')];
   await Page._attach('t1');
   await Page._openInNewPane('t2', 'row');
   const splitEl = Page._splitEls.get(Page._layout.id);
-  // Two usable panes do not fit here at all. The owner already has a layout
-  // in this state, so it has to keep working: the drag falls back to the
-  // model's proportional floor instead of throwing or jumping.
-  splitEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 400 });
+  // Two usable panes do not fit here at all. This is a measured infeasible
+  // row, not an unmeasurable one, so no ratio change can make it honest.
+  splitEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 400 });
   const gutter = splitEl.children[1];
 
   gutter.onpointerdown({ currentTarget: gutter, pointerId: 1, preventDefault() {} });
-  listeners.pointermove[0]({ clientX: 250, clientY: 0 });
-  assert.strictEqual(Page._layout.ratio, 0.5, 'the drag still tracks the pointer');
+  listeners.pointermove[0]({ clientX: 450, clientY: 0 });
+  assert.strictEqual(Page._layout.ratio, 0.5, 'even a plausible change is rejected');
   listeners.pointermove[0]({ clientX: 2, clientY: 0 });
-  assert.strictEqual(Page._layout.ratio, 0.15, 'and still stops at the proportional minimum');
+  assert.strictEqual(Page._layout.ratio, 0.5, 'the model floor cannot bypass the pixel invariant');
   listeners.pointerup[0]();
+});
+
+test('a 686px row has exactly one valid ratio: one half', async () => {
+  const { Page } = loadPage();
+  Page._tasks = [task('t1'), task('t2')];
+  await Page._attach('t1');
+  await Page._openInNewPane('t2', 'row');
+  const split = Page._layout;
+  Page._splitEls.get(split.id).getBoundingClientRect = () => ({ left: 0, top: 0, width: 686, height: 400 });
+
+  const bounds = Page._ratioBounds(split.id);
+  assert.strictEqual(bounds.infeasible, false);
+  assert.strictEqual(bounds.lo, 0.5);
+  assert.strictEqual(bounds.hi, 0.5);
+  Page._setSplitRatio(split.id, 0.9);
+  assert.strictEqual(Page._layout.ratio, 0.5);
+});
+
+test('nested row ratio bounds reserve every leaf recursively', () => {
+  const { Page } = loadPage();
+  const L = Page._lay();
+  let tree = L.create('t1');
+  tree = L.split(tree, tree.id, 'row', 't2');
+  tree = L.split(tree, tree.a.id, 'row', 't3');
+  Page._layout = tree;
+  Page._splitEls = new Map([[tree.id, {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1400, height: 400 }),
+    style: { setProperty() {} },
+  }]]);
+
+  assert.strictEqual(Page._treeMinWidth(tree.a), 2 * Page.PANE_USABLE_W + Page.GUTTER_W);
+  Page._setSplitRatio(tree.id, 0.1);
+  const span = 1400 - Page.GUTTER_W;
+  const outerLeft = span * Page._layout.ratio;
+  assert.strictEqual(Math.round(outerLeft), 686, 'the outer split reserves the nested row minimum');
+  assert.strictEqual(Math.round((outerLeft - Page.GUTTER_W) / 2), Page.PANE_USABLE_W,
+    'both leaves inside that subtree still receive 340px');
 });
 
 test('a gutter resets on double click and moves by a step on arrow keys', async () => {
@@ -646,8 +683,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=6/);
-  assert.match(html, /terminals\.js\?v=43/);
-  assert.match(html, /styles\.css\?v=422/);
+  assert.match(html, /terminals\.js\?v=47/);
+  assert.match(html, /styles\.css\?v=425/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -906,6 +943,42 @@ test('a downward split is never refused on width, and a wide pane splits fine', 
   Page._splitIntoEmptyPane(paneId, 'col');
   assert.strictEqual(Page._panes.size, 2, 'splitting downwards does not change a pane\'s width');
   assert.strictEqual(Page._layout.dir, 'col');
+});
+
+test('every horizontal entry point validates its prospective tree before commit', async () => {
+  const toolbar = loadPage();
+  toolbar.Page._tasks = [task('t1'), task('t2')];
+  await toolbar.Page._attach('t1');
+  const toolbarBefore = toolbar.Page._layout;
+  toolbar.Page._availablePaneWidth = () => 500;
+  await toolbar.Page._openInNewPane('t2', 'row');
+  assert.strictEqual(toolbar.Page._layout, toolbarBefore, 'toolbar split is refused');
+  assert.strictEqual(toolbar.Page._panes.size, 1);
+
+  const picker = loadPage();
+  picker.Page._tasks = [task('t1')];
+  await picker.Page._attach('t1');
+  const pickerBefore = picker.Page._layout;
+  picker.Page._availablePaneWidth = () => 500;
+  picker.Page._splitIntoEmptyPane(picker.Page._focused, 'row');
+  assert.strictEqual(picker.Page._layout, pickerBefore, 'empty-pane split is refused');
+  assert.strictEqual(picker.Page._panes.size, 1);
+
+  const drop = loadPage();
+  drop.Page._tasks = [task('t1'), task('t2')];
+  await drop.Page._attach('t1');
+  const dropBefore = drop.Page._layout;
+  drop.Page._availablePaneWidth = () => 500;
+  await drop.Page._dropTaskOnPane('t2', drop.Page._focused, 'right');
+  assert.strictEqual(drop.Page._layout, dropBefore, 'edge task drop is refused');
+  assert.strictEqual(drop.Page._panes.size, 1, 'the refused drop creates no pane record');
+
+  const moved = await twoPaneDrag();
+  const moveBefore = moved.Page._layout;
+  moved.Page._availablePaneWidth = () => 500;
+  moved.Page._movePane(moved.a, moved.b, 'right');
+  assert.strictEqual(moved.Page._layout, moveBefore, 'pane move is refused');
+  assert.deepStrictEqual(Array.from(moved.Page._lay().panes(moved.Page._layout), (p) => p.taskId), ['t1', 't2']);
 });
 
 // --- evening out a layout that has gone to slivers --------------------------
@@ -1515,6 +1588,8 @@ test('every draggable surface shows an open hand, and its inner controls keep th
     '.terminals-pane-tab-more', '.terminals-pane-head button']) {
     assert.ok(grabBlock.includes(sel), `${sel} is missing from the pointer-cursor exclusions`);
   }
+  assert.match(grabBlock, /\.terminals-pane-head button\.terminals-pane-session-open\s*\{\s*cursor:\s*grab;/,
+    'the draggable grouped-tab button wins over the generic pane-head button cursor');
   // The hand closes for the whole gesture, not just while over the source:
   // one class on body, added and removed by the shared drag helper.
   assert.match(css, /body\.terminals-dragging[^{]*\{[^}]*cursor:\s*grabbing\s*!important/,
@@ -2896,4 +2971,121 @@ test('both tab strips route their chips through the one task-drag entry point', 
   // And both swallow the click a drag leaves owed, through the one mechanism.
   const strip = src.slice(src.indexOf(".terminals-pane-tab[data-id]').forEach"));
   assert.match(strip.slice(0, 600), /this\.consumeDragClick\(\)/);
+});
+
+// --- an ended session, and restarting it ------------------------------------
+//
+// Stopping a task yourself leaves it `interrupted`, not `done`, so the restart
+// used to be hidden on exactly the tasks worth restarting. And a pane that
+// mounts a task whose buffer the host has dropped replays nothing, leaving a
+// black rectangle that names no session.
+
+const ended = (id, over = {}) => task(id, { status: 'done', exit_code: 0, ...over });
+
+// The frame the host sends when it has forgotten a task: an empty replay,
+// then the exit code the row recorded.
+function deliverExit(sock, code, replay = '') {
+  sock.onmessage({ data: JSON.stringify({ t: 'replay', data: replay }) });
+  sock.onmessage({ data: JSON.stringify({ t: 'exit', code }) });
+}
+
+const stageHtml = (Page, paneId) => Page._panes.get(paneId).stageEl.innerHTML;
+
+test('_isEnded covers every status the session cannot come back from', () => {
+  const { Page } = loadPage();
+  for (const status of ['done', 'failed', 'interrupted']) {
+    assert.strictEqual(Page._isEnded({ status }), true, status + ' is ended');
+  }
+  for (const status of ['starting', 'working', 'blocked', 'idle']) {
+    assert.strictEqual(Page._isEnded({ status }), false, status + ' is still running');
+  }
+  assert.strictEqual(Page._isEnded(null), false, 'no task is not an ended task');
+});
+
+test('the board offers a relaunch for interrupted and failed tasks, not only done', () => {
+  const { Page, byId } = loadPage();
+  Page._tasks = [ended('t1', { status: 'interrupted', exit_code: null }),
+    ended('t2', { status: 'failed', exit_code: 2 }),
+    ended('t3', { status: 'done' })];
+  Page._renderTaskList();
+
+  const html = byId('terminals-task-list').innerHTML;
+  for (const id of ['t1', 't2', 't3']) {
+    assert.match(html, new RegExp('data-relaunch-id="' + id + '"'),
+      id + ' has ended, so it can be started again');
+  }
+});
+
+test('a running task carries no relaunch control', () => {
+  const { Page, byId } = loadPage();
+  Page._tasks = [task('t1', { status: 'working' })];
+  Page._renderTaskList();
+
+  assert.doesNotMatch(byId('terminals-task-list').innerHTML, /data-relaunch-id/,
+    'restarting a live task from the board would race the running harness');
+});
+
+test('an exit with nothing replayed swaps the pane for a panel that names the session', async () => {
+  const { Page, sockets } = loadPage();
+  Page._executors = [{ id: 'claude-code', label: 'Claude Code' }];
+  Page._tasks = [ended('t1', { status: 'interrupted', title: 'Fix the parser', workspace: '/srv/app' })];
+  await Page._attach('t1');
+  const paneId = paneIds(Page)[0];
+
+  deliverExit(sockets[0], 3);
+
+  const html = stageHtml(Page, paneId);
+  assert.match(html, /terminals-ended-stage/, 'the black rectangle is replaced');
+  assert.doesNotMatch(html, /terminals-xterm/, 'an empty terminal is not left behind it');
+  assert.match(html, /This session has ended/);
+  assert.match(html, /Fix the parser/, 'the panel says which task this was');
+  assert.match(html, /Claude Code/, 'and which harness ran it');
+  assert.match(html, /\/srv\/app/, 'and in which folder');
+  assert.match(html, /Exit code 3/);
+});
+
+test('an exit that followed real output leaves the terminal alone', async () => {
+  const { Page, sockets } = loadPage();
+  Page._tasks = [ended('t1')];
+  await Page._attach('t1');
+  const paneId = paneIds(Page)[0];
+
+  deliverExit(sockets[0], 0, 'the scrollback the host still holds');
+
+  const html = stageHtml(Page, paneId);
+  assert.match(html, /terminals-xterm/, 'output that arrived is the record and stays on screen');
+  assert.doesNotMatch(html, /terminals-ended-stage/);
+});
+
+test('the ended panel restarts into the pane it is standing in', async () => {
+  const { Page, sockets } = loadPage();
+  Page._tasks = [ended('t1')];
+  await Page._attach('t1');
+  const paneId = paneIds(Page)[0];
+  const calls = [];
+  Page._relaunchTask = async (t, opts) => { calls.push([t.id, opts]); return { id: 't2' }; };
+
+  deliverExit(sockets[0], 0);
+  const btn = Page._panes.get(paneId).stageEl.querySelector('[data-ended-restart]');
+  assert.strictEqual(btn.dataset.endedRestart, paneId, 'the button carries its own pane');
+  await btn.onclick();
+
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0][0], 't1');
+  assert.strictEqual(calls[0][1].pane, paneId, 'the fresh session takes the dead one\'s place');
+  assert.ok(!calls[0][1].stopFirst, 'an ended task has nothing left to stop');
+  assert.strictEqual(Page._relaunchingId, null, 'the in-flight guard is released');
+});
+
+test('a task that never reported an exit code says so rather than showing null', async () => {
+  const { Page, sockets } = loadPage();
+  Page._tasks = [ended('t1', { status: 'interrupted', exit_code: null })];
+  await Page._attach('t1');
+  const paneId = paneIds(Page)[0];
+
+  deliverExit(sockets[0], null);
+
+  const html = stageHtml(Page, paneId);
+  assert.match(html, /Stopped before it reported an exit code/);
+  assert.doesNotMatch(html, /Exit code/, 'there is no code to name');
 });

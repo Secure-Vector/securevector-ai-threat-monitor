@@ -20,8 +20,8 @@ test('a task row labels only session-matched pending JIT requests as waiting for
 });
 
 test('finished tasks can be relaunched without replacing their original session', () => {
-  assert.match(page, /const canRelaunch = t\.status === 'done'/,
-    'only a finished task should expose the relaunch affordance');
+  assert.match(page, /const canRelaunch = this\._isEnded\(t\)/,
+    'every ended task should expose the relaunch affordance, not only a clean exit');
   assert.match(page, /terminals-task-relaunch[\s\S]*?Relaunch/,
     'finished task cards must offer a visible Relaunch action');
   assert.match(page, /API\.terminalsLaunch\(task\.executor_id, task\.workspace, task\.title \|\| ''\)/,

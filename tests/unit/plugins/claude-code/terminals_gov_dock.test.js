@@ -26,6 +26,7 @@ const read = (rel) => fs.readFileSync(path.join(WEB, rel), 'utf8');
 
 function makeEl(extra = {}) {
   const classes = new Set();
+  const listeners = {};
   return Object.assign({
     innerHTML: '',
     textContent: '',
@@ -40,6 +41,10 @@ function makeEl(extra = {}) {
       contains: (c) => classes.has(c),
     },
     setAttribute(k, v) { (this.attrs || (this.attrs = {}))[k] = v; },
+    addEventListener(t, fn) { (listeners[t] = listeners[t] || []).push(fn); },
+    removeEventListener(t, fn) { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
+    dispatch(t, event = {}) { for (const fn of [...(listeners[t] || [])]) fn(event); },
+    _listeners: listeners,
     querySelector: () => null,
     querySelectorAll: () => [],
     focus() {},
@@ -90,6 +95,8 @@ function loadPage(elements, extra = {}) {
     localStorage: extra.localStorage || memStore(),
     setTimeout: () => 0,
     clearTimeout: () => {},
+    setInterval: () => 0,
+    clearInterval: () => {},
     console: { warn() {}, error() {} },
   }, extra);
   vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
@@ -183,25 +190,35 @@ test('the narrow layout still stacks into one usable column', () => {
   assert.match(block, /\.terminals-centre \{ min-height: 460px; \}/);
 });
 
+test('measured-workspace stacking uses the same zero-width boundary treatment', () => {
+  const css = read('css/styles.css');
+  assert.match(css, /\.terminals-workspace\.is-gov-stacked \{ flex-direction: column; \}/);
+  assert.match(css, /\.terminals-workspace\.is-gov-stacked > \.terminals-centre \{ width: 100%; min-width: 0; \}/);
+  assert.match(css, /\.terminals-workspace\.is-gov-stacked \.terminals-gov-edge \{ flex: 0 0 0; width: auto; min-width: 0; height: 0; \}/);
+  assert.match(css, /\.terminals-workspace\.is-gov-stacked \.terminals-gov-gutter \{ display: none; \}/);
+  assert.match(css, /\.terminals-workspace\.is-gov-stacked \.terminals-governance \{ width: auto; min-width: 0;/);
+});
+
 // ------------------------------------------------------------ four-way state
 
-test('with no task attached the column is a strip and reserves no body width', () => {
+test('with no task attached the column is still expanded', () => {
   const els = dockEls();
   const Page = loadPage(els);
   Page._bindGovDock();
-  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'));
-  assert.strictEqual(els['terminals-governance-body'].hidden, true, 'no body, so no body width');
-  assert.strictEqual(els['terminals-gov-gutter'].hidden, true, 'nothing to resize');
-  assert.strictEqual(els['terminals-governance-toggle'].attrs['aria-expanded'], 'false');
-  assert.strictEqual(els['terminals-governance'].style.props['--gov-w'], undefined,
-    'a collapsed column never writes a width for the panes to give up');
-  // The strip is the one thing that stays: hiding the toggle would leave the
-  // panel unreachable, which is worse than the column it replaced.
+  // The activity is the point of the page. A panel that hides itself until a
+  // task attaches is a panel people never learn they have.
+  assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'),
+    'governance opens expanded on an empty board');
+  assert.strictEqual(els['terminals-governance-body'].hidden, false);
+  assert.strictEqual(els['terminals-gov-gutter'].hidden, false, 'expanded means resizable');
+  assert.strictEqual(els['terminals-governance-toggle'].attrs['aria-expanded'], 'true');
+  assert.strictEqual(els['terminals-governance'].style.props['--gov-w'], '320px',
+    'an expanded column reserves its width from the first paint');
   assert.strictEqual(els['terminals-governance-toggle'].hidden, false,
-    'the strip stays on screen and stays clickable');
+    'the toggle stays on screen and stays clickable');
 });
 
-test('attaching a task expands the column, and detaching collapses it again', () => {
+test('attaching and detaching a task never moves the column on their own', () => {
   const els = dockEls();
   const Page = loadPage(els);
   Page._bindGovDock();
@@ -213,10 +230,13 @@ test('attaching a task expands the column, and detaching collapses it again', ()
   assert.strictEqual(els['terminals-governance-toggle'].attrs['aria-expanded'], 'true');
   assert.strictEqual(els['terminals-governance'].style.props['--gov-w'], '320px');
 
+  // Detaching used to collapse it. The column no longer opens and shuts under
+  // the operator as tasks come and go; only the toggle moves it.
   Page._attached = null;
   Page._syncGovDock();
-  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'));
-  assert.strictEqual(els['terminals-governance-body'].hidden, true);
+  assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'),
+    'the last task leaving does not shut the panel');
+  assert.strictEqual(els['terminals-governance-body'].hidden, false);
 });
 
 test('an explicit collapse wins over the attach, and an explicit expand over the empty board', () => {
@@ -230,11 +250,17 @@ test('an explicit collapse wins over the attach, and an explicit expand over the
   Page._syncGovDock();                         // a later refresh must not undo that
   assert.ok(els['terminals-governance'].classList.contains('is-collapsed'),
     'their choice wins while a task is attached');
+  Page._attached = null;
+  Page._syncGovDock();
+  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'),
+    'and it still wins once the task detaches');
 
   const els2 = dockEls();
   const Page2 = loadPage(els2);
   Page2._bindGovDock();
-  Page2._toggleGovDock();                      // opened with nothing attached
+  Page2._toggleGovDock();                      // collapsed away from the default
+  assert.ok(els2['terminals-governance'].classList.contains('is-collapsed'));
+  Page2._toggleGovDock();                      // and opened again
   assert.ok(!els2['terminals-governance'].classList.contains('is-collapsed'));
   Page2._syncGovDock();
   assert.ok(!els2['terminals-governance'].classList.contains('is-collapsed'),
@@ -261,6 +287,106 @@ test('the gutter drag clamps so neither the panes nor the column go unusable', (
   assert.strictEqual(Page.GOV_GUTTER_W, 12);
   assert.strictEqual(Page._govWidth, exactMax);
   assert.strictEqual(els['terminals-governance'].style.props['--gov-w'], exactMax + 'px');
+});
+
+test('the governance clamp reserves the full recursive pane tree', () => {
+  const els = dockEls();
+  const Page = loadPage(els, { workspace: workspaceEl(1200) });
+  const L = Page._lay();
+  let tree = L.create('t1');
+  tree = L.split(tree, tree.id, 'row', 't2');
+  Page._layout = tree;
+  Page._bindGovDock();
+
+  Page._setGovWidth(5000);
+  const treeFloor = 2 * Page.PANE_USABLE_W + Page.GUTTER_W;
+  assert.strictEqual(Page._treeMinWidth(tree), treeFloor);
+  assert.strictEqual(Page._govWidth, 1200 - treeFloor - Page.GOV_GUTTER_W,
+    'governance leaves enough room for both horizontal leaves, not just the legacy 420px floor');
+});
+
+test('actual workspace width stacks governance and restores the row when space returns', () => {
+  let width = 900;
+  const ws = workspaceEl();
+  ws.getBoundingClientRect = () => ({ left: 0, right: width, width, height: 800 });
+  let observer;
+  class MockResizeObserver {
+    constructor(cb) { this.cb = cb; observer = this; }
+    observe(el) { this.observed = el; }
+    disconnect() { this.disconnected = true; }
+  }
+  const els = dockEls();
+  const Page = loadPage(els, { workspace: ws, ResizeObserver: MockResizeObserver });
+  const L = Page._lay();
+  let tree = L.create('t1');
+  tree = L.split(tree, tree.id, 'row', 't2');
+  Page._layout = tree;
+  Page._panes = new Map(L.panes(tree).map((pane) => [pane.id, { id: pane.id, taskId: pane.taskId }]));
+  Page._focused = tree.a.id;
+  Page._bindGovDock();
+
+  assert.ok(ws.classList.contains('is-gov-stacked'), '900px cannot hold 686px panes + edge + governance');
+  assert.strictEqual(Page._govStacked, true);
+  assert.strictEqual(Page._availablePaneWidth(), 900, 'stacked panes receive the full workspace width');
+  assert.strictEqual(els['terminals-gov-gutter'].hidden, true);
+  const preferred = Page._govWidth;
+
+  width = 1000;
+  observer.cb();
+  assert.ok(!ws.classList.contains('is-gov-stacked'), 'the row returns after the container grows');
+  assert.strictEqual(Page._govStacked, false);
+  assert.strictEqual(els['terminals-gov-gutter'].hidden, false);
+  assert.ok(Page._govWidth <= preferred, 'the restored row clamps only after it has enough room');
+  assert.strictEqual(Page._availablePaneWidth(), 686, 'the recovered row still reserves the full tree minimum');
+
+  Page.destroy();
+  assert.strictEqual(observer.disconnected, true, 'destroy disconnects the workspace observer');
+});
+
+test('governance drag cancellation and lost capture remove every listener without persisting', () => {
+  const listeners = {};
+  const win = {
+    addEventListener(t, fn) { (listeners[t] = listeners[t] || []).push(fn); },
+    removeEventListener(t, fn) { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
+  };
+  const store = memStore();
+  const els = dockEls();
+  const gutter = els['terminals-gov-gutter'];
+  gutter.setPointerCapture = () => {};
+  gutter.releasePointerCapture = () => {};
+  const Page = loadPage(els, { window: win, localStorage: store, workspace: workspaceEl(1200) });
+  Page._attached = 't1';
+  Page._bindGovDock();
+  const start = Page._govWidth;
+
+  Page._startGovDrag({ currentTarget: gutter, pointerId: 7, button: 0, preventDefault() {} });
+  listeners.pointermove[0]({ clientX: 800 });
+  assert.notStrictEqual(Page._govWidth, start);
+  gutter.dispatch('lostpointercapture');
+  assert.strictEqual(Page._govWidth, start, 'lost capture rolls back the uncommitted width');
+  assert.strictEqual(Page._govDrag, null);
+  for (const type of ['pointermove', 'pointerup', 'pointercancel']) {
+    assert.strictEqual((listeners[type] || []).length, 0, `${type} survives lost capture`);
+  }
+  assert.strictEqual(gutter._listeners.lostpointercapture.length, 0);
+  assert.strictEqual(store.getItem(Page.GOV_KEY), null, 'cancellation never persists a transient width');
+
+  Page._startGovDrag({ currentTarget: gutter, pointerId: 8, button: 0, preventDefault() {} });
+  listeners.pointermove[0]({ clientX: 760 });
+  Page._startGovDrag({ currentTarget: gutter, pointerId: 9, button: 0, preventDefault() {} });
+  assert.strictEqual((listeners.pointermove || []).length, 1, 'a new gesture cancels rather than stacking on the old one');
+  assert.strictEqual(gutter._listeners.lostpointercapture.length, 1);
+  listeners.pointermove[0]({ clientX: 740 });
+  Page.destroy();
+  assert.strictEqual(Page._govDrag, null, 'destroy cancels the gesture');
+  assert.strictEqual(store.getItem(Page.GOV_KEY), null, 'destroy does not persist the stale drag width');
+  assert.strictEqual((listeners.pointermove || []).length, 0);
+  assert.strictEqual((listeners.pointerup || []).length, 0);
+  assert.strictEqual((listeners.pointercancel || []).length, 0);
+
+  const src = read('js/pages/terminals.js');
+  const renderStart = src.slice(src.indexOf('async render(container)'), src.indexOf('container.innerHTML'));
+  assert.match(renderStart, /this\._cancelGovDrag\(\)/, 'a same-route render cancels the old gesture too');
 });
 
 test('arrow keys move the column edge, which is the keyboard route to a resize', () => {
@@ -312,21 +438,21 @@ test('edge toggle aria tracks both directions and the header does not toggle', (
   const toggle = els['terminals-governance-toggle'];
   const head = els['terminals-governance-head'];
   Page._bindGovDock();
-  assert.strictEqual(toggle.attrs['aria-expanded'], 'false');
-  assert.strictEqual(toggle.attrs['aria-label'], 'Expand governance activity');
+  assert.strictEqual(toggle.attrs['aria-expanded'], 'true');
+  assert.strictEqual(toggle.attrs['aria-label'], 'Collapse governance activity');
   assert.strictEqual(head.onclick, undefined, 'the static title/summary row has no click handler');
   const beforeHeaderClick = Page._govCollapsed;
   if (head.onclick) head.onclick({ target: head });
   assert.strictEqual(Page._govCollapsed, beforeHeaderClick, 'clicking the header changes nothing');
   toggle.onclick();                            // the edge is the control
-  assert.strictEqual(toggle.attrs['aria-expanded'], 'true');
-  assert.strictEqual(toggle.attrs['aria-label'], 'Collapse governance activity');
-  assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'),
-    'clicking the edge reopens the column');
-  toggle.onclick();
   assert.strictEqual(toggle.attrs['aria-expanded'], 'false');
   assert.strictEqual(toggle.attrs['aria-label'], 'Expand governance activity');
-  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'));
+  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'),
+    'clicking the edge shuts the column');
+  toggle.onclick();
+  assert.strictEqual(toggle.attrs['aria-expanded'], 'true');
+  assert.strictEqual(toggle.attrs['aria-label'], 'Collapse governance activity');
+  assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'));
 });
 
 // ------------------------------------------------------------- persistence
@@ -372,8 +498,8 @@ test('a state written by something else, or by the bottom dock, is ignored rathe
   const Page = loadPage(els, { localStorage: store });
   Page._bindGovDock();
   assert.strictEqual(Page._govWidth, Page.GOV_DEFAULT_W);
-  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'),
-    'an unreadable state falls back to the no-task default');
+  assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'),
+    'an unreadable state falls back to the expanded default');
 
   // The shape the bottom dock shipped. A 132px height read as a width would
   // be a column too narrow to read, so v: 1 is dropped, not mapped.
@@ -383,7 +509,7 @@ test('a state written by something else, or by the bottom dock, is ignored rathe
   Page1._bindGovDock();
   assert.strictEqual(Page1._govWidth, Page1.GOV_DEFAULT_W, 'a stored height is not a width');
   assert.strictEqual(Page1._govUserSet, false, 'and the choice that went with it is not carried over');
-  assert.ok(els1['terminals-governance'].classList.contains('is-collapsed'));
+  assert.ok(!els1['terminals-governance'].classList.contains('is-collapsed'));
 
   store.setItem('sv-terminals-gov', 'not json');
   const els2 = dockEls();

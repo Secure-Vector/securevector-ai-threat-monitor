@@ -8809,6 +8809,16 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-governance.is-collapsed .terminals-governance-name { padding: 0; letter-spacing: .04em; writing-mode: vertical-rl; }
 .terminals-gov-edge.is-collapsed .terminals-governance-caret { transform: rotate(180deg); }
 .terminals-governance.is-collapsed .terminals-governance-summary { display: none; }
+/* Container-responsive fallback: a wide viewport can still leave this page a
+   narrow workspace after the product rail/sidebar takes its share. */
+.terminals-workspace.is-gov-stacked { flex-direction: column; }
+.terminals-workspace.is-gov-stacked > .terminals-centre { width: 100%; min-width: 0; }
+.terminals-workspace.is-gov-stacked .terminals-gov-edge { flex: 0 0 0; width: auto; min-width: 0; height: 0; }
+.terminals-workspace.is-gov-stacked .terminals-gov-gutter { display: none; }
+.terminals-workspace.is-gov-stacked .terminals-governance-toggle { top: 6px; right: 12px; left: auto; width: 32px; height: 24px; transform: translateY(-50%); }
+.terminals-workspace.is-gov-stacked .terminals-governance-caret { transform: rotate(-90deg); }
+.terminals-workspace.is-gov-stacked .terminals-governance { width: auto; min-width: 0; max-height: 60vh; margin-top: 12px; }
+.terminals-workspace.is-gov-stacked .terminals-governance-name { writing-mode: horizontal-tb; }
 /* One column: the body is ~290px wide now, so an auto-fit track with a
    320px floor would overflow the panel it lives in. */
 .terminals-governance-body { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 13px 12px; border-top: 1px solid rgba(255,255,255,.06); }
@@ -9148,6 +9158,28 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
 .terminals-unlinked-folder { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #94a3b8); }
 .terminals-unlinked-link { flex: 0 0 auto; }
 
+/* The board's own "these are running outside SecureVector" panel. Same row
+   shape as the picker above, but it sits above the task list rather than
+   inside the form. Neutral throughout: a session the app can see but does not
+   own yet is an offer, not a security state, so no accent and no red. */
+.terminals-adopt { display: flex; flex-direction: column; gap: 0; min-width: 0; margin: 0 0 8px; border: 1px solid var(--border-default, #24303c); border-radius: 8px; }
+.terminals-adopt[hidden] { display: none; }
+.terminals-adopt-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 0; }
+.terminals-adopt-title { font-size: 11.5px; font-weight: 600; }
+.terminals-adopt-count { padding: 0 5px; border: 1px solid var(--border-default, #24303c); border-radius: 999px; color: var(--text-muted, #94a3b8); font-size: 9.5px; line-height: 15px; font-variant-numeric: tabular-nums; }
+.terminals-adopt-note { margin: 2px 0 6px; padding: 0 10px; color: var(--text-muted, #94a3b8); font-size: 11px; line-height: 1.45; }
+.terminals-adopt-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 10px; font-size: 11.5px; }
+.terminals-adopt-row + .terminals-adopt-row { border-top: 1px solid var(--border-default, #24303c); }
+.terminals-adopt-harness { flex: 0 0 auto; font-weight: 600; }
+.terminals-adopt-folder { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #94a3b8); }
+.terminals-adopt-when, .terminals-adopt-calls { flex: 0 0 auto; color: var(--text-muted, #94a3b8); }
+.terminals-adopt-govern, .terminals-adopt-dismiss { flex: 0 0 auto; }
+/* A text button, not a third competing pill: expanding the list is a glance. */
+.terminals-adopt-more { align-self: flex-start; padding: 6px 10px; border: 0; background: none; color: var(--text-muted, #94a3b8); font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.terminals-adopt-more:hover { color: var(--text-primary); }
+.terminals-adopt-error { padding: 0 10px 8px; color: var(--text-secondary, #cbd5e1); font-size: 11px; }
+[data-theme="light"] .terminals-adopt { border-color: var(--border-default); }
+
 /* "linked" chips. Neutral: where a session runs is not a security state. */
 .terminals-task-linked, .nav-task-linked { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border-default, #24303c); border-radius: 999px; color: var(--text-muted, #94a3b8); font-size: 9.5px; line-height: 15px; letter-spacing: .02em; text-transform: lowercase; vertical-align: middle; }
 .nav-task-linked { font-size: 9px; line-height: 14px; }
@@ -9156,6 +9188,19 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
 .terminals-linked-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 220px; padding: 24px 20px; text-align: center; }
 .terminals-linked-stage h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .terminals-linked-stage p { max-width: 420px; margin: 0; color: var(--text-muted, #94a3b8); font-size: 12px; line-height: 1.5; }
+
+/* The attached pane for a task whose output the app no longer holds. Same
+   shape as the linked stage; neutral throughout, because "this ended" is a
+   lifecycle fact and colour here is reserved for security state. */
+.terminals-ended-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 220px; padding: 24px 20px; text-align: center; }
+.terminals-ended-stage h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.terminals-ended-stage p { max-width: 420px; margin: 0; color: var(--text-muted, #94a3b8); font-size: 12px; line-height: 1.5; }
+.terminals-ended-stage .btn { margin-top: 8px; }
+/* The identity line has to survive a long folder path without pushing the
+   stage wider than the pane, so it wraps rather than ellipsing: the folder
+   is the part that tells two sessions of the same harness apart. */
+.terminals-ended-who { color: var(--text-secondary, #cbd5e1); font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
+.terminals-ended-exit { font-variant-numeric: tabular-nums; }
 [data-theme="light"] .terminals-launch-modes, [data-theme="light"] .terminals-unlinked { border-color: var(--border-default); }
 [data-theme="light"] .terminals-launch-mode.is-active { background: var(--bg-secondary); }
 
@@ -9256,6 +9301,9 @@ button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-
 .terminals-pane-head button {
     cursor: pointer;
 }
+/* The session-open button is both a real button and the tab's drag handle;
+   this more-specific rule wins over the generic pane-head button cursor. */
+.terminals-pane-head button.terminals-pane-session-open { cursor: grab; }
 /* While a drag is live the hand closes, and it stays closed everywhere the
    pointer travels, not just over the element the drag started on: one class
    on body covers every source because they all go through the same drag

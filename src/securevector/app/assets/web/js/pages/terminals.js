@@ -53,6 +53,38 @@ const TerminalsPage = {
     // unreadable, so the rest collapse into one overflow tab back to the board.
     TAB_LIMIT: 8,
 
+    // --- sessions running outside the board ------------------------------
+    //
+    // The same /sessions/unlinked read the link form uses, surfaced on the
+    // board so a session reporting in right now is visible without the user
+    // first knowing the link form exists.
+    //
+    // Deliberately NOT on the 3 s task cycle: unlinked_sessions() is a GROUP
+    // BY over tool_call_audit with two correlated subqueries, and that table
+    // takes a row for every governed tool call on the machine. Twenty seconds
+    // is still well inside "I just started a session" attention.
+    ADOPT_POLL_MS: 20000,
+    // Claude Code mints a session id per conversation, so a working day makes
+    // many unlinked rows. Without a per-session dismissal this panel is a nag
+    // bar, and a nag bar gets ignored wholesale.
+    ADOPT_DISMISS_KEY: 'sv-terminals-adopt-dismissed',
+    ADOPT_DISMISS_V: 1,
+    // Dismissals expire, so the key cannot grow for the life of the install.
+    ADOPT_DISMISS_TTL_MS: 48 * 3600 * 1000,
+    // Three rows is a glance; the rest are behind Show all so the panel never
+    // pushes the task list itself off the screen.
+    ADOPT_PREVIEW: 3,
+    // Held apart from _unlinked, which belongs to the launch form: the two
+    // read the same endpoint but are filtered and rendered differently, and
+    // sharing the field would make the board's dismissals leak into the form.
+    _adoptable: null,
+    _adoptAt: 0,
+    _adoptExpanded: false,
+    _governingId: null,
+    // Panel level rather than per row: only one adopt runs at a time, so at
+    // most one message can be live.
+    _adoptError: null,
+
     async render(container) {
         const gen = ++this._gen;
         this._destroyed = false;
@@ -65,11 +97,18 @@ const TerminalsPage = {
         clearTimeout(this._removeConfirmTimer);
         this._removeConfirmTimer = null;
         this._removeConfirmId = null;
+        this._cancelGovDrag();
+        this._unbindGovLayoutObserver();
         this._detach();
         // The form is rebuilt below in launch mode, so the remembered mode
         // must not outlive the DOM that showed it.
         this._mode = 'launch';
         this._unlinked = null;
+        this._adoptable = null;
+        this._adoptAt = 0;
+        this._adoptExpanded = false;
+        this._governingId = null;
+        this._adoptError = null;
         this._container = container;
         container.innerHTML = `
           <div class="terminals-page">
@@ -112,6 +151,7 @@ const TerminalsPage = {
                 <div class="terminals-unlinked" id="terminals-unlinked" hidden></div>
               </form>
               <div class="terminals-board-summary" id="terminals-board-summary" hidden></div>
+              <div class="terminals-adopt" id="terminals-adopt" hidden></div>
               <div id="terminals-task-list" class="terminals-task-list"></div>
             </section>
             <div class="terminals-workspace">
@@ -217,6 +257,8 @@ const TerminalsPage = {
         clearTimeout(this._removeConfirmTimer);
         this._removeConfirmTimer = null;
         this._removeConfirmId = null;
+        this._cancelGovDrag();
+        this._unbindGovLayoutObserver();
         this._detach();
         clearTimeout(this._stopAllTimer);
         this._stopAllTimer = null;
@@ -243,6 +285,11 @@ const TerminalsPage = {
         this._container = null;
         this._mode = 'launch';
         this._unlinked = null;
+        this._adoptable = null;
+        this._adoptAt = 0;
+        this._adoptExpanded = false;
+        this._governingId = null;
+        this._adoptError = null;
         this._linking = false;
         this._sessionReported = null;
     },
@@ -427,6 +474,214 @@ const TerminalsPage = {
         }
     },
 
+    // --- adopt a running session from the board --------------------------
+    //
+    // The link form above answers "I know a session exists, put it on the
+    // board". This answers the question nobody thinks to ask: a session is
+    // reporting tool calls into the audit trail right now and the board is
+    // silent about it. Same endpoints, one click, no form.
+
+    /** Refresh the adoptable list, at most once per ADOPT_POLL_MS.
+     *
+     *  Called from the 3 s task cycle, so the throttle is the whole point:
+     *  unlinked_sessions() aggregates tool_call_audit, which is the busiest
+     *  table the app owns. */
+    async _maybeLoadAdoptable() {
+        const now = Date.now();
+        if (now - (this._adoptAt || 0) < this.ADOPT_POLL_MS) return;
+        // Stamped before the await, never after: a request slower than the
+        // window would otherwise let the next tick queue a second one behind
+        // it, which is exactly the pile-up the throttle exists to prevent.
+        this._adoptAt = now;
+        const gen = this._gen;
+        try {
+            const r = await API.terminalsUnlinkedSessions();
+            if (gen !== this._gen) return;
+            this._adoptable = r.items || [];
+        } catch (e) {
+            if (gen !== this._gen) return;
+            // Swallowed, never rethrown: _refreshTasks awaits this, and an
+            // offer the user did not ask for must not take the board down.
+            this._adoptable = [];
+        }
+        this._renderAdoptable();
+    },
+
+    /** The dismissed session ids, pruned to the TTL on every read so the key
+     *  cannot grow for the life of the install.
+     *
+     *  Anything that is not v: 1 is dropped rather than migrated, the same
+     *  way _restoreGov() drops a foreign shape: a key we cannot vouch for is
+     *  not worth guessing at when the cost of guessing wrong is hiding a
+     *  session the person wanted to see. */
+    _adoptDismissed() {
+        const store = this._store();
+        if (!store) return {};
+        let saved = null;
+        try {
+            const raw = store.getItem(this.ADOPT_DISMISS_KEY);
+            saved = raw ? JSON.parse(raw) : null;
+        } catch (e) { return {}; /* unreadable or not ours */ }
+        if (!saved || saved.v !== this.ADOPT_DISMISS_V) return {};
+        if (!saved.ids || typeof saved.ids !== 'object') return {};
+        const cutoff = Date.now() - this.ADOPT_DISMISS_TTL_MS;
+        const kept = {};
+        for (const id of Object.keys(saved.ids)) {
+            const at = saved.ids[id];
+            if (typeof at === 'number' && isFinite(at) && at >= cutoff) kept[id] = at;
+        }
+        return kept;
+    },
+
+    /** Dismiss one session, not the panel. A day of Claude Code conversations
+     *  is a day of new session ids, so a global "hide this" would silence
+     *  tomorrow's sessions too. */
+    _adoptDismiss(sessionId) {
+        if (!sessionId) return;
+        const ids = this._adoptDismissed();
+        ids[sessionId] = Date.now();
+        const store = this._store();
+        if (store) {
+            try {
+                store.setItem(this.ADOPT_DISMISS_KEY, JSON.stringify({ v: this.ADOPT_DISMISS_V, ids }));
+            } catch (e) { /* storage unavailable or full */ }
+        }
+        this._renderAdoptable();
+    },
+
+    /** What the panel would show: dismissed ids removed, most recent first. */
+    _adoptRows() {
+        const dismissed = this._adoptDismissed();
+        return (this._adoptable || [])
+            .filter(r => r && r.session_id && !Object.prototype.hasOwnProperty.call(dismissed, r.session_id))
+            .slice()
+            .sort((a, b) => (Date.parse(b.last_at) || 0) - (Date.parse(a.last_at) || 0));
+    },
+
+    /** Forget one row without waiting for the next fetch. Twenty seconds of a
+     *  row you just adopted still sitting there reads as a click that did
+     *  nothing, so the local list is corrected and the clock reset. */
+    _dropAdoptable(sessionId) {
+        this._adoptable = (this._adoptable || []).filter(r => r.session_id !== sessionId);
+        this._adoptAt = 0;
+    },
+
+    _renderAdoptable() {
+        const el = document.getElementById('terminals-adopt');
+        if (!el) return;
+        const rows = this._adoptRows();
+        if (!rows.length) {
+            // Nothing to offer means no panel at all, not an empty-state box:
+            // the board's job is the task list, and this sits above it.
+            this._adoptError = null;
+            el.hidden = true;
+            el.innerHTML = '';
+            return;
+        }
+        const more = rows.length > this.ADOPT_PREVIEW;
+        const shown = this._adoptExpanded ? rows : rows.slice(0, this.ADOPT_PREVIEW);
+        const body = shown.map(r => {
+            const calls = `${r.calls || 0} call${r.calls === 1 ? '' : 's'}`;
+            const folder = r.workspace ? this._shortPath(r.workspace) : '';
+            return `
+              <div class="terminals-adopt-row">
+                <span class="terminals-adopt-harness">${this._esc(r.label || r.executor_id)}</span>
+                <span class="terminals-adopt-folder" title="${this._esc(r.workspace || '')}">${this._esc(folder)}</span>
+                <span class="terminals-adopt-when">${this._esc(this._ago(r.last_at))}</span>
+                <span class="terminals-adopt-calls">${this._esc(calls)}</span>
+                <button type="button" class="btn btn-sm btn-primary terminals-adopt-govern" data-session-id="${this._esc(r.session_id)}">Govern</button>
+                <button type="button" class="btn btn-sm terminals-adopt-dismiss" data-session-id="${this._esc(r.session_id)}" aria-label="Dismiss this session">Dismiss</button>
+              </div>`;
+        }).join('');
+        const toggle = more
+            ? `<button type="button" class="terminals-adopt-more">${this._esc(this._adoptExpanded ? 'Show fewer' : `Show all ${rows.length}`)}</button>`
+            : '';
+        const error = this._adoptError
+            ? `<div class="terminals-adopt-error">${this._esc(this._adoptError)}</div>`
+            : '';
+        el.hidden = false;
+        el.innerHTML = `
+          <div class="terminals-adopt-head">
+            <span class="terminals-adopt-title">Running outside SecureVector</span>
+            <span class="terminals-adopt-count">${this._esc(rows.length)}</span>
+          </div>
+          <p class="terminals-adopt-note">These sessions are reporting in but are not on your board yet.</p>
+          ${body}${toggle}${error}`;
+        el.querySelectorAll('.terminals-adopt-govern').forEach(b => {
+            b.onclick = () => {
+                // Looked up by id rather than carried on the element: the row
+                // the click means is the one currently held, not whatever the
+                // markup was built from a render ago.
+                const row = (this._adoptable || []).find(r => r.session_id === b.dataset.sessionId);
+                if (row) this._governSession(row, b);
+            };
+        });
+        el.querySelectorAll('.terminals-adopt-dismiss').forEach(b => {
+            b.onclick = () => this._adoptDismiss(b.dataset.sessionId);
+        });
+        const moreBtn = el.querySelector('.terminals-adopt-more');
+        // Expansion is a glance, not a preference: deliberately not persisted,
+        // so the panel is back to three rows on the next visit.
+        if (moreBtn) moreBtn.onclick = () => { this._adoptExpanded = !this._adoptExpanded; this._renderAdoptable(); };
+    },
+
+    /** request() throws a plain Error and does not attach the HTTP status
+     *  (api.js identifies its own 401/403 by message for the same reason), so
+     *  the 409 is recognised by the detail the backend sends. e.status is
+     *  honoured first in case a caller ever starts attaching one. */
+    _adoptIsAlreadyLinked(e) {
+        if (e && e.status === 409) return true;
+        return ((e && e.message) || '') === 'This session is already on the board.';
+    },
+
+    /** Put one reported session on the board, with no form in the way.
+     *
+     *  _submitLink() cannot serve this: it reads the launch form's inputs and
+     *  writes its errors into the form's error line, and none of that DOM
+     *  exists while the form is closed. This calls the same endpoint through
+     *  API.terminalsLink() directly. */
+    async _governSession(row, btn) {
+        // One adopt at a time, page wide. The backend serialises the
+        // read-then-insert so a double click cannot make two rows, but it
+        // would still answer the second click with an "already on the board"
+        // error the person never asked for.
+        if (this._governingId) return;
+        if (!row || !row.session_id) return;
+        const chosen = this._executors.find(e => e.id === row.executor_id);
+        // Installed, because the link needs a real harness label and Guard
+        // install path. Deliberately NOT governed: adopting an ungoverned
+        // session is precisely how a person gets it governed.
+        if (!chosen || chosen.installed === false) {
+            this._adoptError = (chosen && chosen.hint) || 'This harness is not installed.';
+            this._renderAdoptable();
+            return;
+        }
+        this._governingId = row.session_id;
+        this._adoptError = null;
+        if (btn) { btn.disabled = true; btn.textContent = 'Adopting…'; }
+        try {
+            await API.terminalsLink(row.executor_id, row.session_id, row.workspace || '', '');
+            this._dropAdoptable(row.session_id);
+            await this._refreshTasks();
+            if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
+        } catch (e) {
+            if (this._adoptIsAlreadyLinked(e)) {
+                // Someone, or another window, got there first. The row has
+                // done its job; an error the person cannot act on is worse
+                // than quietly agreeing with what already happened.
+                this._dropAdoptable(row.session_id);
+                await this._refreshTasks();
+                if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
+            } else {
+                this._adoptError = (e && e.message) || 'Could not govern that session.';
+                if (btn) { btn.disabled = false; btn.textContent = 'Govern'; }
+            }
+        } finally {
+            this._governingId = null;
+            this._renderAdoptable();
+        }
+    },
+
     async _refreshTasks() {
         const gen = this._gen;
         try {
@@ -461,6 +716,10 @@ const TerminalsPage = {
             if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
         }
         this._renderAttachedHead();
+        // Rides the task cycle but on its own much slower clock, and never
+        // throws: the board is the page, the adopt panel is an offer.
+        await this._maybeLoadAdoptable();
+        if (gen !== this._gen) return;
         // A stored layout is rebuilt once per mount, and only now: pruning it
         // needs the task list, and it has to settle before the reconcile below
         // decides whether the stored task id still wants attaching.
@@ -539,7 +798,7 @@ const TerminalsPage = {
             for (const t of tasks) {
                 const active = t.id === this._attached ? ' is-attached' : '';
                 const state = this._taskState(t);
-                const canRelaunch = t.status === 'done';
+                const canRelaunch = this._isEnded(t);
                 // The launching state lives on the page, not on the button: the
                 // 3 s poll rebuilds every card, and a disabled flag set on the
                 // old DOM node would be gone by the next tick, leaving a live
@@ -790,8 +1049,12 @@ const TerminalsPage = {
     GOV_STRIP_W: 34,      // the collapsed strip, matching the CSS
     GOV_STEP: 24,         // px an arrow key moves the column edge
     _govWidth: 0,         // px; 0 until restored or defaulted
-    _govCollapsed: true,  // effective state, collapsed until a task attaches
+    _govCollapsed: false, // effective state, expanded until the person collapses it
     _govUserSet: false,   // true once the person has clicked the toggle
+    _govStacked: false,   // measured workspace cannot hold panes + governance
+    _govDrag: null,       // one cancellable pointer gesture at a time
+    _govResizeObserver: null,
+    _govResizeHandler: null,
 
     /** The layout model, however this page was loaded. */
     _lay() {
@@ -1049,6 +1312,7 @@ const TerminalsPage = {
         const before = new Set(L.panes(this._layout).map(p => p.id));
         const next = L.split(this._layout, this._focused, dir, taskId);
         if (next === this._layout) return;
+        if (dir === 'row' && !this._canUseLayout(next, this._focused)) return;
         this._layout = next;
         const added = L.panes(next).find(p => !before.has(p.id));
         this._panes.set(added.id, this._blankPane(added.id, taskId));
@@ -1255,6 +1519,7 @@ const TerminalsPage = {
         if (body.replaceChildren) body.replaceChildren(...(root ? [root] : []));
         this._applyFocusClasses();
         this._renderEmptyPaneChoices();
+        this._syncGovLayoutMode();
     },
 
     _buildNode(node) {
@@ -1550,6 +1815,7 @@ const TerminalsPage = {
         const before = new Set(L.panes(this._layout).map(p => p.id));
         const next = L.split(this._layout, paneId, dir, null);
         if (next === this._layout) return;
+        if (dir === 'row' && !this._canUseLayout(next, paneId)) return;
         this._layout = next;
         const added = L.panes(next).find(p => !before.has(p.id));
         if (!added) return;
@@ -1680,6 +1946,10 @@ const TerminalsPage = {
         const ws = new WebSocket(API.terminalsSocketUrl(id));
         rec.ws = ws;
         rec.mounted = true;
+        // A task the host still holds replays its scrollback; one it has
+        // forgotten replays an empty string. The difference decides whether
+        // the exit frame leaves the terminal alone or explains itself.
+        rec.sawOutput = false;
         const view = new TerminalView(mount, {
             onInput: (b64) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'input', data: b64 })); },
             onResize: (rows, cols) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'resize', rows, cols })); },
@@ -1693,10 +1963,17 @@ const TerminalsPage = {
         ws.onmessage = (ev) => {
             let f;
             try { f = JSON.parse(ev.data); } catch (e) { return; }
-            if (f.t === 'replay' || f.t === 'out') view.write(f.data);
+            if (f.t === 'replay' || f.t === 'out') { if (f.data) rec.sawOutput = true; view.write(f.data); }
             else if (f.t === 'ping') ws.send(JSON.stringify({ t: 'pong' }));
             else if (f.t === 'dropped') this._banner(`Output fell behind, ${f.n} chunks skipped. Reattach to replay.`, paneId);
-            else if (f.t === 'exit') this._banner(f.code === 0 ? 'Task finished.' : `Task ended with exit code ${f.code}.`, paneId);
+            else if (f.t === 'exit') {
+                this._banner(f.code === 0 ? 'Task finished.' : `Task ended with exit code ${f.code}.`, paneId);
+                // Output that did arrive is the session's record and worth
+                // keeping on screen. With none, the pane is a black rectangle
+                // that names nothing, so replace it with something that says
+                // which session this was and offers to start it again here.
+                if (!rec.sawOutput) this._showEndedStage(paneId, task, f.code);
+            }
         };
         ws.onclose = (ev) => {
             if (ev.code === 4001) this._banner('Not authorised to attach from this origin.', paneId);
@@ -1704,6 +1981,53 @@ const TerminalsPage = {
             else if (ev.code === 4008) this._banner('Connection timed out. Click the task to reattach.', paneId);
         };
         this._refreshRail();
+    },
+
+    /** Stand in for a terminal whose output the app no longer holds. The
+     *  banner alone said only that something ended; this says which session
+     *  ended, how, and puts the restart in the pane the person is looking at
+     *  rather than sending them back to the board to find the card.
+     */
+    _showEndedStage(paneId, task, exitCode) {
+        const rec = this._panes ? this._panes.get(paneId) : null;
+        if (!rec || !rec.stageEl || !task) return;
+        const code = typeof exitCode === 'number' ? exitCode
+            : (typeof task.exit_code === 'number' ? task.exit_code : null);
+        // A blank title would leave the identity line saying nothing, and the
+        // harness name is the one thing every row is guaranteed to carry.
+        const name = task.title || this._label(task.executor_id);
+        const exitLine = code === null
+            ? 'Stopped before it reported an exit code'
+            : `Exit code ${code}`;
+        rec.stageEl.innerHTML = `
+          <div class="terminals-ended-stage">
+            <div class="terminals-ended-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
+            <h3>This session has ended</h3>
+            <p class="terminals-ended-who">${this._esc(name)} · ${this._esc(this._label(task.executor_id))} · ${this._esc(task.workspace)}</p>
+            <p class="terminals-ended-exit">${this._esc(exitLine)}</p>
+            <p>The terminal output is no longer held by the app, so there is nothing to replay.</p>
+            <button type="button" class="btn btn-sm btn-primary" data-ended-restart="${this._esc(paneId)}">Restart in this pane</button>
+          </div>`;
+        const buttons = rec.stageEl.querySelectorAll ? rec.stageEl.querySelectorAll('[data-ended-restart]') : [];
+        buttons.forEach(b => {
+            b.onclick = async () => {
+                // Same guard the board card uses: one launch at a time, or a
+                // double click puts two harnesses in one working folder.
+                if (this._relaunchingId) return;
+                this._relaunchingId = task.id;
+                b.disabled = true;
+                b.textContent = 'Restarting…';
+                try {
+                    await this._relaunchTask(task, { pane: paneId });
+                } catch (e) {
+                    this._banner(e.message || 'Could not restart the task.', paneId);
+                    b.disabled = false;
+                    b.textContent = 'Restart in this pane';
+                } finally {
+                    this._relaunchingId = null;
+                }
+            };
+        });
     },
 
     // --- per-pane governance strip ----------------------------------------
@@ -2219,6 +2543,7 @@ const TerminalsPage = {
         // split() always puts the new pane second; these two edges want it
         // first, and move() is what knows how to put a pane on a given side.
         if (edge === 'left' || edge === 'top') tree = L.move(tree, added.id, targetPaneId, edge);
+        if (dir === 'row' && !this._canUseLayout(tree, targetPaneId)) return;
         this._layout = tree;
         this._panes.set(added.id, this._blankPane(added.id, taskId));
         this._reapPanes();
@@ -2333,6 +2658,7 @@ const TerminalsPage = {
         if (!L || !this._layout) return;
         const next = L.move(this._layout, paneId, targetPaneId, edge);
         if (next === this._layout) return;
+        if (L.EDGE_DIRS[edge] === 'row' && !this._canUseLayout(next, targetPaneId)) return;
         this._layout = next;
         this._renderLayout();
         this._focusPane(paneId);
@@ -2379,8 +2705,51 @@ const TerminalsPage = {
         const ws = this._workspaceEl();
         const r = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
         if (!r || !(r.width > 0)) return 0;
+        if (this._govStacked && !this._govCollapsed) return r.width;
         const gov = this._govCollapsed ? this.GOV_STRIP_W : (this._govWidth || this.GOV_DEFAULT_W);
         return Math.max(0, r.width - gov - this.GOV_GUTTER_W);
+    },
+
+    /** Leaf widths compose through the pane tree: side-by-side children add,
+     *  while vertically stacked children share the same horizontal space. */
+    _treeMinWidth(node) {
+        if (!node) return 0;
+        if (node.type === 'pane') return this.PANE_USABLE_W;
+        if (node.type !== 'split') return 0;
+        const a = this._treeMinWidth(node.a);
+        const b = this._treeMinWidth(node.b);
+        return node.dir === 'row' ? a + this.GUTTER_W + b : Math.max(a, b);
+    },
+
+    _paneAreaMinWidth(tree) {
+        return Math.max(this.PANE_MIN_W, this._treeMinWidth(tree || this._layout));
+    },
+
+    /** Test the real ratios as well as the aggregate minimum: a nested child
+     *  can be too narrow even when the root has enough total pixels. */
+    _layoutFitsWidth(node, width) {
+        if (!node || !(width > 0)) return true;
+        if (node.type === 'pane') return width >= this.PANE_USABLE_W;
+        if (node.type !== 'split') return true;
+        if (node.dir === 'col') {
+            return this._layoutFitsWidth(node.a, width)
+                && this._layoutFitsWidth(node.b, width);
+        }
+        const span = width - this.GUTTER_W;
+        if (!(span >= 0)) return false;
+        const ratio = typeof node.ratio === 'number' && isFinite(node.ratio) ? node.ratio : 0.5;
+        return this._layoutFitsWidth(node.a, span * ratio)
+            && this._layoutFitsWidth(node.b, span * (1 - ratio));
+    },
+
+    /** A prospective horizontal operation is committed only after its final
+     *  tree fits. The caller has already removed any source pane, so reclaimed
+     *  width participates in this same check. */
+    _canUseLayout(tree, paneId) {
+        const width = this._availablePaneWidth();
+        if (!(width > 0) || this._layoutFitsWidth(tree, width)) return true;
+        this._refuseSplit(paneId);
+        return false;
     },
 
     /** One pane's width on screen, falling back to the whole pane area. */
@@ -2413,11 +2782,9 @@ const TerminalsPage = {
             + this.PANE_USABLE_W + 'px each; even out or close a pane first.', paneId);
     },
 
-    /** The ratio range a split may take without either side falling under the
-     *  usable width. Null when the split is not measurable, or runs down the
-     *  page, or is already too narrow to honour, in which case the model's own
-     *  proportional floor is the only clamp and the layout is left as it is
-     *  rather than snapped about under the operator. */
+    /** Null means unmeasurable/vertical. An infeasible measured row is an
+     *  explicit result so ratio changes can be rejected rather than escaping
+     *  the clamp. Child subtree minima make nested layouts safe too. */
     _ratioBounds(splitId) {
         const L = this._lay();
         const node = L ? L.find(this._layout, splitId) : null;
@@ -2426,29 +2793,27 @@ const TerminalsPage = {
         const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
         const span = r && r.width > 0 ? r.width - this.GUTTER_W : 0;
         if (!(span > 0)) return null;
-        const lo = this.PANE_USABLE_W / span;
-        const hi = 1 - lo;
-        // Two usable panes do not fit in this split at all. An existing layout
-        // in that state stays exactly as it is: there is no honest clamp, and
-        // the way out of it is the even-out control, not a silent jump.
-        if (lo >= hi) return null;
-        return { lo, hi };
+        const lo = this._treeMinWidth(node.a) / span;
+        const hi = 1 - (this._treeMinWidth(node.b) / span);
+        return { lo, hi, infeasible: lo > hi };
     },
 
     // --- gutters ---------------------------------------------------------
 
     _setSplitRatio(splitId, ratio) {
         const L = this._lay();
-        if (!L) return;
+        if (!L) return false;
         const bounds = this._ratioBounds(splitId);
+        if (bounds && bounds.infeasible) return false;
         let want = ratio;
         if (bounds && typeof want === 'number' && isFinite(want)) {
             want = Math.min(bounds.hi, Math.max(bounds.lo, want));
         }
         const next = L.setRatio(this._layout, splitId, want);
-        if (next === this._layout) return;
+        if (next === this._layout) return false;
         this._layout = next;
         this._applyRatios();
+        return true;
     },
 
     /** Put every split back to an even share. Ratios only: nothing detaches,
@@ -2539,9 +2904,10 @@ const TerminalsPage = {
         else if (ev.key === fwd) step = this.GUTTER_STEP;
         else return;
         if (ev.preventDefault) ev.preventDefault();
-        this._setSplitRatio(splitId, node.ratio + step);
-        this._persistLayout();
-        this._fitAll();
+        if (this._setSplitRatio(splitId, node.ratio + step)) {
+            this._persistLayout();
+            this._fitAll();
+        }
     },
 
     // --- governance dock -------------------------------------------------
@@ -2578,6 +2944,62 @@ const TerminalsPage = {
         }
         this._restoreGov();
         this._syncGovDock();
+        this._bindGovLayoutObserver();
+    },
+
+    /** Switch to the vertical arrangement from the space this workspace
+     *  actually owns, not the viewport. Sidebar and parent layout changes are
+     *  therefore handled the same way as a window resize. */
+    _syncGovLayoutMode() {
+        const ws = this._workspaceEl();
+        const rect = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
+        const width = rect && rect.width > 0 ? rect.width : 0;
+        const stacked = !this._govCollapsed && width > 0
+            && width < this._paneAreaMinWidth() + this.GOV_GUTTER_W + this.GOV_MIN_W;
+        const changed = stacked !== !!this._govStacked;
+        if (changed && stacked) this._cancelGovDrag();
+        this._govStacked = stacked;
+        if (ws && ws.classList) ws.classList[stacked ? 'add' : 'remove']('is-gov-stacked');
+        const { gutter } = this._govEls();
+        if (gutter) gutter.hidden = !!this._govCollapsed || stacked;
+        if (changed && !stacked && !this._govCollapsed) {
+            this._setGovWidth(this._govWidth || this.GOV_DEFAULT_W);
+        }
+        return changed;
+    },
+
+    _bindGovLayoutObserver() {
+        this._unbindGovLayoutObserver();
+        const ws = this._workspaceEl();
+        if (!ws) return;
+        const update = () => {
+            if (this._destroyed) return;
+            const changed = this._syncGovLayoutMode();
+            if (!this._govCollapsed && !this._govStacked) this._setGovWidth(this._govWidth || this.GOV_DEFAULT_W);
+            if (changed) this._fitAll();
+        };
+        this._govResizeHandler = update;
+        if (typeof ResizeObserver !== 'undefined') {
+            try {
+                this._govResizeObserver = new ResizeObserver(update);
+                this._govResizeObserver.observe(ws);
+                return;
+            } catch (e) { this._govResizeObserver = null; }
+        }
+        if (typeof window !== 'undefined' && window.addEventListener) {
+            window.addEventListener('resize', update);
+        }
+    },
+
+    _unbindGovLayoutObserver() {
+        if (this._govResizeObserver && this._govResizeObserver.disconnect) {
+            try { this._govResizeObserver.disconnect(); } catch (e) { /* already detached */ }
+        }
+        if (this._govResizeHandler && typeof window !== 'undefined' && window.removeEventListener) {
+            window.removeEventListener('resize', this._govResizeHandler);
+        }
+        this._govResizeObserver = null;
+        this._govResizeHandler = null;
     },
 
     /** Clamp a column width against the space the workspace actually has, so
@@ -2588,12 +3010,18 @@ const TerminalsPage = {
         const ws = this._workspaceEl();
         const rect = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
         let max = this.GOV_DEFAULT_W * 3;
-        if (rect && rect.width > 0) max = rect.width - this.PANE_MIN_W - this.GOV_GUTTER_W;
-        if (max < this.GOV_MIN_W) max = this.GOV_MIN_W;
+        if (rect && rect.width > 0) {
+            max = Math.max(0, rect.width - this._paneAreaMinWidth() - this.GOV_GUTTER_W);
+        }
+        // A transient infeasible row must not invent pixels. The measured
+        // layout-mode check will stack it; until then its honest max may be
+        // below the normal governance minimum.
+        if (max < this.GOV_MIN_W) return Math.max(0, Math.min(max, w));
         return Math.max(this.GOV_MIN_W, Math.min(max, w));
     },
 
     _setGovWidth(px) {
+        if (this._govStacked) return;
         this._govWidth = this._clampGovWidth(px);
         const { dock } = this._govEls();
         if (dock && dock.style && dock.style.setProperty) {
@@ -2603,26 +3031,26 @@ const TerminalsPage = {
 
     /** The one place that decides collapsed or expanded.
      *
-     *  Until the person clicks the toggle the column follows the task: no task
-     *  attached means the vertical strip alone and no body width reserved,
-     *  which is what made the old fixed right column feel like a tax. Once
-     *  they have clicked, their choice wins in both directions. */
+     *  Governance is expanded by default: the activity is the point of the
+     *  page, and a panel that hides itself until a task attaches is a panel
+     *  people never learn they have. Once the person clicks the toggle their
+     *  choice wins in both directions, attached or not. */
     _syncGovDock() {
         const { dock, edge, gutter, toggle, body } = this._govEls();
-        const attached = !!this._attached;
-        const collapsed = this._govUserSet ? !!this._govCollapsed : !attached;
+        const collapsed = this._govUserSet ? !!this._govCollapsed : false;
         this._govCollapsed = collapsed;
         if (!this._govWidth) this._govWidth = this.GOV_DEFAULT_W;
         if (dock) {
             if (dock.classList) dock.classList[collapsed ? 'add' : 'remove']('is-collapsed');
-            if (!collapsed) this._setGovWidth(this._govWidth);
         }
         if (edge && edge.classList) edge.classList[collapsed ? 'add' : 'remove']('is-collapsed');
+        this._syncGovLayoutMode();
+        if (dock && !collapsed && !this._govStacked) this._setGovWidth(this._govWidth);
         // Hidden rather than merely unstyled: a collapsed column has no edge
         // to drag, and a focusable separator that resizes nothing is a trap.
         // The separate edge toggle stays reachable while the static strip
         // keeps the panel named.
-        if (gutter) gutter.hidden = collapsed;
+        if (gutter) gutter.hidden = collapsed || this._govStacked;
         if (body) body.hidden = collapsed;
         if (toggle && toggle.setAttribute) {
             toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
@@ -2651,7 +3079,8 @@ const TerminalsPage = {
 
     _startGovDrag(ev) {
         if (!ev || (ev.button !== undefined && ev.button !== 0)) return;
-        if (this._govCollapsed) return;
+        if (this._govCollapsed || this._govStacked) return;
+        this._cancelGovDrag();
         const gutter = ev.currentTarget;
         if (!gutter) return;
         const pointerId = ev.pointerId;
@@ -2663,29 +3092,55 @@ const TerminalsPage = {
         // otherwise leave us reading a detached rect and snapping to a clamp.
         // The column is dragged by its left edge, so the width is whatever is
         // left between the pointer and the workspace's right edge.
+        const startWidth = this._govWidth || this.GOV_DEFAULT_W;
+        let done = false;
         const move = (e) => {
             const ws = this._workspaceEl();
             const r = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
             if (!r || !r.width) return;
             this._setGovWidth(r.right - e.clientX);
         };
-        const up = () => {
+        const finish = (commit) => {
+            if (done) return;
+            done = true;
             window.removeEventListener('pointermove', move);
-            window.removeEventListener('pointerup', up);
-            window.removeEventListener('pointercancel', up);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onCancel);
+            if (gutter.removeEventListener) gutter.removeEventListener('lostpointercapture', onLost);
             if (gutter.releasePointerCapture && pointerId !== undefined) {
                 try { gutter.releasePointerCapture(pointerId); } catch (e) { /* never captured */ }
             }
-            this._persistGov();
-            this._fitAll();
+            if (this._govDrag && this._govDrag.finish === finish) this._govDrag = null;
+            if (!commit) {
+                this._govWidth = startWidth;
+                const { dock } = this._govEls();
+                if (dock && dock.style && dock.style.setProperty) {
+                    dock.style.setProperty('--gov-w', startWidth + 'px');
+                }
+                return;
+            }
+            if (!this._destroyed && !this._govStacked) {
+                this._persistGov();
+                this._fitAll();
+            }
         };
+        const onUp = () => finish(true);
+        const onCancel = () => finish(false);
+        const onLost = () => finish(false);
+        this._govDrag = { finish };
         window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-        window.addEventListener('pointercancel', up);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onCancel);
+        if (gutter.addEventListener) gutter.addEventListener('lostpointercapture', onLost);
+    },
+
+    _cancelGovDrag() {
+        if (this._govDrag && this._govDrag.finish) this._govDrag.finish(false);
+        this._govDrag = null;
     },
 
     _onGovKey(ev) {
-        if (!ev) return;
+        if (!ev || this._govStacked) return;
         // Left widens because the edge being moved is the column's left one:
         // pushing it left gives governance more room.
         let step = 0;
@@ -2713,7 +3168,7 @@ const TerminalsPage = {
         const store = this._store();
         this._govWidth = this.GOV_DEFAULT_W;
         this._govUserSet = false;
-        this._govCollapsed = true;
+        this._govCollapsed = false;
         if (!store) return;
         try {
             const raw = store.getItem(this.GOV_KEY);
@@ -3226,6 +3681,16 @@ const TerminalsPage = {
     // task to leave this set before launching, or the new harness races the
     // old one for the same working folder.
     _RUNNING_STATUSES: ['starting', 'working', 'blocked', 'idle'],
+
+    // The other side of the same coin. Stopping a task yourself leaves it
+    // `interrupted` and a crash leaves it `failed`, so gating a restart on
+    // `done` alone hid the button on exactly the tasks worth restarting.
+    _ENDED_STATUSES: ['done', 'failed', 'interrupted'],
+
+    /** Ended means the session is over for good: no more output is
+     *  coming, and the harness and folder on the row are all that is
+     *  needed to start a fresh one in its place. */
+    _isEnded(t) { return !!t && this._ENDED_STATUSES.includes(t.status); },
 
     // Counted attempts rather than a wall-clock deadline: the same ten seconds
     // in practice, but the wait cannot be shortened or stretched by a slow
@@ -3772,7 +4237,7 @@ const TerminalsPage = {
         const ungoverned = !!(ex && !ex.governed) && !this._guardReportedIn(t);
         // So is a task that has already ended: nothing more is coming at all,
         // and a listening ring over a finished session is a false promise.
-        const ended = ['done', 'failed', 'interrupted'].includes(t.status);
+        const ended = this._isEnded(t);
         if (bot && bot.classList) bot.classList[ended && !ungoverned ? 'add' : 'remove']('is-quiet');
         if (ended && !ungoverned) {
             if (title) title.textContent = 'No governed activity recorded';
