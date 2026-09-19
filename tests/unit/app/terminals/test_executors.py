@@ -15,6 +15,7 @@ from securevector.app.terminals.executors import (
     EXECUTORS,
     RELAY_EVENTS,
     ExecutorUnavailable,
+    ResumeUnsupported,
     UnknownExecutor,
     build_child_env,
     build_launch,
@@ -395,3 +396,88 @@ def test_build_launch_raises_without_path(tmp_path, monkeypatch):
 
 def test_unknown_executor_is_value_error():
     assert issubclass(UnknownExecutor, ValueError)
+
+
+# --- resume: reopening a session the app did not start ----------------------
+#
+# A live PTY cannot be handed between processes, so the only way a session
+# someone began in their own terminal ends up governed here is for the harness
+# to reopen it by id on a PTY this host owns. The client names the session; the
+# host still decides every argument.
+
+_RESUME_ID = "sess-0123456789abcdef"
+
+
+def _resume_launch(executor_id, tmp_path, *, resume_session_id=_RESUME_ID, plugin_dir=None):
+    ws = tmp_path / "proj"
+    ws.mkdir(exist_ok=True)
+    return build_launch(
+        executor_id,
+        workspace=ws,
+        task_dir=tmp_path / "task",
+        port=8741,
+        task_id="t",
+        hook_token="k",
+        parent_env={"PATH": "/bin"},
+        plugin_dir=plugin_dir,
+        resume_session_id=resume_session_id,
+    )
+
+
+def test_resume_argv_is_declared_only_for_harnesses_that_reopen_a_named_session():
+    assert EXECUTORS["claude-code"].resume_argv == ("--resume", "{session_id}")
+    assert EXECUTORS["codex"].resume_argv == ("resume", "{session_id}")
+    assert EXECUTORS["copilot-cli"].resume_argv == ("--resume", "{session_id}")
+    # OpenCode only has --continue, which takes the most recent session rather
+    # than a named one. Resuming the wrong conversation silently is worse than
+    # not offering resume at all.
+    assert EXECUTORS["opencode"].resume_argv == ()
+
+
+def test_claude_code_resume_flag_follows_the_governance_flags(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/claude")
+    launch = _resume_launch("claude-code", tmp_path, plugin_dir=tmp_path / "plugin")
+    assert launch.argv == [
+        "/usr/local/bin/claude",
+        "--settings",
+        str(tmp_path / "task" / "settings.json"),
+        "--plugin-dir",
+        str(tmp_path / "plugin"),
+        "--resume",
+        _RESUME_ID,
+    ]
+
+
+def test_codex_resume_is_a_subcommand_and_comes_first(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/codex")
+    launch = _resume_launch("codex", tmp_path)
+    # `codex resume <id>`: a subcommand, so anything in front of it would be
+    # parsed as a flag of the root command instead.
+    assert launch.argv == ["/usr/local/bin/codex", "resume", _RESUME_ID]
+
+
+def test_copilot_cli_resume_is_a_flag(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/copilot")
+    launch = _resume_launch("copilot-cli", tmp_path)
+    assert launch.argv == ["/usr/local/bin/copilot", "--resume", _RESUME_ID]
+
+
+def test_opencode_resume_is_refused_rather_than_launched_without_it(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/opencode")
+    with pytest.raises(ResumeUnsupported) as exc:
+        _resume_launch("opencode", tmp_path)
+    assert "OpenCode" in str(exc.value)
+    assert issubclass(ResumeUnsupported, ValueError)
+
+
+def test_no_resume_id_leaves_every_harness_argv_exactly_as_it_was(tmp_path, monkeypatch):
+    """The default path is the one nearly every launch takes; it must not move."""
+    monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/x")
+    for executor_id in ("claude-code", "codex", "copilot-cli", "opencode"):
+        argv = _resume_launch(executor_id, tmp_path, resume_session_id=None).argv
+        expected = ["/usr/local/bin/x"]
+        if executor_id == "claude-code":
+            expected += ["--settings", str(tmp_path / "task" / "settings.json")]
+        assert argv == expected, executor_id
+        # An empty string is not a resume request either: no argv, no refusal.
+        assert _resume_launch(executor_id, tmp_path, resume_session_id="").argv == expected

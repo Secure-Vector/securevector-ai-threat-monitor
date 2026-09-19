@@ -2022,12 +2022,31 @@ const TerminalsPage = {
         this._refreshRail();
     },
 
+    /** Whether this harness can reopen THIS session by its id.
+     *
+     *  A live PTY cannot be handed from one process to another, so the only
+     *  route from a session in someone's own terminal to one this app governs
+     *  is for the harness to reopen it: they close it there, and it comes back
+     *  here on a PTY the app owns, with the conversation intact.
+     *
+     *  The answer comes off the executors payload rather than a list of
+     *  harness ids kept here: whether a harness can reopen a named session is
+     *  the host's fact, and OpenCode is excluded there because its --continue
+     *  takes the most recent session rather than a named one.
+     */
+    _harnessResumes(task) {
+        if (!task || !task.session_id) return false;
+        const ex = this._executors.find(e => e.id === task.executor_id);
+        return !!(ex && ex.supports_resume);
+    },
+
     _linkedStageHtml(task) {
         // The backend derives a linked task's status from its audit trail:
         // `working` while calls arrive, `idle` after a long silence, and an
         // ended status only when a session end was actually reported.
         const ended = this._isEnded(task);
         const quiet = task.status === 'idle';
+        const resumes = this._harnessResumes(task);
         let note;
         if (ended) {
             // The Guard reported an end, so nothing is left running to collide
@@ -2042,6 +2061,14 @@ const TerminalsPage = {
             const when = this._ago(task.last_activity_at) || 'a while';
             note = `<p class="terminals-linked-note">No activity reported for ${this._esc(when)}.</p>`
                 + '<p class="terminals-linked-warn">Opening a terminal here starts a separate session in this folder. Close the other one first if it is still open.</p>';
+        } else if (resumes) {
+            // Naming the window the terminal is in answers nothing the person
+            // did not already know, and they keep asking how to bring the
+            // session in here. Ending it there is the step that makes that
+            // possible, so the copy asks for it instead of describing the
+            // situation. No button: while calls are still arriving, resuming
+            // would put a second harness on one conversation and one folder.
+            note = '<p class="terminals-linked-note">This session is active. Close it in your own terminal, then continue it here.</p>';
         } else {
             note = '<p class="terminals-linked-note">This session is active. Its terminal is in the window you started it in.</p>';
         }
@@ -2051,9 +2078,21 @@ const TerminalsPage = {
         const folder = this._knownWorkspace(task.workspace);
         let action = '';
         if ((ended || quiet) && folder) {
-            action = `<button type="button" class="btn btn-sm btn-primary" data-linked-open="${this._esc(task.id)}">Open a governed terminal here</button>`;
+            if (resumes) {
+                // The primary of the two: continuing keeps the conversation,
+                // where opening a terminal starts an empty one beside it.
+                action = `<button type="button" class="btn btn-sm btn-primary" data-linked-continue="${this._esc(task.id)}">Continue this session here</button>`;
+            }
+            // Still offered either way. Someone may want a clean session in the
+            // same folder rather than the one that was running.
+            const openClass = resumes ? 'btn btn-sm' : 'btn btn-sm btn-primary';
+            action += `<button type="button" class="${openClass}" data-linked-open="${this._esc(task.id)}">Open a governed terminal here</button>`;
         } else if (ended || quiet) {
-            action = '<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to open a terminal. Use + Launch to start one in a folder you pick.</p>';
+            // Say which offer the missing folder costs them. Dropping the
+            // button with no sentence reads as the app having decided the
+            // session cannot be continued at all.
+            const lost = resumes ? 'continue it' : 'open a terminal';
+            action = `<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to ${lost}. Use + Launch to start one in a folder you pick.</p>`;
         }
         // Unlinking belongs here as much as on the card: this pane is where a
         // person lands when they open the session, and the card may be scrolled
@@ -2103,6 +2142,32 @@ const TerminalsPage = {
                 } catch (e) {
                     b.disabled = false;
                     this._banner(e.message || 'Could not unlink the session.', paneId);
+                }
+            };
+        });
+        rec.stageEl.querySelectorAll('[data-linked-continue]').forEach(b => {
+            b.onclick = async () => {
+                // The same flag the open button uses, deliberately: continuing
+                // and opening both put a harness in this one folder, so the
+                // second of the two must not start while the first is in
+                // flight either.
+                if (this._openingHereId) return;
+                this._openingHereId = task.id;
+                b.disabled = true;
+                b.textContent = 'Continuing…';
+                try {
+                    // Same harness, same folder, same pane as the open button.
+                    // The session id is the only difference: with it the
+                    // harness reopens the conversation instead of starting an
+                    // empty one, and the reopened session is on a PTY the app
+                    // owns, so it is governed like any other launch.
+                    await this._relaunchTask(task, { pane: paneId, resumeSessionId: task.session_id });
+                } catch (e) {
+                    this._banner(e.message || 'Could not continue the session here.', paneId);
+                    b.disabled = false;
+                    b.textContent = 'Continue this session here';
+                } finally {
+                    this._openingHereId = null;
                 }
             };
         });
@@ -3841,11 +3906,22 @@ const TerminalsPage = {
     // often than not. It is a label, never a path: anything that spawns into
     // it gets "Workspace folder does not exist" back from the host.
     UNKNOWN_WORKSPACE: '(unknown folder)',
+    // Matches CWD_MAX_CHARS in app/terminals/store.py.
+    WORKSPACE_MAX_CHARS: 1024,
 
-    /** The row's folder when it is a real one, else null. */
+    /** The row's folder when it is a real one, else null.
+     *
+     *  Belt and braces with the host's own check. The folder is scraped out of
+     *  free text, so a row written before that check tightened can still hold
+     *  something that is not a path at all: one held eight kilobytes of Python,
+     *  because "cwd=" matched inside a tool's own arguments. A folder is one
+     *  line and not enormous, and anything else is treated as not reported
+     *  rather than printed onto the board.
+     */
     _knownWorkspace(w) {
         const v = typeof w === 'string' ? w.trim() : '';
         if (!v || v === this.UNKNOWN_WORKSPACE) return null;
+        if (v.length > this.WORKSPACE_MAX_CHARS || /[\r\n]/.test(v)) return null;
         return v;
     },
 
@@ -3868,8 +3944,11 @@ const TerminalsPage = {
      *  `stopFirst` is for restarting a task that is still running, where the
      *  old process has to be gone before the new one starts. `pane` keeps the
      *  fresh session in the pane the restart came from.
+     *  `resumeSessionId` is the one case where the harness does NOT start
+     *  fresh: it reopens that conversation, which is how a session adopted
+     *  from someone's own terminal ends up on a PTY this app owns.
      */
-    async _relaunchTask(task, { stopFirst = false, pane = null } = {}) {
+    async _relaunchTask(task, { stopFirst = false, pane = null, resumeSessionId = null } = {}) {
         // The task list's Relaunch names no pane, so the pane the task is
         // already in stands in for one. Without it the fresh session would
         // join the focused pane's group as one more tab beside the dead task
@@ -3890,7 +3969,11 @@ const TerminalsPage = {
             // session the restart was meant to end. Say so and stop.
             if (!stopped) throw new Error('The task did not stop; try again.');
         }
-        const fresh = await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '');
+        // Two calls rather than one with a trailing undefined: the default
+        // path keeps sending exactly the three arguments it always has.
+        const fresh = resumeSessionId
+            ? await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '', resumeSessionId)
+            : await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '');
         await this._refreshTasks();
         if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
         // A restart is the same tab with a new session behind it, so the new

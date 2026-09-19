@@ -4,7 +4,7 @@ import pytest
 
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.migrations import run_migrations
-from securevector.app.terminals.store import TerminalStore
+from securevector.app.terminals.store import TerminalStore, cwd_from_preview
 
 
 async def _store(tmp_path) -> TerminalStore:
@@ -71,6 +71,40 @@ async def test_archive_refuses_a_running_task(tmp_path):
     await store.create_task("running", executor_id="claude-code", workspace="/w", title=None, pid=1)
     with pytest.raises(ValueError, match="Stop the task"):
         await store.archive_task("running")
+
+
+def test_cwd_scrape_refuses_a_marker_matched_inside_a_tool_argument():
+    """The reported bug. An edit to a file containing `cwd=str(workspace)` put
+    eight kilobytes of Python on the board as a session's folder: the marker
+    matched inside the tool's own arguments and the value ran to the end of the
+    blob. A folder has to look like a folder."""
+    blob = (
+        "return Launch(argv=argv, env=env, cwd=str(workspace))\'\'\', \'\'\' "
+        "resume_args: list[str] = []\n    if resume_session_id:\n"
+    )
+    assert cwd_from_preview(blob) is None
+
+
+def test_cwd_scrape_keeps_looking_after_a_bad_match():
+    """One unusable marker must not hide a real one later in the same text."""
+    assert cwd_from_preview("cwd=str(workspace)) junk\n cwd=/real/path") == "/real/path"
+
+
+@pytest.mark.parametrize(
+    "preview,expected",
+    [
+        ("cmd=ls; cwd=/Users/y/repo", "/Users/y/repo"),
+        ('cwd="/Users/y/My Repo"; next', "/Users/y/My Repo"),
+        ("cwd=~/work", "~/work"),
+        ("cwd=C:\\Users\\y", "C:\\Users\\y"),
+        ("cwd=relative/path", None),
+        ("cwd=", None),
+        ("nothing here", None),
+        (None, None),
+    ],
+)
+def test_cwd_scrape_accepts_only_what_could_be_a_folder(preview, expected):
+    assert cwd_from_preview(preview) == expected
 
 
 @pytest.mark.asyncio
@@ -400,8 +434,13 @@ async def test_cwd_from_preview_handles_spaces_quotes_and_oversize():
     assert cwd_from_preview("cwd=   ") is None
     assert cwd_from_preview(None) is None
     assert cwd_from_preview("") is None
-    oversized = cwd_from_preview("cwd=/" + "a" * 5000)
-    assert len(oversized) == CWD_MAX_CHARS
+    # Oversize is now refused rather than cut to the cap. A truncated path is
+    # a fabricated one: it still looks like a folder, so it reaches the board
+    # and a launch into it fails at the host. This function's own contract is
+    # that callers fall back to a placeholder "rather than inventing a path",
+    # and truncation was inventing one.
+    assert cwd_from_preview("cwd=/" + "a" * 5000) is None
+    assert CWD_MAX_CHARS == 1024
 
 
 @pytest.mark.asyncio

@@ -224,6 +224,10 @@ class TerminalManager:
                     "label": executor.label,
                     "installed": installed,
                     "governed": governed,
+                    # Whether the UI may offer "continue this session here".
+                    # A harness without a resume-by-id flag never gets the
+                    # offer, so the client does not hard-code harness ids.
+                    "supports_resume": bool(executor.resume_argv),
                     "hint": hint,
                 }
             )
@@ -242,10 +246,39 @@ class TerminalManager:
     # -- spawn / stop -------------------------------------------------------
 
     async def spawn(
-        self, executor_id: str, workspace: str, *, title: Optional[str], origin: str
+        self,
+        executor_id: str,
+        workspace: str,
+        *,
+        title: Optional[str],
+        origin: str,
+        resume_session_id: Optional[str] = None,
     ) -> dict:
+        """Start a governed task. With `resume_session_id` the harness reopens
+        that conversation instead of starting a fresh one, which is the only
+        way a session someone began in their own terminal can end up on a PTY
+        this app owns: a live PTY cannot be handed between processes.
+        """
         if executor_id not in EXECUTORS:
             raise UnknownExecutor(executor_id)
+        if resume_session_id is not None:
+            # The same shape the link path enforces, and for the same reason:
+            # the id reaches argv, so it is never taken on trust. Validated
+            # here rather than in build_launch so a bad id is refused before
+            # any task directory or token exists.
+            resume_session_id = resume_session_id.strip()
+            if not SESSION_ID_RE.match(resume_session_id):
+                raise ValueError(
+                    "Session id must be 8 to 128 characters of letters, digits, dot, underscore, "
+                    "colon, or dash."
+                )
+            # SESSION_ID_RE admits a leading dash, which is harmless in the
+            # link path where the id only ever becomes a row value. Here it
+            # becomes an argv word: `--resume` takes an OPTIONAL value, so an
+            # id spelled "--dangerously-skip-permissions" would not be consumed
+            # as the value at all and would be parsed as a flag of its own.
+            if resume_session_id.startswith("-"):
+                raise ValueError("Session id must not start with a dash.")
         # A launch is never refused for a missing Guard. It runs ungoverned,
         # writes a guard_missing event, and the session carries a banner until
         # the Guard reports in.
@@ -277,6 +310,7 @@ class TerminalManager:
             hook_token=hook_token,
             parent_env=self.settings.parent_env,
             plugin_dir=inject,
+            resume_session_id=resume_session_id,
         )
         self._hook_tokens[task_id] = hook_token
         # The store row is created BEFORE host.spawn() runs, with pid=None.

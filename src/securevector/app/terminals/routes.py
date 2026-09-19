@@ -106,6 +106,10 @@ class SpawnRequest(BaseModel):
     executor_id: str = Field(min_length=1, max_length=64)
     workspace: str = Field(min_length=1, max_length=4096)
     title: Optional[str] = Field(default=None, max_length=120)
+    # Reopen this harness session instead of starting a fresh one. Still only
+    # a name: the host decides what argv that turns into, and refuses the
+    # harnesses that cannot reopen a named session.
+    resume_session_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class LinkRequest(BaseModel):
@@ -141,11 +145,19 @@ async def list_tasks(manager: TerminalManager = Depends(get_manager)):
 async def spawn_task(body: SpawnRequest, manager: TerminalManager = Depends(get_manager)):
     try:
         task = await manager.spawn(
-            body.executor_id, body.workspace, title=body.title, origin="ui"
+            body.executor_id,
+            body.workspace,
+            title=body.title,
+            origin="ui",
+            resume_session_id=body.resume_session_id,
         )
         return (await _decorate(manager, [task]))[0]
     except UnknownExecutor as exc:
         raise HTTPException(status_code=400, detail="Unknown executor") from exc
+    # After UnknownExecutor, which is itself a ValueError: a malformed session
+    # id or a harness that cannot reopen one both land here.
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except NotADirectoryError as exc:
         raise HTTPException(status_code=400, detail="Workspace folder does not exist") from exc
     except GuardHooksMissing as exc:

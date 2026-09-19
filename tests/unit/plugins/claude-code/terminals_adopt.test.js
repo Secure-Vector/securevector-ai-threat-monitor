@@ -388,3 +388,17 @@ test('nothing in the adopt panel introduces an em dash', () => {
   const src = read('js/pages/terminals.js');
   assert.equal(src.includes('—'), false, 'terminals.js stays free of U+2014');
 });
+
+test('a folder that is not a folder never reaches the board', () => {
+  // The host scrapes the folder out of free text. A row written before that
+  // scrape was tightened can hold something that is not a path at all: one
+  // held eight kilobytes of Python, because "cwd=" matched inside a tool's
+  // own arguments and the value ran to the end of the blob.
+  const { page } = loadPage();
+  const blob = "str(workspace))''', ''' resume_args: list[str] = []\n    if resume_session_id:";
+
+  assert.equal(page._knownWorkspace(blob), null, 'multi-line is not a path');
+  assert.equal(page._knownWorkspace('/' + 'a'.repeat(2000)), null, 'nor is an enormous one');
+  assert.equal(page._knownWorkspace('(unknown folder)'), null);
+  assert.equal(page._knownWorkspace('/Users/y/repo'), '/Users/y/repo', 'a real one still passes');
+});

@@ -1066,8 +1066,11 @@ const API = {
     async terminalsTask(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}`);
     },
-    async terminalsLaunch(executorId, workspace, title) {
-        return this._terminalsWrite('/api/terminals/tasks', { executor_id: executorId, workspace, title: title || null });
+    // `resumeSessionId` reopens an existing harness session instead of starting
+    // a fresh one. Optional, and omitted by every existing call site: the host
+    // refuses it for a harness that cannot reopen a session by id.
+    async terminalsLaunch(executorId, workspace, title, resumeSessionId) {
+        return this._terminalsWrite('/api/terminals/tasks', { executor_id: executorId, workspace, title: title || null, resume_session_id: resumeSessionId || null });
     },
     async terminalsLink(executorId, sessionId, workspace, title) {
         return this._terminalsWrite('/api/terminals/tasks/link', {

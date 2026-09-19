@@ -160,13 +160,13 @@ test('a failed restart surfaces in the banner text and re-arms the button', asyn
 
 test('restart and the card Relaunch share one code path, and restart keeps its pane', () => {
   const src = read('js/pages/terminals.js');
-  assert.match(src, /_relaunchTask\(task, \{ stopFirst = false, pane = null \} = \{\}\)/);
+  assert.match(src, /_relaunchTask\(task, \{ stopFirst = false, pane = null, resumeSessionId = null \} = \{\}\)/);
   assert.match(src, /await this\._relaunchTask\(t, \{ stopFirst: true, pane: paneId \}\)/,
     'a restart has to come back in the pane whose banner asked for it');
   assert.match(src, /_claimPane\(taskId, paneId, group = 'replace', swapFor = null\) \{/,
     'and the pane is claimed by name, not by whichever one holds the focus');
-  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 2,
-    'one launch call in the shared helper, one in the launch form');
+  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 3,
+    'two in the shared helper, one with a resume id and one without, plus the launch form');
 });
 
 // --------------------------------------------------------- remove confirm

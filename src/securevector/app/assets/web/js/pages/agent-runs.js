@@ -2722,8 +2722,15 @@ const AgentRunsPage = {
     /** The collapsible per-step detail panel revealed when a span is clicked. */
     _spanDetail(s, external) {
         const kv = (k, v) => v ? `<dt>${k}</dt><dd>${this._esc(v)}</dd>` : '';
+        // Arguments are secret-redacted and capped at 8 KB on write. At the cap,
+        // say so: a command that stops mid-word otherwise reads as a bug in the
+        // trace rather than a limit on what was stored. Same note Storylines
+        // shows for the same data.
+        const argCap = (s.args_preview || '').length >= 8192
+            ? '<div class="ar-args-note">Showing the first 8 KB, secrets redacted. The rest of this command was not stored.</div>'
+            : '';
         const args = s.args_preview
-            ? `<div class="ar-args"><div class="ar-args-label">Arguments (secrets redacted)</div><pre>${this._esc(s.args_preview)}</pre></div>`
+            ? `<div class="ar-args"><div class="ar-args-label">Arguments (secrets redacted)</div><pre>${this._esc(s.args_preview)}</pre>${argCap}</div>`
             : '';
         // Detected-by row: raw HTML (badge), not escaped text — only when the
         // step is tied to a threat detection.

@@ -48,7 +48,8 @@ function makeEl(tag = 'div') {
       if (this._cache[sel]) return this._cache[sel];
       const attrFor = { '.terminals-pane-act': 'data-act', '[data-pick-id]': 'data-pick-id',
         '[data-tab-id]': 'data-tab-id', '[data-tab-close-id]': 'data-tab-close-id',
-        '[data-ended-restart]': 'data-ended-restart', '[data-linked-open]': 'data-linked-open' };
+        '[data-ended-restart]': 'data-ended-restart', '[data-linked-open]': 'data-linked-open',
+        '[data-linked-continue]': 'data-linked-continue' };
       // A board card carries data-id and so does the button inside it, so the
       // two are told apart by the class that precedes the attribute.
       const cardFor = {
@@ -683,8 +684,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=6/);
-  assert.match(html, /terminals\.js\?v=50/);
-  assert.match(html, /styles\.css\?v=430/);
+  assert.match(html, /terminals\.js\?v=52/);
+  assert.match(html, /styles\.css\?v=432/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -3102,15 +3103,31 @@ const linked = (id, over = {}) => task(id, {
   origin: 'linked', session_id: 'sess-' + id, workspace: '/w', title: 'Fix the parser', ...over,
 });
 
-/** Attach a linked task and hand back its pane id and the stage's button. */
-async function mountLinked(t, api = {}) {
+/** Attach a linked task and hand back its pane id and the stage's buttons.
+ *
+ *  `executors` stands in for the GET /executors payload. It defaults to empty,
+ *  which is the no-resume-capability case, so the offer of a governed terminal
+ *  is tested on its own exactly as it was before resume existed.
+ */
+async function mountLinked(t, api = {}, executors = []) {
   const ctx = loadPage({ api });
   ctx.Page._tasks = [t];
+  ctx.Page._executors = executors;
   await ctx.Page._attach(t.id);
   const paneId = paneIds(ctx.Page)[0];
+  const stage = ctx.Page._panes.get(paneId).stageEl;
   return { ...ctx, paneId, html: stageHtml(ctx.Page, paneId),
-    btn: ctx.Page._panes.get(paneId).stageEl.querySelector('[data-linked-open]') };
+    btn: stage.querySelector('[data-linked-open]'),
+    cont: stage.querySelector('[data-linked-continue]') };
 }
+
+// Every harness the host says can reopen a session by id, and the one it says
+// cannot. The UI reads the flag; it never keeps its own list of harness ids.
+const RESUMERS = [
+  { id: 'claude-code', label: 'Claude Code', installed: true, governed: true, supports_resume: true },
+  { id: 'codex', label: 'Codex', installed: true, governed: true, supports_resume: true },
+  { id: 'opencode', label: 'OpenCode', installed: true, governed: true, supports_resume: false },
+];
 
 test('a linked task that is still reporting is not offered a terminal here', async () => {
   const { html, btn } = await mountLinked(linked('L1', { status: 'working' }));
@@ -3198,5 +3215,150 @@ test('a launch that fails puts the button back rather than stranding the pane', 
   assert.strictEqual(btn.disabled, false, 'the person can try again');
   assert.strictEqual(btn.textContent, 'Open a governed terminal here');
   assert.strictEqual(Page._panes.get(paneId).bannerEl.textContent, 'No such folder.');
+  assert.ok(!Page._openingHereId);
+});
+
+// --- continuing a linked session on a terminal the app owns -----------------
+//
+// A live PTY cannot be handed between processes, so adopting a session onto a
+// governed terminal means the harness reopening it: they close it in their own
+// window, and it comes back here by session id with the conversation intact.
+// The offer is gated harder than the plain "open a terminal here" offer: on a
+// harness that can reopen a NAMED session, on a real folder, on the session id
+// being known, and on the session no longer reporting calls.
+
+test('a session still reporting is told what to do, and is offered nothing to click', async () => {
+  const { html, cont } = await mountLinked(linked('L1', { status: 'working' }), {}, RESUMERS);
+
+  assert.strictEqual(cont, null,
+    'resuming a live session would put two harnesses on one conversation and one folder');
+  assert.match(html, /Close it in your own terminal, then continue it here\./,
+    'the copy has to name the step that makes continuing possible');
+  assert.doesNotMatch(html, /Continue this session here<\/button>/);
+});
+
+test('a harness that cannot reopen a named session still says only where the terminal is', async () => {
+  const { html, cont } = await mountLinked(
+    linked('L1', { status: 'working', executor_id: 'opencode' }), {}, RESUMERS);
+
+  assert.strictEqual(cont, null);
+  assert.match(html, /Its terminal is in the window you started it in/,
+    'promising a continue that cannot happen would be worse than describing the situation');
+  assert.doesNotMatch(html, /then continue it here/);
+});
+
+for (const status of ['idle', 'done', 'interrupted']) {
+  test(`a ${status} linked session on a resume-capable harness is offered a continue`, async () => {
+    const { html, cont, btn } = await mountLinked(linked('L1', { status }), {}, RESUMERS);
+
+    assert.ok(cont, 'quiet or ended, there is no second harness to collide with');
+    assert.match(html, /Continue this session here/);
+    assert.ok(btn, 'a fresh terminal in the same folder is still on offer beside it');
+  });
+}
+
+test('OpenCode is never offered a continue, whatever the session status', async () => {
+  for (const status of ['idle', 'done', 'interrupted']) {
+    // --continue reopens the most recent session, not a named one, so the
+    // offer would silently resume whichever conversation happened to be last.
+    const { cont, btn } = await mountLinked(
+      linked('L1', { status, executor_id: 'opencode' }), {}, RESUMERS);
+    assert.strictEqual(cont, null, status);
+    assert.ok(btn, 'the plain "open a terminal here" offer is unaffected');
+  }
+});
+
+test('a session that never reported its folder is not offered a continue, and is told why', async () => {
+  const { html, cont, btn } = await mountLinked(
+    linked('L1', { status: 'done', workspace: '(unknown folder)' }), {}, RESUMERS);
+
+  assert.strictEqual(cont, null, 'there is nowhere to continue it');
+  assert.strictEqual(btn, null);
+  assert.match(html, /never reported its folder, so there is nowhere to continue it/,
+    'dropping the offer with no sentence reads as the session being uncontinuable');
+});
+
+test('a session with no session id is not offered a continue', async () => {
+  // The id is what the harness reopens by. Without it there is nothing to ask
+  // for, even on a harness that can reopen one.
+  const { cont } = await mountLinked(
+    linked('L1', { status: 'done', session_id: null }), {}, RESUMERS);
+
+  assert.strictEqual(cont, null);
+});
+
+test('continuing passes the session id through to the launch, with harness, folder and title', async () => {
+  const calls = [];
+  const { cont } = await mountLinked(
+    linked('L1', { status: 'done', executor_id: 'codex', session_id: 'sess-abc12345' }), {
+      terminalsLaunch: async (...args) => { calls.push(args); return { id: 'T2' }; },
+      terminalsTasks: async () => ({ items: [], running: 0 }),
+    }, RESUMERS);
+
+  await cont.onclick();
+
+  assert.deepStrictEqual(calls, [['codex', '/w', 'Fix the parser', 'sess-abc12345']]);
+});
+
+test('the continued session takes the linked task place in the pane the button was in', async () => {
+  const attached = [];
+  const { Page, paneId, cont } = await mountLinked(linked('L1', { status: 'idle' }), {
+    terminalsLaunch: async () => ({ id: 'T2' }),
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+  Page._attach = async (...args) => { attached.push(args); };
+
+  await cont.onclick();
+
+  assert.deepStrictEqual(attached[0], ['T2', paneId, 'swap', 'L1']);
+});
+
+test('a second continue click while in flight does not launch twice', async () => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { Page, cont } = await mountLinked(linked('L1', { status: 'done' }), {
+    terminalsLaunch: async () => { calls += 1; await gate; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+
+  const first = cont.onclick();
+  await cont.onclick();
+
+  assert.strictEqual(calls, 1, 'two harnesses on one conversation is what the guard exists for');
+  release();
+  await first;
+  assert.ok(!Page._openingHereId, 'the in-flight guard is released');
+});
+
+test('a continue and an open cannot race each other into the same folder', async () => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { Page, cont, btn } = await mountLinked(linked('L1', { status: 'done' }), {
+    terminalsLaunch: async () => { calls += 1; await gate; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+
+  const first = cont.onclick();
+  await btn.onclick();
+
+  assert.strictEqual(calls, 1, 'both buttons put a harness in this one folder');
+  release();
+  await first;
+  assert.ok(!Page._openingHereId);
+});
+
+test('a continue that fails puts the button back rather than stranding the pane', async () => {
+  const { Page, paneId, cont } = await mountLinked(linked('L1', { status: 'done' }), {
+    terminalsLaunch: async () => { throw new Error('Codex cannot reopen a session by id.'); },
+  }, RESUMERS);
+
+  await cont.onclick();
+
+  assert.strictEqual(cont.disabled, false, 'the person can try again');
+  assert.strictEqual(cont.textContent, 'Continue this session here');
+  assert.strictEqual(Page._panes.get(paneId).bannerEl.textContent,
+    'Codex cannot reopen a session by id.', 'the host refusal is shown, not swallowed');
   assert.ok(!Page._openingHereId);
 });

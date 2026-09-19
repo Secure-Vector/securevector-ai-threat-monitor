@@ -33,6 +33,14 @@ class ExecutorUnavailable(RuntimeError):
     """The executor binary is not installed or not on PATH."""
 
 
+class ResumeUnsupported(ValueError):
+    """This harness cannot reopen a named session, so resume is refused.
+
+    A ValueError so the routes layer maps it to a 400 alongside the other
+    "the client asked for something this host will not do" cases.
+    """
+
+
 @dataclass(frozen=True)
 class Executor:
     id: str
@@ -43,6 +51,11 @@ class Executor:
     # directory. Codex loads its Guard plugin from its own trusted plugin
     # registry, so passing Claude-only flags would silently break the launch.
     supports_terminal_settings: bool = False
+    # How this harness reopens a session by id. Empty means it cannot, and
+    # resume is then never offered: OpenCode's --continue takes the most
+    # recent session rather than a named one, and silently resuming the
+    # wrong conversation is worse than not offering it.
+    resume_argv: tuple[str, ...] = ()
     # Harness-specific auth and config names, admitted only for THIS
     # executor's child. Kept off the global allowlist so a Copilot token or an
     # OpenAI key is never handed to an unrelated harness's process.
@@ -50,12 +63,26 @@ class Executor:
 
 
 _EXECUTORS: dict[str, Executor] = {
-    "claude-code": Executor(id="claude-code", label="Claude Code", binary="claude", supports_terminal_settings=True),
-    "codex": Executor(id="codex", label="Codex", binary="codex", env_extra=("OPENAI_API_KEY",)),
+    "claude-code": Executor(
+        id="claude-code",
+        label="Claude Code",
+        binary="claude",
+        resume_argv=("--resume", "{session_id}"),
+        supports_terminal_settings=True,
+    ),
+    "codex": Executor(
+        id="codex",
+        label="Codex",
+        binary="codex",
+        # A subcommand, not a flag: `codex resume <id>`.
+        resume_argv=("resume", "{session_id}"),
+        env_extra=("OPENAI_API_KEY",),
+    ),
     "copilot-cli": Executor(
         id="copilot-cli",
         label="GitHub Copilot CLI",
         binary="copilot",
+        resume_argv=("--resume", "{session_id}"),
         env_extra=("COPILOT_HOME", "GH_TOKEN", "GITHUB_TOKEN"),
     ),
     "opencode": Executor(
@@ -207,10 +234,30 @@ def build_launch(
     hook_token: str,
     parent_env: Mapping[str, str],
     plugin_dir: Optional[Path],
+    resume_session_id: Optional[str] = None,
 ) -> Launch:
     executor = EXECUTORS.get(executor_id)
     if executor is None:
         raise UnknownExecutor(f"unknown executor id: {executor_id[:64]!r}")
+    resume_args: list[str] = []
+    if resume_session_id:
+        if not executor.resume_argv:
+            raise ResumeUnsupported(f"{executor.label} cannot reopen a session by id.")
+        resume_args = [part.format(session_id=resume_session_id) for part in executor.resume_argv]
+    # Codex spells resume as a SUBCOMMAND (`codex resume <id>`), not a flag, so
+    # it has to sit immediately after the binary: anything in front of it would
+    # be parsed as a flag of the root command instead. A flag form (Claude Code,
+    # Copilot CLI) is position independent and goes last, after the settings
+    # flags this host already owns.
+    subcommand = bool(resume_args) and not resume_args[0].startswith("-")
+    if subcommand and (executor.supports_terminal_settings or executor.extra_args):
+        # A subcommand takes the argv that follows it, so the flags this host
+        # adds for its own governance would land on the subcommand rather than
+        # the root command. Refusing beats emitting a command line that means
+        # something other than what was asked for.
+        raise ResumeUnsupported(
+            f"{executor.label} cannot reopen a session by id and stay governed."
+        )
     workspace = Path(workspace).expanduser()
     try:
         workspace = workspace.resolve(strict=True)
@@ -228,10 +275,14 @@ def build_launch(
     if resolved is None:
         raise ExecutorUnavailable(f"{executor.label} is not installed")
     argv = [resolved]
+    if subcommand:
+        argv += resume_args
     if executor.supports_terminal_settings:
         settings = write_hook_settings(task_dir, hook_command())
         argv += ["--settings", str(settings)]
         if plugin_dir is not None:
             argv += ["--plugin-dir", str(plugin_dir)]
     argv += list(executor.extra_args)
+    if resume_args and not subcommand:
+        argv += resume_args
     return Launch(argv=argv, env=env, cwd=str(workspace))

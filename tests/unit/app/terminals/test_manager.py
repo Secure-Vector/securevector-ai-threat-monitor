@@ -674,3 +674,38 @@ async def test_session_id_pattern_rejects_a_trailing_newline(tmp_path):
     # into the row and past the duplicate check.
     with pytest.raises(ValueError):
         await m.link_session("codex", "sess-abc12345\nx x", workspace=None, title=None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_a_resume_id_reopens_that_session_on_a_pty_the_app_owns(tmp_path):
+    m, ws = await _manager(tmp_path)
+    task = await m.spawn(
+        "claude-code", str(ws), title=None, origin="ui", resume_session_id="sess-abc12345"
+    )
+    launch = m.host.launches[task["id"]]
+    # The id reaches argv, and only after the flags this host adds for its own
+    # governance: a resumed session is governed exactly like a fresh one.
+    assert launch.argv[-2:] == ["--resume", "sess-abc12345"]
+    assert "--settings" in launch.argv
+
+
+@pytest.mark.asyncio
+async def test_spawn_rejects_a_malformed_resume_id_before_anything_is_launched(tmp_path):
+    m, ws = await _manager(tmp_path)
+    for bad in ("short", "sess-abc12345\nx x", "; rm -rf /", "--dangerously-skip-permissions", ""):
+        with pytest.raises(ValueError):
+            await m.spawn("claude-code", str(ws), title=None, origin="ui", resume_session_id=bad)
+    # Nothing was spawned and no row was created: the id never reached argv.
+    assert m.host.launches == {}
+    assert await m.store.list_tasks() == []
+
+
+@pytest.mark.asyncio
+async def test_spawn_refuses_resume_for_a_harness_that_cannot_reopen_a_named_session(tmp_path):
+    m, ws = await _manager(tmp_path, opencode_plugin_enabled=True)
+    # OpenCode is not silently launched fresh: the person asked for a specific
+    # conversation, and --continue would take whichever one happens to be last.
+    with pytest.raises(ValueError):
+        await m.spawn(
+            "opencode", str(ws), title=None, origin="ui", resume_session_id="sess-abc12345"
+        )

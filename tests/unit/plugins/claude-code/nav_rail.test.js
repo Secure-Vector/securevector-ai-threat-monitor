@@ -183,7 +183,7 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
   assert.match(html, /sidebar\.js\?v=177/);
-  assert.match(html, /styles\.css\?v=430/);
+  assert.match(html, /styles\.css\?v=432/);
   assert.match(html, /app\.js\?v=69/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -279,7 +279,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=430/);
+  assert.match(read('index.html'), /styles\.css\?v=432/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -557,7 +557,9 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   const block = btn.slice(0, btn.indexOf('}'));
   assert.match(block, /position: absolute;/);
   assert.match(block, /right: -12px;/);
-  assert.match(block, /top: 20px;/);
+  // Level with the first content row, not the logo. Anchored to the header
+  // height so it moves with the header rather than drifting from a literal.
+  assert.match(block, /top: calc\(var\(--header-height\) \+ 7px\);/);
   assert.doesNotMatch(block, /bottom:/, 'never pinned to the foot again');
   // Visible at rest: a raised fill, the heavier of the two hairline tokens,
   // and the icon at --text-secondary rather than the muted grey it had.

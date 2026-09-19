@@ -74,12 +74,20 @@ def test_executors_list_includes_governed_harnesses(env):
     assert [i["id"] for i in items] == ["claude-code", "codex", "copilot-cli", "opencode"]
     assert items[0]["label"] == "Claude Code" and items[1]["label"] == "Codex"
     for item in items:
-        assert set(item) == {"id", "label", "installed", "governed", "hint"}
+        assert set(item) == {"id", "label", "installed", "governed", "supports_resume", "hint"}
         assert isinstance(item["installed"], bool)
         assert isinstance(item["governed"], bool)
+        assert isinstance(item["supports_resume"], bool)
         assert isinstance(item["hint"], str)
     # The fixture installs the Claude Code Guard plugin and a `claude` stub.
     assert items[0]["installed"] is True and items[0]["governed"] is True
+    # OpenCode's --continue reopens the most recent session, not a named one,
+    # so the UI must never offer to continue a specific session with it.
+    assert [i["id"] for i in items if i["supports_resume"]] == [
+        "claude-code",
+        "codex",
+        "copilot-cli",
+    ]
 
 
 def test_executors_list_without_ui_header_is_forbidden(env):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -68,31 +69,63 @@ def age_seconds(value: Any, *, now: Optional[datetime] = None) -> Optional[float
 CWD_MAX_CHARS = 1024
 
 
+# An absolute POSIX path, a home-relative one, or a Windows drive. A working
+# folder is always one of these, and requiring it is what stops "cwd=" matched
+# inside some other text from being read as a folder.
+_CWD_LIKE = re.compile(r"\A(?:/|~/|~\Z|[A-Za-z]:[\\/])")
+
+
+def _plausible_cwd(candidate: str) -> Optional[str]:
+    """One candidate, kept only if it could actually be a working folder.
+
+    The scrape reads a marker out of free text, so a candidate is a guess
+    until it is checked. A real cwd is one line, is not enormous, and starts
+    at a filesystem root.
+    """
+    candidate = candidate.strip()
+    if not candidate or len(candidate) > CWD_MAX_CHARS:
+        return None
+    if any(ch in candidate for ch in "\n\r\x00"):
+        return None
+    if not _CWD_LIKE.match(candidate):
+        return None
+    return candidate
+
+
 def cwd_from_preview(preview: Any) -> Optional[str]:
     """Best-effort working folder out of an audit row's args_preview.
 
-    No hook forwards a cwd field today, so this only finds one when a
-    preview happens to spell it out. Accepts a quoted value, or an unquoted
-    one running to the next ';' or the end. Callers fall back to a
-    placeholder rather than inventing a path.
+    No hook forwards a cwd field today, so this only finds one when a preview
+    happens to spell it out. Accepts a quoted value, or an unquoted one running
+    to the next ';' or the end.
+
+    Every candidate is then checked against what a folder can actually look
+    like, and every "cwd=" in the text is tried rather than only the first.
+    The marker is matched in free text, so it hits inside a tool's own
+    arguments too: an edit to a file containing `cwd=str(workspace)` once
+    returned eight kilobytes of Python as a session's folder, which then
+    showed on the board and could not be spawned into. A guess that fails the
+    check is discarded, and callers fall back to a placeholder rather than
+    inventing a path.
     """
     if not preview:
         return None
     text = str(preview)
-    marker = text.find("cwd=")
-    if marker < 0:
-        return None
-    rest = text[marker + 4 :]
-    if rest[:1] in ('"', "'"):
-        quote = rest[0]
-        end = rest.find(quote, 1)
-        candidate = rest[1:end] if end > 0 else rest[1:]
-    else:
-        candidate = rest.split(";", 1)[0]
-    candidate = candidate.strip()
-    if not candidate:
-        return None
-    return candidate[:CWD_MAX_CHARS]
+    at = text.find("cwd=")
+    while at >= 0:
+        rest = text[at + 4 :]
+        if rest[:1] in ('"', "'"):
+            quote = rest[0]
+            end = rest.find(quote, 1)
+            candidate = rest[1:end] if end > 0 else rest[1:]
+        else:
+            # A newline ends an unquoted value as surely as a ';' does.
+            candidate = re.split(r"[;\r\n]", rest, 1)[0]
+        found = _plausible_cwd(candidate)
+        if found is not None:
+            return found
+        at = text.find("cwd=", at + 4)
+    return None
 
 
 def _row(r: Optional[sqlite3.Row]) -> Optional[dict[str, Any]]:

@@ -1015,10 +1015,14 @@ html.desktop-mac .header {
    Quiet at rest but never invisible: a raised fill, which carries it in the
    light theme, and --border-light, which is the heavier of the two hairlines
    in the dark theme and carries it there. Teal is the hover state, below. */
+/* Below the header rule, level with the first content row rather than beside
+   the logo. At the top it crowded the mark, and on macOS it sat inside the
+   title-bar inset where the window's own drag region lives. Tied to
+   --header-height so it tracks the header instead of a magic offset. */
 .sidebar-collapse-btn {
     position: absolute;
     right: -12px;
-    top: 20px;
+    top: calc(var(--header-height) + 7px);
     width: 24px;
     height: 24px;
     background: var(--bg-tertiary);
@@ -1039,9 +1043,9 @@ html.desktop-mac .header {
     outline-offset: 2px;
 }
 
-/* Desktop shell: the button follows the rail header down by the title-bar inset. */
+/* Desktop shell: the header grows by the title-bar inset, so the button does too. */
 html.desktop-mac .sidebar-collapse-btn {
-    top: calc(20px + var(--titlebar-inset));
+    top: calc(var(--header-height) + var(--titlebar-inset) + 7px);
 }
 
 .sidebar-collapse-btn svg {
@@ -9496,6 +9500,38 @@ body.terminals-dragging * {
    the session without going back to find its card on the board. */
 .terminals-linked-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
 .terminals-linked-unlink { white-space: nowrap; }
+
+/* Audit previews: a tool call's own arguments, so the content can be source,
+   a long shell command, or one unbroken 8 KB line. Neither block had any rule
+   and the app defines no global `pre`, so they rendered at the browser default
+   of white-space: pre and pushed the whole page sideways. Wrap, cap the
+   height, and keep them reading as a quoted artefact rather than page copy. */
+.ar-args { margin-top: 10px; }
+.ar-args-note { margin-top: 5px; color: var(--text-muted); font-size: 11px; }
+.ar-args-label {
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 11px;
+    letter-spacing: .02em;
+}
+.ar-args pre,
+pre.story-wf-pre {
+    margin: 0;
+    max-height: 320px;
+    overflow: auto;
+    padding: 9px 11px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    /* pre-wrap keeps the recorded line breaks; anywhere breaks a single long
+       token, which is what a minified payload or a base64 blob arrives as. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
 
 /* The heading doubles as the route to the group's landing page, so it needs to
    look and behave like the destination it is. */
