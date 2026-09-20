@@ -75,17 +75,38 @@ CWD_MAX_CHARS = 1024
 _CWD_LIKE = re.compile(r"\A(?:/|~/|~\Z|[A-Za-z]:[\\/])")
 
 
+# Characters that end a real path in this context. A quote or an escape means
+# the marker was found inside quoted text, not in a field of its own.
+_NOT_IN_A_PATH = ('"', "'", "\\n", "\\t", "\\\"", "\x00")
+
+
 def _plausible_cwd(candidate: str) -> Optional[str]:
-    """One candidate, kept only if it could actually be a working folder.
+    """One candidate, kept only if it is actually a working folder.
 
     The scrape reads a marker out of free text, so a candidate is a guess
-    until it is checked. A real cwd is one line, is not enormous, and starts
-    at a filesystem root.
+    until it is checked, and the shape tests alone were not enough: a value
+    lifted out of source code starts with "/" as readily as a real path does,
+    carries its line breaks as literal backslash-n pairs rather than newlines,
+    and sits well under the length cap. Six of thirteen real audit rows still
+    produced source after shape checking.
+
+    What does catch them is the content: a value lifted out of quoted source
+    carries a quote or an escape sequence, and a working folder never does.
+    That refuses all thirteen.
+
+    Deliberately NOT checked here: whether the folder is on disk. It is the
+    one test that cannot be imitated, but this runs inside a per request query
+    over every offered session, and a well formed path that happens not to
+    exist is a far smaller problem than source code on the board: the launch
+    itself reports it. Existence belongs where the folder is used, not where
+    it is read.
     """
     candidate = candidate.strip()
     if not candidate or len(candidate) > CWD_MAX_CHARS:
         return None
     if any(ch in candidate for ch in "\n\r\x00"):
+        return None
+    if any(bad in candidate for bad in _NOT_IN_A_PATH):
         return None
     if not _CWD_LIKE.match(candidate):
         return None
@@ -367,6 +388,11 @@ class TerminalStore:
     async def set_session(self, task_id: str, session_id: str) -> None:
         await self.db.execute(
             "UPDATE terminal_tasks SET session_id = ? WHERE id = ?", (session_id, task_id)
+        )
+
+    async def update_workspace(self, task_id: str, workspace: str) -> None:
+        await self.db.execute(
+            "UPDATE terminal_tasks SET workspace = ? WHERE id = ?", (workspace, task_id)
         )
 
     async def update_status(

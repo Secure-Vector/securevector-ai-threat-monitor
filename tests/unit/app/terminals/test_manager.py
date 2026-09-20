@@ -6,6 +6,7 @@ import pytest
 
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.migrations import run_migrations
+from securevector.app.terminals import manager as manager_module
 from securevector.app.terminals.executors import UnknownExecutor
 from securevector.app.terminals.manager import (
     ManagerSettings,
@@ -709,3 +710,112 @@ async def test_spawn_refuses_resume_for_a_harness_that_cannot_reopen_a_named_ses
         await m.spawn(
             "opencode", str(ws), title=None, origin="ui", resume_session_id="sess-abc12345"
         )
+
+
+# --- where a linked task's folder comes from -------------------------------
+
+
+async def _audit_with_preview(manager, *, session_id, preview, called_at):
+    await manager.store.db.execute(
+        "INSERT INTO tool_call_audit "
+        "(tool_id, function_name, action, risk, reason, is_essential, args_preview, "
+        "called_at, session_id, runtime_kind) "
+        "VALUES ('Bash', 'Bash', 'allow', NULL, NULL, 0, ?, ?, ?, 'codex')",
+        (preview, called_at, session_id),
+    )
+
+
+@pytest.mark.asyncio
+async def test_linked_workspace_prefers_the_harness_record_over_the_preview_scrape(
+    tmp_path, monkeypatch
+):
+    m, _ws = await _manager(tmp_path)
+    await _audit_with_preview(
+        m, session_id="sess-abc12345", preview="cwd=/scraped/folder", called_at=_stamp(1)
+    )
+    monkeypatch.setattr(
+        manager_module, "resolve_session_cwd", lambda executor_id, sid: "/recorded/folder"
+    )
+    task = await m.link_session("codex", "sess-abc12345", workspace=None, title=None)
+    # The transcript records the folder as a field; the preview only happens
+    # to spell one out, so the transcript wins whenever it has an answer.
+    assert task["workspace"] == "/recorded/folder"
+
+
+@pytest.mark.asyncio
+async def test_linked_workspace_falls_back_to_the_scrape_then_to_saying_so(
+    tmp_path, monkeypatch
+):
+    m, _ws = await _manager(tmp_path)
+    monkeypatch.setattr(manager_module, "resolve_session_cwd", lambda executor_id, sid: None)
+    await _audit_with_preview(
+        m, session_id="sess-abc12345", preview="cwd=/scraped/folder", called_at=_stamp(1)
+    )
+    scraped = await m.link_session("codex", "sess-abc12345", workspace=None, title=None)
+    assert scraped["workspace"] == "/scraped/folder"
+
+    bare = await m.link_session("codex", "sess-abc12346", workspace=None, title=None)
+    assert bare["workspace"] == "(unknown folder)"
+
+
+@pytest.mark.asyncio
+async def test_a_linked_row_holding_source_code_repairs_itself_on_the_next_board_read(
+    tmp_path, monkeypatch
+):
+    m, _ws = await _manager(tmp_path)
+    # What the unchecked scrape used to store: the marker matched inside a
+    # file the agent was editing.
+    task = await m.link_session(
+        "claude-code",
+        "sess-abc12345",
+        workspace="def main():\n    return subprocess.run(argv, cwd=str(workspace))",
+        title=None,
+    )
+    calls = []
+
+    def _recorded(executor_id, session_id):
+        calls.append((executor_id, session_id))
+        return "/Users/someone/repo"
+
+    monkeypatch.setattr(manager_module, "resolve_session_cwd", _recorded)
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+
+    assert row["workspace"] == "/Users/someone/repo"
+    assert (await m.store.get_task(task["id"]))["workspace"] == "/Users/someone/repo"
+    assert calls == [("claude-code", "sess-abc12345")]
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_repair_that_finds_nothing_is_not_retried_on_every_poll(
+    tmp_path, monkeypatch
+):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace=None, title=None)
+    calls = []
+
+    def _nothing(executor_id, session_id):
+        calls.append((executor_id, session_id))
+        return None
+
+    monkeypatch.setattr(manager_module, "resolve_session_cwd", _nothing)
+    for _ in range(3):
+        (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+
+    # The board polls every few seconds; a session whose transcript is gone
+    # must not re-glob the harness stores forever.
+    assert len(calls) == 1
+    assert row["workspace"] == "(unknown folder)"
+
+
+@pytest.mark.asyncio
+async def test_a_failing_repair_leaves_the_row_and_the_listing_alone(tmp_path, monkeypatch):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-abc12345", workspace="not a folder", title=None)
+
+    def _boom(executor_id, session_id):
+        raise OSError("harness store went away")
+
+    monkeypatch.setattr(manager_module, "resolve_session_cwd", _boom)
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["workspace"] == "not a folder"
+    assert row["status"] in ("working", "idle")

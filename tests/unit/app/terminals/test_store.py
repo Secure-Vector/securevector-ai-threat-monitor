@@ -85,6 +85,30 @@ def test_cwd_scrape_refuses_a_marker_matched_inside_a_tool_argument():
     assert cwd_from_preview(blob) is None
 
 
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '/scraped/folder\\", called_at=_stamp(1)\\n    )',
+        '/real/path\\") == \\"/real/path\\"',
+        "/tmp/x'; rm -rf /",
+        '/a\\tb',
+    ],
+)
+def test_cwd_scrape_refuses_source_that_happens_to_start_at_a_root(candidate):
+    """Shape alone was not enough, and this is why. A value lifted out of
+    quoted source starts with "/" as readily as a real path, carries its line
+    breaks as literal backslash-n pairs rather than newlines, and sits under
+    the length cap: six of thirteen real audit rows still produced source
+    after the shape check. Content is what separates them, because a working
+    folder never contains a quote or an escape sequence."""
+    assert cwd_from_preview("cwd=" + candidate + ";") is None
+
+
+def test_cwd_scrape_keeps_a_path_with_spaces_and_dots():
+    """The content rule must not be so eager that it refuses real folders."""
+    assert cwd_from_preview("cwd=/Users/me/My Projects/app.v2; x") == "/Users/me/My Projects/app.v2"
+
+
 def test_cwd_scrape_keeps_looking_after_a_bad_match():
     """One unusable marker must not hide a real one later in the same text."""
     assert cwd_from_preview("cwd=str(workspace)) junk\n cwd=/real/path") == "/real/path"

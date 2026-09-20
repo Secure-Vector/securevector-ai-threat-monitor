@@ -27,7 +27,13 @@ from typing import Callable, Mapping, Optional, Tuple
 
 from securevector.app.terminals.executors import EXECUTORS, UnknownExecutor, build_launch
 from securevector.app.terminals.pty_host import PtyHost, Subscriber
-from securevector.app.terminals.store import TerminalStore, age_seconds, cwd_from_preview
+from securevector.app.terminals.session_cwd import resolve_session_cwd
+from securevector.app.terminals.store import (
+    TerminalStore,
+    _plausible_cwd,
+    age_seconds,
+    cwd_from_preview,
+)
 from securevector.app.utils.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
@@ -127,6 +133,11 @@ class TerminalManager:
         # eagerly touches the event loop, and a manager may be constructed
         # from sync code before one exists.
         self._link_lock: Optional[asyncio.Lock] = None
+        # Linked task ids whose stored folder has already been offered one
+        # repair attempt. The board polls every few seconds, so without this a
+        # session whose transcript no longer exists would re-glob the harness
+        # stores on every poll, forever.
+        self._workspace_repaired: set = set()
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -403,7 +414,7 @@ class TerminalManager:
                 raise SessionAlreadyLinked("This session is already on the board.")
             folder = (workspace or "").strip()
             if not folder:
-                folder = await self._resolve_linked_workspace(session_id)
+                folder = await self._resolve_linked_workspace(executor_id, session_id)
             task_id = uuid.uuid4().hex[:12]
             await self.store.create_task(
                 task_id,
@@ -428,13 +439,18 @@ class TerminalManager:
             raise RuntimeError(f"terminal task {task_id} vanished immediately after linking")
         return task
 
-    async def _resolve_linked_workspace(self, session_id: str) -> str:
-        """The most recent folder the Guard reported for this session.
+    async def _resolve_linked_workspace(self, executor_id: str, session_id: str) -> str:
+        """The folder this session runs in, best source first.
 
-        No hook forwards a cwd today, so this reads what the audit rows
-        happen to preview and otherwise says so plainly rather than guessing
-        a path the session may never have run in.
+        The harness's own transcript is asked first because it records the
+        folder as a field: that is a fact, where the audit preview is a scrape
+        of free text that has returned source code before now. The scrape
+        stays as the fallback for harnesses that keep no JSONL transcript, and
+        a folder neither source names is said plainly rather than guessed.
         """
+        recorded = await self._recorded_session_cwd(executor_id, session_id)
+        if recorded:
+            return recorded
         try:
             rows = await self.store.list_verdicts(session_id, limit=50)
         except Exception:
@@ -445,6 +461,49 @@ class TerminalManager:
             if found:
                 return found
         return UNKNOWN_WORKSPACE
+
+    async def _recorded_session_cwd(self, executor_id: str, session_id: str) -> Optional[str]:
+        """What the harness's own transcript says, off the event loop.
+
+        resolve_session_cwd globs and reads up to a quarter megabyte, which is
+        blocking work, and this runs on a request path.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, resolve_session_cwd, executor_id, session_id
+            )
+        except Exception:
+            logger.debug("session cwd lookup failed for %s", session_id, exc_info=True)
+            return None
+
+    async def _repair_workspace(self, item: dict) -> None:
+        """Correct one linked row whose stored folder is not a folder.
+
+        Rows linked before the scrape was shape-checked hold whatever the
+        preview happened to contain, source code included, and such a row can
+        never be resumed or relaunched. Asking the transcript fixes it in
+        place instead of needing a hand-written database update. One attempt
+        per task per process (see _workspace_repaired), and any failure leaves
+        the row exactly as it was: a listing must not fail over an
+        enrichment.
+        """
+        task_id = item.get("id")
+        session_id = item.get("session_id")
+        if not task_id or not session_id or task_id in self._workspace_repaired:
+            return
+        if _plausible_cwd(str(item.get("workspace") or "")) is not None:
+            return
+        self._workspace_repaired.add(task_id)
+        try:
+            found = await self._recorded_session_cwd(
+                str(item.get("executor_id") or ""), str(session_id)
+            )
+            if found:
+                await self.store.update_workspace(task_id, found)
+                item["workspace"] = found
+        except Exception:
+            logger.debug("workspace repair failed for task %s", task_id, exc_info=True)
 
     async def unlinked_sessions(self) -> list[dict]:
         """Recent Guard-reported sessions with no task of their own."""
@@ -518,6 +577,8 @@ class TerminalManager:
         session_ids = [item["session_id"] for item in linked if item.get("session_id")]
         seen = await self.store.session_activity(session_ids)
         for item in linked:
+            # Same pass, not a second one: the rows are already in hand here.
+            await self._repair_workspace(item)
             state = self._linked_state(item, seen.get(item.get("session_id") or ""))
             changed = any(item.get(k) != v for k, v in state.items())
             item.update(state)
