@@ -1,0 +1,42 @@
+{
+  "name": "@securevector/cli",
+  "version": "6.0.0",
+  "description": "Security and observability for AI agents. Launcher for npm and Node users; the product itself is published on PyPI and this installs the matching version.",
+  "keywords": [
+    "securevector",
+    "ai-security",
+    "llm-security",
+    "prompt-injection",
+    "agent-security",
+    "observability",
+    "threat-detection"
+  ],
+  "homepage": "https://securevector.io",
+  "bugs": "https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Secure-Vector/securevector-ai-threat-monitor.git",
+    "directory": "npm"
+  },
+  "license": "Apache-2.0",
+  "author": "SecureVector",
+  "type": "commonjs",
+  "bin": {
+    "securevector": "bin/securevector.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test 'test/*.test.js'"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
