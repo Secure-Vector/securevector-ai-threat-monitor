@@ -69,6 +69,8 @@ setup(
             "keyring>=23.0.0",  # Secure credential storage (OS keychain)
             "httpx>=0.24.0",  # Async HTTP client for cloud API
             "websockets>=12.0",  # WebSocket proxy for OpenClaw integration
+            "ptyprocess>=0.7; sys_platform != 'win32'",  # Agent Terminals PTY host
+            "pywinpty>=3.0.5,<4; sys_platform == 'win32'",  # Native ConPTY host; no legacy streams fallback
             # Pydantic + FastAPI evaluate route annotations at registration time
             # using ast-based union resolution; on 3.9 they need this backport to
             # handle PEP 604 `X | None` strings produced by `from __future__ import

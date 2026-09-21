@@ -1,0 +1,129 @@
+# Publishes the npm launcher (@securevector/cli) when a GitHub Release is
+# published, which is the same trigger release.yml uses for PyPI.
+#
+# The launcher lives in npm/ and is a thin wrapper: it finds a Python, installs
+# the matching PyPI release into a managed virtual environment on first run, and
+# execs the real entry point. Its version is the SAME number as the Python
+# package, which is why the two publish from one event rather than two.
+#
+# ─── SETUP: THE SAME PATH n8n-nodes-securevector USES ─────────────────────────
+#
+# That package publishes with OIDC Trusted Publishing and no secret at all.
+# Checked on the registry rather than assumed: its published version records
+#   _npmUser: GitHub Actions <npm-oidc-no-reply@github.com>
+# which is what npm writes when a publish came through an OIDC exchange, and
+# `gh secret list` on that repo returns nothing. This workflow matches it.
+#
+# On npmjs.com, @securevector/cli settings, Publish access, Trusted Publishers:
+#        Repository owner: Secure-Vector
+#        Repository name:  securevector-ai-threat-monitor
+#        Workflow name:    publish-npm.yml
+#        Environment:      production-npm        (must match the job below)
+#
+# Leave NPM_TOKEN unset. The env below still reads it, exactly as the n8n
+# workflow does, so a token remains a working fallback if OIDC is ever
+# unavailable; with no secret set it resolves to empty and npm uses OIDC.
+#
+# THE FIRST PUBLISH is the one exception. A package that does not exist yet has
+# no settings page to add a trusted publisher to, so version one has to be
+# bootstrapped another way: check whether npm now offers pre-registration for an
+# unpublished scoped name, and if not, publish once with a token, revoke it, and
+# never set the secret here.
+#
+# ─── WHY THE APPROVAL GATE ────────────────────────────────────────────────────
+#
+# Same reasoning as the n8n package: trusted publishing already constrains
+# publishes to this repo and this workflow file, and the environment gate adds a
+# human to the loop so a hijacked workflow run cannot silently ship a release of
+# a security product. Configure it at
+#   Settings, Environments, New environment, name: production-npm,
+#   Required reviewers, add the repo owners.
+
+name: Publish npm launcher
+
+# Same trigger as release.yml, deliberately. Publishing the GitHub Release ships
+# PyPI and npm from the ONE commit, so the two versions cannot drift in practice
+# rather than only being asserted to match. A tag-push trigger would have let
+# someone tag npm without cutting a release, which is exactly the drift the
+# version check below exists to catch, and catching it late is worse than not
+# being able to cause it.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish @securevector/cli
+    runs-on: ubuntu-latest
+    environment: production-npm
+
+    permissions:
+      # Mint an OIDC token so npm can attach a provenance attestation.
+      id-token: write
+      # Least privilege: this job only reads the repo.
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          # Provenance only signs when the publish target is set explicitly
+          # through setup-node.
+          registry-url: 'https://registry.npmjs.org/'
+
+      # `npm ci`, matching the n8n workflow. The package has no runtime
+      # dependencies, but a lockfile plus `ci` is what makes the tree
+      # reproducible rather than whatever npm resolves on the day.
+      - name: Install dependencies
+        working-directory: npm
+        run: npm ci
+
+      - name: Run the launcher's tests
+        working-directory: npm
+        run: npm test
+
+      # The npm version and the Python version are the same product. If they
+      # drift, `npm i @securevector/cli@X` and
+      # `pip install securevector-ai-monitor==X` stop meaning the same thing,
+      # and the launcher would pin a PyPI version that does not exist.
+      - name: Check the npm version matches the Python package
+        run: |
+          PY=$(grep -oE '__version__ *= *"[^"]+"' src/securevector/__init__.py | head -1 | cut -d'"' -f2)
+          NPM=$(node -p "require('./npm/package.json').version")
+          echo "python=$PY npm=$NPM"
+          if [ "$PY" != "$NPM" ]; then
+            echo "::error::npm/package.json is $NPM but src/securevector/__init__.py is $PY. Bump both together."
+            exit 1
+          fi
+
+      # The tag must be the version being published, or a mistyped tag would
+      # publish something nobody asked for.
+      - name: Check the release tag matches the version
+        run: |
+          TAG="${TAG_NAME#v}"
+          NPM=$(node -p "require('./npm/package.json').version")
+          echo "tag=$TAG npm=$NPM"
+          if [ "$TAG" != "$NPM" ]; then
+            echo "::error::release tag $TAG_NAME does not match npm version $NPM."
+            exit 1
+          fi
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        if: github.event_name == 'release'
+
+      - name: Publish
+        # --provenance requires the id-token: write permission above; the
+        # attestation is signed by GitHub's OIDC infrastructure either way.
+        # Not `n8n-node release`: that wrapper is n8n's own release convention
+        # and exists to satisfy their community-node rules. Plain npm publish
+        # does the same job here without the dependency.
+        working-directory: npm
+        run: npm publish --provenance --access public
+        env:
+          # Both, as the n8n workflow sets them. Unset means empty means OIDC.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

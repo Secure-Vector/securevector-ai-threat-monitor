@@ -54,10 +54,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from . import _hooks_common
+from securevector.app.terminals.guardrail import block_uninstall
+from ._plugin_guard import ForceBody, require_local_origin
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,7 @@ PLUGIN_FILES = [
     "lib/normalize.js",
     "lib/client.js",
     "lib/redact.js",
+    "lib/terminal-relay.js",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
@@ -312,14 +315,34 @@ def _auto_install_to_copilot(version: str) -> Path:
 
 
 def _is_registered_enabled() -> bool:
-    """True when config.json has an enabled ``securevector-guard`` entry."""
+    """True when config.json has an enabled ``securevector-guard`` entry
+    pointing at the directory this app actually writes.
+
+    The cache_path check matters: an entry that names the plugin but points
+    Copilot at some other directory would otherwise report the Guard as
+    enabled while Copilot loads hooks this app has never seen.
+    """
     if not COPILOT_CONFIG_JSON.is_file():
         return False
     data, _ = _read_config_jsonc(COPILOT_CONFIG_JSON)
     for p in data.get("installedPlugins", []) or []:
         if isinstance(p, dict) and p.get("name") == PLUGIN_NAME:
-            return bool(p.get("enabled"))
+            return bool(p.get("enabled")) and p.get("cache_path") == str(COPILOT_CACHE_DIR)
     return False
+
+
+def terminal_guard_enabled() -> bool:
+    """Whether the installed Copilot CLI Guard can correlate a terminal task.
+
+    A generic enabled-plugin check is insufficient: an older installed Guard
+    audits Copilot CLI but carries no per-task relay, so a launched PTY would
+    never bind to its runtime session. Refuse the launch until a current
+    install supplies that module.
+    """
+    return bool(
+        _is_registered_enabled()
+        and (COPILOT_CACHE_DIR / "lib" / "terminal-relay.js").is_file()
+    )
 
 
 def _plugin_version() -> str:
@@ -350,7 +373,7 @@ async def plugin_status():
     )
 
 
-@router.post("/install", response_model=InstallResponse)
+@router.post("/install", response_model=InstallResponse, dependencies=[Depends(require_local_origin)])
 async def install_plugin():
     """Stage the plugin tree (URL-substituted), then — if Copilot CLI is
     installed — copy it into Copilot's store and register it enabled in
@@ -433,8 +456,25 @@ async def install_plugin():
     )
 
 
-@router.post("/uninstall", response_model=UninstallResponse)
-async def uninstall_plugin():
+@router.post("/uninstall", response_model=UninstallResponse, dependencies=[Depends(require_local_origin)])
+async def uninstall_plugin(request: Request, body: Optional[ForceBody] = None):
+    """Remove this harness's Guard plugin.
+
+    A thin wrapper so the same work is reachable from the CLI path in
+    `app/main.py`, which has no Request and no running board to consult.
+    """
+    # Removing this Guard while sessions of this harness are live would
+    # strand them: the hooks stop firing and nothing records the moment
+    # governance ended, because the thing that writes the trail is what
+    # was removed. Refused rather than made to stop them; force writes
+    # the loss to each session trail instead.
+    refusal = await block_uninstall(request.app, "copilot-cli", bool(body and body.force))
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+    return await _uninstall_plugin()
+
+
+async def _uninstall_plugin():
     """Remove the plugin everywhere we wrote it: the staged tree, Copilot's
     cached copy, the per-plugin data dir, and its config.json registry entry.
     Idempotent — safe to call with nothing installed."""

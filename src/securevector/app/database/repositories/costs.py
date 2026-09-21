@@ -471,6 +471,37 @@ class CostsRepository:
             "requests": int(row["requests"]) if row else 0,
         }
 
+    async def get_run_usage_bulk(self, session_ids: list[str]) -> dict[str, dict]:
+        """`get_run_usage` for many runs in one query.
+
+        The Agent Sessions board polls every few seconds and can hold a dozen
+        rows, so per-row queries would be a dozen round trips per tick against
+        a database that is also taking hook writes. Sessions with no priced
+        request are simply absent from the result; the caller decides whether
+        that reads as "nothing yet" or "0.00".
+        """
+        ids = [s for s in dict.fromkeys(session_ids or []) if s]
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        rows = await self.db.fetch_all(
+            "SELECT session_id, "
+            "COALESCE(SUM(total_cost_usd), 0.0) AS spend, "
+            "COALESCE(SUM(input_tokens + input_cached_tokens + output_tokens), 0) AS tokens, "
+            "COUNT(*) AS requests "
+            f"FROM llm_cost_records WHERE session_id IN ({placeholders}) "
+            "GROUP BY session_id",
+            tuple(ids),
+        )
+        return {
+            r["session_id"]: {
+                "spend_usd": float(r["spend"] or 0.0),
+                "tokens": int(r["tokens"] or 0),
+                "requests": int(r["requests"] or 0),
+            }
+            for r in (rows or [])
+        }
+
     # ------------------------------------------------------------------ #
     # Generation spans (model-run tracing, v46)                            #
     # ------------------------------------------------------------------ #

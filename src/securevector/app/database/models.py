@@ -293,7 +293,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 47
+CURRENT_SCHEMA_VERSION = 51
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -326,7 +326,9 @@ SCHEMA_DESCRIPTION = (
     "run-limit settings on app_settings (max tool calls / cost / tokens per run, loop breaker), "
     "and a trace_id index on tool_call_audit for the per-run counter; "
     "v47: guardian_cleared_events — rule-only detections that Guardian cleared before "
-    "recording (rule ids, category, direction, score, preview) so the veto stays auditable"
+    "recording (rule ids, category, direction, score, preview) so the veto stays auditable; "
+    "v48: terminal_tasks and terminal_events, the Agent Terminals task board plus a "
+    "hash-chained audit trail for spawn, input, stop, hook and exit events"
 )
 
 # Migration SQL for v34 — redaction_events table.

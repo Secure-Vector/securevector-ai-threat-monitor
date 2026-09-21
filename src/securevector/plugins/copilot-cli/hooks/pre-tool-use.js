@@ -34,6 +34,7 @@
 const { normalize } = require('../lib/normalize.js');
 const { fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
+const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
 const EFFECT_TO_DECISION = Object.freeze({
   allow: 'allow',
@@ -281,6 +282,17 @@ function coerceToolInput(toolArgs) {
   try { return JSON.parse(toolArgs); } catch { return toolArgs; }
 }
 
+/** Short, redacted argument preview for the Agent Terminals activity line. */
+function terminalPreview(toolInput) {
+  try {
+    if (toolInput === undefined || toolInput === null) return null;
+    const raw = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
+    return redactForScan(raw).slice(0, 200);
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   // FAIL-OPEN GUARD: the entire body is wrapped so that ANY unexpected error
   // still prints an explicit allow and exits 0 — never a non-zero exit, which
@@ -333,6 +345,20 @@ async function main() {
       }
     }
     out = toHookOutput(decision);
+    // Agent Terminals: relay the attempt whether it was allowed or denied,
+    // so a task's activity line shows what the agent is doing. Isolated in
+    // its own try: this must never alter `out` or the exit code, because
+    // Copilot's preToolUse is fail-CLOSED.
+    try {
+      await postTerminalEvent({
+        hook_event_name: 'PreToolUse',
+        session_id: sessionId,
+        tool_name: toolName,
+        tool_input_preview: terminalPreview(
+          coerceToolInput(event && (event.toolArgs !== undefined ? event.toolArgs : event.tool_input)),
+        ),
+      });
+    } catch { /* swallow */ }
   } catch {
     out = { permissionDecision: 'allow' };
   }
@@ -350,6 +376,7 @@ module.exports = {
   decisionToAuditAction,
   buildAuditBody,
   coerceToolInput,
+  terminalPreview,
   EFFECT_TO_DECISION,
   ARGS_PREVIEW_LIMIT,
   RUNTIME_KIND,

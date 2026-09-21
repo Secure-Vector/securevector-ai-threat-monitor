@@ -4,7 +4,7 @@
  */
 
 const App = {
-    currentPage: 'dashboard',
+    currentPage: 'terminals',
 
     pages: {
         guide: GettingStartedPage,
@@ -12,6 +12,7 @@ const App = {
         threats: { render: (c) => { ThreatsPage.activeFacet = 'threats'; return ThreatsPage.render(c); } },
         // conversion-ux — retroactive scan of on-disk agent history (opt-in).
         'instant-audit': InstantAuditPage,
+        terminals: TerminalsPage,
         replay: ReplayPage,
         'agent-map': AgentMapPage,
         'agent-runs': AgentRunsPage,
@@ -120,7 +121,7 @@ const App = {
             this.loadPage(page, false);
         });
 
-        // Load initial page from URL or default to dashboard
+        // Load initial page from URL or default to the session-first task board.
         let initialPage = this.getPageFromURL();
         initialPage = await this.maybeAutoLaunchWizard(initialPage);
         await this.loadPage(initialPage);
@@ -133,14 +134,14 @@ const App = {
 
     /**
      * v5.0.0 Connect Wizard auto-launch — once, ever, and only when there is
-     * nothing protected yet. A fresh install landing on an empty dashboard is
+     * nothing protected yet. A fresh install landing on the task board is
      * the funnel's biggest silent drop-off; landing on the wizard instead
      * turns the first session into detect → protect → verify. Existing
      * installs (any connected runtime or audited framework) are never
      * redirected, and any explicit deep link wins.
      */
     async maybeAutoLaunchWizard(initialPage) {
-        if (initialPage !== 'dashboard') return initialPage;
+        if (initialPage !== 'terminals') return initialPage;
         if (localStorage.getItem('sv-wizard-autolaunched')) return initialPage;
         try {
             const ctrl = new AbortController();
@@ -206,7 +207,7 @@ const App = {
      */
     getPageFromURL() {
         const path = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
-        return this.pages[path] ? path : 'dashboard';
+        return this.pages[path] ? path : 'terminals';
     },
 
     /**

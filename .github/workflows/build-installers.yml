@@ -97,6 +97,7 @@ jobs:
             --add-data "src/securevector/plugins;securevector/plugins" \
             --add-data "models/guardian.runtime.json.gz;models" \
             --collect-all svguardian \
+            --collect-all winpty \
             --hidden-import webview \
             --hidden-import webview.platforms.winforms \
             --hidden-import clr \

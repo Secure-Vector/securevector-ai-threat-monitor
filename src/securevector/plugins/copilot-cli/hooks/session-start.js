@@ -25,6 +25,7 @@
 'use strict';
 
 const { postJsonAndForget, getJson } = require('../lib/client.js');
+const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'copilot-cli';
@@ -86,6 +87,15 @@ async function main() {
   try {
     postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionOpenBody(event));
   } catch { /* swallow */ }
+
+  // Agent Terminals: bind this PTY task to the runtime session id. No-op
+  // (and no network call) outside a task launched by the local app.
+  try {
+    await postTerminalEvent({
+      hook_event_name: 'SessionStart',
+      session_id: typeof event.sessionId === 'string' ? event.sessionId : null,
+    });
+  } catch { /* swallow — the relay must never affect the session */ }
 
   // No stdout control needed; Copilot ignores sessionStart stdout for control.
 }

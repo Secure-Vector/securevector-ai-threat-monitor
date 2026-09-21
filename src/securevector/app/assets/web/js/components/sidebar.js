@@ -5,14 +5,16 @@
 
 const Sidebar = {
     navItems: [
-        // v5.3 rail: ten destinations in three groups, plus Guide and Settings
-        // docked at the bottom. Pages that used to be their own rows are
+        // v6 session-first navigation. Agent Sessions is the first/default work
+        // surface. Pages that used to be their own rows are
         // `views` of a destination: they render indented under the active row
-        // (expanded rail) or inside the hover flyout (icon rail). Every old page
+        // or inside the hover flyout. Every old page
         // id stays routable and highlights its parent via `views` or `aliases`,
         // so deep links, the palette and Governance gap cards still land.
+        { id: 'terminals', label: 'Agent Sessions', icon: 'terminal',
+          tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline'],
+        { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'],
           tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
           views: [
             { id: 'agent-runs', label: 'Runs' },
@@ -36,7 +38,13 @@ const Sidebar = {
         { id: 'policies', label: 'Policies', icon: 'sliders', aliases: ['policies-controls'],
           tooltip: 'Everything that decides what an agent may do, with live status for each control',
           views: [
-            { id: 'policies', label: 'Overview', tooltip: 'Every control at a glance, with live status for each' },
+            // The hoist (below, where a group's sole item is also its
+            // landing) skips the parent `policies` row entirely, which was
+            // the only row carrying `policies-controls` (the item's own
+            // alias). Without this, that live route resolves to no active
+            // row and the sliding indicator hides. Carried here instead so
+            // the hoisted Overview row still matches it.
+            { id: 'policies', label: 'Overview', aliases: ['policies-controls'], tooltip: 'Every control at a glance, with live status for each' },
             { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
               tooltip: 'Which tools each agent may call, and requests waiting on you' },
             { id: 'rules', label: 'Rules', icon: 'rules',
@@ -47,10 +55,10 @@ const Sidebar = {
               tooltip: 'Budgets and model pricing used for spend tracking' },
             { id: 'mcp-policies', label: 'MCP Policies', icon: 'integrations', cloud: true,
               tooltip: 'Allow and block MCP servers, synced from your SecureVector account' },
-            { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan',
+            { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', aliases: ['skill-permissions'],
               tooltip: 'Static scan of installed agent skills before they run' },
           ] },
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['connect-wizard', 'integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
           tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
         { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
           tooltip: 'SIEM forwarding and Cloud Connect activity',
@@ -58,19 +66,38 @@ const Sidebar = {
             { id: 'siem-export', label: 'SIEM Forwarder' },
             { id: 'cloud-activity', label: 'Cloud Activity', cloud: true },
           ] },
-        { id: 'guide', label: 'Guide', icon: 'book', dock: true, aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
+        { id: 'guide', label: 'Guide', icon: 'book', aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
           tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
-        { id: 'settings', label: 'Settings', icon: 'settings', dock: true },
+        { id: 'settings', label: 'Settings', icon: 'settings', aliases: ['guardian-ml'] },
     ],
-    currentPage: 'dashboard',
+    productGroups: [
+        { id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',
+          subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
+        { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
+          subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
+        { id: 'governance', label: 'Governance', icon: 'gauge', landing: 'governance',
+          subtitle: 'Review protection posture and approvals', items: ['governance'] },
+        { id: 'policies', label: 'Policies', icon: 'sliders', landing: 'policies',
+          subtitle: 'Set the controls agents must follow', items: ['policies'] },
+        { id: 'connect', label: 'Connect', icon: 'plug', landing: 'guide-connect-agents',
+          subtitle: 'Connect agents and forward security events', items: ['guide-connect-agents', 'siem-export'] },
+        { id: 'more', label: 'More', icon: 'more', landing: 'guide',
+          subtitle: 'Open product guides and settings', items: ['guide', 'settings'] },
+    ],
+    currentPage: 'terminals',
+
+    // The parent is the consolidated command centre; these direct session
+    // entries are hydrated once terminal authentication is ready.
+    _agentTaskViewsLoading: false,
+    _agentTaskViewsLoaded: false,
+    _agentTaskViewsRerun: false,
 
     collapsed: false,
 
-    // Min/max bounds for the resize handle. Stays narrower than the CSS
-    // default of 240px on the low end so power users can squeeze, and wide
-    // enough on the high end to avoid letting the rail eat the page.
-    SIDEBAR_MIN_PX: 180,
-    SIDEBAR_MAX_PX: 380,
+    // Min/max bounds apply to the full two-column navigation. The minimum
+    // leaves a readable context panel beside the 72px product rail.
+    SIDEBAR_MIN_PX: 300,
+    SIDEBAR_MAX_PX: 440,
 
     _applySavedSidebarWidth() {
         const saved = parseInt(localStorage.getItem('sidebar-width') || '', 10);
@@ -112,10 +139,23 @@ const Sidebar = {
         const container = document.getElementById('sidebar');
         if (!container) return;
 
+        // A group switch clears the container below, detaching whatever
+        // product-rail button opened the flyout — its mouseleave never fires,
+        // so the flyout would otherwise be stranded open over the content
+        // area. Hide it up front, before anything is torn down.
+        this._flyoutHide(true);
+
         // Check saved collapsed state
         const savedCollapsed = localStorage.getItem('sidebar-collapsed');
-        // Icon rail by default on narrower windows; the user's choice wins once made.
-        this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : window.innerWidth < 1280;
+        // Desktop opens EXPANDED. The icon rail is a deliberate space-saving
+        // choice, never a state someone lands in by accident: the desktop shell
+        // opens at 1200px, so a width-derived default started every fresh
+        // profile collapsed, with six destinations behind a hover. The user's
+        // own choice still wins once they have made one.
+        this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : false;
+        // Mobile uses an off-canvas drawer: once open, it always needs both
+        // product and context columns regardless of the saved desktop state.
+        if (window.innerWidth <= 768) this.collapsed = false;
         container.classList.toggle('collapsed', this.collapsed);
 
         // Restore the user's last sidebar width before rendering so the
@@ -134,24 +174,45 @@ const Sidebar = {
             ['integrations', 'guide'].forEach(id => localStorage.removeItem(`nav-${id}-expanded`));
         }
 
+        // A group switch re-renders the whole rail, so the node the user is
+        // standing on is removed and focus falls back to <body>. Record where
+        // focus and the destination list were, and put them back after the
+        // rebuild. Only a rail button inside THIS sidebar counts, so a render
+        // triggered while the user is typing in the page never steals focus.
+        const priorFocus = document.activeElement;
+        const focusedRailGroup = priorFocus && container.contains(priorFocus)
+            && priorFocus.classList && priorFocus.classList.contains('product-rail-button')
+            ? priorFocus.dataset.productGroup : null;
+        const priorNav = container.querySelector('.sidebar-nav');
+        const priorNavScroll = priorNav ? priorNav.scrollTop : 0;
+        // Only meaningful alongside the group it was captured from — applying
+        // it after a group switch drops the old offset onto a different,
+        // possibly shorter, list.
+        const priorContext = container.querySelector('.sidebar-context');
+        const priorNavGroup = priorContext ? priorContext.dataset.productGroup : null;
+
         // Clear container
         container.textContent = '';
 
-        // Create header with favicon logo (clickable)
+        const activeGroup = this._activeProductGroup(this.currentPage);
+        this._renderedProductGroup = activeGroup.id;
+        const productRail = this._createProductRail(activeGroup);
+        const contextPanel = document.createElement('div');
+        contextPanel.className = 'sidebar-context';
+        contextPanel.dataset.productGroup = activeGroup.id;
+        container.appendChild(productRail);
+        container.appendChild(contextPanel);
+
+        // The compact product rail owns the shield. The context header keeps
+        // the existing wordmark and version so product identity remains clear
+        // without duplicating the logo in both columns.
         const header = document.createElement('div');
         header.className = 'sidebar-header';
 
         const logoLink = document.createElement('div');
         logoLink.className = 'sidebar-logo-link';
         logoLink.style.cursor = 'pointer';
-        logoLink.addEventListener('click', () => this.navigate('dashboard'));
-
-        // Favicon logo
-        const logoImg = document.createElement('img');
-        logoImg.src = '/images/favicon.png';
-        logoImg.alt = 'SecureVector';
-        logoImg.className = 'sidebar-logo-img';
-        logoLink.appendChild(logoImg);
+        logoLink.addEventListener('click', () => this.navigate('terminals'));
 
         // Wrap the brand text + tagline in a column so the tagline sits
         // under the wordmark without pushing the favicon around.
@@ -193,8 +254,38 @@ const Sidebar = {
         logoLink.appendChild(logoTextCol);
 
         header.appendChild(logoLink);
-        container.appendChild(header);
-        container.appendChild(this._createSearchRow());
+        contextPanel.appendChild(header);
+        contextPanel.appendChild(this._createSearchRow());
+
+        const contextHeading = document.createElement('div');
+        contextHeading.className = 'sidebar-context-heading';
+        const contextTitle = document.createElement('div');
+        contextTitle.className = 'sidebar-context-title';
+        contextTitle.textContent = activeGroup.label;
+        const contextSubtitle = document.createElement('div');
+        contextSubtitle.className = 'sidebar-context-subtitle';
+        contextSubtitle.textContent = activeGroup.subtitle;
+        contextHeading.appendChild(contextTitle);
+        contextHeading.appendChild(contextSubtitle);
+        // The heading is the group's own landing, and for a single-item group
+        // it is the ONLY way to reach it from this panel: the hoist below drops
+        // the destination row to avoid saying the same label three times, which
+        // also drops the one thing that led to the landing page. The rail button
+        // still goes there, but nothing in the panel did.
+        if (activeGroup.landing) {
+            // The tasks group wants the board, not the task the person left
+            // attached. navigate() alone restores that task, so this takes the
+            // same route the rail button and the logo already take.
+            const goToLanding = () => {
+                if (activeGroup.id === 'tasks') { this._showAgentTasksBoard(); return; }
+                this.navigate(activeGroup.landing);
+            };
+            contextHeading.classList.add('is-clickable');
+            contextHeading.title = `Open ${activeGroup.label}`;
+            contextHeading.addEventListener('click', goToLanding);
+            this._makeRowFocusable(contextHeading, goToLanding);
+        }
+        contextPanel.appendChild(contextHeading);
 
         // Create nav
         const nav = document.createElement('nav');
@@ -218,28 +309,30 @@ const Sidebar = {
         // lands. CLOUD_TIER (above) is the set that gets this treatment.
         this._probeEnrollment();
 
-        // v5 IA — three verbs. "Visibility" (not "Observe") heads the first
-        // section: the group now contains an "Observability" destination, and
-        // "Observe → Observability" stutters. "Visibility" is the word both
-        // audiences use — SOC operators ("visibility into agent activity") and
-        // business buyers alike — and doesn't echo the child.
-        //   Visibility — what the agents are doing (dashboard, threats, observability)
-        //   Configure  — what the human sets (permissions, rules, egress, budgets, MCP, skills)
-        //   Connect    — pipes in and out (wizard, integrations, SIEM, cloud)
-        // Page ids are untouched, so every old deep link still lands.
-        const SECTION_BEFORE = {
-            'dashboard':            'Visibility',
-            'policies':             'Configure',
-            'guide-connect-agents': 'Connect',
-        };
+        // The product rail is the only top-level grouping. Keep the existing
+        // row/view renderer below, filtered to the active group's destinations.
+        const SECTION_BEFORE = {};
 
         const sections = [];
         let currentSection = null;
 
         this.navItems.forEach(item => {
-            // Guide and Settings live in the bottom dock, the way every
-            // reference product does it, so the scrolling rail ends at Connect.
-            if (item.dock) return;
+            if (!activeGroup.items.includes(item.id)) return;
+
+            // A group with exactly one item, which is that group's own
+            // landing page, would otherwise show the same label three times:
+            // the rail button, the context heading, and this single
+            // destination row. Skip the row and hoist the item's views (if
+            // it has any) straight into the list instead, so every page
+            // behind it stays reachable without the redundant parent.
+            if (activeGroup.items.length === 1 && activeGroup.landing === item.id) {
+                if (item.views && item.views.length) {
+                    const viewsEl = this._renderViews(item, true);
+                    viewsEl.classList.add('nav-views-flat');
+                    nav.appendChild(viewsEl);
+                }
+                return;
+            }
 
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
             // to be enrolled. The row still renders (discoverability) but gets
@@ -340,21 +433,10 @@ const Sidebar = {
                 navItem.appendChild(hint);
             }
 
-            // Pending just-in-time requests: an agent waiting on a human
-            // decision is the one time-sensitive signal in Configure. The count
-            // sits on Policies so it shows from anywhere, including the icon
-            // rail, where the flyout mirrors it. Filled by loadJitPendingCount().
-            if (item.id === 'policies') {
-                const jitBadge = document.createElement('span');
-                jitBadge.id = 'jit-pending-parent-badge';
-                jitBadge.className = 'nav-count nav-count-warn';
-                jitBadge.hidden = true;
-                navItem.appendChild(jitBadge);
-            }
-
-
-
-
+            // Pending-approval badge lives on the rail buttons instead
+            // (`data-jit-product-badge`, see _createProductRail below): the
+            // `policies` navItem is always hoisted (its group's sole item),
+            // so this row is never reached — see the hoist in render() above.
             // Collapsible parents carry a right-edge chevron: without it a
             // collapsed row is indistinguishable from a leaf, so users never
             // learn there are sub-items. Points right when collapsed, down
@@ -362,9 +444,11 @@ const Sidebar = {
             // section headers. Appended last so expandSection()'s
             // `svg:last-child` lookup finds it.
             let rowChev = null;
-            if (item.collapsible && hasSubItems) {
+            const isCollapsibleRow = item.collapsible && hasSubItems;
+            let startsExpanded = false;
+            if (isCollapsibleRow) {
                 const stored = localStorage.getItem(`nav-${item.id}-expanded`);
-                const startsExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
+                startsExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
                 rowChev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 rowChev.setAttribute('viewBox', '0 0 24 24');
                 rowChev.setAttribute('fill', 'none');
@@ -384,14 +468,15 @@ const Sidebar = {
             // the first sub-item, so e.g. clicking "Agent Replay" lands the
             // user on the Timeline and shows the sub-list. A second click
             // (collapse) just hides the sub-list without changing the page.
-            navItem.addEventListener('click', (e) => {
-                if (item.collapsible && hasSubItems) {
+            const activateRow = () => {
+                if (isCollapsibleRow) {
                     const subNav = nav.querySelector(`[data-sub-for="${item.id}"]`);
                     if (subNav) {
                         const isVisible = subNav.style.display !== 'none';
                         const willExpand = !isVisible;
                         subNav.style.display = willExpand ? 'block' : 'none';
                         if (rowChev) rowChev.style.transform = willExpand ? 'rotate(0deg)' : 'rotate(-90deg)';
+                        navItem.setAttribute('aria-expanded', String(willExpand));
                         localStorage.setItem(`nav-${item.id}-expanded`, String(willExpand));
                         if (willExpand && item.navigable && item.subItems[0]) {
                             this.navigate(item.subItems[0].id);
@@ -399,11 +484,23 @@ const Sidebar = {
                     }
                     return;
                 }
+                // The `terminals` item is always hoisted (its group's sole
+                // item — see the hoist in render() above), so this row is
+                // never reached; its own click handling lives on the
+                // hoisted views and the rail button instead.
                 this.navigate(item.id);
+            };
+            navItem.addEventListener('click', activateRow);
+            // A collapsible parent toggles a sub-list rather than navigating.
+            // Every other row here genuinely navigates.
+            this._makeRowFocusable(navItem, activateRow, {
+                role: isCollapsibleRow ? 'button' : 'link',
+                expanded: isCollapsibleRow ? startsExpanded : undefined,
             });
 
             nav.appendChild(navItem);
-            if (currentSection) {
+            const foldsWithSection = currentSection;
+            if (foldsWithSection) {
                 currentSection.els.push(navItem);
                 // A section holding the active page must never start
                 // collapsed — a hidden "where am I" is worse than a stale
@@ -436,7 +533,7 @@ const Sidebar = {
 
                 const viewsEl = this._renderViews(item, matchesSelf);
                 nav.appendChild(viewsEl);
-                if (currentSection) currentSection.els.push(viewsEl);
+                if (foldsWithSection) currentSection.els.push(viewsEl);
 
                 // Hover peek: a closed fold opens while the pointer rests on
                 // its row or on the peeked views, so every page behind it is
@@ -613,9 +710,28 @@ const Sidebar = {
             this._countsTimer = setInterval(() => this.loadLiveCounts(), 60000);
         }
 
-        container.appendChild(nav);
-        this._flyoutInit(container, nav);
+        // A hoisted single-item group (see the hoist above) with no views at
+        // all (Governance) or none yet (Agent Sessions before any task exists —
+        // its views arrive asynchronously via _loadAgentTaskViews) would
+        // otherwise render only a heading, a subtitle and an empty list.
+        // When the group's context list would render zero destination rows,
+        // skip the context panel entirely: the rail stays visible and its
+        // button still navigates to the group's landing. Every non-hoisted
+        // group always adds at least one row per item, so `nav` is empty
+        // only in that hoisted, no-rows case.
+        const contextEmpty = nav.children.length === 0;
+        container.classList.toggle('sidebar-context-empty', contextEmpty);
+
+        contextPanel.appendChild(nav);
+        this._flyoutInit(container);
         this._indicatorInit(nav);
+        this._loadAgentTaskViews();
+        if (!this._agentTaskTimer) {
+            this._agentTaskTimer = setInterval(() => {
+                if (document.hidden) return;
+                this._loadAgentTaskViews(true);
+            }, 30000);
+        }
         this._fadeInit(nav);
         this._chordInit();
         // First paint: rows settle in one after another; later renders are instant.
@@ -625,22 +741,33 @@ const Sidebar = {
             nav.querySelectorAll('.nav-item, .nav-section-label').forEach((el, i) => el.style.setProperty('--i', String(i)));
         }
 
-        // Collapse toggle button (at menu level)
+        // Collapse toggle button — a chevron puck straddling the sidebar's
+        // right edge, the position every shell that has one puts it in.
         const collapseBtn = document.createElement('button');
+        collapseBtn.type = 'button';
         collapseBtn.className = 'sidebar-collapse-btn';
-        collapseBtn.setAttribute('aria-label', 'Toggle sidebar');
 
         const collapseIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         collapseIcon.setAttribute('viewBox', '0 0 24 24');
         collapseIcon.setAttribute('fill', 'none');
         collapseIcon.setAttribute('stroke', 'currentColor');
         collapseIcon.setAttribute('stroke-width', '2');
+        collapseIcon.setAttribute('aria-hidden', 'true');
         const collapsePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        collapsePath.setAttribute('d', this.collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
         collapseIcon.appendChild(collapsePath);
         collapseBtn.appendChild(collapseIcon);
 
+        // No text label: on the divider the chevron is the convention and
+        // reads on its own, and a word here would sit half outside the rail.
+        // The tooltip and the accessible name carry the wording instead.
+        this._syncCollapseBtn(collapseBtn);
+
         collapseBtn.addEventListener('click', () => this.toggleCollapse());
+        // Mounted on the sidebar itself, not the rail: the sidebar is the two
+        // columns together, so its box is the outer edge whether the context
+        // panel is showing, collapsed away, or empty for this group. Mounting
+        // it on the rail pinned it to the rail's edge, which is an interior
+        // seam whenever the context panel is up.
         container.appendChild(collapseBtn);
 
         // Drag-to-resize handle on the right edge of the sidebar. Disabled
@@ -686,7 +813,6 @@ const Sidebar = {
         // Bottom section - proxy status, try it, uninstall, server status
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
-        bottomSection.appendChild(this._createDock());
 
         // Collapsible status stack — the proxy / plugin / SIEM banners live
         // in one foldable group (the user asked to be able to put them away).
@@ -984,7 +1110,12 @@ const Sidebar = {
         // list scrolls — genuinely fixed to the bottom, not merely last.
         bottomSection.appendChild(this.createThemeFooter());
 
-        container.appendChild(bottomSection);
+        contextPanel.appendChild(bottomSection);
+
+        // Collapsed hides the context panel, which used to take the search row,
+        // the plugin banners and the theme control down with it. Move them into
+        // the product rail instead — the same single nodes, relocated.
+        this._syncCollapsedControls(container);
 
         // Check all five indicators — AFTER the bottom section is attached.
         // The pollers look themselves up via document.getElementById and exit
@@ -997,6 +1128,68 @@ const Sidebar = {
         this.checkCodexPluginStatus();
         this.checkCopilotPluginStatus();
         this.checkOpenCodePluginStatus();
+
+        // Put the user back where the rebuild found them (see the capture at
+        // the top of render): same rail button focused, same scroll offset —
+        // but only the scroll offset of the SAME group; a group switch always
+        // starts its list at the top.
+        if (priorNavScroll && priorNavGroup === activeGroup.id) nav.scrollTop = priorNavScroll;
+        if (focusedRailGroup) {
+            const refocus = productRail.querySelector(`.product-rail-button[data-product-group="${focusedRailGroup}"]`);
+            if (refocus) {
+                // Chromium focuses a button on click, so this restore can
+                // itself trigger the collapsed rail's focus-opens-flyout
+                // handler (wired above by _flyoutInit) and reopen the flyout
+                // we just hid at the top of this render. Mark this one
+                // programmatic focus so that handler skips it.
+                this._suppressFlyoutFocus = true;
+                refocus.focus();
+                this._suppressFlyoutFocus = false;
+            }
+        }
+    },
+
+    // Context destination rows are divs, so they carry counts, badges and drag
+    // behaviour but get no keyboard path of their own. Make them real tab stops
+    // that activate on Enter and Space; the focus ring already defined for
+    // `.sidebar-context .nav-item:focus-visible` then has something to paint.
+    // `role` defaults to 'link' for rows that genuinely navigate to a page.
+    // A row that instead toggles a sub-list or opens something other than a
+    // URL (a collapsible parent, the task board) must pass role: 'button',
+    // and a collapsible parent also passes its open/closed state as
+    // `expanded` so the two stay in sync instead of each caller hardcoding
+    // the ARIA attribute itself.
+    _makeRowFocusable(row, activate, { role = 'link', expanded } = {}) {
+        row.tabIndex = 0;
+        row.setAttribute('role', role);
+        if (expanded !== undefined) row.setAttribute('aria-expanded', String(expanded));
+        row.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+            // Space scrolls the page by default, which a destination row must not.
+            if (e.key !== 'Enter') e.preventDefault();
+            activate(e);
+        });
+    },
+
+    // One instance of each control, relocated between the two columns — never
+    // cloned, so no state is duplicated and no copy is ever visible twice.
+    _syncCollapsedControls(container) {
+        const rail = container.querySelector('.sidebar-product-rail');
+        const context = container.querySelector('.sidebar-context');
+        if (!rail || !context) return;
+        const search = container.querySelector('.nav-search');
+        const bottom = container.querySelector('.sidebar-bottom');
+        // The context panel is also absent — not just visually collapsed —
+        // when the active group's destination list would render zero rows
+        // (see the `sidebar-context-empty` toggle in render()). These
+        // controls need the same rail relocation as a real collapse then,
+        // without touching the user's own expand/collapse preference.
+        const toRail = this.collapsed || container.classList.contains('sidebar-context-empty');
+        if (search) {
+            if (toRail) rail.insertBefore(search, rail.querySelector('.product-rail-groups'));
+            else context.insertBefore(search, context.querySelector('.sidebar-context-heading'));
+        }
+        if (bottom) (toRail ? rail : context).appendChild(bottom);
     },
 
     // ---- v5.3 rail: views, search row, live counts, icon-rail flyout ----
@@ -1011,18 +1204,110 @@ const Sidebar = {
         return item.id === page || this._itemPageIds(item).includes(page);
     },
 
+    _activeProductGroup(page) {
+        return this.productGroups.find(group => group.items.some(itemId => {
+            const item = this.navItems.find(candidate => candidate.id === itemId);
+            return item && this._itemMatches(item, page);
+        })) || this.productGroups[0];
+    },
+
+    _createProductRail(activeGroup) {
+        const rail = document.createElement('div');
+        rail.className = 'sidebar-product-rail';
+        rail.setAttribute('role', 'navigation');
+        rail.setAttribute('aria-label', 'SecureVector product areas');
+
+        const home = document.createElement('button');
+        home.type = 'button';
+        home.className = 'product-rail-home';
+        home.title = 'SecureVector Agent Sessions';
+        home.setAttribute('aria-label', 'SecureVector Agent Sessions');
+        const shield = document.createElement('img');
+        shield.src = '/images/favicon.png';
+        shield.alt = '';
+        shield.setAttribute('aria-hidden', 'true');
+        shield.className = 'sidebar-logo-img';
+        home.appendChild(shield);
+        home.addEventListener('click', () => this._showAgentTasksBoard());
+        rail.appendChild(home);
+
+        const groupList = document.createElement('div');
+        groupList.className = 'product-rail-groups';
+        this.productGroups.forEach(group => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'product-rail-button' + (group.id === activeGroup.id ? ' active' : '');
+            button.dataset.productGroup = group.id;
+            button.dataset.baseLabel = group.label;
+            button.title = group.label;
+            button.setAttribute('aria-label', group.label);
+            if (group.id === activeGroup.id) button.setAttribute('aria-current', 'page');
+            button.appendChild(this.createIcon(group.icon));
+
+            const label = document.createElement('span');
+            label.className = 'product-rail-label';
+            label.textContent = group.label;
+            button.appendChild(label);
+
+            if (group.id === 'tasks' || group.id === 'governance') {
+                const badge = document.createElement('span');
+                badge.className = 'product-rail-attention';
+                badge.dataset.jitProductBadge = group.id;
+                badge.hidden = true;
+                button.appendChild(badge);
+            }
+
+            button.addEventListener('click', () => {
+                if (group.id === 'tasks') this._showAgentTasksBoard();
+                else this.navigate(group.landing);
+            });
+            groupList.appendChild(button);
+        });
+        rail.appendChild(groupList);
+        return rail;
+    },
+
+    _showAgentTasksBoard() {
+        try {
+            sessionStorage.removeItem('sv-agent-task-id');
+            sessionStorage.setItem('sv-agent-tasks-board', '1');
+        } catch (err) { /* storage unavailable */ }
+        if (this.currentPage === 'terminals' && window.TerminalsPage?.showAllTasks) {
+            try { sessionStorage.removeItem('sv-agent-tasks-board'); } catch (err) { /* storage unavailable */ }
+            TerminalsPage.showAllTasks();
+            return;
+        }
+        this.navigate('terminals');
+    },
+
     _viewActive(view) {
+        if (view.taskId) {
+            return this.currentPage === 'terminals' && sessionStorage.getItem('sv-agent-task-id') === view.taskId;
+        }
         return view.id === this.currentPage || !!(view.aliases && view.aliases.includes(this.currentPage));
     },
 
     _renderViews(item, open) {
         const wrap = document.createElement('div');
-        wrap.className = 'nav-views' + (open ? ' open' : '');
+        wrap.className = 'nav-views' + (open ? ' open' : '') + (item.id === 'terminals' ? ' nav-views-tasks' : '');
         wrap.dataset.viewsFor = item.id;
+        // One folder needs no headers; several do, or the rail reads as one
+        // undifferentiated pile of tasks.
+        const groups = new Set(item.views.filter(v => v.taskId).map(v => v.group));
+        const headed = new Set();
         item.views.forEach(view => {
+            if (view.taskId && groups.size > 1 && !headed.has(view.group)) {
+                headed.add(view.group);
+                const head = document.createElement('div');
+                head.className = 'nav-tasks-group';
+                head.title = view.group || '';
+                head.textContent = this._shortFolder(view.group);
+                wrap.appendChild(head);
+            }
             const row = document.createElement('div');
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
             row.dataset.page = view.id;
+            if (view.taskId) row.dataset.taskId = view.taskId;
             if (view.aliases) row.dataset.aliases = view.aliases.join(',');
             const locked = !!view.cloud && this._enrolled !== true;
             row.dataset.tip = locked
@@ -1031,9 +1316,51 @@ const Sidebar = {
             if (row.dataset.tip && !this.collapsed) row.title = row.dataset.tip;
             if (locked) row.classList.add('nav-item-locked');
             if (view.icon) row.appendChild(this.createIcon(view.icon));
-            const lbl = document.createElement('span');
-            lbl.textContent = view.label;
-            row.appendChild(lbl);
+            if (view.taskId) {
+                if (window.TaskAvatar) {
+                    row.appendChild(TaskAvatar.el({ id: view.taskId, harness: view.harness, state: view.state, size: 30 }));
+                } else {
+                    const agent = document.createElement('span');
+                    agent.className = `sv-task-agent sv-task-agent-${view.state || 'active'}`;
+                    agent.setAttribute('aria-hidden', 'true');
+                    agent.appendChild(document.createElement('i'));
+                    agent.appendChild(document.createElement('i'));
+                    row.appendChild(agent);
+                }
+            }
+            if (view.taskId) {
+                const text = document.createElement('span');
+                text.className = 'nav-task-text';
+                const title = document.createElement('span');
+                title.className = 'nav-task-title';
+                title.textContent = view.label;
+                // A live task is the one thing on this rail that changes while
+                // nobody is looking at it, so it gets the only moving element.
+                if (view.state === 'active') {
+                    const live = document.createElement('i');
+                    live.className = 'nav-task-live';
+                    live.setAttribute('aria-hidden', 'true');
+                    title.appendChild(live);
+                }
+                // A session running in the user's own terminal reads the same
+                // on the rail as one the app launched, so it says which it is.
+                if (view.linked) {
+                    const chip = document.createElement('span');
+                    chip.className = 'nav-task-linked';
+                    chip.textContent = 'linked';
+                    title.appendChild(chip);
+                }
+                const sub = document.createElement('span');
+                sub.className = 'nav-task-sub';
+                sub.textContent = view.sub || '';
+                text.appendChild(title);
+                text.appendChild(sub);
+                row.appendChild(text);
+            } else {
+                const lbl = document.createElement('span');
+                lbl.textContent = view.label;
+                row.appendChild(lbl);
+            }
             if (view.count) {
                 const cnt = document.createElement('span');
                 cnt.className = 'nav-count';
@@ -1068,13 +1395,166 @@ const Sidebar = {
                 hint.textContent = `g ${chordKey}`;
                 row.appendChild(hint);
             }
-            row.addEventListener('click', (e) => {
-                e.stopPropagation();
+            // The rail is the one list that always has every task, so it is
+            // where a task is picked up from to drop into a pane. The drag
+            // itself belongs to the terminals page, which is the only thing
+            // that knows whether there is a pane to drop onto; this only
+            // offers, and a row that is merely clicked is untouched.
+            if (view.taskId) {
+                row.addEventListener('pointerdown', (ev) => {
+                    if (window.TerminalsPage?.beginTaskDrag) TerminalsPage.beginTaskDrag(view.taskId, ev);
+                });
+            }
+            const activateView = (e) => {
+                if (e) e.stopPropagation();
+                if (view.taskId) {
+                    // The click that ends a drag belongs to the drag.
+                    if (window.TerminalsPage?.consumeDragClick && TerminalsPage.consumeDragClick()) return;
+                    sessionStorage.setItem('sv-agent-task-id', view.taskId);
+                    // Already looking at the page: hand the task straight to
+                    // it. navigate() would call App.loadPage(), which has no
+                    // already-on-page guard and re-renders from scratch, and
+                    // the layout restore then rewrites this very key with the
+                    // previously focused task, so the second agent clicked in
+                    // the rail never opened.
+                    if (this.currentPage === 'terminals' && window.TerminalsPage?.openTask) {
+                        TerminalsPage.openTask(view.taskId);
+                        this.setActive('terminals');
+                        return;
+                    }
+                    this.navigate('terminals');
+                    return;
+                }
                 this.navigate(view.id);
-            });
+            };
+            row.addEventListener('click', activateView);
+            this._makeRowFocusable(row, activateView);
             wrap.appendChild(row);
         });
         return wrap;
+    },
+
+    _loadAgentTaskViews(force = false) {
+        // A forced tick (timer, external refresh) that lands while a fetch is
+        // already in flight cannot just be dropped, or a state change during
+        // the in-flight request never gets picked up. Remember it and rerun
+        // once the current fetch settles. An unforced call (e.g. render()'s
+        // first paint) never needs to latch: it only wants whatever load is
+        // already in flight to finish, not a guaranteed extra refetch.
+        if (this._agentTaskViewsLoading) { if (force) this._agentTaskViewsRerun = true; return; }
+        if ((this._agentTaskViewsLoaded && !force) || !window.API) return;
+        this._agentTaskViewsLoading = true;
+        Promise.all([API.terminalsTasks(), API.getJitRequests('pending').catch(() => ({ items: [] }))])
+            .then(([result, approvals]) => {
+                const parent = this.navItems.find(item => item.id === 'terminals');
+                if (!parent) return;
+                const pendingSessions = new Set((approvals.items || []).map(item => item.session_id).filter(Boolean));
+                parent.views = [
+                    ...(result.items || []).map(task => {
+                        const state = this._agentTaskState(task, pendingSessions.has(task.session_id));
+                        return {
+                            id: 'terminals', taskId: task.id, harness: task.executor_id,
+                            state,
+                            label: task.title || task.executor_id,
+                            linked: task.origin === 'linked',
+                            sub: this._taskSubtitle(task, state),
+                            group: task.workspace || '',
+                            tooltip: `${task.executor_id} · ${task.workspace}`,
+                        };
+                    }),
+                ];
+                // Rows and states only: this signature does not include which
+                // row is selected, so it never forces a re-render on its own
+                // when only the attached/selected task changes.
+                const sig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.sub || '', v.group || ''].join(':')).join('|');
+                // Same rows, same states, same folders: only the subtitles can
+                // differ. Kept as its own signature rather than parsed back out
+                // of `sig`, whose fields may themselves contain a separator.
+                const rowSig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.group || ''].join(':')).join('|');
+                this._agentTaskViewsLoaded = true;
+                if (sig !== this._agentTaskSig) {
+                    const sameRows = this._agentTaskRowSig === rowSig;
+                    this._agentTaskSig = sig;
+                    this._agentTaskRowSig = rowSig;
+                    // The subtitle carries a clock, so it changes on its own
+                    // every minute. Re-rendering the whole rail for that would
+                    // drop keyboard focus and reset scroll once a minute.
+                    if (sameRows && this._patchTaskSubtitles(parent.views)) return;
+                    this.render();
+                } else {
+                    this._agentTaskRowSig = rowSig;
+                }
+            })
+            .catch(() => { this._agentTaskViewsLoaded = true; })
+            .finally(() => {
+                this._agentTaskViewsLoading = false;
+                if (this._agentTaskViewsRerun) {
+                    this._agentTaskViewsRerun = false;
+                    this._loadAgentTaskViews(true);
+                }
+            });
+    },
+
+    // Writes each task row's subtitle in place. Returns false when the rail is
+    // not on screen in the expected shape, so the caller falls back to a full
+    // render rather than leaving stale text behind.
+    _patchTaskSubtitles(views) {
+        const root = document.querySelector('.nav-views.nav-views-tasks');
+        if (!root) return false;
+        const rows = new Map();
+        root.querySelectorAll('.nav-item.nav-view[data-task-id]').forEach(row => {
+            const sub = row.querySelector('.nav-task-sub');
+            if (sub) rows.set(row.dataset.taskId, sub);
+        });
+        const tasks = views.filter(v => v.taskId);
+        if (!tasks.length || rows.size !== tasks.length) return false;
+        for (const view of tasks) {
+            if (!rows.has(view.taskId)) return false;
+        }
+        for (const view of tasks) rows.get(view.taskId).textContent = view.sub || '';
+        return true;
+    },
+
+    refreshAgentTaskViews() {
+        this._agentTaskViewsLoaded = false;
+        this._loadAgentTaskViews(true);
+    },
+
+    HARNESS_LABELS: { 'claude-code': 'Claude Code', codex: 'Codex', 'copilot-cli': 'Copilot CLI', opencode: 'OpenCode' },
+    // The rail answers "which harness, and is it waiting on me". A live task
+    // shows how long it has been going instead of repeating what the avatar
+    // already says with its ring.
+    _taskSubtitle(task, state) {
+        const harness = this.HARNESS_LABELS[task.executor_id] || task.executor_id;
+        if (state === 'approval') return `${harness} · needs approval`;
+        if (state === 'blocked') return `${harness} · blocked`;
+        if (state === 'completed') return `${harness} · done`;
+        if (state === 'failed') return `${harness} · stopped`;
+        if (state === 'interrupted') return `${harness} · interrupted`;
+        return `${harness} · ${this._sinceShort(task.created_at)}`;
+    },
+    // Minute granularity on purpose: the rail signature includes the subtitle,
+    // so a finer unit would redraw the whole rail every poll.
+    _sinceShort(iso) {
+        const s = Date.parse(iso);
+        if (!s) return 'running';
+        const m = Math.max(0, Math.floor((Date.now() - s) / 60000));
+        if (m < 1) return 'just launched';
+        if (m < 60) return `${m}m`;
+        return `${Math.floor(m / 60)}h ${m % 60}m`;
+    },
+    _shortFolder(p) {
+        const parts = (p || '').split('/').filter(Boolean);
+        return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : (p || '');
+    },
+
+    _agentTaskState(task, waitingApproval = false) {
+        if (waitingApproval) return 'approval';
+        if (task.status === 'blocked') return 'blocked';
+        if (task.status === 'done') return 'completed';
+        if (task.status === 'interrupted') return 'interrupted';
+        if (task.status === 'failed') return 'failed';
+        return 'active';
     },
 
     _createDock() {
@@ -1180,7 +1660,7 @@ const Sidebar = {
             }).catch(() => {});
     },
 
-    _flyoutInit(container, nav) {
+    _flyoutInit(container) {
         let fly = document.getElementById('nav-flyout');
         if (!fly) {
             fly = document.createElement('div');
@@ -1190,57 +1670,120 @@ const Sidebar = {
             document.body.appendChild(fly);
             fly.addEventListener('mouseenter', () => clearTimeout(this._flyHide));
             fly.addEventListener('mouseleave', () => this._flyoutHide());
-        }
-        nav.querySelectorAll('.nav-item[data-page]:not(.nav-view):not(.nav-sub-item)').forEach(row => {
-            row.addEventListener('mouseenter', () => {
-                if (container.classList.contains('collapsed')) this._flyoutShow(row);
+            fly.addEventListener('focusin', () => clearTimeout(this._flyHide));
+            fly.addEventListener('focusout', () => this._flyoutHide());
+            fly.addEventListener('keydown', (e) => {
+                if (e.key !== 'Escape') return;
+                const opener = this._flyoutOpener;
+                this._flyoutHide(true);
+                if (opener && opener.isConnected) opener.focus();
             });
-            row.addEventListener('mouseleave', () => this._flyoutHide());
+        }
+        // The flyout hangs off the PRODUCT RAIL, not off the context rows.
+        // Collapsed hides the context panel outright, so a flyout bound to
+        // those rows could never open and six of the twelve destinations had
+        // no mouse path at all. Hover or keyboard focus on a group button now
+        // lists that group's destinations; ArrowRight/ArrowDown steps into the
+        // list and Escape comes back out.
+        container.querySelectorAll('.product-rail-button').forEach(button => {
+            const open = () => {
+                if (container.classList.contains('collapsed')) this._flyoutShow(button);
+            };
+            button.addEventListener('mouseenter', open);
+            button.addEventListener('mouseleave', () => this._flyoutHide());
+            // render()'s focus-restore programmatically focuses this same
+            // button after a click (Chromium already gave it native focus,
+            // and the restore repeats it once the rebuilt node replaces the
+            // old one). That restore is not a hover/keyboard request to see
+            // the flyout, so it is suppressed for that one call only.
+            button.addEventListener('focus', () => {
+                if (this._suppressFlyoutFocus) return;
+                open();
+            });
+            button.addEventListener('blur', () => this._flyoutHide());
+            button.addEventListener('keydown', (e) => {
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
+                if (!container.classList.contains('collapsed')) return;
+                e.preventDefault();
+                this._flyoutShow(button);
+                const first = document.querySelector('#nav-flyout .nav-flyout-view');
+                if (first) first.focus();
+            });
         });
     },
 
-    _flyoutShow(row) {
+    _flyoutShow(button) {
         clearTimeout(this._flyHide);
-        const item = this.navItems.find(i => i.id === row.dataset.page);
+        const group = this.productGroups.find(g => g.id === button.dataset.productGroup);
         const fly = document.getElementById('nav-flyout');
-        if (!item || !fly) return;
+        if (!group || !fly) return;
+        this._flyoutOpener = button;
         fly.textContent = '';
         const title = document.createElement('div');
         title.className = 'nav-flyout-title';
-        title.textContent = item.label;
-        const cnt = row.querySelector('.nav-count');
-        if (cnt && !cnt.hidden) {
+        title.textContent = group.label;
+        // Whatever the button itself is already showing — the pending-approval
+        // count is the only one — is mirrored here rather than polled again.
+        const cnt = [...button.querySelectorAll('.nav-count, .product-rail-attention')]
+            .find(el => !el.hidden);
+        if (cnt) {
             const c = document.createElement('span');
             c.className = 'nav-count';
             c.textContent = cnt.textContent;
             title.appendChild(c);
         }
         fly.appendChild(title);
-        if (row.dataset.tip) {
+        if (group.subtitle) {
             const d = document.createElement('div');
             d.className = 'nav-flyout-desc';
-            d.textContent = row.dataset.tip;
+            d.textContent = group.subtitle;
             fly.appendChild(d);
         }
-        (item.views || []).forEach(v => {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'nav-flyout-view' + (this._viewActive(v) ? ' active' : '');
-            if (v.icon) b.appendChild(this.createIcon(v.icon));
-            const lbl = document.createElement('span');
-            lbl.textContent = v.label;
-            b.appendChild(lbl);
-            if (v.tooltip) b.title = v.tooltip;
-            if (v.cloud && this._enrolled !== true) {
-                const tier = document.createElement('span');
-                tier.className = 'nav-view-tier';
-                tier.textContent = 'Cloud';
-                b.appendChild(tier);
-            }
-            b.addEventListener('click', () => { this._flyoutHide(true); this.navigate(v.id); });
-            fly.appendChild(b);
-        });
-        const r = row.getBoundingClientRect();
+        // Every destination in the group, which is what makes the collapsed
+        // rail complete. Views stay inside their destination: the page that
+        // owns them is one click away and lists them itself.
+        group.items
+            .map(id => this.navItems.find(item => item.id === id))
+            .filter(Boolean)
+            .forEach(v => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'nav-flyout-view' + (this._itemMatches(v, this.currentPage) ? ' active' : '');
+                if (v.icon) b.appendChild(this.createIcon(v.icon));
+                const lbl = document.createElement('span');
+                lbl.textContent = v.label;
+                b.appendChild(lbl);
+                if (v.tooltip) b.title = v.tooltip;
+                b.addEventListener('click', () => {
+                    // The flyout lives on document.body, outside #sidebar, so
+                    // render()'s own focus-restore guard (container.contains)
+                    // never matches it and focus would otherwise fall to
+                    // <body> once navigation replaces the rail. Send it back
+                    // to the rail button that opened this flyout instead —
+                    // by group id, since navigate() may rebuild the rail and
+                    // `button` itself can end up detached.
+                    const openerGroupId = button.dataset.productGroup;
+                    this._flyoutHide(true);
+                    if (v.id === 'terminals') {
+                        this._showAgentTasksBoard();
+                    } else {
+                        this.navigate(v.id);
+                    }
+                    const rail = document.querySelector('.sidebar-product-rail');
+                    const refocus = rail && rail.querySelector(`.product-rail-button[data-product-group="${openerGroupId}"]`);
+                    if (refocus) {
+                        // Same reopen risk as render()'s own restore: this
+                        // focus() would otherwise immediately trip the
+                        // focus-opens-flyout handler and pop the flyout back
+                        // open right after we just hid it above.
+                        this._suppressFlyoutFocus = true;
+                        refocus.focus();
+                        this._suppressFlyoutFocus = false;
+                    }
+                });
+                fly.appendChild(b);
+            });
+        const r = button.getBoundingClientRect();
         fly.style.left = `${Math.round(r.right + 6)}px`;
         fly.hidden = false;
         const h = fly.offsetHeight || 120;
@@ -1263,6 +1806,11 @@ const Sidebar = {
         const sync = () => nav.classList.toggle('nav-more', nav.scrollHeight - nav.clientHeight - nav.scrollTop > 4);
         nav.addEventListener('scroll', sync, { passive: true });
         nav.addEventListener('scrollend', sync, { passive: true });
+        // render() runs this on every navigation, so the previous listener has
+        // to come off first — the same discipline the observers below already
+        // follow, and without it every group switch leaks another callback.
+        if (this._fadeResize) window.removeEventListener('resize', this._fadeResize);
+        this._fadeResize = sync;
         window.addEventListener('resize', sync);
         if (typeof ResizeObserver !== 'undefined') {
             if (this._fadeRo) this._fadeRo.disconnect();
@@ -1312,11 +1860,35 @@ const Sidebar = {
               // Pages folded under Policies: the fold must not cost a keystroke.
               l: 'tool-permissions', r: 'rules', x: 'egress-policy', b: 'cost-settings', m: 'mcp-policies' },
 
+    /** True for the platform's sidebar chord and nothing else. Mac reads Cmd
+     *  without Ctrl, everywhere else Ctrl without Cmd; Alt or Shift on top
+     *  makes it somebody else's combo, so it is left alone. */
+    _sidebarChord(e) {
+        if (e.altKey || e.shiftKey) return false;
+        const mac = /Mac|iPhone|iPad/i.test(
+            (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''
+        );
+        const mod = mac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey);
+        if (!mod) return false;
+        return e.code === 'KeyB' || String(e.key || '').toLowerCase() === 'b';
+    },
+
     _chordInit() {
         if (this._chordBound) return;
         this._chordBound = true;
         const typing = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
         document.addEventListener('keydown', (e) => {
+            // Cmd+B / Ctrl+B toggles the sidebar, the binding every editor
+            // and workspace app already uses. Only the platform's own
+            // modifier counts: Cmd+Ctrl+B on a Mac is a different chord, and
+            // a field with focus keeps the key (bold in a rich-text box, and
+            // the browser's own Ctrl+B, both stay the user's).
+            if (this._sidebarChord(e) && !typing(e.target)) {
+                if (!document.getElementById('sidebar')) return;
+                e.preventDefault();
+                this.toggleCollapse();
+                return;
+            }
             if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
             const sidebar = document.getElementById('sidebar');
             if (!sidebar) return;
@@ -1345,6 +1917,7 @@ const Sidebar = {
         localStorage.setItem('sidebar-collapsed', this.collapsed);
 
         container.classList.toggle('collapsed', this.collapsed);
+        this._syncCollapsedControls(container);
         this._flyoutHide(true);
         setTimeout(() => this._moveIndicator(true), 260);
         container.querySelectorAll('.nav-item[data-tip]').forEach(row => {
@@ -1352,14 +1925,21 @@ const Sidebar = {
             else if (row.dataset.tip) row.title = row.dataset.tip;
         });
 
-        // Update icon
-        const collapseBtn = container.querySelector('.sidebar-collapse-btn');
-        if (collapseBtn) {
-            const path = collapseBtn.querySelector('path');
-            if (path) {
-                path.setAttribute('d', this.collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
-            }
-        }
+        // Update icon and accessible name together: a control whose name says
+        // "Collapse" while it would expand is worse than one with no name.
+        this._syncCollapseBtn(container.querySelector('.sidebar-collapse-btn'));
+    },
+
+    /** Point the chevron the way the click goes, and say so in two places:
+     *  the tooltip and the accessible name. Called on build and again on
+     *  every toggle, so both follow the state. */
+    _syncCollapseBtn(btn) {
+        if (!btn) return;
+        const path = btn.querySelector('path');
+        if (path) path.setAttribute('d', this.collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
+        const word = this.collapsed ? 'Expand' : 'Collapse';
+        btn.title = `${word} sidebar`;
+        btn.setAttribute('aria-label', `${word} sidebar`);
     },
 
     createThemeIcon() {
@@ -1718,6 +2298,22 @@ const Sidebar = {
                 parent.title = n === 1 ? '1 request waiting for you' : n + ' requests waiting for you';
                 parent.hidden = n === 0;
             }
+            // Reuse this single poll for the persistent product rail. Agent
+            // Tasks and Governance both need to signal that an agent is
+            // waiting for a human decision, even while another group is open.
+            document.querySelectorAll('[data-jit-product-badge]').forEach(productBadge => {
+                const meaning = n === 1 ? '1 pending approval' : n + ' pending approvals';
+                productBadge.textContent = String(n);
+                productBadge.setAttribute('aria-label', meaning);
+                productBadge.title = meaning;
+                productBadge.hidden = n === 0;
+                const productButton = productBadge.closest('.product-rail-button');
+                if (productButton) {
+                    productButton.setAttribute('aria-label', n > 0
+                        ? `${productButton.dataset.baseLabel}: ${meaning}`
+                        : productButton.dataset.baseLabel);
+                }
+            });
         } catch (_) { /* fail-quiet: badge just stays hidden */ }
     },
 
@@ -1796,8 +2392,12 @@ const Sidebar = {
         } catch (e) {
             // Ignore errors
         }
-        // Refresh every 5 seconds
-        setTimeout(() => this.checkProxyStatus(), 5000);
+        // Refresh every 5 seconds. render() runs on every group switch and
+        // kicks all six pollers again, so each one owns a single timer handle
+        // and cancels its own pending tick before booking the next: calling a
+        // poller twice leaves exactly one chain, never two.
+        clearTimeout(this._proxyStatusTimer);
+        this._proxyStatusTimer = setTimeout(() => this.checkProxyStatus(), 5000);
     },
 
     async checkSiemStatus() {
@@ -1825,7 +2425,8 @@ const Sidebar = {
                 }
             }
         } catch (_) { /* ignore */ }
-        setTimeout(() => this.checkSiemStatus(), 5000);
+        clearTimeout(this._siemStatusTimer);
+        this._siemStatusTimer = setTimeout(() => this.checkSiemStatus(), 5000);
     },
 
     async checkClaudeCodePluginStatus() {
@@ -1866,7 +2467,8 @@ const Sidebar = {
             && document.getElementById('cc-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
+            clearTimeout(this._ccPluginStatusTimer);
+            this._ccPluginStatusTimer = setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
         }
     },
 
@@ -1899,7 +2501,8 @@ const Sidebar = {
             && document.getElementById('copilot-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkCopilotPluginStatus(), delay);
+            clearTimeout(this._copilotPluginStatusTimer);
+            this._copilotPluginStatusTimer = setTimeout(() => this.checkCopilotPluginStatus(), delay);
         }
     },
 
@@ -1932,7 +2535,8 @@ const Sidebar = {
             && document.getElementById('opencode-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkOpenCodePluginStatus(), delay);
+            clearTimeout(this._opencodePluginStatusTimer);
+            this._opencodePluginStatusTimer = setTimeout(() => this.checkOpenCodePluginStatus(), delay);
         }
     },
 
@@ -1966,7 +2570,8 @@ const Sidebar = {
             && document.getElementById('codex-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
-            setTimeout(() => this.checkCodexPluginStatus(), delay);
+            clearTimeout(this._codexPluginStatusTimer);
+            this._codexPluginStatusTimer = setTimeout(() => this.checkCodexPluginStatus(), delay);
         }
     },
 
@@ -2072,6 +2677,10 @@ const Sidebar = {
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
                 { tag: 'polyline', attrs: { points: '12 6 12 12 16 14' } },
             ],
+            terminal: [
+                { tag: 'path', attrs: { d: 'M4 17l6-5-6-5' } },
+                { tag: 'path', attrs: { d: 'M12 19h8' } },
+            ],
             // Document with horizontal bar lines — read as "report" without
             // colliding with the 'rules' icon (which also looks document-y).
             report: [
@@ -2105,6 +2714,11 @@ const Sidebar = {
                 { tag: 'path', attrs: { d: 'M7 8h10v3a5 5 0 0 1-10 0V8z' } },
                 { tag: 'path', attrs: { d: 'M12 16v6' } },
             ],
+            more: [
+                { tag: 'circle', attrs: { cx: '5', cy: '12', r: '1', fill: 'currentColor' } },
+                { tag: 'circle', attrs: { cx: '12', cy: '12', r: '1', fill: 'currentColor' } },
+                { tag: 'circle', attrs: { cx: '19', cy: '12', r: '1', fill: 'currentColor' } },
+            ],
         };
 
         (paths[name] || []).forEach(({ tag, attrs }) => {
@@ -2126,11 +2740,17 @@ const Sidebar = {
             if (navItem) {
                 const chevron = navItem.querySelector('svg:last-child');
                 if (chevron) chevron.style.transform = 'rotate(0deg)';
+                // Keep the ARIA state in sync with the visible one — without
+                // this a `_makeRowFocusable(..., { role: 'button', expanded })`
+                // row would announce "collapsed" while visibly open.
+                navItem.setAttribute('aria-expanded', 'true');
             }
         }
     },
 
     navigate(page) {
+        const targetGroup = this._activeProductGroup(page);
+        const groupChanged = targetGroup.id !== this._renderedProductGroup;
         // Auto-expand parent section when navigating to a sub-item
         for (const item of this.navItems) {
             if (item.collapsible && item.subItems && item.subItems.some(sub => sub.id === page)) {
@@ -2141,6 +2761,8 @@ const Sidebar = {
 
         this.currentPage = page;
         this.markSeen(page);
+
+        if (groupChanged) this.render();
 
         // Remove core icon badge dot on first visit
 
@@ -2203,12 +2825,19 @@ const Sidebar = {
     setActive(page) {
         this.currentPage = page;
         this.markSeen(page);
+        const activeGroup = this._activeProductGroup(page);
+        if (activeGroup.id !== this._renderedProductGroup) {
+            this.render();
+            return;
+        }
         document.querySelectorAll('.nav-item').forEach(item => {
             const isSubItem = item.classList.contains('nav-sub-item') || item.classList.contains('nav-view');
             const matchesPage = item.dataset.page === page ||
                 (item.dataset.aliases || '').split(',').includes(page);
             if (isSubItem) {
-                item.classList.toggle('active', matchesPage);
+                const isTaskView = !!item.dataset.taskId;
+                const isSelectedTask = page === 'terminals' && sessionStorage.getItem('sv-agent-task-id') === item.dataset.taskId;
+                item.classList.toggle('active', isTaskView ? isSelectedTask : matchesPage);
             } else {
                 const hasSubItems = item.nextElementSibling && item.nextElementSibling.classList.contains('nav-sub-items');
                 const isCollapsible = item.dataset.collapsible === 'true';
@@ -2217,7 +2846,11 @@ const Sidebar = {
             }
         });
         // Views show under their destination only while it is the active one.
+        // A hoisted top-level group (see render(): a single-item group whose
+        // item is its own landing) has no parent row to key off, and stays
+        // open unconditionally, so its views are excluded here.
         document.querySelectorAll('.nav-views').forEach(v => {
+            if (v.classList.contains('nav-views-flat')) return;
             const parent = v.previousElementSibling;
             const open = !!(parent && parent.classList.contains('active'));
             v.classList.toggle('open', open);
@@ -2305,4 +2938,3 @@ const SideDrawer = {
 
 window.Sidebar = Sidebar;
 window.SideDrawer = SideDrawer;
-

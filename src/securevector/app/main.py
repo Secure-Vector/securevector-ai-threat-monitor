@@ -26,6 +26,7 @@ Examples:
 """
 
 import argparse
+import inspect
 import logging
 import os
 import sys
@@ -130,6 +131,25 @@ def start_server(
     )
 
 
+def _app_terminating() -> bool:
+    # pywebview's should_close(window) is called identically from two Cocoa
+    # delegate methods with no argument distinguishing them: WindowDelegate.
+    # windowShouldClose_ (red-button close) and AppDelegate.
+    # applicationShouldTerminate_ (Cmd+Q / the native app-menu Quit item,
+    # bound to terminate:). Both call should_close directly, which calls
+    # window.events.closing.set() inline (should_lock=True), which runs
+    # on_closing() inline too -- so the frame named
+    # "applicationShouldTerminate_" is on the call stack only for the
+    # Cmd+Q / native-Quit path. Walking the stack is the only way to tell
+    # them apart from inside the handler. Kept module-level (rather than
+    # nested in run_desktop, where on_closing lives) so it is a plain,
+    # pywebview-free unit that tests can import and call directly.
+    try:
+        return any(f.function == "applicationShouldTerminate_" for f in inspect.stack(0))
+    except Exception:
+        return False
+
+
 def run_desktop(host: str, port: int, debug: bool) -> None:
     """Run the application with a native desktop window."""
     import os
@@ -209,7 +229,85 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         # After load, because the inset only exists once the toolbar laid out.
         desktop_shell.install_titlebar_gestures(window)
 
-    def on_closing():
+    quit_requested = {"value": False}
+    # Guards against two confirm-and-stop flows racing each other: the
+    # explicit File > Quit path (request_quit, off a menu-action thread)
+    # and the Cmd+Q / native-menu fallback started from on_closing below.
+    quit_flow_lock = threading.Lock()
+
+    def _terminal_manager():
+        try:
+            from securevector.app.server.app import get_current_app
+            current = get_current_app()
+            return getattr(current.state, "terminal_manager", None) if current is not None else None
+        except Exception:
+            return None
+
+    def _running_tasks() -> int:
+        manager = _terminal_manager()
+        return manager.running_count() if manager is not None else 0
+
+    def _force_kill_stragglers(manager) -> None:
+        # ptyprocess spawns each child via fork + setsid (pty_host.py), so
+        # proc.pid is also the process-group id; killing the group takes
+        # any grandchildren with it.
+        import asyncio
+        import signal
+
+        host = getattr(manager, "host", None)
+        if host is None:
+            return
+        try:
+            for info in host.list():
+                if info.alive:
+                    # Best-effort stop-audit entry, written before the kill so
+                    # it orders like manager.stop(); never let it block quitting.
+                    loop = getattr(manager, "_loop", None)
+                    store = getattr(manager, "store", None)
+                    if loop is not None and store is not None:
+                        try:
+                            coro = store.add_event(info.task_id, kind="stop", origin="quit")
+                            asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=1)
+                        except Exception:
+                            pass
+                    try:
+                        os.killpg(info.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        continue
+        except Exception as exc:
+            logger.warning("Force-killing stragglers failed: %s", exc)
+
+    def _stop_all_tasks() -> None:
+        manager = _terminal_manager()
+        if manager is None:
+            return
+        running = _running_tasks()
+        # manager.stop_all() stops tasks one at a time, and each one can
+        # take up to its own grace period (pty_host.py default 3s) before
+        # SIGKILL, so a fixed budget stops being enough past ~1 task. Scale
+        # with the count, capped so quitting still terminates in bounded
+        # time; force-kill whatever is still alive if that budget runs out.
+        budget = min(2 + 3.5 * running, 30)
+        try:
+            import asyncio
+            import concurrent.futures
+
+            loop = getattr(manager, "_loop", None)
+            if loop is not None:
+                fut = asyncio.run_coroutine_threadsafe(manager.stop_all(origin="quit"), loop)
+                try:
+                    fut.result(timeout=budget)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(
+                        "Stopping %d task(s) exceeded %.1fs; force-killing stragglers",
+                        running,
+                        budget,
+                    )
+                    _force_kill_stragglers(manager)
+        except Exception as exc:
+            logger.warning("Stopping tasks on quit failed: %s", exc)
+
+    def _hard_exit() -> None:
         # Persist geometry and release the single-instance lock before the
         # hard exit below (os._exit skips atexit handlers).
         state_tracker.flush()
@@ -223,6 +321,96 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         # effort).
         os._exit(0)
 
+    def _ask_and_maybe_stop(running: int) -> None:
+        # Safe to block here: this only ever runs off the Cocoa main
+        # thread (a menu-action Thread from request_quit, or the daemon
+        # Thread on_closing spawns below) -- never call this inline from
+        # on_closing itself, see the comment there for why.
+        plural = "task" if running == 1 else "tasks"
+        confirmed = window.create_confirmation_dialog(
+            "Quit SecureVector",
+            f"{running} {plural} still running. Quit and stop them all?",
+        )
+        policy = desktop_shell.close_policy(running=running, quitting=True, confirmed=confirmed)
+        if policy == "stop_and_exit":
+            _stop_all_tasks()
+            _hard_exit()
+
+    def on_closing():
+        # pywebview's Cocoa backend runs this INLINE on the main thread for
+        # both close paths: the red-button click (windowShouldClose_) and
+        # Cmd+Q / the native app-menu "Quit" item (applicationShouldTerminate_,
+        # bound to NSApplication's terminate: action -- see cocoa.py's
+        # _add_app_menu: appMenu.addItemWithTitle_action_keyEquivalent_(...,
+        # 'terminate:', 'q')). Both delegate methods call
+        # BrowserView.should_close(window) with no argument that would let
+        # us tell them apart, and window.events.closing is built with
+        # should_lock=True (webview/window.py), so Event.set() executes
+        # this handler synchronously on whichever thread raised the event
+        # -- the main thread either way.
+        #
+        # Never open a dialog here. create_confirmation_dialog() does
+        # AppHelper.callAfter(_confirm) then semaphore.acquire(): callAfter
+        # needs the main run loop free to run _confirm, but we *are* that
+        # run loop, blocked on the semaphore. Guaranteed deadlock.
+        running = _running_tasks()
+        # quit_requested is only ever True from request_quit (the custom
+        # File > Quit menu action); Cmd+Q / the native Quit item never set
+        # it, so without _app_terminating() a real Cmd+Q with tasks
+        # running would be misread as a plain window close.
+        quitting = quit_requested["value"] or _app_terminating()
+        policy = desktop_shell.close_policy(running=running, quitting=quitting, confirmed=False)
+        # "stop_and_exit" never comes from here -- confirmed is always
+        # False in this call, so it can only be returned by the confirm
+        # flows (_ask_and_maybe_stop, reached from request_quit or the
+        # daemon thread below), which call _stop_all_tasks/_hard_exit
+        # themselves.
+        if policy == "exit":
+            _hard_exit()
+            return True
+        if policy == "hide":
+            # Plain window close with tasks running: hide silently, no
+            # dialog, no background thread. A relaunch or the tray brings
+            # the window back; tasks keep running untouched.
+            window.hide()
+            return False
+        # "confirm": Cmd+Q / native-menu Quit with tasks running. Hide
+        # immediately so the main thread never blocks, then ask off the
+        # main thread, guarded so a dialog already in flight (e.g. from
+        # request_quit) is not duplicated.
+        window.hide()
+        if quit_flow_lock.acquire(blocking=False):
+
+            def _ask():
+                try:
+                    _ask_and_maybe_stop(running)
+                finally:
+                    quit_flow_lock.release()
+
+            threading.Thread(target=_ask, daemon=True).start()
+        return False
+
+    def request_quit():
+        # This is the File > Quit SecureVector menu action, not Cmd+Q: it
+        # runs on a Thread pywebview spawns per click (MenuHandler.
+        # handleMenuAction_ does Thread(target=self.actions[...]).start()),
+        # so blocking on a modal dialog here cannot freeze the Cocoa main
+        # run loop the way doing it from on_closing would.
+        quit_requested["value"] = True
+        running = _running_tasks()
+        policy = desktop_shell.close_policy(running=running, quitting=True, confirmed=False)
+        if policy == "exit":
+            _hard_exit()
+            return
+        if not quit_flow_lock.acquire(blocking=False):
+            quit_requested["value"] = False
+            return
+        try:
+            _ask_and_maybe_stop(running)
+        finally:
+            quit_requested["value"] = False
+            quit_flow_lock.release()
+
     window.events.closing += on_closing
 
     # Start webview (blocking). When it returns, the window is gone
@@ -230,7 +418,9 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
     webview.start(
         on_loaded,
         debug=debug,
-        menu=desktop_shell.build_menu(window, app_url, __version__, debug=debug),
+        menu=desktop_shell.build_menu(
+            window, app_url, __version__, debug=debug, on_quit=request_quit
+        ),
         user_agent=desktop_shell.desktop_user_agent(__version__),
     )
     os._exit(0)
@@ -1384,6 +1574,66 @@ def _handle_enroll() -> None:
     sys.exit(0)
 
 
+EXECUTOR_FOR_PLUGIN = {
+    "claude-code": "claude-code",
+    "codex": "codex",
+    "copilot-cli": "copilot-cli",
+    "opencode": "opencode",
+}
+
+
+def _warn_if_sessions_live(name: str) -> None:
+    """Say so when removing this Guard would strand running agent sessions.
+
+    The HTTP route refuses outright. This path only warns, because a CLI
+    uninstall is a deliberate act by the machine's owner and blocking it would
+    leave someone with no way to remove a plugin while a wedged session sat on
+    the board. Saying nothing, though, is the one option that is simply wrong:
+    the sessions keep running with nothing watching them and the trail records
+    no reason.
+
+    Best effort throughout. A board that cannot be read must not stop an
+    uninstall from a terminal.
+    """
+    executor = EXECUTOR_FOR_PLUGIN.get(name)
+    if not executor:
+        return
+    try:
+        import sqlite3
+
+        from securevector.app.utils.platform import get_database_path
+
+        db = get_database_path()
+        if not db.exists():
+            return
+        # RUNNING, not a hand-copied tuple: guardrail.py derives its own live
+        # set from it for exactly this reason, and a status added there must
+        # not silently stop being covered here.
+        from securevector.app.terminals.store import RUNNING
+
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            placeholders = ",".join("?" * len(RUNNING))
+            rows = conn.execute(
+                "SELECT id FROM terminal_tasks WHERE executor_id = ? AND archived_at IS NULL "
+                f"AND status IN ({placeholders})",
+                (executor, *RUNNING),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - a warning must never block the command
+        return
+    if not rows:
+        return
+    ids = ", ".join(r[0][:12] for r in rows[:3])
+    more = f" and {len(rows) - 3} more" if len(rows) > 3 else ""
+    print(
+        f"\nWarning: {len(rows)} {name} session(s) are still running ({ids}{more}).\n"
+        "Removing the Guard does not stop them. They keep running with nothing\n"
+        "watching them, and nothing records when governance ended.\n"
+    )
+
+
 def _handle_plugin_command(args) -> None:
     """Dispatch --install-plugin / --uninstall-plugin to the same async
     handler the POST /api/hooks/<agent>/{install,uninstall} routes use.
@@ -1399,9 +1649,19 @@ def _handle_plugin_command(args) -> None:
     else:
         name, action = args.uninstall_plugin, "uninstall"
 
+    if action == "uninstall":
+        _warn_if_sessions_live(name)
+
     if name == "claude-code":
         from securevector.app.server.routes import hooks_claude_code as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        # `_uninstall_plugin`, not the route: the route's guard needs a Request,
+        # which this path has not got. It does NOT follow that there is nothing
+        # to strand. An earlier version of this comment claimed exactly that
+        # and was wrong: the board is a SQLite file, so a separate process sees
+        # the same live sessions a running app does. `_warn_if_sessions_live`
+        # is what keeps this path from removing a Guard from under a running
+        # agent in silence.
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     elif name == "openclaw":
         from securevector.app.server.routes import hooks as mod
@@ -1413,11 +1673,11 @@ def _handle_plugin_command(args) -> None:
             result = asyncio.run(mod.uninstall_plugin())
     elif name == "codex":
         from securevector.app.server.routes import hooks_codex as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     elif name == "copilot-cli":
         from securevector.app.server.routes import hooks_copilot_cli as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     elif name == "cursor":
         from securevector.app.server.routes import hooks_cursor as mod
@@ -1425,7 +1685,7 @@ def _handle_plugin_command(args) -> None:
         result = asyncio.run(handler())
     elif name == "opencode":
         from securevector.app.server.routes import hooks_opencode as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     else:
         print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor, opencode.", file=sys.stderr)
@@ -1502,6 +1762,16 @@ def main() -> None:
         )
         if os.path.exists(_bundled_runtime):
             os.environ["SV_GUARDIAN_RUNTIME"] = _bundled_runtime
+
+    if len(sys.argv) > 1 and sys.argv[1] == "terminal-hook":
+        # Agent Terminals hook relay. Runs inside a launched task; must stay
+        # cheap and silent. See securevector.app.terminals.hook_relay.
+        try:
+            from securevector.app.terminals.hook_relay import main as _hook_main
+
+            sys.exit(_hook_main())
+        except Exception:
+            sys.exit(0)
 
     # Dispatch enroll subcommand before the main parser runs
     if len(sys.argv) > 1 and sys.argv[1] == "enroll":

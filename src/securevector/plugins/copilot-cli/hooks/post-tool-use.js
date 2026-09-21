@@ -27,6 +27,7 @@
 const { normalize, isMcpToolName } = require('../lib/normalize.js');
 const { postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
 const { redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
+const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
@@ -234,6 +235,27 @@ async function main() {
   try {
     await audit(event, baseUrl);
   } catch { /* never crash the hook */ }
+
+  // Agent Terminals: relay every completed call, including the ones audit()
+  // skips (an unknown tool name still moves the task's activity line).
+  try {
+    const toolName = (event && (event.toolName || event.tool_name)) || '';
+    const toolInput = coerceToolInput(
+      event && (event.toolArgs !== undefined ? event.toolArgs : event.tool_input),
+    );
+    let preview = null;
+    try {
+      if (toolInput !== undefined && toolInput !== null) {
+        preview = redact(typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput)).slice(0, 200);
+      }
+    } catch { /* swallow */ }
+    await postTerminalEvent({
+      hook_event_name: 'PostToolUse',
+      session_id: (event && (event.sessionId || event.session_id)) || null,
+      tool_name: toolName,
+      tool_input_preview: preview,
+    });
+  } catch { /* swallow — the relay must never affect the hook */ }
   // postToolUse: no stdout control needed (we don't modify the result).
 }
 

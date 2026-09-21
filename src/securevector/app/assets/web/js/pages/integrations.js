@@ -45,6 +45,113 @@ const IntegrationPage = {
         }
     },
 
+    // --- Guard uninstall: the live-session refusal ------------------------
+    // Removing a Guard plugin while that harness still has live sessions
+    // strands them: the hooks stop firing and nothing records the moment
+    // governance ended, because the thing that writes the trail is what was
+    // removed. The server refuses that with HTTP 409 and a `detail` naming the
+    // sessions. A 409 body carries no `ok` field, so the refusal has to be read
+    // off the status code: checking `result.ok` alone throws the reason away and
+    // shows a generic failure for something the server explained precisely.
+    //
+    // Going ahead anyway is a second, deliberate click on a button that does not
+    // exist until the refusal has been shown. That matches the in-place confirm
+    // on the Terminals board (js/pages/terminals.js, _askRemove): never a native
+    // confirm(), which freezes the window and cannot be styled or tested, and
+    // never a "force" checkbox sitting pre-ticked before anyone has read what it
+    // overrides. Like that one it disarms itself, so a forgotten prompt is not
+    // still armed under a later click.
+    UNINSTALL_CONFIRM_MS: 8000,
+
+    /** POST one plugin uninstall. `force` travels in the JSON body: the
+     *  endpoint reads it there, not from the query string. */
+    async postUninstall(url, force = false) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(force ? { force: true } : {}),
+        });
+    },
+
+    /** Show the server's refusal verbatim, and offer the way past it.
+     *  `detail` names the specific sessions, so it is not paraphrased. */
+    showUninstallRefusal({ resultArea, showResult, detail, onProceed }) {
+        showResult('warning', detail);
+        if (!resultArea) return null;
+
+        const row = document.createElement('div');
+        row.style.cssText = 'margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;';
+
+        const hint = document.createElement('div');
+        hint.style.cssText = 'font-size: 12px; color: var(--text-secondary); width: 100%;';
+        hint.textContent = 'Removing it does not stop them. The Guard goes, and the gap is written to each session trail.';
+        row.appendChild(hint);
+
+        const keepBtn = document.createElement('button');
+        keepBtn.type = 'button';
+        keepBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
+        keepBtn.textContent = 'Keep the plugin';
+
+        const forceBtn = document.createElement('button');
+        forceBtn.type = 'button';
+        forceBtn.style.cssText = 'background: transparent; color: var(--warning); border: 1px solid var(--warning); padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
+        forceBtn.textContent = 'Remove anyway, stop watching them';
+
+        let timer = null;
+        const disarm = () => {
+            if (timer !== null) { clearTimeout(timer); timer = null; }
+            if (row.parentNode) row.parentNode.removeChild(row);
+        };
+        keepBtn.onclick = disarm;
+        forceBtn.onclick = () => { disarm(); onProceed(); };
+        timer = setTimeout(disarm, this.UNINSTALL_CONFIRM_MS);
+
+        row.appendChild(keepBtn);
+        row.appendChild(forceBtn);
+        resultArea.appendChild(row);
+        return row;
+    },
+
+    /** One Uninstall click for a Guard plugin, refusal handling included.
+     *  `onRemoved` owns the success copy and the pill/button state, which
+     *  differ per harness; everything else here is the same for all of them. */
+    async runPluginUninstall({ url, button, resultArea, showResult, onRemoved, busyLabel = 'Uninstalling...', idleLabel = 'Uninstall' }) {
+        const attempt = async (force) => {
+            button.disabled = true;
+            button.textContent = busyLabel;
+            try {
+                const res = await this.postUninstall(url, force);
+                if (res && res.status === 409) {
+                    let detail = '';
+                    try {
+                        const body = await res.json();
+                        detail = (body && body.detail) || '';
+                    } catch { /* a 409 without a JSON body: fall back to the generic line */ }
+                    this.showUninstallRefusal({
+                        resultArea,
+                        showResult,
+                        detail: detail || 'Sessions of this harness are still running. Stop them first, or they keep running with nothing watching them.',
+                        onProceed: () => { attempt(true); },
+                    });
+                    button.disabled = false;
+                    button.textContent = idleLabel;
+                    return;
+                }
+                const result = await res.json();
+                if (result && result.ok) {
+                    onRemoved(result);
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            button.disabled = false;
+            button.textContent = idleLabel;
+        };
+        await attempt(false);
+    },
+
     // Update all proxy buttons
     async updateProxyButtons() {
         await this.checkProxyStatus();
@@ -1221,27 +1328,22 @@ def chat_with_protection(user_input):
         };
 
         // --- Uninstall click handler ---
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/claude-code/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed. Run /reload-plugins in your Claude Code session to drop it from the active runtime.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/claude-code/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed. Run /reload-plugins in your Claude Code session to drop it from the active runtime.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // --- Initial status check ---
         // The /status endpoint reports installation but does NOT echo the
@@ -1590,27 +1692,22 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/copilot-cli/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed from Copilot CLI (deregistered from config.json and deleted from the store). Start a new Copilot session to drop the hooks.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/copilot-cli/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed from Copilot CLI (deregistered from config.json and deleted from the store). Start a new Copilot session to drop the hooks.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // Initial status check. `auto_installed`+`enabled` mean we wrote into
         // Copilot's store + config.json; `installed` (staged) without them is the
@@ -1848,27 +1945,22 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/opencode/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed from OpenCode (deregistered from opencode.json and the staged tree deleted). Start a new OpenCode session to drop the hooks.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/opencode/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed from OpenCode (deregistered from opencode.json and the staged tree deleted). Start a new OpenCode session to drop the hooks.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // Initial status check. `auto_installed`+`enabled` mean we wrote into
         // OpenCode's config "plugin" array; `installed` (staged) without them is
@@ -2195,6 +2287,15 @@ def chat_with_protection(user_input):
         btnRow.appendChild(statusPill);
         content.appendChild(btnRow);
 
+        // Codex's built-in web tool runs inside the harness and fires no hook,
+        // so the Guard never sees it. Terminals lists it after the fact from
+        // the local transcript; this is how to bring it under the Guard.
+        const webHint = document.createElement('div');
+        webHint.id = 'codex-web-search-hint';
+        webHint.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 14px;';
+        webHint.textContent = 'Web search inside Codex is not hookable. Set web_search = false in Codex\'s config to force web access through shell commands, which the Guard governs.';
+        content.appendChild(webHint);
+
         const resultArea = document.createElement('div');
         resultArea.id = 'codex-plugin-result';
         resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
@@ -2329,27 +2430,22 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/codex/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed. Restart your Codex session to drop it from the active runtime.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/codex/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed. Restart your Codex session to drop it from the active runtime.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // Initial status check. Codex /status uses `codex_install_path`
         // and `codex_detected` field names (different from CC's

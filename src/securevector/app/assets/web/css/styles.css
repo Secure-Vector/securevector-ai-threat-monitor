@@ -88,8 +88,8 @@
     --severity-low: #60a5fa;
 
     /* Sidebar */
-    --sidebar-width: 240px;
-    --sidebar-collapsed-width: 64px;
+    --sidebar-width: 336px;
+    --sidebar-collapsed-width: 72px;
 
     /* Header */
     --header-height: 64px;
@@ -152,7 +152,9 @@
     --success-text: #059669;
 
     /* Warning / amber — light mode: darker for contrast on white */
-    --warning-text: #b45309;
+    /* #b45309 measured 4.38:1 on the amber chip wash at 12px, just under the
+       4.5 AA floor. Darkened one step; #92400e measures about 6:1 there. */
+    --warning-text: #92400e;
     --warning-text-muted: #92400e;
     --warning-chip-bg: rgba(180,83,9,0.1);
     --warning-chip-border: rgba(180,83,9,0.25);
@@ -318,12 +320,13 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     position: relative;
     /* clamp() defends against the JS resize handler ever writing an
        out-of-bounds value — even direct localStorage tampering can't push
-       the rail outside [180px, 380px]. */
-    width: clamp(180px, var(--sidebar-width), 380px);
+       the two-column navigation outside [300px, 440px]. */
+    width: clamp(300px, var(--sidebar-width), 440px);
+    max-width: min(440px, 42vw);
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-default);
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     transition: width var(--transition-normal);
 }
 
@@ -1007,27 +1010,44 @@ html.desktop-mac .header {
     min-width: 0;
 }
 
+/* A chevron puck straddling the sidebar's right edge, the place a sidebar
+   toggle is looked for. Mounted on `.sidebar` (see Sidebar.render), so the
+   edge it sits on is the outer edge in every state: the context panel's when
+   that panel is up, the rail's when it is collapsed or the group has no rows.
+   Quiet at rest but never invisible: a raised fill, which carries it in the
+   light theme, and --border-light, which is the heavier of the two hairlines
+   in the dark theme and carries it there. Teal is the hover state, below. */
+/* Below the header rule, level with the first content row rather than beside
+   the logo. At the top it crowded the mark, and on macOS it sat inside the
+   title-bar inset where the window's own drag region lives. Tied to
+   --header-height so it tracks the header instead of a magic offset. */
 .sidebar-collapse-btn {
     position: absolute;
     right: -12px;
-    top: 20px;
+    top: calc(var(--header-height) + 7px);
     width: 24px;
     height: 24px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-default);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
     border-radius: 50%;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow: var(--shadow-sm);
     transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
     z-index: 21;
 }
 
-/* Desktop shell: the button follows the rail header down by the title-bar inset. */
+.sidebar-collapse-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+/* Desktop shell: the header grows by the title-bar inset, so the button does too. */
 html.desktop-mac .sidebar-collapse-btn {
-    top: calc(20px + var(--titlebar-inset));
+    top: calc(var(--header-height) + var(--titlebar-inset) + 7px);
 }
 
 .sidebar-collapse-btn svg {
@@ -2312,6 +2332,11 @@ html.desktop-mac .sidebar-collapse-btn {
 }
 
 /* Buttons */
+/* [hidden] is only a UA display:none, so any class that sets display beats it.
+   Buttons are where that bites: a hidden Install button kept showing next to
+   the Restart one meant to replace it, still reading "Installing...". */
+.btn[hidden] { display: none; }
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -8401,13 +8426,29 @@ thead tr:hover #records-select-all,
 .nav-search-label { flex: 1; text-align: left; }
 .nav-search-kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
     border: 1px solid var(--border-default); color: var(--text-secondary); }
-.sidebar.collapsed .nav-search { width: 40px; margin: 4px 12px 0; padding: 7px 0; justify-content: center; }
-.sidebar.collapsed .nav-search-label, .sidebar.collapsed .nav-search-kbd { display: none; }
+.sidebar.collapsed .nav-search,
+.sidebar.sidebar-context-empty .nav-search { width: 40px; margin: 4px 12px 0; padding: 7px 0; justify-content: center; }
+.sidebar.collapsed .nav-search-label, .sidebar.collapsed .nav-search-kbd,
+.sidebar.sidebar-context-empty .nav-search-label, .sidebar.sidebar-context-empty .nav-search-kbd { display: none; }
 
 /* Views: the pages folded into a destination. Visible only under the active row. */
 .nav-views { display: none; margin: 0 0 4px 26px; padding-left: 6px; border-left: 1px solid var(--border-default); }
 .nav-views.open { display: block; }
 .nav-views.peek { display: block; }
+/* A single-item group whose item is its own landing hoists that item's
+   views straight into the list (see render()): no parent row, so no fold
+   indent or guide line either — these read as the top-level destinations. */
+.nav-views.nav-views-flat { margin: 0; padding-left: 0; border-left: 0; }
+/* Agent Tasks is hoisted (nav-views-flat, from the render() hoist) AND
+   renders task rows (nav-views-tasks, from _renderViews), so its wrap
+   carries both classes. This rule and `.nav-views.nav-views-tasks
+   .nav-item.nav-view` below have identical specificity — with both
+   selectors bare, whichever sits later in the file would silently win, so
+   moving either block would retune every task row. The `:not()` here makes
+   the tasks rule (below) the sole, order-independent source of truth for a
+   wrap carrying both classes; this rule only ever applies to a flat group
+   with no task styling (Governance's hoisted views). */
+.nav-views.nav-views-flat:not(.nav-views-tasks) .nav-item.nav-view { padding: 8px 16px; gap: 12px; font-size: 12.5px; }
 .nav-item .nav-fold-chev { width: 10px; height: 10px; flex-shrink: 0; margin-left: auto; opacity: 0.45; transform: rotate(-90deg); transition: transform 0.15s, opacity 0.15s; }
 .nav-item.nav-has-views .nav-count:not([hidden]) + .nav-fold-chev { margin-left: 6px; }
 .nav-item.nav-fold-open .nav-fold-chev { transform: rotate(0deg); }
@@ -8613,4 +8654,1191 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 [role="button"]:focus:not(:focus-visible), [role="tab"]:focus:not(:focus-visible),
 .nav-item:focus:not(:focus-visible), .sidebar-collapse-btn:focus:not(:focus-visible) {
     outline: none;
+}
+
+/* ---- Terminals ---------------------------------------------------------- */
+.terminals-page { display: grid; grid-template-rows: auto minmax(440px, 1fr); gap: 14px; height: calc(100vh - 96px); min-height: 520px; }
+.terminals-tasks { overflow: hidden; border: 1px solid var(--border-default, #24303c); border-radius: 14px; padding: 13px 14px; background: linear-gradient(155deg, rgba(19, 31, 42, .97), rgba(11, 16, 22, .98)); box-shadow: 0 18px 40px rgba(0, 0, 0, .16); }
+.terminals-tasks-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 2px 10px; }
+.terminals-eyebrow { display: block; color: var(--accent-primary, #2dd4bf); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.terminals-tasks-head h2 { margin: 4px 0 3px; font-size: 21px; letter-spacing: -.025em; }
+.terminals-tasks-head p { display: inline; margin: 0 0 0 10px; color: rgba(214, 226, 236, .68); font-size: 11px; line-height: 1.45; }
+.terminals-launch-button { flex: 0 0 auto; margin-top: 5px; }
+.terminals-tasks-actions { display: flex; align-items: center; gap: 8px; }
+.terminals-task-search { width: 178px; padding: 6px 9px; border: 1px solid rgba(109, 136, 156, .36); border-radius: 8px; background: rgba(0,0,0,.2); color: inherit; font: inherit; font-size: 12px; }
+/* A tiny sibling of Guardian, not another assistant: the two-eye task glyph
+   makes direct task entries feel alive while colour + silhouette still carry
+   their operational state. */
+.sv-task-agent { position: relative; display: inline-flex; flex: 0 0 15px; width: 15px; height: 15px; align-items: center; justify-content: center; gap: 2px; border: 1px solid currentColor; border-radius: 48% 48% 42% 42%; color: #4de4df; background: rgba(77,228,223,.12); }
+.sv-task-agent i { display: block; width: 2px; height: 3px; border-radius: 50%; background: currentColor; }
+.sv-task-agent-active { animation: sv-task-agent-breathe 1.8s ease-in-out infinite; }
+.sv-task-agent-approval { clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); border: 0; border-radius: 0; color: #fbbf24; background: rgba(245,158,11,.3); }
+.sv-task-agent-blocked { border-radius: 2px; color: #fb7185; background: rgba(239,68,68,.13); }
+.sv-task-agent-completed { border-radius: 50%; color: #50df9d; background: rgba(22,167,108,.13); }
+.sv-task-agent-interrupted { border-radius: 3px; color: #9aa7b3; background: rgba(108,119,129,.15); }
+.sv-task-agent-failed { clip-path: polygon(50% 0, 100% 100%, 0 100%); border: 0; border-radius: 0; color: #f87171; background: #7f2631; padding-top: 3px; }
+@keyframes sv-task-agent-breathe { 50% { box-shadow: 0 0 0 3px rgba(77,228,223,0); } }
+.sv-task-avatar { display: inline-flex; flex: 0 0 auto; color: #eef4f8; }
+.sv-task-avatar svg { width: 100%; height: 100%; display: block; }
+.sv-task-avatar .sv-ta-head { fill: #dde4eb; }
+.sv-task-avatar .sv-ta-pod { fill: var(--sv-task-hue, #c3cdd7); }
+.sv-task-avatar .sv-ta-sheen { fill: rgba(255,255,255,.55); }
+.sv-task-avatar .sv-ta-visor { fill: #10161e; }
+[data-theme="light"] .sv-task-avatar .sv-ta-head { fill: #333c48; }
+[data-theme="light"] .sv-task-avatar .sv-ta-pod { fill: var(--sv-task-hue, #4a5462); }
+[data-theme="light"] .sv-task-avatar .sv-ta-sheen { fill: rgba(255,255,255,.14); }
+.sv-task-avatar .sv-ta-eye { fill: currentColor; }
+.sv-task-avatar .sv-ta-happy { display: none; stroke: currentColor; stroke-width: 1.3; fill: none; stroke-linecap: round; }
+.sv-task-avatar-active { color: #4de4df; }
+.sv-task-avatar-approval { color: #fbbf24; }
+.sv-task-avatar-blocked, .sv-task-avatar-failed { color: #fb7185; }
+.sv-task-avatar-completed { color: #50df9d; }
+.sv-task-avatar-completed .sv-ta-eye { display: none; }
+.sv-task-avatar-completed .sv-ta-happy { display: block; }
+.sv-task-avatar-interrupted { color: #9aa7b3; }
+.sv-task-avatar-interrupted .sv-ta-pod { opacity: .55; }
+.sv-task-avatar .sv-ta-err { display: none; }
+.sv-task-avatar-failed .sv-ta-err { display: block; }
+.sv-task-avatar-failed circle.sv-ta-err { fill: #ef4444; stroke: #eef4f8; stroke-width: 1; }
+.sv-task-avatar-failed rect.sv-ta-err { fill: #eef4f8; }
+[data-theme="light"] .sv-task-avatar-failed circle.sv-ta-err { stroke: #ffffff; }
+.terminals-task-card-head .sv-task-avatar { margin-right: 2px; }
+.terminals-page.is-focused .terminals-tasks { display: none; }
+.terminals-head-title { font-weight: 600; }
+.terminals-attached-head .sv-task-avatar { margin-right: 4px; }
+.nav-item.nav-view .sv-task-avatar svg { width: 100%; height: 100%; opacity: 1; }
+.nav-item.nav-view > span.sv-task-avatar:first-of-type { flex: 0 0 auto; }
+.nav-item.nav-view > .sv-task-avatar + span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The Agent Tasks block sits under Connect as its own group: a hairline
+   divider stands in for a fourth section header, so the rail keeps three. */
+.nav-tasks-divider { height: 1px; margin: 10px 14px 6px; background: var(--border-default); }
+.sidebar.collapsed .nav-tasks-divider { display: block !important; margin: 8px 10px 4px; }
+/* Task rows take the whole rail width and light the full rectangle, the way
+   a top-level row does, instead of the indented tick-list treatment. */
+.nav-views.nav-views-tasks { margin-left: 0; padding-left: 0; border-left: 0; }
+/* Wins over `.nav-views.nav-views-flat .nav-item.nav-view` above for a wrap
+   carrying both classes (Agent Tasks) — see the `:not()` note up there. */
+.nav-views.nav-views-tasks .nav-item.nav-view { padding: 6px 16px 6px 24px; gap: 10px; margin: 1px 0; border-radius: var(--radius-md); font-size: 12px; }
+.sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active, [data-theme="light"] .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active { background: rgba(94,173,184,0.14); color: var(--text-primary); font-weight: 600; box-shadow: none; }
+[data-theme="light"] .sidebar .nav-views.nav-views-tasks .nav-item.nav-view.active { background: rgba(94,173,184,0.16); }
+.sidebar .nav-views.nav-views-tasks .nav-item.nav-view:not(.active):hover { background: var(--bg-hover); color: var(--text-primary); }
+/* Rail task rows: two lines, harness and elapsed time under the title, with a
+   folder header once more than one checkout is in play. */
+.nav-views.nav-views-tasks .nav-item.nav-view { align-items: center; }
+.nav-task-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.nav-task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-task-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .02em; color: var(--text-muted); }
+.nav-tasks-group { padding: 8px 16px 2px 24px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar.collapsed .nav-tasks-group { display: none; }
+.terminals-page.is-focused { grid-template-rows: 1fr; }
+.terminals-launch { display: grid; grid-template-columns: minmax(130px, .65fr) minmax(220px, 1.3fr) minmax(160px, 1fr) auto; align-items: end; gap: 10px; margin: 0 0 12px; padding: 10px; border: 1px solid var(--border-default, #24303c); border-radius: 10px; background: rgba(0,0,0,.14); }
+.terminals-launch[hidden] { display: none; }
+.terminals-launch label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.terminals-launch input, .terminals-launch select { font: inherit; padding: 5px 6px; }
+.terminals-launch-actions { display: flex; gap: 6px; white-space: nowrap; }
+.terminals-launch-error, .terminals-error { color: var(--danger, #ef4444); font-size: 12px; }
+.terminals-task-list { display: flex; gap: 10px; overflow-x: auto; padding: 1px 2px 5px; scrollbar-color: rgba(98, 133, 151, .65) transparent; }
+.terminals-group { display: flex; gap: 8px; }
+.terminals-group-name { display: none; }
+.terminals-task { position: relative; display: block; flex: 0 0 250px; width: 250px; margin: 0; overflow: hidden; border: 1px solid rgba(109, 136, 156, .26); border-radius: 12px; background: linear-gradient(135deg, rgba(255,255,255,.055), rgba(255,255,255,.015)); color: inherit; transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+.terminals-task:hover { border-color: rgba(45,212,191,.7); transform: translateY(-1px); box-shadow: 0 10px 24px rgba(0, 0, 0, .18); }
+.terminals-task.is-attached { border-color: var(--accent-primary, #2dd4bf); box-shadow: inset 3px 0 0 var(--accent-primary, #2dd4bf), 0 10px 24px rgba(0, 0, 0, .16); }
+.terminals-task-select { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 13px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.terminals-task-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.terminals-task-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.terminals-task-title { font-size: 13px; font-weight: 650; }
+.terminals-task-state { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; line-height: 1.3; white-space: nowrap; }
+.terminals-task-state-mark { display: inline-grid; width: 13px; height: 13px; place-items: center; font-size: 10px; font-weight: 800; line-height: 1; }
+.terminals-state-active { color: #4de4df; }.terminals-state-active .terminals-task-state-mark { border-radius: 50%; background: #22cfd1; color: #082128; animation: terminals-active-pulse 1.75s ease-out infinite; }
+.terminals-state-approval { color: #fbbf24; }.terminals-state-approval .terminals-task-state-mark { clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); background: #f59e0b; color: #332100; }
+.terminals-state-blocked { color: #fb7185; }.terminals-state-blocked .terminals-task-state-mark { clip-path: polygon(50% 0, 93% 24%, 93% 75%, 50% 100%, 7% 75%, 7% 24%); background: #ef4444; color: #fff; }
+.terminals-state-completed { color: #50df9d; }.terminals-state-completed .terminals-task-state-mark { border-radius: 50%; background: #16a76c; color: #eafff4; }
+.terminals-state-interrupted { color: #9aa7b3; }.terminals-state-interrupted .terminals-task-state-mark { border-radius: 3px; background: #6c7781; color: #e5eaed; }
+.terminals-state-failed { color: #f87171; }.terminals-state-failed .terminals-task-state-mark { width: 15px; height: 14px; clip-path: polygon(50% 0, 100% 100%, 0 100%); background: #ef4444; color: #fff; font-size: 8px; padding-top: 3px; }
+@keyframes terminals-active-pulse { 0% { box-shadow: 0 0 0 0 rgba(34,207,209,.62); } 70% { box-shadow: 0 0 0 6px rgba(34,207,209,0); } 100% { box-shadow: 0 0 0 0 rgba(34,207,209,0); } }
+.terminals-task-meta, .terminals-task-open { font-size: 10px; opacity: .62; }
+.terminals-task-open { color: var(--accent-primary, #2dd4bf); opacity: 1; }
+.terminals-task-activity { font-size: 11px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A real row under the card body, not an overlay. These used to be absolutely
+   positioned at the bottom right, which put them on top of the card's own
+   click target: the corner they covered stopped opening the task, and they sat
+   over the branch and elapsed time on the line below. */
+.terminals-task-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 13px 11px; }
+.terminals-task-relaunch, .terminals-task-remove { padding: 3px 7px; border-radius: 999px; font: 650 10px/1.35 inherit; cursor: pointer; }
+.terminals-task-relaunch { width: 20px; height: 20px; padding: 0; border: 1px solid rgba(45,212,191,.42); background: rgba(45,212,191,.08); color: var(--accent-primary, #2dd4bf); font-size: 14px; line-height: 18px; }
+.terminals-task-relaunch:hover { background: rgba(45,212,191,.16); }
+.terminals-task-remove { border: 1px solid rgba(248,113,113,.34); background: rgba(248,113,113,.06); color: #fca5a5; }
+.terminals-task-remove:hover { background: rgba(248,113,113,.14); }
+.terminals-task-empty { display: flex; flex: 1; flex-direction: row; align-items: center; gap: 9px; padding: 12px 14px; border: 1px dashed rgba(109, 136, 156, .42); border-radius: 12px; color: rgba(214, 226, 236, .7); font-size: 11px; line-height: 1.45; }
+.terminals-task-empty strong { color: inherit; font-size: 13px; }
+.terminals-dot { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: #8b949e; }
+.terminals-dot.sv-status-green { background: #10b981; }
+.terminals-dot.sv-status-amber { background: #f59e0b; }
+.terminals-dot.sv-status-red { background: #ef4444; }
+.terminals-centre { display: flex; flex-direction: column; min-width: 0; border: 1px solid rgba(88, 116, 137, .48); border-radius: 14px; overflow: hidden; background: #090e13; box-shadow: 0 18px 40px rgba(0, 0, 0, .2); }
+.terminals-workspace { display: flex; flex-direction: row; min-width: 0; min-height: 0; }
+/* Governance is a right column, but a dragged one: the panes take every
+   pixel it is not currently using, and a collapse hands the rest back. */
+.terminals-workspace > .terminals-centre { flex: 1 1 auto; min-width: 420px; min-height: 0; }
+.terminals-attached-head { display: flex; gap: 12px; align-items: center; min-height: 36px; padding: 7px 12px; font-size: 12px; border-bottom: 1px solid var(--border-default, #24303c); background: rgba(23, 34, 44, .75); }
+.terminals-head-spacer { flex: 1; }
+.terminals-head-status { text-transform: capitalize; }
+.terminals-attention { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; border-bottom: 1px solid rgba(245,158,11,.36); background: rgba(146, 86, 10, .2); color: #fde7a4; font-size: 12px; }
+.terminals-attached-body { position: relative; flex: 1; min-height: 0; }
+.terminals-stage-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 390px; margin: auto; padding: 30px; text-align: center; color: rgba(215, 229, 238, .68); }
+.terminals-stage-empty h3 { margin: 14px 0 7px; color: #e8f5f4; font-size: 17px; }
+.terminals-stage-empty p { margin: 0; font-size: 12px; line-height: 1.55; }
+.terminals-stage-mark { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid rgba(45,212,191,.58); border-radius: 12px; background: rgba(45,212,191,.1); color: var(--accent-primary, #2dd4bf); font-size: 12px; font-weight: 750; letter-spacing: -.05em; }
+.terminals-xterm { position: absolute; inset: 0; padding: 6px; }
+.terminals-banner { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; font-size: 12px; background: rgba(20, 28, 36, .95); border-top: 1px solid var(--border-default, #24303c); }
+.terminals-empty { font-size: 12px; opacity: .6; }
+/* The right column: a body whose width the person drags, and a collapse
+   that takes the column down to a 34px vertical strip. The strip is the
+   whole trick, and the reason the old <details> failed: it keeps the panel
+   findable while handing every other pixel back to the panes. */
+.terminals-governance { flex: 0 0 auto; display: flex; flex-direction: column; width: var(--gov-w, 320px); min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--border-default, #24303c); border-radius: 12px; background: rgba(12, 19, 26, .82); }
+.terminals-governance.is-collapsed { width: 34px; }
+.terminals-gov-edge { position: relative; flex: 0 0 12px; width: 12px; min-width: 12px; z-index: 2; }
+.terminals-gov-gutter { position: absolute; inset: 0; background: transparent; border: 0; padding: 0; cursor: col-resize; touch-action: none; }
+.terminals-gov-gutter[hidden] { display: none; }
+.terminals-gov-gutter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); background: var(--border-default, #24303c); transition: background .12s ease; }
+.terminals-gov-gutter:hover::after, .terminals-gov-gutter:focus-visible::after { background: rgba(45, 212, 191, .75); }
+.terminals-gov-gutter:focus-visible { outline: none; }
+.terminals-governance-head { display: flex; flex: 0 0 auto; align-items: center; gap: 14px; padding: 0 13px; }
+.terminals-governance-name { padding: 10px 0; font-size: 12px; font-weight: 650; }
+.terminals-governance-toggle { position: absolute; top: 50%; left: 50%; z-index: 2; display: inline-flex; width: 24px; height: 32px; padding: 0; align-items: center; justify-content: center; transform: translate(-50%, -50%); border: 1px solid var(--border-default, #24303c); border-radius: 999px; background: var(--bg-secondary, #0d1319); color: inherit; font: inherit; cursor: pointer; }
+.terminals-governance-toggle:hover { border-color: var(--accent-primary, #2dd4bf); background: var(--bg-hover, #151d26); }
+.terminals-governance-toggle:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 2px; }
+.terminals-governance-caret { color: var(--accent-primary, #2dd4bf); font-size: 16px; line-height: 1; transform: rotate(0deg); transition: transform .14s ease; }
+.terminals-governance-caret::before { content: '›'; }
+.terminals-governance-summary { margin-left: auto; color: rgba(214, 226, 236, .6); font-size: 11px; font-weight: 400; }
+/* Collapsed: the static header becomes the whole strip. The reliable control
+   stays independently focusable on the edge rather than turning the title
+   into a button. */
+.terminals-governance.is-collapsed .terminals-governance-head { flex: 1 1 auto; align-items: center; justify-content: flex-start; gap: 0; padding: 12px 0; }
+.terminals-governance.is-collapsed .terminals-governance-name { padding: 0; letter-spacing: .04em; writing-mode: vertical-rl; }
+.terminals-gov-edge.is-collapsed .terminals-governance-caret { transform: rotate(180deg); }
+.terminals-governance.is-collapsed .terminals-governance-summary { display: none; }
+/* Container-responsive fallback: a wide viewport can still leave this page a
+   narrow workspace after the product rail/sidebar takes its share. */
+.terminals-workspace.is-gov-stacked { flex-direction: column; }
+.terminals-workspace.is-gov-stacked > .terminals-centre { width: 100%; min-width: 0; }
+.terminals-workspace.is-gov-stacked .terminals-gov-edge { flex: 0 0 0; width: auto; min-width: 0; height: 0; }
+.terminals-workspace.is-gov-stacked .terminals-gov-gutter { display: none; }
+.terminals-workspace.is-gov-stacked .terminals-governance-toggle { top: 6px; right: 12px; left: auto; width: 32px; height: 24px; transform: translateY(-50%); }
+.terminals-workspace.is-gov-stacked .terminals-governance-caret { transform: rotate(-90deg); }
+.terminals-workspace.is-gov-stacked .terminals-governance { width: auto; min-width: 0; max-height: 60vh; margin-top: 12px; }
+.terminals-workspace.is-gov-stacked .terminals-governance-name { writing-mode: horizontal-tb; }
+/* One column: the body is ~290px wide now, so an auto-fit track with a
+   320px floor would overflow the panel it lives in. */
+.terminals-governance-body { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 13px 12px; border-top: 1px solid rgba(255,255,255,.06); }
+.terminals-governance-body[hidden] { display: none; }
+.terminals-governance-body h3 { margin: 12px 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+.terminals-verdict, .terminals-approval { display: flex; gap: 8px; padding: 6px 0; font-size: 12px; }
+.terminals-verdict-main { display: flex; flex-direction: column; min-width: 0; }
+.terminals-verdict-reason { opacity: .7; }
+.terminals-approval { flex-direction: column; gap: 4px; }
+.terminals-approval-why { opacity: .7; }
+.terminals-approval-actions { display: flex; gap: 6px; }
+@media (max-width: 760px) { .terminals-page { grid-template-rows: auto minmax(460px, 1fr); height: auto; } .terminals-tasks-head { align-items: flex-start; } .terminals-tasks-head p { display: block; margin: 3px 0 0; } .terminals-task-search { width: 120px; } .terminals-launch { grid-template-columns: 1fr; } .terminals-workspace { flex-direction: column; } .terminals-workspace > .terminals-centre { min-width: 0; } .terminals-gov-edge { flex: 0 0 0; width: auto; min-width: 0; height: 0; } .terminals-gov-gutter { display: none; } .terminals-governance-toggle { top: 6px; right: 12px; left: auto; width: 32px; height: 24px; transform: translateY(-50%); } .terminals-governance-caret { transform: rotate(-90deg); } .terminals-gov-edge.is-collapsed .terminals-governance-caret { transform: rotate(90deg); } .terminals-governance { width: auto; min-width: 0; max-height: 60vh; margin-top: 12px; } .terminals-governance.is-collapsed { width: auto; } .terminals-governance.is-collapsed .terminals-governance-head { flex: 0 0 auto; align-items: center; padding: 0 13px; } .terminals-governance.is-collapsed .terminals-governance-name { padding: 10px 0; writing-mode: horizontal-tb; } .terminals-centre { min-height: 460px; } .terminals-attached-head { gap: 7px; flex-wrap: wrap; } .terminals-governance-summary { display: none; } }
+
+/* Terminal look: monospace, flat surfaces, prompt glyphs. Additive overrides
+   only, layered after the rules above per the higher-specificity-or-later
+   convention already used on this page. */
+.terminals-page { font-family: var(--font-mono); font-size: 12px; }
+.terminals-page button, .terminals-page input, .terminals-page select { font-family: inherit; }
+.terminals-launch label { font-size: 11px; }
+.terminals-task, .terminals-centre, .terminals-governance, .terminals-launch, .terminals-tasks { border-radius: 4px; background-image: none; box-shadow: none; }
+.terminals-tasks { background: #0b1016; }
+.terminals-task, .terminals-governance, .terminals-launch { background: #0d1319; border: 1px solid rgba(148, 163, 184, .16); }
+.terminals-centre { background: #0b1016; border: 1px solid rgba(148, 163, 184, .16); }
+.terminals-task:hover { border-color: var(--accent-primary, #2dd4bf); box-shadow: none; }
+.terminals-task.is-attached { border-color: var(--accent-primary, #2dd4bf); box-shadow: none; }
+.terminals-task-title::before { content: '> '; opacity: .55; }
+.terminals-head-title::before { content: '$ '; opacity: .6; }
+.terminals-attached-head { background: #0b1016; border-bottom: 1px solid rgba(148, 163, 184, .16); border-radius: 0; font-size: 11px; letter-spacing: .02em; }
+.terminals-stage-empty p::after { content: '\2588'; margin-left: 4px; animation: terminals-blink 1s steps(1) infinite; }
+@keyframes terminals-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .terminals-stage-empty p::after { animation: none; } }
+.terminals-task-state { font-family: var(--font-mono); text-transform: uppercase; }
+.terminals-task-state-mark { border-radius: 3px; }
+.terminals-trace-open { background: transparent; border: 1px solid rgba(148, 163, 184, .3); border-radius: 3px; padding: 2px 6px; font-family: inherit; font-size: 10px; text-transform: uppercase; color: inherit; cursor: pointer; }
+.terminals-trace-open:hover { border-color: var(--accent-primary, #2dd4bf); }
+.terminals-traces { display: flex; flex-direction: column; }
+.terminals-trace-session { display: flex; flex-direction: column; gap: 4px; }
+.terminals-trace-session-head { display: flex; align-items: center; gap: 5px; padding: 2px 1px 5px; color: var(--text-muted, #94a3b8); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.terminals-trace-session-head code { max-width: 92px; overflow: hidden; text-overflow: ellipsis; font: inherit; color: var(--text-secondary, #cbd5e1); text-transform: none; }
+.terminals-trace-session-path { margin-left: auto; opacity: .72; font-size: 9px; }
+.terminals-trace { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 12px; }
+.terminals-trace-main { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 2px; }
+.terminals-trace-id { color: var(--accent-primary, #2dd4bf); opacity: .9; }
+.terminals-trace-meta { opacity: .65; font-size: 11px; }
+.terminals-traces-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.terminals-traces-head h3 { margin-bottom: 0; }
+.terminals-traces-all { font-size: 10px; font-weight: 400; text-transform: uppercase; text-decoration: none; opacity: .6; color: inherit; }
+.terminals-traces-all:hover { color: var(--accent-primary, #2dd4bf); opacity: 1; }
+
+/* Governance activity: each section is its own disclosure, and every row is a
+   card rather than a dashed rule with a glyph prefix. */
+.terminals-gov-section { border-top: 1px solid rgba(148, 163, 184, .12); }
+.terminals-gov-section > summary { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 9px 0 6px; cursor: pointer; list-style: none; }
+.terminals-gov-section > summary::-webkit-details-marker { display: none; }
+.terminals-gov-section > summary::before { content: ''; width: 0; height: 0; border-left: 5px solid var(--accent-primary, #2dd4bf); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .14s ease; }
+.terminals-gov-section[open] > summary::before { transform: rotate(90deg); }
+.terminals-gov-section > summary h3 { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .8; }
+.terminals-gov-count { margin-left: auto; min-width: 18px; padding: 1px 6px; border-radius: 9px; background: rgba(148,163,184,.14); color: #dbe5ee; font-size: 10px; text-align: center; }
+.terminals-gov-count:empty { display: none; }
+.terminals-traces-head .terminals-traces-all { margin-left: 4px; }
+.terminals-verdict, .terminals-trace, .terminals-approval { display: flex; gap: 9px; align-items: flex-start; margin: 0 0 5px; padding: 7px 8px; border: 1px solid rgba(148,163,184,.12); border-radius: 5px; background: rgba(148,163,184,.05); }
+.terminals-approval { flex-direction: column; gap: 4px; }
+.terminals-verdict-block { border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.07); }
+.terminals-verdict-amber { border-color: rgba(245,158,11,.3); background: rgba(245,158,11,.06); }
+.terminals-verdict-top, .terminals-trace-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.terminals-verdict-tool { font-weight: 600; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-verdict-action, .terminals-trace-risk { flex: 0 0 auto; padding: 1px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; background: rgba(16,185,129,.14); color: #6ee7b7; }
+.terminals-verdict-block .terminals-verdict-action, .terminals-trace-risk-red { background: rgba(239,68,68,.16); color: #fca5a5; }
+.terminals-verdict-amber .terminals-verdict-action, .terminals-trace-risk-amber { background: rgba(245,158,11,.16); color: #fcd34d; }
+.terminals-verdict-reason { margin-top: 2px; opacity: .65; font-size: 11px; }
+.terminals-executor-hint { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted, #94a3b8); }
+.terminals-guard-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; grid-column: 1 / -1; padding: 8px 10px; border: 1px solid rgba(245,158,11,.35); border-radius: 8px; background: rgba(245,158,11,.06); font-size: 12px; }
+.terminals-guard-row[hidden], .terminals-guard-commands[hidden] { display: none; }
+.terminals-guard-text { flex: 1 1 260px; min-width: 0; }
+.terminals-guard-commands { grid-column: 1 / -1; margin: 0; padding: 8px 10px; border: 1px solid var(--border-default, #24303c); border-radius: 8px; font-size: 11px; white-space: pre-wrap; user-select: all; }
+[data-theme="light"] .terminals-guard-row { border-color: rgba(180,83,9,.45); background: rgba(245,158,11,.10); }
+.terminals-launch select option:disabled { color: var(--text-muted, #94a3b8); }
+
+/* Terminal pane chrome: a tab per live task across the top, a status line along
+   the bottom. Both stay on the deliberately dark terminal surface in either
+   theme; colour here means operational state only. */
+.terminals-pane-tabs { display: flex; align-items: stretch; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.terminals-pane-tabs::-webkit-scrollbar { display: none; }
+.terminals-pane-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 4px 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: rgba(214, 226, 236, .62); font: inherit; font-size: 11px; letter-spacing: .02em; white-space: nowrap; cursor: pointer; }
+.terminals-pane-tab:hover { color: #e8f5f4; background: rgba(148, 163, 184, .08); }
+.terminals-pane-tab.is-active { color: #e8f5f4; border-bottom-color: var(--accent-primary, #2dd4bf); }
+.terminals-pane-tab-title { overflow: hidden; text-overflow: ellipsis; }
+.terminals-pane-tab-new, .terminals-pane-tab-more { padding: 4px 8px; }
+/* Overflow and launch sit outside the scrolling strip so they stay reachable
+   however many tabs are open. */
+.terminals-pane-tab-actions { display: flex; flex: 0 0 auto; align-items: stretch; gap: 2px; }
+.terminals-pane-foot { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 4px 12px; border-top: 1px solid rgba(148, 163, 184, .16); background: #0b1016; color: rgba(214, 226, 236, .62); font-size: 11px; letter-spacing: .02em; white-space: nowrap; overflow: hidden; }
+.terminals-pane-foot[hidden] { display: none; }
+.terminals-foot-item { overflow: hidden; text-overflow: ellipsis; }
+.terminals-foot-path, .terminals-foot-branch { color: #e8f5f4; }
+.terminals-foot-sep, .terminals-foot-dot { opacity: .45; }
+.terminals-foot-state-approval { color: #f59e0b; }
+.terminals-foot-state-blocked, .terminals-foot-state-failed { color: #ef4444; }
+.terminals-foot-state-completed { color: #22c55e; }
+.terminals-foot-state-active { color: var(--accent-primary, #2dd4bf); }
+.terminals-foot-gov { color: rgba(214, 226, 236, .62); }
+
+/* A hidden attention strip is display:flex by default, so it still paints a
+   thin bar under the head. */
+.terminals-attention[hidden] { display: none; }
+
+/* Light theme. Every Terminals surface follows the theme tokens except
+   `.terminals-centre` and its children: that is the terminal itself, and a
+   terminal stays dark in both themes. Additive overrides only. */
+[data-theme="light"] .terminals-tasks { background: var(--bg-secondary); border-color: var(--border-default); box-shadow: none; }
+[data-theme="light"] .terminals-tasks-head p { color: var(--text-muted); }
+[data-theme="light"] .terminals-task-search { background: var(--bg-primary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-task { background: var(--bg-primary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-task:hover { box-shadow: none; }
+[data-theme="light"] .terminals-task-empty { border-color: var(--border-default); color: var(--text-muted); }
+[data-theme="light"] .terminals-task-meta, [data-theme="light"] .terminals-task-activity { color: var(--text-muted); }
+[data-theme="light"] .terminals-group-name { color: var(--text-muted); }
+[data-theme="light"] .terminals-launch { background: var(--bg-primary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-launch input, [data-theme="light"] .terminals-launch select { background: var(--bg-secondary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-governance { background: var(--bg-secondary); border-color: var(--border-default); color: var(--text-primary); }
+[data-theme="light"] .terminals-governance-summary { color: var(--text-muted); }
+[data-theme="light"] .terminals-governance-body { border-top-color: var(--border-default); }
+[data-theme="light"] .terminals-gov-gutter::after { background: var(--border-default); }
+[data-theme="light"] .terminals-gov-section { border-top-color: var(--border-default); }
+[data-theme="light"] .terminals-gov-count { background: var(--bg-hover); color: var(--text-primary); }
+[data-theme="light"] .terminals-verdict, [data-theme="light"] .terminals-trace, [data-theme="light"] .terminals-approval { background: var(--bg-primary); border-color: var(--border-default); }
+[data-theme="light"] .terminals-verdict-tool, [data-theme="light"] .terminals-trace-id, [data-theme="light"] .terminals-approval-tool { color: var(--text-primary); }
+[data-theme="light"] .terminals-verdict-reason, [data-theme="light"] .terminals-trace-meta, [data-theme="light"] .terminals-approval-why { color: var(--text-muted); opacity: 1; }
+[data-theme="light"] .terminals-trace-open { border-color: var(--border-default); color: var(--text-primary); }
+/* State colours keep their meaning but darken for contrast on a light ground. */
+/* #15803d measured 4.27:1 on its own 12% wash at 10px, just under AA across
+   82 instances. One step darker clears it without changing the hue. */
+[data-theme="light"] .terminals-verdict-action, [data-theme="light"] .terminals-trace-risk { background: rgba(21, 128, 61, .12); color: #166534; }
+[data-theme="light"] .terminals-verdict-block { border-color: rgba(239, 68, 68, .30); background: rgba(239, 68, 68, .10); }
+[data-theme="light"] .terminals-verdict-amber { border-color: rgba(245, 158, 11, .30); background: rgba(245, 158, 11, .12); }
+[data-theme="light"] .terminals-verdict-block .terminals-verdict-action, [data-theme="light"] .terminals-trace-risk-red { background: rgba(239, 68, 68, .10); color: #b91c1c; }
+[data-theme="light"] .terminals-verdict-amber .terminals-verdict-action, [data-theme="light"] .terminals-trace-risk-amber { background: rgba(245, 158, 11, .12); color: #b45309; }
+[data-theme="light"] .terminals-task-remove { border-color: rgba(239, 68, 68, .30); background: rgba(239, 68, 68, .10); color: #b91c1c; }
+[data-theme="light"] .terminals-state-active { color: #0f766e; }
+[data-theme="light"] .terminals-state-approval { color: #b45309; }
+[data-theme="light"] .terminals-state-blocked, [data-theme="light"] .terminals-state-failed { color: #b91c1c; }
+[data-theme="light"] .terminals-state-completed { color: #15803d; }
+[data-theme="light"] .terminals-state-interrupted { color: var(--text-muted); }
+/* The terminal surface stays dark in the light theme, so its own text must not inherit the light-theme ink. */
+[data-theme="light"] .terminals-centre { color: #e8f5f4; }
+[data-theme="light"] .terminals-centre .terminals-empty { color: rgba(214, 226, 236, .72); opacity: 1; }
+
+/* In-session Guard banner: an attached task that is running without its Guard
+   plugin, or with one the session has not loaded yet. Colour is state only. */
+.terminals-guard-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; border-bottom: 1px solid rgba(239,68,68,.35); background: rgba(239,68,68,.08); color: #fecaca; font-size: 12px; }
+.terminals-guard-banner[hidden] { display: none; }
+.terminals-guard-banner-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.terminals-guard-banner.is-pending { border-bottom-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); color: #fde68a; }
+
+/* The launch form is a narrow grid; its full-width rows must not be squeezed
+   into one cell, or a one-line message wraps onto three. */
+.terminals-launch-error, .terminals-executor-hint, .terminals-guard-row, .terminals-guard-commands { grid-column: 1 / -1; min-width: 0; }
+.terminals-launch-error { white-space: normal; line-height: 1.4; }
+
+/* The trace id is a control, not a label: same click target as Details. */
+button.terminals-trace-id { border: 0; background: none; padding: 0; font: inherit; font-family: inherit; color: var(--accent-primary, #2dd4bf); cursor: pointer; }
+button.terminals-trace-id:hover, button.terminals-trace-id:focus-visible { text-decoration: underline; }
+
+/* Context & cost: the stage badge and bar carry the only colour here, and
+   only ever to say how close this session is to its context limit. */
+.terminals-gov-stage { margin-left: auto; padding: 1px 6px; border-radius: 3px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.terminals-gov-stage.is-amber { color: #fcd34d; background: rgba(245,158,11,.16); }
+.terminals-gov-stage.is-red { color: #fca5a5; background: rgba(239,68,68,.16); }
+.terminals-context { display: grid; gap: 8px; padding: 6px 0 4px; font-size: 12px; }
+.terminals-context-fill { display: grid; gap: 4px; }
+.terminals-context-bar { height: 4px; border-radius: 2px; background: rgba(148,163,184,.18); overflow: hidden; }
+.terminals-context-bar i { display: block; height: 100%; background: rgba(148,163,184,.55); }
+.terminals-context-bar i.is-amber { background: #f59e0b; }
+.terminals-context-bar i.is-red { background: #ef4444; }
+.terminals-context-advice { margin: 0; padding-left: 16px; color: var(--text-muted); }
+.terminals-context-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.terminals-context-note { margin: 0; font-size: 11px; color: var(--text-muted); }
+[data-theme="light"] .terminals-gov-stage.is-amber { color: #b45309; background: rgba(245,158,11,.12); }
+[data-theme="light"] .terminals-gov-stage.is-red { color: #b91c1c; background: rgba(239,68,68,.10); }
+
+/* Egress: one line per host the attached task reached. */
+.terminals-egress { display: grid; gap: 4px; padding: 4px 0; font-size: 12px; }
+.terminals-egress-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.terminals-egress-host { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-egress-meta { flex: 0 0 auto; color: var(--text-muted); font-size: 11px; }
+.terminals-egress-more { color: var(--accent-primary, #2dd4bf); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+/* Observed rows carry no status colour: nothing evaluated them. The note
+   below the list says so in words rather than in a colour nobody can read. */
+.terminals-egress-note { color: var(--text-muted); font-size: 11px; line-height: 1.45; padding-top: 4px; }
+.terminals-gov-count.is-warn { background: rgba(239,68,68,.18); color: #fca5a5; }
+[data-theme="light"] .terminals-gov-count.is-warn { background: rgba(239,68,68,.10); color: #b91c1c; }
+
+/* Removing a task confirms inside the card. A native confirm() halts the
+   whole window, cannot be styled, and cannot be tested. */
+.terminals-task-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.terminals-task-confirm-yes, .terminals-task-confirm-no { font: inherit; border: 0; background: transparent; cursor: pointer; padding: 2px 6px; }
+.terminals-task-confirm-yes { color: #fca5a5; }
+/* 4.29:1 at 12px on the stage as --text-muted, just under AA. */
+.terminals-task-confirm-no { color: var(--text-secondary); }
+[data-theme="light"] .terminals-task-confirm-yes { color: #b91c1c; }
+
+/* Live marker: green means the task is running right now, a state. */
+.nav-task-live, .terminals-pane-live { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 0 rgba(34,197,94,.55); animation: sv-nav-live 1.8s ease-out infinite; vertical-align: middle; }
+@keyframes sv-nav-live {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,.55); }
+  70% { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-task-live, .terminals-pane-live { animation: none; }
+}
+[data-theme="light"] .nav-task-live, [data-theme="light"] .terminals-pane-live { background: #16a34a; }
+
+/* One governance empty state instead of five. The teal listening ring is the
+   single accent here; the bot's own harness colour is identity, not state. */
+.terminals-gov-hero { display: grid; grid-column: 1 / -1; justify-items: center; gap: 8px; padding: 22px 12px 16px; text-align: center; }
+.terminals-gov-hero[hidden] { display: none; }
+.terminals-governance-body.is-empty .terminals-gov-section { display: none; }
+.terminals-gov-hero-bot { position: relative; display: grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; }
+.terminals-gov-hero-bot::before, .terminals-gov-hero-bot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--accent-primary, #2dd4bf); opacity: 0; animation: sv-gov-listen 2.6s ease-out infinite; }
+.terminals-gov-hero-bot::after { animation-delay: 1.3s; }
+@keyframes sv-gov-listen {
+  0% { transform: scale(.55); opacity: .55; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminals-gov-hero-bot::before, .terminals-gov-hero-bot::after { animation: none; }
+}
+.terminals-gov-hero-title { margin: 4px 0 0; font-size: 13px; font-weight: 700; letter-spacing: .01em; }
+.terminals-gov-hero-text { margin: 0; max-width: 240px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+.terminals-gov-hero-list { display: grid; gap: 6px; width: 100%; margin: 10px 0 0; padding: 0; list-style: none; text-align: left; }
+.terminals-gov-hero-list li { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 6px 8px; border: 1px solid var(--border-default, #24303c); border-radius: 6px; font-size: 11px; color: var(--text-muted); }
+
+.terminals-gov-hero-k { font-weight: 600; color: var(--text-primary, #e6edf3); letter-spacing: .02em; }
+
+/* Quiet workspace: hairline frames, no shadows, one surface. */
+.terminals-page .terminals-tasks, .terminals-page .terminals-centre, .terminals-page .terminals-governance { border-radius: 4px; box-shadow: none; }
+.terminals-page .terminals-tasks { padding: 8px 10px; }
+.terminals-page .terminals-tasks-head { margin: 0 0 6px; min-height: 0; }
+.terminals-page .terminals-tasks-actions { width: 100%; }
+.terminals-page .terminals-task-search { flex: 1 1 220px; max-width: 360px; }
+/* All tasks is a board of cards, not a list of rows: a task is a thing you
+   open, and the card has room for its bot, harness, state, and clock. */
+.terminals-page .terminals-task-list { display: block; overflow: visible; padding: 1px; }
+/* The heading is a plain block above the grid, not a grid-column: 1 / -1
+   item inside it: a spanning item touches every generated column, which
+   keeps auto-fit from ever seeing a column as empty and defeats the
+   collapse below. Splitting them out is what lets a folder with only one
+   or two sessions actually use the row instead of a heading-shaped anchor
+   pinning three empty tracks open beside it. */
+.terminals-page .terminals-group { display: block; }
+.terminals-page .terminals-group + .terminals-group { margin-top: 12px; }
+.terminals-page .terminals-group-name { display: block; padding: 2px 2px 4px; color: var(--text-muted); font-size: 10.5px; letter-spacing: .02em; }
+.terminals-page .terminals-group.is-single .terminals-group-name { display: none; }
+/* auto-FILL, not auto-fit. They differ only when a row is not full, and that
+   is the entire case in question. auto-fit collapses the unused tracks and
+   stretches the survivors, so a folder holding one session produced a single
+   card 1192px wide carrying about 200px of content: that is not using the
+   space, it is displaying emptiness. auto-fill keeps the tracks, so one
+   session is one card-width card and the remainder of the row is honestly
+   empty, which reads as "nothing else in this folder". Folders with enough
+   sessions to fill a row tile identically either way. */
+/* stretch, not start: cards in a row carry different content (a branch line,
+   an action row) and `start` left a 21px ragged step across a row. With
+   stretch plus an auto top margin on the action row, every card in a row
+   ends on the same line whatever it holds. */
+.terminals-page .terminals-group-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(282px, 1fr)); gap: 10px; align-items: stretch; }
+.terminals-page .terminals-task { display: flex; flex-direction: column; }
+.terminals-page .terminals-task-select { flex: 1 1 auto; }
+.terminals-page .terminals-task-actions { margin-top: auto; }
+.terminals-page .terminals-task { display: block; width: auto; flex: none; margin: 0; padding: 0; border: 1px solid var(--border-default, #24303c); border-radius: 8px; background: transparent; transform: none; box-shadow: none; }
+.terminals-page .terminals-task:hover { border-color: var(--accent-primary, #2dd4bf); background: var(--bg-hover, rgba(148,163,184,.05)); transform: none; box-shadow: none; }
+.terminals-page .terminals-task.is-attached { border-color: var(--accent-primary, #2dd4bf); box-shadow: inset 2px 0 0 var(--accent-primary, #2dd4bf); }
+/* No reserved band at the foot. The 30px that used to sit there held space for
+   the action row whether or not a card had one, which is most of why every
+   card was 215px tall to carry about 90px of content. */
+.terminals-page .terminals-task-select { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; padding: 9px 11px 7px; }
+/* The chips and the clock share one line. The elapsed time is pushed to the
+   end so it lands in the same place on every card whatever chips precede it. */
+.terminals-page .terminals-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
+.terminals-page .terminals-task-elapsed { margin-left: auto; color: var(--text-muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.terminals-page .terminals-task-actions { padding: 0 11px 8px; }
+/* Branch and elapsed time on one line rather than stacked. */
+.terminals-page .terminals-task-when { display: flex; align-items: center; gap: 6px; }
+.terminals-page .terminals-task-title-row { max-width: 100%; gap: 8px; }
+.terminals-page .terminals-task-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.terminals-page .terminals-task-sub { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }
+.terminals-page .terminals-task-when { color: var(--text-muted); font-size: 11px; }
+.terminals-page .terminals-task-confirm { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 9px; }
+.terminals-page .terminals-centre { border: 1px solid var(--border-default, #24303c); }
+.terminals-page .terminals-governance-head { padding: 0 10px; }
+.terminals-page .terminals-governance-toggle { padding: 0; font-size: 11px; }
+.terminals-page .terminals-stage-mark { display: none; }
+
+/* Rail: tighten the task rows and quiet the group label. */
+.nav-views.nav-views-tasks .nav-item.nav-view { padding: 4px 14px 4px 22px; gap: 8px; }
+.nav-views.nav-views-tasks .nav-task-sub { font-size: 10px; }
+.nav-views.nav-views-tasks .nav-tasks-group { padding: 6px 14px 1px 22px; font-size: 10px; letter-spacing: .01em; text-transform: none; opacity: .8; }
+/* No task attached: the hero has no bot, so the listening ring must not draw around nothing. */
+.terminals-gov-hero-bot:empty { display: none; }
+/* A finished task is not listening: the ring would promise activity that can never arrive. */
+.terminals-gov-hero-bot.is-quiet::before, .terminals-gov-hero-bot.is-quiet::after { animation: none; opacity: 0; }
+/* Nothing attached means the board is the page. An empty stage saying "pick a
+   task" and a governance panel saying "no task attached" are three ways of
+   printing the same sentence, so they stand down and the cards take the room.
+   Attaching brings the workspace back and hides the board (.is-focused).
+   The section clips, so the list owns the scroll: a card past the fold has to
+   be reachable, not cut away. */
+/* The board reads as a dashboard of tasks: one line of state over the whole
+   board, then cards that answer "is this one being checked" without a click.
+   Colour stays on state only, and only when the number is not zero. */
+.terminals-board-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 0 2px 10px; padding: 8px 10px; border: 1px solid var(--border-default, #24303c); border-radius: 8px; font-size: 11px; color: var(--text-muted, #94a3b8); letter-spacing: .02em; }
+.terminals-board-summary[hidden] { display: none; }
+.terminals-board-stat b { margin-right: 4px; color: var(--text-primary, #e6edf3); font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
+.terminals-board-stat.is-amber b { color: #fbbf24; }
+.terminals-board-stat.is-red b { color: #f87171; }
+[data-theme="light"] .terminals-board-stat.is-amber b { color: var(--warning-text, #b45309); }
+[data-theme="light"] .terminals-board-stat.is-red b { color: #b91c1c; }
+
+/* What the agent is doing right now. On a board of five this is the line
+   that answers "which one needs me" without opening any of them. */
+.terminals-task-doing { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary, #e6edf3); font-size: 11.5px; }
+/* Only the gap gets colour. A board of teal "governed" chips is a wall of
+   good news, and it would spend the accent on the state that needs no
+   attention; governed reads as the quiet default. */
+/* The guard chip, the unverified chip, and the spend figure read as one
+   line, not three stacked rows: .terminals-task-select is a column flexbox,
+   so without this wrapper each span becomes its own full-width flex item. */
+.terminals-task-meta { align-self: flex-start; display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.terminals-task-guard { align-self: flex-start; padding: 1px 7px; border: 1px solid var(--border-default, #24303c); border-radius: 999px; font-size: 9.5px; line-height: 15px; letter-spacing: .02em; color: var(--text-muted, #94a3b8); }
+.terminals-guard-ungoverned { border-color: rgba(245, 158, 11, .5); color: #fbbf24; }
+[data-theme="light"] .terminals-guard-ungoverned { border-color: rgba(180, 83, 9, .4); color: var(--warning-text, #b45309); }
+.terminals-page .terminals-task-when { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; }
+.terminals-page .terminals-task-elapsed { white-space: nowrap; }
+.terminals-page .terminals-task-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.terminals-task-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.terminals-task-elapsed { flex: 0 0 auto; margin-left: auto; }
+
+.terminals-page:not(.is-focused) { grid-template-rows: minmax(0, 1fr); }
+.terminals-page:not(.is-focused) .terminals-workspace { display: none; }
+.terminals-page .terminals-tasks { display: flex; flex-direction: column; min-height: 0; }
+.terminals-page .terminals-task-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* A single pane hides its own head, so the tab strip is the only header in
+   the workspace and carries that pane's governance chip and its controls. */
+.terminals-head-pane-gov { display: inline-flex; align-items: center; color: var(--text-muted, #94a3b8); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .01em; white-space: nowrap; }
+.terminals-head-pane-gov:empty { display: none; }
+.terminals-head-pane-acts { display: inline-flex; align-items: center; gap: 1px; padding-left: 9px; margin-left: 2px; border-left: 1px solid rgba(148, 163, 184, .18); }
+.terminals-head-pane-acts + #terminals-all-tasks-btn { margin-left: 4px; }
+/* The head is hidden, not just emptied: its own class sets display, which
+   would otherwise beat [hidden] and leave an empty ruled bar under the strip.
+   With one pane the centre already frames the workspace, so the pane draws no
+   frame of its own and the top reads as a single line. */
+.terminals-pane-head[hidden] { display: none; }
+.terminals-attached-body.is-layout > .terminals-pane,
+.terminals-attached-body.is-layout > .terminals-pane.is-focused { border-color: transparent; }
+
+/* --- Link a harness session that runs outside the app ------------------- */
+/* The two launch-form modes. A segmented pair, not a colour choice: which
+   mode is active is structure, so the accent stays for security state. */
+.terminals-launch-modes { grid-column: 1 / -1; display: flex; gap: 0; align-self: start; width: fit-content; border: 1px solid var(--border-default, #24303c); border-radius: 8px; overflow: hidden; }
+.terminals-launch-mode { padding: 4px 10px; border: 0; background: transparent; color: var(--text-muted, #94a3b8); font: inherit; font-size: 11.5px; cursor: pointer; }
+.terminals-launch-mode + .terminals-launch-mode { border-left: 1px solid var(--border-default, #24303c); }
+.terminals-launch-mode:hover { color: var(--text-primary); }
+.terminals-launch-mode.is-active { background: var(--bg-hover, rgba(148,163,184,.10)); color: var(--text-primary); font-weight: 600; }
+.terminals-launch .terminals-link-only[hidden] { display: none; }
+.terminals-session-input { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* The unlinked-session picker under the link-mode fields. */
+.terminals-unlinked { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0; min-width: 0; margin-top: 2px; border: 1px solid var(--border-default, #24303c); border-radius: 8px; }
+.terminals-unlinked[hidden] { display: none; }
+.terminals-unlinked .terminals-empty { padding: 8px 10px; font-size: 11.5px; }
+.terminals-unlinked-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 10px; font-size: 11.5px; }
+.terminals-unlinked-row + .terminals-unlinked-row { border-top: 1px solid var(--border-default, #24303c); }
+.terminals-unlinked-harness { flex: 0 0 auto; font-weight: 600; }
+.terminals-unlinked-id { flex: 0 0 auto; font-family: var(--font-mono); color: var(--text-muted, #94a3b8); }
+.terminals-unlinked-when, .terminals-unlinked-calls { flex: 0 0 auto; color: var(--text-muted, #94a3b8); }
+.terminals-unlinked-folder { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #94a3b8); }
+.terminals-unlinked-link { flex: 0 0 auto; }
+
+/* The board's own "these are running outside SecureVector" panel. Same row
+   shape as the picker above, but it sits above the task list rather than
+   inside the form. Neutral throughout: a session the app can see but does not
+   own yet is an offer, not a security state, so no accent and no red. */
+.terminals-adopt { display: flex; flex-direction: column; gap: 0; min-width: 0; margin: 0 0 8px; border: 1px solid var(--border-default, #24303c); border-radius: 8px; }
+.terminals-adopt[hidden] { display: none; }
+/* The same action as the form, spelled for a shell. A shut drawer: something to
+   find once, not to read on every launch, so it costs a summary line and no
+   more. Mono and selectable, because the whole point is copy and paste. */
+.terminals-cli { margin-top: 10px; border-top: 1px solid var(--border-default, #24303c); padding-top: 8px; }
+.terminals-cli > summary { cursor: pointer; color: var(--text-muted, #94a3b8); font-size: 11px; list-style: none; }
+.terminals-cli > summary::-webkit-details-marker { display: none; }
+.terminals-cli > summary::before { content: '> '; font-family: var(--font-mono); opacity: .7; }
+.terminals-cli-cmd {
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    /* Not --bg-elevated: that is #ffffff in the light theme, which on the
+       form's white panel leaves the block with no inset at all. A
+       translucent grey reads as recessed on either ground. */
+    background: rgba(148, 163, 184, .10);
+    color: var(--text-secondary, #cbd5e1);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    /* A long folder path must scroll in its own box, never widen the column. */
+    overflow-x: auto;
+    white-space: pre;
+    user-select: text;
+}
+
+/* The orphaned count is a control, not a label, so it has to look like one on
+   hover and take focus like one. Neutral: an interrupted task is a lifecycle
+   fact, not a security state. */
+/* A rest-state affordance, not colour: a dotted underline says "clickable"
+   without borrowing the accent that .terminals-task.is-attached etc. use for
+   "interactive/selected", which would misread as security state here. */
+.terminals-board-orphans { border: 0; background: transparent; cursor: pointer; font: inherit; color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; }
+.terminals-board-orphans:hover { color: var(--text-primary, #e2e8f0); text-decoration-style: solid; }
+.terminals-board-orphans:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 2px; border-radius: 2px; }
+
+/* "Unverified" is a claim about EVIDENCE, not a security verdict, so it takes
+   the muted outline rather than a colour: the session may be perfectly healthy
+   and colour on this page is reserved for security state. It must simply never
+   be mistakable for "quiet", which is why it is a chip and not a tone. */
+.terminals-task-unverified {
+    padding: 0 5px;
+    /* Dashed, not solid: the guard chip beside it IS a security signal, so
+       the two must differ by form, never by hue -- colour on this page is
+       reserved for security state and "unverified" is a claim about
+       evidence, not one. */
+    border: 1px dashed var(--border-default, #24303c);
+    border-radius: 999px;
+    color: var(--text-muted, #94a3b8);
+    font-size: 9.5px;
+    line-height: 15px;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+.terminals-linked-unverified { font-size: 11px; }
+
+/* The folder, on the card rather than as a band above a row of one. Muted and
+   mono because it is an address, not a name; ellipsed from the left so the
+   meaningful tail of a long path survives. */
+.terminals-task-folder {
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--text-muted, #94a3b8);
+    /* No direction: rtl. It was meant to keep the meaningful tail of a long
+       path, but _shortPath already abbreviates from the left, so the two
+       fought and produced "Users/yashs/" where the path is "/Users/yashs".
+       One abbreviation, applied once, in the place that knows what a path is. */
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+}
+
+/* Spend on a board card. Neutral by rule: colour on this page means security
+   state, and how much a session has cost is not one. Tabular figures so a
+   column of cards lines up at the decimal point. */
+.terminals-task-spend { color: var(--text-muted, #94a3b8); font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+
+.terminals-adopt-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 0; }
+.terminals-adopt-title { font-size: 11.5px; font-weight: 600; }
+.terminals-adopt-count { padding: 0 5px; border: 1px solid var(--border-default, #24303c); border-radius: 999px; color: var(--text-muted, #94a3b8); font-size: 9.5px; line-height: 15px; font-variant-numeric: tabular-nums; }
+.terminals-adopt-note { margin: 2px 0 6px; padding: 0 10px; color: var(--text-muted, #94a3b8); font-size: 11px; line-height: 1.45; }
+.terminals-adopt-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 10px; font-size: 11.5px; }
+.terminals-adopt-row + .terminals-adopt-row { border-top: 1px solid var(--border-default, #24303c); }
+.terminals-adopt-harness { flex: 0 0 auto; font-weight: 600; }
+/* The session id, beside the folder. Never shrinks: the folder ellipses first,
+   because the id is the part that tells two rows of one harness apart, and the
+   only thing naming a row whose folder was never reported. */
+.terminals-adopt-sid { flex: none; color: var(--text-muted, #94a3b8); font-family: var(--font-mono); font-size: 10.5px; opacity: .8; }
+.terminals-adopt-folder { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #94a3b8); }
+.terminals-adopt-when, .terminals-adopt-calls { flex: 0 0 auto; color: var(--text-muted, #94a3b8); }
+.terminals-adopt-govern, .terminals-adopt-dismiss { flex: 0 0 auto; }
+/* A text button, not a third competing pill: expanding the list is a glance. */
+.terminals-adopt-more { align-self: flex-start; padding: 6px 10px; border: 0; background: none; color: var(--text-muted, #94a3b8); font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.terminals-adopt-more:hover { color: var(--text-primary); }
+.terminals-adopt-error { padding: 0 10px 8px; color: var(--text-secondary, #cbd5e1); font-size: 11px; }
+[data-theme="light"] .terminals-adopt { border-color: var(--border-default); }
+
+/* "linked" chips. Neutral: where a session runs is not a security state. */
+.terminals-task-linked, .nav-task-linked { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid var(--border-default, #24303c); border-radius: 999px; color: var(--text-muted, #94a3b8); font-size: 9.5px; line-height: 15px; letter-spacing: .02em; text-transform: lowercase; vertical-align: middle; }
+.nav-task-linked { font-size: 9px; line-height: 14px; }
+
+/* The attached pane for a linked task: it says why there is no terminal. */
+.terminals-linked-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 220px; padding: 24px 20px; text-align: center; }
+.terminals-linked-stage h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.terminals-linked-stage p { max-width: 420px; margin: 0; color: var(--text-muted, #94a3b8); font-size: 12px; line-height: 1.5; }
+.terminals-linked-stage .btn { margin-top: 8px; }
+/* What the audit trail last saw, and the caveat on acting on it. Both are
+   informational, not a security state, so neither takes a hue: the note sits
+   a step brighter than the body copy, the caveat stays muted. */
+.terminals-linked-note { color: var(--text-secondary, #cbd5e1); }
+/* A real hazard, not a footnote: opening a terminal here while the outside
+   session is still live puts two harnesses in one working folder. Amber, the
+   same treatment .confirm-warning uses, because clicking destroys nothing by
+   itself. Red would overstate it. */
+.terminals-linked-stage p.terminals-linked-warn {
+    margin-top: 10px;
+    padding: 9px 12px;
+    border: 1px solid var(--warning-chip-border);
+    border-radius: var(--radius-sm);
+    background: var(--warning-chip-bg);
+    color: var(--warning-text);
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+}
+/* The gate itself, raised when either button would put a harness in a folder
+   whose outside session was never reported ended. Amber like the caveat above,
+   because it is that caveat at the moment it matters. It does not borrow
+   .terminals-task-confirm: that one is laid out flex by a page-scoped rule for
+   the card rows, which would flatten this box. Only the two button classes are
+   shared, and those stand on their own. */
+.terminals-linked-confirm {
+    display: block;
+    width: 100%;
+    max-width: 420px;
+    margin-top: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--warning-chip-border);
+    border-radius: var(--radius-sm);
+    background: var(--warning-chip-bg);
+    text-align: left;
+}
+.terminals-linked-confirm p {
+    margin: 0 0 8px;
+    color: var(--warning-text);
+    font-size: 12px;
+    line-height: 1.45;
+}
+/* Amber, not the red the archive confirm uses: this spawns a session, it does
+   not remove anything. --warning-text is theme-aware (unlike the flat
+   --warning token), so this stays AA-legible on the light amber wash in both
+   themes and deliberately outranks the generic light-theme red override on
+   .terminals-task-confirm-yes for this one context. */
+.terminals-linked-confirm .terminals-task-confirm-yes { color: var(--warning-text); font-weight: 600; }
+.terminals-linked-confirm .terminals-task-confirm-no { margin-left: 6px; }
+/* What the app observed, above what it is asking. Brighter than the question
+   and its own line, because it is the part that should stop a reflex click:
+   the person is about to assert something the app can see is not so. */
+.terminals-linked-stage p.terminals-linked-observed {
+    margin: 0 0 8px;
+    color: var(--warning-text);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+/* One line, and only while something is actually running: what the attached
+   session is doing right now. The board card carries the same line; this is
+   the column a live session is watched in. It is hidden when there is nothing
+   to report, so a quiet column costs no height. Mono, because the line is a
+   command, and one line always: it ellipses rather than wrapping, so the
+   sections below never move as the call changes. */
+.terminals-gov-doing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 5px 10px 6px;
+    border-bottom: 1px solid var(--border-subtle, rgba(148, 163, 184, .14));
+    color: var(--text-secondary, #cbd5e1);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.3;
+}
+/* The class sets display: flex, which beats the UA [hidden] rule, so hiding
+   this the way the sibling panels do (.terminals-adopt[hidden] etc.) is not
+   optional: without it, an empty bar plus its border-bottom renders
+   permanently at the top of the column even with nothing to report. */
+.terminals-gov-doing[hidden] { display: none; }
+/* Reuses the pane's live dot so the pulse is defined once and already honours
+   prefers-reduced-motion; only the inline margin it carries there is dropped. */
+.terminals-gov-doing .terminals-pane-live { margin-left: 0; }
+.terminals-gov-doing-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* The attached pane for a task whose output the app no longer holds. Same
+   shape as the linked stage; neutral throughout, because "this ended" is a
+   lifecycle fact and colour here is reserved for security state. */
+.terminals-ended-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 220px; padding: 24px 20px; text-align: center; }
+.terminals-ended-stage h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.terminals-ended-stage p { max-width: 420px; margin: 0; color: var(--text-muted, #94a3b8); font-size: 12px; line-height: 1.5; }
+.terminals-ended-stage .btn { margin-top: 8px; }
+/* The identity line has to survive a long folder path without pushing the
+   stage wider than the pane, so it wraps rather than ellipsing: the folder
+   is the part that tells two sessions of the same harness apart. */
+.terminals-ended-who { color: var(--text-secondary, #cbd5e1); font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
+.terminals-ended-exit { font-variant-numeric: tabular-nums; }
+[data-theme="light"] .terminals-launch-modes, [data-theme="light"] .terminals-unlinked { border-color: var(--border-default); }
+[data-theme="light"] .terminals-launch-mode.is-active { background: var(--bg-secondary); }
+
+/* --- Agent Terminals: split panes -------------------------------------- */
+/* Several tasks can be attached at once, each in its own pane with its own
+   terminal and its own governance. The tree is flex boxes all the way down;
+   a split hands its two sides a share of the space through --ratio. */
+.terminals-attached-body.is-layout { display: flex; flex-direction: column; padding: 0; }
+.terminals-split { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+.terminals-split-row { flex-direction: row; }
+.terminals-split-col { flex-direction: column; }
+.terminals-split > :first-child { flex: var(--ratio, .5) 1 0; min-width: 0; min-height: 0; }
+.terminals-split > :last-child { flex: calc(1 - var(--ratio, .5)) 1 0; min-width: 0; min-height: 0; }
+.terminals-gutter { position: relative; flex: 0 0 6px; background: transparent; border: 0; padding: 0; cursor: col-resize; touch-action: none; }
+.terminals-split-col > .terminals-gutter { cursor: row-resize; }
+.terminals-gutter::after { content: ""; position: absolute; background: var(--border-default, #24303c); transition: background .12s ease; }
+.terminals-split-row > .terminals-gutter::after { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); }
+.terminals-split-col > .terminals-gutter::after { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-50%); }
+.terminals-gutter:hover::after, .terminals-gutter:focus-visible::after { background: rgba(45, 212, 191, .75); }
+.terminals-gutter:focus-visible { outline: none; }
+
+.terminals-pane { position: relative; display: flex; flex-direction: column; flex: 1 1 0; min-width: 240px; min-height: 160px; overflow: hidden; border: 1px solid var(--border-default, #24303c); }
+.terminals-pane.is-focused { border-color: rgba(45, 212, 191, .55); }
+.terminals-pane-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 11px; border-bottom: 1px solid var(--border-default, #24303c); }
+.terminals-pane.is-focused > .terminals-pane-head { box-shadow: inset 0 -1px 0 rgba(45, 212, 191, .55); }
+.terminals-pane-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; font-weight: 600; }
+.terminals-pane-harness { color: var(--text-muted, #94a3b8); }
+/* A pane that holds several tasks names them as tabs in its own head, the
+   same kind of control as the strip above the workspace and read the same
+   way. Colour is state only: an open tab is not a state, so only the one on
+   screen takes the accent, and the live dot speaks for a working task. */
+.terminals-pane-sessions { display: flex; align-items: stretch; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.terminals-pane-sessions::-webkit-scrollbar { display: none; }
+.terminals-pane-session { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; max-width: 180px; border-bottom: 2px solid transparent; }
+.terminals-pane-session:hover { background: rgba(148, 163, 184, .08); }
+.terminals-pane-session.is-active { border-bottom-color: var(--accent-primary, #2dd4bf); }
+.terminals-pane-session-open { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 4px 3px 8px; border: 0; background: transparent; color: var(--text-muted, #94a3b8); font: inherit; font-size: 11px; letter-spacing: .02em; white-space: nowrap; cursor: pointer; }
+.terminals-pane-session.is-active .terminals-pane-session-open { color: var(--text-primary, #e6edf3); font-weight: 600; }
+.terminals-pane-session-title { overflow: hidden; text-overflow: ellipsis; }
+/* Kept in the layout rather than removed from it, so a tab does not change
+   width under the pointer as it is being aimed at. */
+.terminals-pane-session-close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted, #94a3b8); opacity: 0; pointer-events: none; cursor: pointer; }
+.terminals-pane-session:hover .terminals-pane-session-close,
+.terminals-pane-session-close:focus-visible { opacity: 1; pointer-events: auto; }
+.terminals-pane-session-close:hover { color: var(--text-primary, #e6edf3); background: rgba(127, 140, 155, .16); }
+.terminals-pane-act { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; color: var(--text-muted, #94a3b8); background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.terminals-pane-act:hover { color: var(--text-primary, #e6edf3); background: rgba(127, 140, 155, .16); }
+.terminals-pane-picker[hidden], .terminals-pane-gov[hidden] { display: none; }
+.terminals-pane-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; border-bottom: 1px solid var(--border-default, #24303c); }
+.terminals-pane-picker-label { color: var(--text-muted, #94a3b8); }
+.terminals-pane-picker-opt, .terminals-pane-picker-cancel { padding: 2px 8px; font-size: 11px; color: inherit; background: transparent; border: 1px solid var(--border-default, #24303c); border-radius: 4px; cursor: pointer; }
+.terminals-pane-picker-opt:hover { border-color: rgba(45, 212, 191, .55); }
+/* The terminal surface stays dark whatever the page theme is doing. */
+.terminals-pane-stage { position: relative; flex: 1 1 auto; min-height: 0; background: #0b1017; }
+.terminals-empty-pane { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 20px; text-align: center; }
+.terminals-empty-pane-kicker { color: var(--accent-primary, #2dd4bf); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.terminals-empty-pane h3 { margin: 0; font-size: 14px; }.terminals-empty-pane p { margin: 0; max-width: 280px; color: var(--text-muted, #94a3b8); font-size: 11px; }
+.terminals-empty-pane-options { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 360px; }
+.terminals-empty-pane-options button { display: flex; flex-direction: column; gap: 2px; max-width: 155px; padding: 6px 9px; overflow: hidden; border: 1px solid var(--border-default, #24303c); border-radius: 5px; background: transparent; color: inherit; font: inherit; font-size: 11px; text-align: left; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-empty-pane-options button:hover { border-color: var(--accent-primary, #2dd4bf); background: color-mix(in srgb, var(--accent-primary, #2dd4bf) 8%, transparent); }.terminals-empty-pane-options button span { color: var(--text-muted, #94a3b8); font-size: 10px; }
+[data-theme="light"] .terminals-pane-stage { background: #0b1017; }
+/* A pinned-dark ISLAND inside a light page, so its contents must take the DARK
+   token values regardless of the page theme. Light tokens are dark ink chosen
+   for a white ground; landing them on #0b1017 is how the two-agents-in-one-
+   folder gate measured 2.51:1 in the light theme while reading fine in dark.
+   Scoping the values to the surface rather than the page is the fix: anything
+   rendered in here now follows what is actually behind it. */
+[data-theme="light"] .terminals-pane-stage,
+[data-theme="light"] .terminals-pane-gov {
+    /* Foreground AND the surfaces those foregrounds are drawn on, taken
+       verbatim from the dark :root. Overriding only the text tokens is a half
+       swap and it broke two buttons: .btn pairs --text-primary with
+       --bg-secondary, so light ink became dark ink while the button stayed
+       #f6f8fa, and "Start a new session here" and "Unlink this session"
+       rendered at 1.16:1. A token that names a colour pair has to be moved as
+       a pair. */
+    --text-primary: #eef2f7;
+    --text-secondary: #aeb7c2;
+    --text-muted: #7f8a97;
+    --bg-secondary: #0e1218;
+    --bg-tertiary: #161b23;
+    --bg-elevated: #1a2029;
+    --bg-hover: #1b212b;
+    --border-default: #232a33;
+    --warning-text: #fcd34d;
+    --warning-text-muted: #fbbf24;
+    --warning-chip-bg: rgba(245, 158, 11, .15);
+    --warning-chip-border: rgba(245, 158, 11, .35);
+}
+[data-theme="light"] .terminals-pane { border-color: var(--border-default); }
+[data-theme="light"] .terminals-gutter::after { background: var(--border-default); }
+
+/* --- Agent Terminals: moving a pane ------------------------------------- */
+/* The pane head is the handle. The ghost follows the pointer and the drop
+   zone covers the half the pane would land in, so the shape is decided
+   before the release, not after it. */
+.terminals-pane-head { cursor: grab; }
+.terminals-pane.is-dragging { opacity: .55; }
+.terminals-drag-ghost { position: fixed; pointer-events: none; padding: 4px 10px; border: 1px solid var(--accent-primary, #2dd4bf); border-radius: 4px; background: rgba(11, 16, 22, .92); color: #e8f5f4; font-size: 11px; z-index: 50; }
+.terminals-drop-zone { position: absolute; pointer-events: none; background: rgba(45, 212, 191, .16); border: 1px dashed var(--accent-primary, #2dd4bf); z-index: 40; }
+/* The centre covers the whole pane and is drawn solid: it takes the pane as
+   it stands and adds a tab, where an edge cuts the pane in two. The two have
+   to be told apart before the release, not after it. */
+.terminals-drop-zone[data-edge="centre"] { border-style: solid; background: rgba(45, 212, 191, .12); }
+.terminals-drop-zone-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 3px 9px; border-radius: 999px; background: rgba(11, 16, 22, .78); color: var(--accent-primary, #2dd4bf); font: 650 11px/1.3 inherit; letter-spacing: .01em; white-space: nowrap; }
+/* A card being dropped on: the same teal, because this is the same drop
+   affordance, and nothing else on a card gains colour. */
+.terminals-task.is-drop-target { border-color: var(--accent-primary, #2dd4bf); box-shadow: inset 0 0 0 1px rgba(45, 212, 191, .45); }
+
+/* --- Agent Terminals: drag cursor affordance ---------------------------- */
+/* Every draggable surface shows an open hand at rest. A control that lives
+   inside one of them but is its own click target (close a tab, launch a
+   task, open the overflow, any button in a pane head) keeps the ordinary
+   pointer instead, so the hand only shows where a drag would actually
+   start. Resize gutters are untouched: they already carry their own
+   resize cursors above. */
+.terminals-pane-tab[data-id],
+.terminals-pane-session-open,
+.terminals-task-select,
+.nav-item[data-task-id] {
+    cursor: grab;
+}
+.terminals-pane-session-close,
+.terminals-pane-tab-new,
+.terminals-pane-tab-more,
+.terminals-pane-head button {
+    cursor: pointer;
+}
+/* The session-open button is both a real button and the tab's drag handle;
+   this more-specific rule wins over the generic pane-head button cursor. */
+.terminals-pane-head button.terminals-pane-session-open { cursor: grab; }
+/* While a drag is live the hand closes, and it stays closed everywhere the
+   pointer travels, not just over the element the drag started on: one class
+   on body covers every source because they all go through the same drag
+   helper. */
+body.terminals-dragging,
+body.terminals-dragging * {
+    cursor: grabbing !important;
+}
+
+/* --- Agent Terminals: per-pane governance ------------------------------- */
+/* Each pane answers for its own task: its Guard banner, its status line, and
+   a counts strip in the head that needs no focus to be read. */
+.terminals-pane-gov-slot { display: inline-flex; align-items: center; }
+.terminals-pane-gov { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted, #94a3b8); font-size: 11px; white-space: nowrap; }
+.terminals-pane-gov-sep { opacity: .5; }
+.terminals-pane-gov-item.is-blocked { color: var(--status-red, #f87171); }
+.terminals-pane-gov.is-compact .terminals-pane-gov-w { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.terminals-pane-gov.is-compact .terminals-pane-gov-item { position: relative; }
+.terminals-pane > .terminals-guard-banner { position: static; margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
+.terminals-pane > .terminals-guard-commands { margin: 0; border-radius: 0; }
+/* In a pane the banner is a row in the stack, not an overlay: absolutely
+   positioned it would paint straight over the pane's own status line. */
+.terminals-pane > .terminals-banner { position: static; flex: 0 0 auto; }
+.terminals-pane > .terminals-pane-foot { flex: 0 0 auto; border-top: 1px solid var(--border-default, #24303c); }
+.terminals-stop-all-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted, #94a3b8); }
+
+/* ============================================================
+ * v6 session-first navigation: a persistent product rail chooses
+ * the work area; the contextual panel preserves the existing rows,
+ * views, task list, search, status and theme controls.
+ * ============================================================ */
+.sidebar-product-rail {
+    position: relative;
+    display: flex;
+    flex: 0 0 var(--sidebar-collapsed-width);
+    width: var(--sidebar-collapsed-width);
+    min-width: var(--sidebar-collapsed-width);
+    flex-direction: column;
+    align-items: stretch;
+    overflow: hidden;
+    background: var(--bg-primary);
+    border-right: 1px solid var(--border-default);
+}
+
+.sidebar-context {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-secondary);
+}
+
+.product-rail-home,
+.product-rail-button {
+    position: relative;
+    display: flex;
+    width: 100%;
+    min-height: 52px;
+    padding: 6px 4px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 3px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+}
+
+.product-rail-home {
+    min-height: var(--header-height);
+    border-bottom: 1px solid var(--border-default);
+}
+
+.product-rail-home .sidebar-logo-img {
+    width: 34px;
+    height: 34px;
+}
+
+.product-rail-groups {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    /* nothing is pinned to the foot of the rail any more: the collapse
+       control moved back onto the sidebar's right edge, near the top */
+    padding: 6px 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+
+.product-rail-groups::-webkit-scrollbar { display: none; }
+
+.product-rail-button svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.product-rail-label {
+    max-width: 64px;
+    overflow: hidden;
+    color: inherit;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1.15;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.product-rail-button:hover,
+.product-rail-home:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.product-rail-button.active {
+    background: rgba(94, 173, 184, 0.16);
+    color: var(--text-primary);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.product-rail-home:focus-visible,
+.product-rail-button:focus-visible,
+.nav-search:focus-visible,
+.sidebar-context .nav-item:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -3px;
+}
+
+.product-rail-attention {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    min-width: 18px;
+    padding: 1px 5px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    background: var(--bg-primary);
+    color: var(--warning);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 14px;
+    text-align: center;
+}
+
+.product-rail-attention[hidden] { display: none; }
+
+.sidebar-context-heading {
+    padding: 11px 20px 7px;
+}
+
+.sidebar-context-title {
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+}
+
+/* Two lines rather than one clipped line. The panel is ~200px wide and these
+   subtitles are full sentences, so nowrap truncated nearly all of them. */
+.sidebar-context-subtitle {
+    margin-top: 2px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    color: var(--text-muted);
+    font-size: 10.5px;
+    line-height: 1.3;
+}
+
+/* The linked stage's own controls: opening a governed terminal, and unlinking
+   the session without going back to find its card on the board. */
+.terminals-linked-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
+/* While the confirm is up it owns the row and Unlink sits under it. Stacking is
+   set here rather than left to flex-wrap: the callout's flex-basis is clamped by
+   its own max-width, so the line never actually fills and the two sat side by
+   side with the callout pushed off centre. */
+.terminals-linked-actions.is-confirming { flex-direction: column; align-items: center; }
+.terminals-linked-unlink { white-space: nowrap; }
+
+/* Audit previews: a tool call's own arguments, so the content can be source,
+   a long shell command, or one unbroken 8 KB line. Neither block had any rule
+   and the app defines no global `pre`, so they rendered at the browser default
+   of white-space: pre and pushed the whole page sideways. Wrap, cap the
+   height, and keep them reading as a quoted artefact rather than page copy. */
+.ar-args { margin-top: 10px; }
+.ar-args-note { margin-top: 5px; color: var(--text-muted); font-size: 11px; }
+.ar-args-label {
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 11px;
+    letter-spacing: .02em;
+}
+.ar-args pre,
+pre.story-wf-pre {
+    margin: 0;
+    max-height: 320px;
+    overflow: auto;
+    padding: 9px 11px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    /* pre-wrap keeps the recorded line breaks; anywhere breaks a single long
+       token, which is what a minified payload or a base64 blob arrives as. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* The heading doubles as the route to the group's landing page, so it needs to
+   look and behave like the destination it is. */
+.sidebar-context-heading.is-clickable { cursor: pointer; border-radius: 6px; }
+.sidebar-context-heading.is-clickable:hover .sidebar-context-title,
+.sidebar-context-heading.is-clickable:focus-visible .sidebar-context-title { color: var(--accent-primary); }
+.sidebar-context-heading.is-clickable:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+}
+
+/* The product rail is the topmost chrome on the left, so it owns the
+   title-strip inset the old .sidebar-header used to carry. Without this
+   the shield renders under the traffic lights. */
+html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
+
+.sidebar.collapsed { width: var(--sidebar-collapsed-width); }
+.sidebar.collapsed .sidebar-context { display: none; }
+.sidebar.collapsed .sidebar-product-rail { border-right: 0; }
+
+/* A group whose context list would render zero destination rows (see the
+   `sidebar-context-empty` toggle in render()) hides the same `.sidebar-context`
+   panel for the same reason — nothing to show — without touching the user's
+   own expand/collapse preference (`.collapsed` stays whatever it was). Reuses
+   the collapsed-mode width and border math so the main content reflows into
+   the reclaimed space with no gap or double border. */
+.sidebar.sidebar-context-empty { width: var(--sidebar-collapsed-width); }
+.sidebar.sidebar-context-empty .sidebar-context { display: none; }
+.sidebar.sidebar-context-empty .sidebar-product-rail { border-right: 0; }
+.sidebar.sidebar-context-empty .sidebar-resize-handle {
+    /* No point letting the user drag a rail with no context beside it. */
+    display: none;
+}
+
+/* Collapsed (or context-empty, above), the context panel is gone, so the
+   controls that must outlive it are relocated into the product rail
+   (Sidebar._syncCollapsedControls moves the one instance of each, it never
+   clones one): the search row, the plugin and SIEM status banners, and the
+   theme control. The icon-only treatment for each of them is already defined
+   further up this file; these rules only give them room inside the 72px rail. */
+.sidebar.collapsed .sidebar-product-rail,
+.sidebar.sidebar-context-empty .sidebar-product-rail {
+    /* the theme menu opens out of the rail and must not be clipped */
+    overflow: visible;
+}
+.sidebar.collapsed .sidebar-product-rail .product-rail-groups,
+.sidebar.sidebar-context-empty .sidebar-product-rail .product-rail-groups { padding-bottom: 6px; }
+.sidebar.collapsed .sidebar-product-rail .nav-search,
+.sidebar.sidebar-context-empty .sidebar-product-rail .nav-search { margin: 6px auto 2px; }
+.sidebar.collapsed .sidebar-product-rail .sidebar-bottom,
+.sidebar.sidebar-context-empty .sidebar-product-rail .sidebar-bottom {
+    flex: 0 0 auto;
+    margin-top: auto;
+    /* the foot of the rail is free again; this is breathing room, not clearance */
+    padding-bottom: 6px;
+}
+.sidebar.collapsed .sidebar-product-rail .sidebar-theme-fixed,
+.sidebar.sidebar-context-empty .sidebar-product-rail .sidebar-theme-fixed { margin: 4px auto 6px; }
+
+@media (max-width: 768px) {
+    .sidebar,
+    .sidebar.collapsed {
+        width: min(92vw, 360px);
+        max-width: 360px;
+    }
+
+    /* Collapse is a desktop space-saving mode. A mobile drawer always opens
+       with both columns so every contextual destination remains reachable. */
+    .sidebar.collapsed .sidebar-context { display: flex; }
+    .sidebar.collapsed .sidebar-product-rail { border-right: 1px solid var(--border-default); }
+    .sidebar-resize-handle,
+    .sidebar-collapse-btn { display: none; }
 }

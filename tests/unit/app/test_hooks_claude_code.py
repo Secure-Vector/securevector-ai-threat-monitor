@@ -40,12 +40,46 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks_claude_code, "STAGING_DIR", staging)
     instance = FastAPI()
     instance.include_router(hooks_claude_code.router, prefix="/api")
+    # The install and uninstall routes now require a loopback Host and a
+    # MATCHING Origin: they were reachable from any page before, and a
+    # cross-origin POST could remove a Guard from under live sessions. The
+    # state-changing tests below therefore have to present what the real page
+    # presents. `status` is a read and still needs nothing.
+    from securevector.app.terminals.auth import TerminalAuth
+
+    instance.state.terminal_auth = TerminalAuth(token="t" * 48, port=8741)
     return instance
+
+
+# What the app's own page sends. TestClient defaults to testserver, which is
+# not a loopback host, so both have to be set.
+PAGE_HEADERS = {"host": "127.0.0.1:8741", "origin": "http://127.0.0.1:8741"}
 
 
 @pytest.fixture
 def client(app):
     return TestClient(app)
+
+
+def test_a_page_on_another_origin_cannot_remove_the_guard(client):
+    """The gap this closes: before 2026-09-21 these routes carried no check at
+    all, so `fetch('.../uninstall', {mode:'no-cors'})` from any tab the user
+    had open removed the plugin. CORS hides the reply, never the effect."""
+    client.post("/api/hooks/claude-code/install", headers=PAGE_HEADERS)
+    evil = {"host": "127.0.0.1:8741", "origin": "https://evil.example"}
+    assert client.post("/api/hooks/claude-code/uninstall", headers=evil).status_code == 403
+    assert client.post("/api/hooks/claude-code/install", headers=evil).status_code == 403
+    # And it really is still installed.
+    assert client.get("/api/hooks/claude-code/status").json()["installed"] is True
+
+
+def test_a_request_with_no_origin_at_all_is_refused(client):
+    """A bare curl sends no Origin. Treating "absent" as "fine" is what left
+    these reachable, so Origin is required here rather than merely validated
+    when present."""
+    assert client.post(
+        "/api/hooks/claude-code/uninstall", headers={"host": "127.0.0.1:8741"}
+    ).status_code == 403
 
 
 def test_status_returns_not_installed_on_fresh_start(client):
@@ -58,7 +92,7 @@ def test_status_returns_not_installed_on_fresh_start(client):
 
 
 def test_install_stages_all_plugin_files(client):
-    r = client.post("/api/hooks/claude-code/install")
+    r = client.post("/api/hooks/claude-code/install", headers=PAGE_HEADERS)
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
@@ -66,7 +100,7 @@ def test_install_stages_all_plugin_files(client):
 
 
 def test_install_returns_two_paste_in_commands(client):
-    r = client.post("/api/hooks/claude-code/install")
+    r = client.post("/api/hooks/claude-code/install", headers=PAGE_HEADERS)
     commands = r.json()["commands"]
     assert len(commands) == 2
     assert commands[0].startswith("/plugin marketplace add ")
@@ -74,7 +108,7 @@ def test_install_returns_two_paste_in_commands(client):
 
 
 def test_status_reports_installed_after_install(client):
-    client.post("/api/hooks/claude-code/install")
+    client.post("/api/hooks/claude-code/install", headers=PAGE_HEADERS)
     r = client.get("/api/hooks/claude-code/status")
     body = r.json()
     assert body["installed"] is True
@@ -87,7 +121,7 @@ def test_install_substitutes_local_app_url(client, monkeypatch):
         "resolve_sv_url",
         lambda: "http://127.0.0.1:9999",
     )
-    client.post("/api/hooks/claude-code/install")
+    client.post("/api/hooks/claude-code/install", headers=PAGE_HEADERS)
     # Any file that legitimately contains the placeholder URL should have
     # been substituted. The plugin.json + README are the natural carriers
     # (env / docs); the JS handlers read from env, so they don't carry it.
@@ -102,8 +136,8 @@ def test_install_substitutes_local_app_url(client, monkeypatch):
 
 
 def test_uninstall_removes_staged_tree(client):
-    client.post("/api/hooks/claude-code/install")
-    r = client.post("/api/hooks/claude-code/uninstall")
+    client.post("/api/hooks/claude-code/install", headers=PAGE_HEADERS)
+    r = client.post("/api/hooks/claude-code/uninstall", headers=PAGE_HEADERS)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -114,8 +148,8 @@ def test_uninstall_removes_staged_tree(client):
 
 def test_uninstall_is_idempotent(client):
     # Calling uninstall twice in a row (or with nothing installed) must not error.
-    r1 = client.post("/api/hooks/claude-code/uninstall")
-    r2 = client.post("/api/hooks/claude-code/uninstall")
+    r1 = client.post("/api/hooks/claude-code/uninstall", headers=PAGE_HEADERS)
+    r2 = client.post("/api/hooks/claude-code/uninstall", headers=PAGE_HEADERS)
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r1.json()["ok"] is True

@@ -91,4 +91,181 @@ Every ~10 user-message interactions, write a fresh session summary so the conver
 
 ### Security / Skill Scanner Domain
 - When implementing or extending the Skill Scanner (`src/securevector/app/services/skill_scanner.py`), apply security-expert judgement: static analysis only, no code execution, check each of the 7 finding categories (network_domain, env_var_read, shell_exec, code_exec, dynamic_import, file_write, base64_literal), plus compiled_code, symlink_escape, missing_manifest. Community rule library is intentionally excluded — it targets LLM text, not source code. AI review (if enabled) provides context-aware false-positive filtering. Respect the severity-based risk aggregation (critical/high → HIGH, medium-only → MEDIUM, none/low → LOW)
+## Release 6.0.0 — branch model and release steps
+
+6.0.0 is a multi-feature release built over ten weeks. Dates: **code freeze
+Fri 20 Nov 2026**, **launch Tue 1 Dec 2026**. Headline feature: **Agent
+Terminals** (rail label "Agents"): launch a Claude Code session from the app,
+click it to attach to its live terminal (PTY owned by the app, xterm.js over
+a per-session WebSocket), verdict rail beside it, approvals through the
+existing JIT inbox.
+
+### Branches
+
+- `release/6.0.0` — integration branch, cut from `master` after 5.3.0. Every
+  6.0.0 feature merges here first. It is **not** pushed or PR'd until freeze.
+  It has no upstream on purpose: never `git push` it without an explicit
+  refspec, and never push it to `master`.
+- `feat/<issue>-<slug>` — one branch per story, cut from `release/6.0.0`,
+  checked out in a sibling worktree `securevector-ai-threat-monitor--<issue>`
+  (current: `feat/208-agent-terminals` in `--208`). Follow-up work for a
+  story stays on that story's branch; do not open a new branch per PR.
+- Feature branches PR into `release/6.0.0`. At freeze, `release/6.0.0` opens
+  two PRs from the one branch, to `develop` and to `master` (same as 5.2.0
+  and 5.3.0).
+- The user commits and pushes; Claude stages and leaves changes in the tree.
+
+### Version bump
+
+Bump `__version__` in **both** `src/securevector/__init__.py` and
+`src/securevector/app/__init__.py` to `6.0.0` on the release branch at
+freeze, not on feature branches (feature branches keep 5.3.0 so they merge
+cleanly). Leave `securevector/mcp/__init__.py` and the plugin manifests
+alone unless they changed.
+
+### Release steps (owner runs these, in order)
+
+1. Freeze on Fri 20 Nov: all feature PRs merged into `release/6.0.0`, version
+   bumped to 6.0.0 in both files, CHANGELOG entry written, ten-user preview
+   build cut from `release/6.0.0`.
+2. Preview week: no new scope on `release/6.0.0`; fixes only, each as its own
+   commit. Publish one governed-calls number from the preview.
+3. Push `release/6.0.0` and open two PRs from it, to `develop` and to
+   `master`. Wait for CodeQL, comprehensive-testing, and the security scan to
+   pass; clear bot findings on the PR branch (`sv-security-bot` skill).
+4. Merge to `master`, tag `v6.0.0`, publish the GitHub release. Publishing
+   triggers PyPI trusted publishing via `release.yml`; the tag triggers
+   `build-installers.yml` for the macOS, Windows, and Linux installers.
+5. Verify: `pip install -U "securevector-ai-monitor[app]==6.0.0"` and launch
+   the app; the Terminals rail entry must be present and a task must attach.
+6. Merge the same branch to `develop`. Then launch kit, docs, and website go
+   out on Tue 1 Dec.
+
+### 6.0.0 scope guard
+
+- Executors: Claude Code, Codex, GitHub Copilot CLI, and OpenCode, each
+  gated on its own Guard plugin being installed and enabled (spawn is closed
+  by default). Cursor and Gemini are not executors in 6.0.0. macOS and Linux
+  full PTY; Windows streams-only.
+- Several tasks can be attached at once in split panes, each with its own
+  governance (owner decision, replaces the earlier one-terminal rule). Tasks
+  run in the folder the user picks
+  (worktree isolation is 6.1). Executor in Python; no Node sidecar.
+- Not in 6.0.0: diff review, PR creation, merge, or any kanban or board
+  planning surface. Terminals shows the terminal, the verdict rail, and
+  approvals; review and delivery stay in the user's existing tools.
+- If late on 30 Oct, cut in this order: approvals inbox, board restore, cost
+  figure. The security exit criteria, the attached-terminal demo, and the
+  preview are never cut.
+- Security exit criteria (all required before freeze): cookie-based token
+  bootstrap; CSP with pinned, hashed, vendored xterm.js (no `unsafe-eval`,
+  see the pywebview CSP note in the desktop shell); token file and audit DB
+  readable only by the installing OS user; risky xterm.js escape handlers
+  (OSC 52 clipboard, file OSCs) disabled; UI keystrokes audited as their own
+  event type with a test proving a typed "y" cannot pass a hard Guard deny;
+  crash-dump and telemetry redaction at parity with disk; unverified marking
+  plus heartbeat timeout for screen-manifest status; startup reaper,
+  orphaned-tasks view, and "stop all tasks" before uninstall or upgrade.
+- Naming: the feature is "Agent Terminals" or "Terminals". The rail button and
+  context heading read **"Agents"**; the page header and the destination itself
+  read **"Agent Sessions"** (changed 2026-09-19, see below). The rail is an
+  index and the panel is ~200px wide, so the long form clipped there. Never
+  "Mission Control", never "firewall", never "Command" or "Control" next to
+  "Agent". The verb is launch.
+- The unit is a **session**, not a task. "Agent Tasks" was the label until
+  2026-09-19. Three reasons it changed: "task" means a queued unit of work
+  with a todo/in-progress/done lifecycle in the orchestrator tools people
+  arrive from, and 6.0.0 explicitly ships no board or kanban, so the label
+  promised a queue that does not exist; the board now also holds sessions
+  adopted from someone's own terminal, which were never tasks anyone launched
+  here; and the harnesses themselves say session, as does `session_id`, which
+  is what the whole governance layer keys off. "Runs" was rejected because
+  `agent-runs` already owns it one level down, where its first view is
+  literally labelled Runs. Internal ids (`tasks`, `terminals`) and API paths
+  (`/api/terminals/tasks`) are unchanged, so deep links still resolve.
+- **The page body copy is still "task"** ("All tasks", "Stop N running tasks",
+  "No task attached", roughly 60 strings). Renaming it is owed and is its own
+  slice. Do NOT attempt it with a find-and-replace across the file: an attempt
+  on 2026-09-19 rewrote the Claude Code `Task` **tool identifier** in the
+  governed built-ins list, and the scripted revert then corrupted
+  `session_id`/`sessionId` into `task_id`/`taskId` throughout the link and
+  adopt code. Failures went 0 to 70 and `terminals.js` had to be reset to HEAD
+  and rebuilt by hand. One anchored edit at a time, or a spec and a subagent.
+
+### Decisions recorded 2026-09-21
+
+- **Two meanings of "origin", and they must not be confused.**
+  `terminal_tasks.origin` is `launch` or `linked` and says HOW the row came to
+  exist. The event trail's origin is the ACTOR (`ui`, `cli`, plus internal
+  `process`, `shutdown`, `quit`) and says WHO asked. A session started from the
+  CLI is still a `launch`. `_supersede_linked` and the board's "linked" chip
+  read the first; anything auditing who did something reads the second.
+- **The CLI is `sv-monitor session`, not `sv`.** There is no `sv` console
+  script; setup.py installs `sv-monitor` and `securevector-monitor`. It is a
+  thin client over the same loopback API the page uses (`terminals/client.py`),
+  so spawn/link/stop have exactly one implementation and the CLI cannot acquire
+  powers the page lacks. It never builds argv, chooses an env, or starts a
+  process.
+- **Unverified marking replaces the screen-manifest fallback.** That fallback
+  existed for harnesses without hooks; all four shipped harnesses have hooks,
+  so it is moot. The same hazard arrived by another road: a linked row's
+  liveness can come from the transcript file's mtime, which says the harness is
+  alive, not that anything is watching it. `GUARD_HEARTBEAT_SECONDS = 300`
+  decides verified vs unverified; an ended row is neither. Deliberately longer
+  than `LINKED_WORKING_SECONDS` so the badge does not flicker between tool
+  calls.
+- **Cost on the board comes from `llm_cost_records` only.** That table is
+  populated by the SecureVector proxy, so a session talking straight to the
+  provider shows no figure. A cost is deliberately NOT estimated from token
+  counts: an invented number on a security product's board is worse than none.
+  Absence renders nothing, never `$0.00`, because "not billed yet" and "free"
+  must not look the same.
+- **Guard uninstall is refused, not made to stop sessions.** Removing a
+  harness's Guard while its sessions are live strands them, and nothing records
+  when governance ended because what writes the trail is what was removed.
+  `?force=true` exists for a wedged session and writes `guard_removed` to each
+  affected trail first. OpenClaw is deliberately unguarded: it has a Guard but
+  is not a Terminals executor, so no board session depends on it. NOTE: the
+  claude-code uninstall route lives in `hooks_claude_code.py`; `hooks.py` is
+  OpenClaw. Guarding the wrong file once let a live uninstall through.
+- **Never verify a destructive endpoint with a live POST.** Doing so on
+  2026-09-21 removed two Guard plugins from a running install. Exercise it
+  through the test suite.
+
+### npm: no auto install, decided 2026-09-21
+
+The npm launcher (`npm/`, published as `@securevector/cli`) never installs a
+Python runtime, and `npm install` never touches the network: there is no
+`postinstall`, `preinstall` or `prepare` hook, and a test fails if one is added.
+
+A security product that quietly provisions a language runtime is doing the
+thing it warns about in other software, and a postinstall that downloads and
+executes is that shape exactly. The cost is one extra step for a Node developer
+with no Python. That is accepted. Owner confirmed.
+
+No Python, or one older than 3.10, produces instructions naming the platform's
+install command and an exit 1, never a stack trace. The two cases read
+differently on purpose: "none found" and "found, too old" lead to different
+actions, the second usually being PATH order rather than a missing install.
+
+If the friction ever needs removing, the honest routes are a standalone binary
+or a real Node SDK, not a silent install.
+
+### 6.0.0 also ships npm install for the harnesses
+
+Every harness Agent Terminals launches is an npm package: `@anthropic-ai/claude-code`,
+`@openai/codex`, `@github/copilot`, `opencode-ai`. When one is absent the board
+says "Install <harness> to launch tasks with it", which names no package and
+offers no action. Closing that is part of 6.0.0, paired with the Terminals work
+rather than following it: governing four harnesses while leaving people to
+install them by hand is half a feature.
+
+The design constraint is the one that already governs spawn, and it is not
+negotiable: **the host owns the package name.** A client names an executor id
+and nothing else. No package name, version, registry or npm flag may arrive
+from the page or the CLI, the allowlist sits beside the binary names in
+`executors.py`, and the install route carries the same Host plus required
+Origin gate the plugin routes do. Never automatic, never `sudo`, audited like
+any other action with the actor recorded.
+
 <!-- MANUAL ADDITIONS END -->

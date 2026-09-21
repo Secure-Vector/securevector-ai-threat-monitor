@@ -31,6 +31,14 @@ if str(SRC) not in sys.path:
 
 from securevector.app.server.routes import hooks_codex  # noqa: E402
 
+# The install and uninstall routes now require a loopback Host and a MATCHING
+# Origin. They carried no check at all before 2026-09-21, so a page on any
+# origin could POST them and remove a Guard from under live sessions. These
+# tests therefore have to present what the app's own page presents. Reads
+# (status) are unchanged and still need nothing.
+PAGE_HEADERS = {"host": "127.0.0.1:8741", "origin": "http://127.0.0.1:8741"}
+
+
 
 def test_strip_handles_array_value_starting_with_bracket():
     """v4.3 regression: array values like `ignore = [...]` on their own
