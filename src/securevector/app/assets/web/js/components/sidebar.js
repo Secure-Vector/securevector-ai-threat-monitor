@@ -1411,6 +1411,17 @@ const Sidebar = {
                     // The click that ends a drag belongs to the drag.
                     if (window.TerminalsPage?.consumeDragClick && TerminalsPage.consumeDragClick()) return;
                     sessionStorage.setItem('sv-agent-task-id', view.taskId);
+                    // Already looking at the page: hand the task straight to
+                    // it. navigate() would call App.loadPage(), which has no
+                    // already-on-page guard and re-renders from scratch, and
+                    // the layout restore then rewrites this very key with the
+                    // previously focused task, so the second agent clicked in
+                    // the rail never opened.
+                    if (this.currentPage === 'terminals' && window.TerminalsPage?.openTask) {
+                        TerminalsPage.openTask(view.taskId);
+                        this.setActive('terminals');
+                        return;
+                    }
                     this.navigate('terminals');
                     return;
                 }

@@ -193,6 +193,31 @@ test('three rows render whole, five collapse to a preview with Show all', () => 
   assert.equal(adopt.querySelector('.terminals-adopt-more').textContent, 'Show fewer');
 });
 
+test('every row names its session, beside the folder', () => {
+  const { page, adopt } = loadPage();
+  page._adoptable = [row(1, { session_id: 'ac8210e6-75d5-4402-b635-01a694a61a68' })];
+  page._renderAdoptable();
+  const html = adopt.innerHTML;
+
+  assert.ok(html.includes('>ac8210e6<'), 'the first eight characters, as the unlinked list shows them');
+  assert.ok(html.includes('title="ac8210e6-75d5-4402-b635-01a694a61a68"'),
+    'the whole id is the tooltip, so it can be matched against --resume');
+  assert.ok(html.indexOf('terminals-adopt-folder') < html.indexOf('terminals-adopt-sid'),
+    'it reads after the folder, not before it');
+});
+
+test('a row whose folder was never reported is still named by its session', () => {
+  const { page, adopt } = loadPage();
+  // The sentinel the host writes when no hook ever reported a cwd.
+  page._adoptable = [row(1, { workspace: '(unknown folder)', session_id: 'beef1234-aaaa' })];
+  page._renderAdoptable();
+  const html = adopt.innerHTML;
+
+  assert.ok(html.includes('folder not reported'));
+  assert.ok(html.includes('>beef1234<'),
+    'otherwise the row carries nothing that tells it from any other');
+});
+
 test('rows are newest first and carry harness, folder, age and call count', () => {
   const { page, adopt } = loadPage();
   page._adoptable = [row(9), row(1, { calls: 1 })];

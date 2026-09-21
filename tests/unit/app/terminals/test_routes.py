@@ -31,9 +31,14 @@ def _fake_claude_bin(tmp_path: Path) -> Path:
     # stub on disk rather than a bare "claude" string on the PATH.
     tmp_bin = tmp_path / "bin"
     tmp_bin.mkdir(exist_ok=True)
-    fake_claude = tmp_bin / "claude"
-    fake_claude.write_text("#!/bin/sh\nexit 0\n")
-    fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # `codex` too: Claude Code launches are always relayed through the
+    # --settings file this host writes, so an ungoverned launch now has to be
+    # spelled with a harness whose governance really does depend on its own
+    # Guard plugin being enabled.
+    for name in ("claude", "codex"):
+        stub = tmp_bin / name
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return tmp_bin
 
 
@@ -138,11 +143,11 @@ def test_task_rows_carry_governed_at_launch(env):
         json={"executor_id": "claude-code", "workspace": ws},
         headers=AUTH,
     ).json()["id"]
-    # Same manager, Guard plugin now gone: the next launch is ungoverned.
-    manager.settings.plugin_dir = lambda: None
+    # Codex has no Guard plugin enabled in this fixture, and unlike Claude Code
+    # it carries no relay of its own, so its launch is the ungoverned one.
     r = client.post(
         "/api/terminals/tasks",
-        json={"executor_id": "claude-code", "workspace": ws},
+        json={"executor_id": "codex", "workspace": ws},
         headers=AUTH,
     )
     assert r.status_code == 201, r.text
@@ -164,10 +169,9 @@ def test_task_rows_carry_governed_at_launch(env):
 
 def test_a_finished_ungoverned_task_still_reports_governed_at_launch_false(env):
     client, manager, ws, _ = env
-    manager.settings.plugin_dir = lambda: None
     task_id = client.post(
         "/api/terminals/tasks",
-        json={"executor_id": "claude-code", "workspace": ws},
+        json={"executor_id": "codex", "workspace": ws},
         headers=AUTH,
     ).json()["id"]
     # The harness exits: the task is finished, but how it launched does not change.
@@ -229,9 +233,8 @@ def test_spawn_rejects_unknown_executor_and_bad_workspace(env):
 
 def test_spawn_without_guard_hooks_succeeds_and_is_audited(env):
     client, manager, ws, _ = env
-    manager.settings.plugin_dir = lambda: None
     r = client.post(
-        "/api/terminals/tasks", json={"executor_id": "claude-code", "workspace": ws}, headers=AUTH
+        "/api/terminals/tasks", json={"executor_id": "codex", "workspace": ws}, headers=AUTH
     )
     assert r.status_code == 201, r.text
     body = r.json()
@@ -601,3 +604,87 @@ def test_listing_the_board_moves_a_stale_linked_task_to_done(env):
     listed = client.get("/api/terminals/tasks", headers=AUTH).json()["items"]
     row = next(t for t in listed if t["id"] == task["id"])
     assert row["status"] == "done" and row["ended_at"] is not None
+
+
+# --- who asked ---------------------------------------------------------------
+#
+# `terminal_tasks.origin` is `launch` or `linked` and says HOW the row came to
+# exist. The actor recorded on the event trail is a different thing: it says WHO
+# asked, and a session started from the CLI is still a launch. These must not be
+# conflated, or the supersede rule and the "linked" chip would follow the wrong
+# field.
+
+
+def test_a_cli_launch_is_still_a_launch_row_and_says_cli_on_the_trail(env):
+    client, _, ws, _ = env
+    r = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws, "origin": "cli"},
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    task = r.json()
+    assert task["origin"] == "launch", "the row origin describes the row, not the caller"
+    events = client.get(f"/api/terminals/tasks/{task['id']}/events", headers=AUTH).json()["items"]
+    assert events[0]["kind"] == "spawn"
+    assert events[0]["origin"] == "cli"
+
+
+def test_the_ui_still_needs_to_say_nothing(env):
+    client, _, ws, _ = env
+    task = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    ).json()
+    events = client.get(f"/api/terminals/tasks/{task['id']}/events", headers=AUTH).json()["items"]
+    assert events[0]["origin"] == "ui", "omitted means the page, which is the common case"
+
+
+def test_an_unknown_actor_is_refused_rather_than_written_to_the_audit_chain(env):
+    client, _, ws, _ = env
+    r = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws, "origin": "../../etc"},
+        headers=AUTH,
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Unknown origin"
+
+
+def test_a_cli_stop_is_recorded_as_cli(env):
+    client, _, ws, _ = env
+    task = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    ).json()
+    r = client.post(f"/api/terminals/tasks/{task['id']}/stop?origin=cli", headers=AUTH)
+    assert r.status_code == 200
+    events = client.get(f"/api/terminals/tasks/{task['id']}/events", headers=AUTH).json()["items"]
+    stop = [e for e in events if e["kind"] == "stop"][0]
+    assert stop["origin"] == "cli"
+
+
+def test_an_unknown_actor_on_stop_is_refused_too(env):
+    client, _, ws, _ = env
+    task = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    ).json()
+    r = client.post(f"/api/terminals/tasks/{task['id']}/stop?origin=root", headers=AUTH)
+    assert r.status_code == 400
+
+
+def test_the_closed_request_shape_still_forbids_everything_else(env):
+    client, _, ws, _ = env
+    # `origin` was added to a model with extra="forbid". That must not have
+    # loosened it: argv, env and command are still 422.
+    for extra in ({"argv": ["x"]}, {"env": {"A": "B"}}, {"command": "sh"}):
+        r = client.post(
+            "/api/terminals/tasks",
+            json={"executor_id": "claude-code", "workspace": ws, **extra},
+            headers=AUTH,
+        )
+        assert r.status_code == 422, extra

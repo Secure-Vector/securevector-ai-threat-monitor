@@ -27,8 +27,10 @@ from typing import Callable, Mapping, Optional, Tuple
 
 from securevector.app.terminals.executors import EXECUTORS, UnknownExecutor, build_launch
 from securevector.app.terminals.pty_host import PtyHost, Subscriber
-from securevector.app.terminals.session_cwd import resolve_session_cwd
+from securevector.app.terminals.session_cwd import resolve_session_cwd, session_last_write
+from securevector.app.terminals import live_runs
 from securevector.app.terminals.store import (
+    RUNNING,
     TerminalStore,
     _plausible_cwd,
     age_seconds,
@@ -48,6 +50,21 @@ SESSION_ID_RE = re.compile(r"\A[A-Za-z0-9._:-]{8,128}\Z")
 # "is it alive" is answered by how recently its Guard reported.
 LINKED_WORKING_SECONDS = 120
 LINKED_IDLE_SECONDS = 1800
+
+# How recently the Guard must have reported for a linked row's liveness to be
+# called VERIFIED. The release gate asks for "unverified marking with a heartbeat timeout".
+# The screen-manifest fallback that phrase was written for was never built, and
+# is now moot: every harness that ships in 6.0.0 has hooks. The same hazard
+# arrived by a different road though. A linked row's liveness can be derived
+# from the transcript file's mtime when the audit trail has gone quiet, and a
+# file mtime is not a governance signal: it says the harness is alive, not that
+# anything is watching it. A row standing on that evidence is exactly the
+# "unverified" case, and this is its heartbeat window.
+#
+# Deliberately longer than LINKED_WORKING_SECONDS: a session legitimately
+# pauses for thought between tool calls, and flapping the badge every time
+# someone reads a long file would teach people to ignore it.
+GUARD_HEARTBEAT_SECONDS = 300
 
 # What a linked task's folder says when nothing in the audit trail names one.
 UNKNOWN_WORKSPACE = "(unknown folder)"
@@ -209,11 +226,21 @@ class TerminalManager:
         rows: list[dict] = []
         for executor in EXECUTORS.values():
             installed = bool(child_path) and shutil.which(executor.binary, path=child_path) is not None
+            outside_hint = ""
             if executor.id == "claude-code":
-                # The manager injects --plugin-dir when the plugin is installed
-                # but not yet enabled, so "installed" is the governance bar here.
-                governed = self.settings.plugin_dir() is not None
+                # Every Claude Code launch carries this host's additive
+                # --settings relay, so a session launched here is governed
+                # whether or not the plugin is registered with Claude Code.
+                # The plugin answers a different question: it governs sessions
+                # started OUTSIDE the app, which this host writes no argv for
+                # and so cannot relay any other way.
+                governed = True
                 guard_label = executor.label
+                if self.settings.plugin_dir() is None:
+                    outside_hint = (
+                        f"Sessions you start in your own terminal are not governed until the "
+                        f"{guard_label} Guard plugin is installed."
+                    )
             else:
                 gate, guard_label = self._guard_gate(executor.id)
                 governed = bool(gate())
@@ -228,7 +255,7 @@ class TerminalManager:
                     "ungoverned until you install it."
                 )
             else:
-                hint = ""
+                hint = outside_hint
             rows.append(
                 {
                     "id": executor.id,
@@ -297,11 +324,20 @@ class TerminalManager:
         inject = None
         if executor_id == "claude-code":
             plugin_dir = self.settings.plugin_dir()
-            governed = plugin_dir is not None
-            # If the plugin is already enabled in the user's Claude settings,
-            # do not pass --plugin-dir as well: the hooks would run twice.
-            if governed:
-                inject = None if self.settings.plugin_enabled() else plugin_dir
+            # A Claude Code LAUNCH is governed by the additive --settings relay
+            # file this host writes for every one of them, not by the plugin.
+            # The plugin is what governs a session someone starts in their own
+            # terminal, where this host writes no argv at all. Deriving
+            # `governed` from plugin registration marked every app-launched
+            # session ungoverned whenever the plugin was not registered, which
+            # is the exact case Agent Sessions exists to cover, and the relay
+            # was demonstrably running the whole time.
+            governed = True
+            # If the plugin is registered but not yet enabled in the user's
+            # Claude settings, pass it explicitly; if it is enabled already,
+            # passing it as well would run the hooks twice.
+            if plugin_dir is not None and not self.settings.plugin_enabled():
+                inject = plugin_dir
         else:
             gate, _guard_label = self._guard_gate(executor_id)
             governed = bool(gate())
@@ -365,6 +401,20 @@ class TerminalManager:
         await self.store.add_event(
             task_id, kind="spawn", origin=origin, detail=f"{executor_id} in {launch.cwd}"
         )
+        task = await self.store.get_task(task_id)
+        if task is None:
+            raise RuntimeError(f"terminal task {task_id} vanished immediately after spawn")
+        # Metadata only, and never awaited on this path: a cloud that is slow
+        # or gone must not hold up a local launch. No `detail` is passed, and
+        # the emitter takes none: the audit detail above carries the working
+        # folder, which is exactly what must not leave the machine. Reuses
+        # the row just read (needed below for the return value anyway)
+        # instead of a second store hit, and only schedules the emit at all
+        # when something is listening: with no sink installed -- every
+        # install today, since nothing calls `set_sink()` yet -- this would
+        # otherwise be a task and a settings read spent purely to no-op.
+        if live_runs.has_sink():
+            live_runs.emit_nowait(task, "spawn", origin=origin)
         if not governed:
             self._ungoverned.add(task_id)
             await self.store.add_event(
@@ -376,10 +426,37 @@ class TerminalManager:
                     "the task is ungoverned until it is installed"
                 ),
             )
-        task = await self.store.get_task(task_id)
-        if task is None:
-            raise RuntimeError(f"terminal task {task_id} vanished immediately after spawn")
+        # A resume moves an existing harness session onto a PTY this host owns.
+        # The linked row that offered the resume names the SAME session_id, so
+        # leaving it on the board shows one session twice, once as a live
+        # terminal and once as an outside session whose liveness can no longer
+        # move. Retire it; the audit it collected is kept, as with any archive.
+        if resume_session_id:
+            await self._supersede_linked(task_id, resume_session_id, origin=origin)
+        # Nothing between the read above and here touches this task's own
+        # row (guard_missing and _supersede_linked write events, and the
+        # latter mutates a DIFFERENT row); the row fetched for the emit is
+        # still current.
         return task
+
+    async def _supersede_linked(self, task_id: str, session_id: str, *, origin: str) -> None:
+        """Take the linked row for `session_id` off the board now that this
+        host owns a terminal for that same session.
+
+        Only a linked row is retired: a previous LAUNCH of the same session is
+        a process this host started and may still be running, and archiving it
+        would hide a task that still needs stopping.
+        """
+        prior = await self.store.task_for_session(session_id)
+        if prior is None or prior["id"] == task_id or prior.get("origin") != "linked":
+            return
+        await self.store.archive_task(prior["id"])
+        await self.store.add_event(
+            task_id,
+            kind="adopted",
+            origin=origin,
+            detail=f"Continued from linked session {session_id}; the linked row was retired",
+        )
 
     # -- linked sessions ----------------------------------------------------
 
@@ -390,6 +467,7 @@ class TerminalManager:
         *,
         workspace: Optional[str] = None,
         title: Optional[str] = None,
+        origin: str = "ui",
     ) -> dict:
         """Put a harness session that runs outside the app on the board.
 
@@ -431,7 +509,7 @@ class TerminalManager:
             await self.store.add_event(
                 task_id,
                 kind="linked",
-                origin="ui",
+                origin=origin,
                 detail=f"Linked {label} session {session_id}",
             )
         task = await self.store.get_task(task_id)
@@ -513,16 +591,43 @@ class TerminalManager:
             row["label"] = executor.label if executor else row["executor_id"]
         return rows
 
+    def _transcript_age(self, task: Mapping) -> Optional[float]:
+        """Seconds since the harness last wrote this session's transcript.
+
+        Best effort and never fatal to a board read: a missing or unreadable
+        transcript is simply no signal, exactly as the folder lookup treats it.
+        """
+        session_id = task.get("session_id")
+        if not session_id:
+            return None
+        try:
+            return session_last_write(str(task.get("executor_id") or ""), str(session_id))
+        except Exception:
+            logger.debug("transcript age failed for task %s", task.get("id"), exc_info=True)
+            return None
+
     def _linked_state(self, task: Mapping, seen: Optional[Mapping]) -> dict:
         """Derive (status, activity, last_activity_at, ended_at) for one
         linked row from what its session has reported."""
         last_any = (seen or {}).get("last_any")
         last_call = (seen or {}).get("last_call")
         last_end = (seen or {}).get("last_end")
+        # The harness writes its own transcript whether or not a Guard is
+        # relaying, so this sees a live session the audit trail cannot: with
+        # the plugin unregistered the audit never moves and a running session
+        # would otherwise age into idle and then into done.
+        writing = self._transcript_age(task)
         if not last_any:
             # Linked, but the Guard has never reported. The session may have
             # no Guard yet, so this never resolves to done on its own: only a
             # reported session end, or the user removing the row, ends it.
+            if writing is not None and writing < LINKED_WORKING_SECONDS:
+                return {
+                    "status": "working",
+                    "activity": "linked, writing its transcript",
+                    "last_activity_at": task.get("last_activity_at"),
+                    "ended_at": None,
+                }
             waited = age_seconds(task.get("created_at")) or 0.0
             status = "working" if waited < LINKED_IDLE_SECONDS else "idle"
             return {
@@ -535,6 +640,11 @@ class TerminalManager:
         age = age_seconds(last_any)
         if age is None:
             age = 0.0
+        # A reported end wins over a fresh transcript: `claude --resume` on an
+        # ended session appends to that same file, so mtime alone would revive
+        # a row whose session really did finish.
+        if writing is not None and not ended_by_session:
+            age = min(age, writing)
         if ended_by_session:
             return {
                 "status": "done",
@@ -582,9 +692,62 @@ class TerminalManager:
             state = self._linked_state(item, seen.get(item.get("session_id") or ""))
             changed = any(item.get(k) != v for k, v in state.items())
             item.update(state)
+            # Derived, never stored: it is a fact about a file on disk right
+            # now, so persisting it would age into a lie the moment it is read
+            # back. Kept off `state` for that reason, and because
+            # update_linked_state writes exactly the four columns state names.
+            item["transcript_age_seconds"] = self._transcript_age(item)
+            item.update(
+                self._verification(item, seen.get(item.get("session_id") or ""))
+            )
             if changed:
                 await self.store.update_linked_state(item["id"], **state)
         return items
+
+    def _verification(self, task: dict, seen: Optional[dict]) -> dict:
+        """Is this row's liveness backed by governance, or only by a file?
+
+        Derived on every read, never stored, for the same reason
+        `transcript_age_seconds` is: it is a statement about the last few
+        minutes, and a stored copy would age into a false claim.
+
+        Three outcomes:
+          verified   the Guard reported inside the heartbeat window, so what
+                     the row says about this session is backed by governed
+                     calls.
+          unverified the row is standing on the transcript file's mtime, or on
+                     a Guard that has gone quiet past the window. The session
+                     may be perfectly healthy; what is missing is anyone
+                     watching it. This is the state that must never look the
+                     same as "quiet".
+          n/a        the session has ended. Nothing is being claimed about now,
+                     so there is nothing to verify, and a badge here would be
+                     noise on every finished row.
+        """
+        # RUNNING is the store's own list of live statuses; anything else has
+        # ended, and an ended row claims nothing about now.
+        if task.get("status") not in RUNNING:
+            return {"verified": None, "verified_reason": ""}
+        last_call = (seen or {}).get("last_call")
+        age = age_seconds(last_call) if last_call else None
+        if age is not None and age <= GUARD_HEARTBEAT_SECONDS:
+            return {"verified": True, "verified_reason": "the Guard reported recently"}
+        if last_call is None:
+            return {
+                "verified": False,
+                # "never reported" and "stopped reporting" are different
+                # situations and lead somewhere different: the first is
+                # usually a Guard that was never installed, the second a
+                # session that went away. The copy has to tell them apart.
+                "verified_reason": "the Guard has never reported a call for this session",
+            }
+        return {
+            "verified": False,
+            "verified_reason": (
+                "the Guard has not reported for over "
+                f"{int(GUARD_HEARTBEAT_SECONDS // 60)} minutes"
+            ),
+        }
 
     def _on_exit_threadsafe(self, task_id: str, code: Optional[int]) -> None:
         if self._loop is None:
@@ -641,6 +804,15 @@ class TerminalManager:
         # Writing "stop" first keeps it ordered before "exit" regardless of
         # which of the two callbacks the loop happens to run first.
         await self.store.add_event(task_id, kind="stop", origin=origin)
+        # Before host.stop(), matching the ordering above: the stop is recorded
+        # while the row still reads as running, so an exit cannot race it.
+        # `task`, fetched above, is that same still-running row: add_event()
+        # only appends to the audit trail, it does not touch terminal_tasks,
+        # so re-reading here would return identical data at the cost of a
+        # second store hit. Only bother scheduling it when something is
+        # listening (see the spawn-path comment for why that matters today).
+        if live_runs.has_sink():
+            live_runs.emit_nowait(task, "stop", origin=origin)
         await asyncio.get_running_loop().run_in_executor(None, self.host.stop, task_id)
 
     async def stop_all(self, *, origin: str) -> None:

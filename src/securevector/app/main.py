@@ -1574,6 +1574,66 @@ def _handle_enroll() -> None:
     sys.exit(0)
 
 
+EXECUTOR_FOR_PLUGIN = {
+    "claude-code": "claude-code",
+    "codex": "codex",
+    "copilot-cli": "copilot-cli",
+    "opencode": "opencode",
+}
+
+
+def _warn_if_sessions_live(name: str) -> None:
+    """Say so when removing this Guard would strand running agent sessions.
+
+    The HTTP route refuses outright. This path only warns, because a CLI
+    uninstall is a deliberate act by the machine's owner and blocking it would
+    leave someone with no way to remove a plugin while a wedged session sat on
+    the board. Saying nothing, though, is the one option that is simply wrong:
+    the sessions keep running with nothing watching them and the trail records
+    no reason.
+
+    Best effort throughout. A board that cannot be read must not stop an
+    uninstall from a terminal.
+    """
+    executor = EXECUTOR_FOR_PLUGIN.get(name)
+    if not executor:
+        return
+    try:
+        import sqlite3
+
+        from securevector.app.utils.platform import get_database_path
+
+        db = get_database_path()
+        if not db.exists():
+            return
+        # RUNNING, not a hand-copied tuple: guardrail.py derives its own live
+        # set from it for exactly this reason, and a status added there must
+        # not silently stop being covered here.
+        from securevector.app.terminals.store import RUNNING
+
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            placeholders = ",".join("?" * len(RUNNING))
+            rows = conn.execute(
+                "SELECT id FROM terminal_tasks WHERE executor_id = ? AND archived_at IS NULL "
+                f"AND status IN ({placeholders})",
+                (executor, *RUNNING),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - a warning must never block the command
+        return
+    if not rows:
+        return
+    ids = ", ".join(r[0][:12] for r in rows[:3])
+    more = f" and {len(rows) - 3} more" if len(rows) > 3 else ""
+    print(
+        f"\nWarning: {len(rows)} {name} session(s) are still running ({ids}{more}).\n"
+        "Removing the Guard does not stop them. They keep running with nothing\n"
+        "watching them, and nothing records when governance ended.\n"
+    )
+
+
 def _handle_plugin_command(args) -> None:
     """Dispatch --install-plugin / --uninstall-plugin to the same async
     handler the POST /api/hooks/<agent>/{install,uninstall} routes use.
@@ -1589,9 +1649,19 @@ def _handle_plugin_command(args) -> None:
     else:
         name, action = args.uninstall_plugin, "uninstall"
 
+    if action == "uninstall":
+        _warn_if_sessions_live(name)
+
     if name == "claude-code":
         from securevector.app.server.routes import hooks_claude_code as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        # `_uninstall_plugin`, not the route: the route's guard needs a Request,
+        # which this path has not got. It does NOT follow that there is nothing
+        # to strand. An earlier version of this comment claimed exactly that
+        # and was wrong: the board is a SQLite file, so a separate process sees
+        # the same live sessions a running app does. `_warn_if_sessions_live`
+        # is what keeps this path from removing a Guard from under a running
+        # agent in silence.
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     elif name == "openclaw":
         from securevector.app.server.routes import hooks as mod
@@ -1603,11 +1673,11 @@ def _handle_plugin_command(args) -> None:
             result = asyncio.run(mod.uninstall_plugin())
     elif name == "codex":
         from securevector.app.server.routes import hooks_codex as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     elif name == "copilot-cli":
         from securevector.app.server.routes import hooks_copilot_cli as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     elif name == "cursor":
         from securevector.app.server.routes import hooks_cursor as mod
@@ -1615,7 +1685,7 @@ def _handle_plugin_command(args) -> None:
         result = asyncio.run(handler())
     elif name == "opencode":
         from securevector.app.server.routes import hooks_opencode as mod
-        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
     else:
         print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor, opencode.", file=sys.stderr)

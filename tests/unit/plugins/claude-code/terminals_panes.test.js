@@ -49,7 +49,8 @@ function makeEl(tag = 'div') {
       const attrFor = { '.terminals-pane-act': 'data-act', '[data-pick-id]': 'data-pick-id',
         '[data-tab-id]': 'data-tab-id', '[data-tab-close-id]': 'data-tab-close-id',
         '[data-ended-restart]': 'data-ended-restart', '[data-linked-open]': 'data-linked-open',
-        '[data-linked-continue]': 'data-linked-continue' };
+        '[data-linked-continue]': 'data-linked-continue', '[data-linked-go]': 'data-linked-go',
+        '[data-linked-cancel]': 'data-linked-cancel' };
       // A board card carries data-id and so does the button inside it, so the
       // two are told apart by the class that precedes the attribute.
       const cardFor = {
@@ -684,8 +685,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=6/);
-  assert.match(html, /terminals\.js\?v=53/);
-  assert.match(html, /styles\.css\?v=432/);
+  assert.match(html, /terminals\.js\?v=77/);
+  assert.match(html, /styles\.css\?v=450/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -3121,6 +3122,16 @@ async function mountLinked(t, api = {}, executors = []) {
     cont: stage.querySelector('[data-linked-continue]') };
 }
 
+/** Click through the acknowledgement a not-yet-ended session raises, and hand
+ *  back the confirm's own button so a test can assert on what it said. The
+ *  stage is rebuilt when the gate goes up, so the button has to be re-queried
+ *  rather than captured with the others at mount time. */
+async function ack(Page, paneId) {
+  const go = Page._panes.get(paneId).stageEl.querySelector('[data-linked-go]');
+  if (go) await go.onclick();
+  return go;
+}
+
 // Every harness the host says can reopen a session by id, and the one it says
 // cannot. The UI reads the flag; it never keeps its own list of harness ids.
 const RESUMERS = [
@@ -3129,13 +3140,16 @@ const RESUMERS = [
   { id: 'opencode', label: 'OpenCode', installed: true, governed: true, supports_resume: false },
 ];
 
-test('a linked task that is still reporting is not offered a terminal here', async () => {
-  const { html, btn } = await mountLinked(linked('L1', { status: 'working' }));
+test('a live session with no resume is still offered a fresh terminal, with the hazard named', async () => {
+  // Without an executors payload the page cannot know the harness resumes, so
+  // only the fresh-session offer stands. It is still an offer: the person may
+  // want a second terminal in that folder, and the confirm is what guards it.
+  const { html, btn, cont } = await mountLinked(linked('L1', { status: 'working' }));
 
-  assert.strictEqual(btn, null, 'a live outside session must never be raced with a second harness');
-  assert.doesNotMatch(html, /Open a governed terminal here/);
-  assert.match(html, /Its terminal is in the window you started it in/,
-    'instead it says where the terminal actually is');
+  assert.strictEqual(cont, null, 'nothing claims to carry the conversation');
+  assert.ok(btn, 'but starting one is not hidden');
+  assert.match(html, /This session is active right now\./);
+  assert.match(html, /puts a second agent in the same folder/);
 });
 
 test('a quiet linked task is offered a terminal, with the silence named and not oversold', async () => {
@@ -3143,7 +3157,7 @@ test('a quiet linked task is offered a terminal, with the silence named and not 
   const { html, btn } = await mountLinked(linked('L1', { status: 'idle', last_activity_at: when }));
 
   assert.ok(btn, 'silence is enough to offer, not enough to promise');
-  assert.match(html, /Open a governed terminal here/);
+  assert.match(html, /Start a new session here/);
   assert.match(html, /No activity reported for 45m ago\./, 'the gap is named from last_activity_at');
   assert.match(html, /starts a separate session in this folder/,
     'idle is a gap in the audit trail, not a reported end, so the caveat stands');
@@ -3199,6 +3213,7 @@ test('the fresh session takes the linked task place in the pane the button was i
   Page._attach = async (...args) => { attached.push(args); };
 
   await btn.onclick();
+  await ack(Page, paneId);
 
   assert.strictEqual(attached.length, 1);
   assert.deepStrictEqual(attached[0], ['T2', paneId, 'swap', 'L1'],
@@ -3213,7 +3228,7 @@ test('a launch that fails puts the button back rather than stranding the pane', 
   await btn.onclick();
 
   assert.strictEqual(btn.disabled, false, 'the person can try again');
-  assert.strictEqual(btn.textContent, 'Open a governed terminal here');
+  assert.strictEqual(btn.textContent, 'Start a new session here');
   assert.strictEqual(Page._panes.get(paneId).bannerEl.textContent, 'No such folder.');
   assert.ok(!Page._openingHereId);
 });
@@ -3227,24 +3242,48 @@ test('a launch that fails puts the button back rather than stranding the pane', 
 // harness that can reopen a NAMED session, on a real folder, on the session id
 // being known, and on the session no longer reporting calls.
 
-test('a session still reporting is told what to do, and is offered nothing to click', async () => {
-  const { html, cont } = await mountLinked(linked('L1', { status: 'working' }), {}, RESUMERS);
+test('a live session is offered the continue, behind the acknowledgement', async () => {
+  // It used to be offered nothing at all. That kept the hazard out of reach
+  // but also kept the offer out of reach for the session a person is sitting
+  // in, which is the one they ask about, and an absent button reads as "this
+  // cannot be done" rather than "this needs care". Changed 2026-09-20.
+  const { Page, paneId, html, cont } = await mountLinked(
+    linked('L1', { status: 'working' }), {}, RESUMERS);
 
-  assert.strictEqual(cont, null,
-    'resuming a live session would put two harnesses on one conversation and one folder');
-  assert.match(html, /Close it in your own terminal, then continue it here\./,
-    'the copy has to name the step that makes continuing possible');
-  assert.doesNotMatch(html, /Continue this session here<\/button>/);
+  assert.ok(cont, 'the offer exists');
+  assert.match(html, /This session is active right now\./);
+  assert.match(html, /puts a second agent in the same folder/,
+    'and the hazard is stated before anything is pressed');
 });
 
-test('a harness that cannot reopen a named session still says only where the terminal is', async () => {
-  const { html, cont } = await mountLinked(
+test('a live session still cannot spawn on one click', async () => {
+  let calls = 0;
+  const { Page, paneId, cont } = await mountLinked(linked('L1', { status: 'working' }), {
+    terminalsLaunch: async () => { calls += 1; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+
+  await cont.onclick();
+
+  assert.strictEqual(calls, 0, 'a live session is the strongest case for asking first');
+  assert.match(stageHtml(Page, paneId), /Close this session in your own terminal first/);
+
+  await ack(Page, paneId);
+  assert.strictEqual(calls, 1, 'and the acknowledgement is what lets it through');
+});
+
+test('a harness that cannot reopen a named session is never offered a continue', async () => {
+  // OpenCode's --continue takes the most recent session rather than a named
+  // one, so the host reports supports_resume false. Promising a continue that
+  // would silently reopen the wrong conversation is worse than not offering it.
+  const { html, cont, btn } = await mountLinked(
     linked('L1', { status: 'working', executor_id: 'opencode' }), {}, RESUMERS);
 
   assert.strictEqual(cont, null);
-  assert.match(html, /Its terminal is in the window you started it in/,
-    'promising a continue that cannot happen would be worse than describing the situation');
-  assert.doesNotMatch(html, /then continue it here/);
+  assert.ok(btn, 'a fresh session in the same folder is still possible');
+  assert.doesNotMatch(html, /Continue this session here/);
+  assert.doesNotMatch(html, /brings the conversation with it/,
+    'and nothing claims the conversation would come along');
 });
 
 for (const status of ['idle', 'done', 'interrupted']) {
@@ -3309,6 +3348,7 @@ test('the continued session takes the linked task place in the pane the button w
   Page._attach = async (...args) => { attached.push(args); };
 
   await cont.onclick();
+  await ack(Page, paneId);
 
   assert.deepStrictEqual(attached[0], ['T2', paneId, 'swap', 'L1']);
 });
@@ -3347,6 +3387,226 @@ test('a continue and an open cannot race each other into the same folder', async
   release();
   await first;
   assert.ok(!Page._openingHereId);
+});
+
+// --- Opening a task from the rail while the page is already up ----------------
+//
+// The rail writes the task it wants into sv-agent-task-id and used to
+// navigate. App.loadPage has no already-on-page guard, so that re-rendered the
+// page from scratch, and the layout restore then wrote the PREVIOUSLY focused
+// task back over that same key. The second agent clicked in the rail never
+// opened: the page kept showing the first one.
+
+test('opening a task from the rail attaches it without reloading the page', async () => {
+  const session = makeStore();
+  const ctx = loadPage({ session });
+  ctx.Page._tasks = [task('A'), task('B')];
+  await ctx.Page._attach('A');
+  const opened = [];
+  ctx.Page._attach = async (...args) => { opened.push(args); };
+
+  await ctx.Page.openTask('B');
+
+  assert.deepStrictEqual(opened, [['B']], 'the asked for task is attached in place');
+  assert.strictEqual(session.getItem('sv-agent-task-id'), 'B');
+});
+
+test('a task the board has not seen yet is left to the poll tick', async () => {
+  const session = makeStore();
+  const ctx = loadPage({ session });
+  ctx.Page._tasks = [task('A')];
+  const opened = [];
+  ctx.Page._attach = async (...args) => { opened.push(args); };
+
+  await ctx.Page.openTask('NOPE');
+
+  assert.deepStrictEqual(opened, [], 'nothing to attach to yet');
+  assert.strictEqual(session.getItem('sv-agent-task-id'), 'NOPE',
+    'but the ask is recorded, so the tick honours it when the row arrives');
+});
+
+test('openTask with no id does nothing', async () => {
+  const session = makeStore();
+  const ctx = loadPage({ session });
+  const opened = [];
+  ctx.Page._attach = async (...args) => { opened.push(args); };
+
+  await ctx.Page.openTask('');
+  await ctx.Page.openTask(null);
+
+  assert.deepStrictEqual(opened, []);
+  assert.strictEqual(session.getItem('sv-agent-task-id'), null);
+});
+
+test('a layout restore cannot answer the rail with the task it just focused', () => {
+  // The guard, stated at the source: one key carries both "please open this"
+  // and "this is what has the focus", and the restore must not let the second
+  // meaning eat the first.
+  const src = read('js/pages/terminals.js');
+  const i = src.indexOf("const asked = sessionStorage.getItem('sv-agent-task-id');");
+  assert.ok(i > 0, 'the request is captured before the restore');
+  const after = src.slice(i, i + 600);
+  assert.match(after, /await this\._restoreLayout\(\);/);
+  assert.match(after, /if \(asked && sessionStorage\.getItem\('sv-agent-task-id'\) !== asked\)/,
+    'and put back if the restore overwrote it');
+});
+
+// --- The acknowledgement before either button spawns -------------------------
+//
+// Both buttons end with a harness in this folder, which is why they read as
+// one offer. The difference is stated up front, and when the outside session
+// was never reported ended, neither runs until the person says it is closed:
+// the app owns no process for a linked session, so it cannot close that
+// terminal itself and must not spawn a second harness on the assumption.
+
+test('an idle session does not spawn on the first click, it asks about the other terminal', async () => {
+  let calls = 0;
+  const { Page, paneId, btn } = await mountLinked(linked('L1', { status: 'idle' }), {
+    terminalsLaunch: async () => { calls += 1; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+
+  await btn.onclick();
+
+  assert.strictEqual(calls, 0, 'silence is not proof the other terminal is closed');
+  const html = stageHtml(Page, paneId);
+  assert.match(html, /Close this session in your own terminal first/);
+  assert.match(html, /SecureVector cannot close it/,
+    'the app says why it is asking rather than handling it');
+  assert.match(html, /data-linked-go="L1"/);
+});
+
+test('the acknowledgement is what lets the spawn through', async () => {
+  let calls = 0;
+  const { Page, paneId, btn } = await mountLinked(linked('L1', { status: 'idle' }), {
+    terminalsLaunch: async () => { calls += 1; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+
+  await btn.onclick();
+  await ack(Page, paneId);
+
+  assert.strictEqual(calls, 1, 'the gate is spent, not raised again');
+  assert.strictEqual(Page._linkedConfirm, null, 'and it is not left armed for the next click');
+});
+
+test('cancelling the acknowledgement spawns nothing and puts the buttons back', async () => {
+  let calls = 0;
+  const { Page, paneId, cont } = await mountLinked(linked('L1', { status: 'idle' }), {
+    terminalsLaunch: async () => { calls += 1; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+
+  await cont.onclick();
+  const stage = Page._panes.get(paneId).stageEl;
+  stage.querySelector('[data-linked-cancel]').onclick();
+
+  assert.strictEqual(calls, 0);
+  assert.strictEqual(Page._linkedConfirm, null);
+  const html = stageHtml(Page, paneId);
+  assert.match(html, /data-linked-continue="L1"/, 'the offer comes back');
+  assert.doesNotMatch(html, /data-linked-go=/);
+});
+
+test('continuing names the fork, opening does not', async () => {
+  const { Page, paneId, cont, btn } = await mountLinked(linked('L1', { status: 'idle' }), {},
+    RESUMERS);
+
+  await cont.onclick();
+  assert.match(stageHtml(Page, paneId), /forks the conversation/,
+    'reopening the transcript leaves the other terminal holding its own copy');
+
+  Page._linkedConfirm = null;
+  await btn.onclick();
+  assert.doesNotMatch(stageHtml(Page, paneId), /forks the conversation/,
+    'an empty session forks nothing');
+  assert.match(stageHtml(Page, paneId), /Close this session in your own terminal first/);
+});
+
+test('the standing caveat steps aside once the confirm is up', async () => {
+  const { Page, paneId, btn } = await mountLinked(linked('L1', { status: 'idle' }), {}, RESUMERS);
+
+  assert.match(stageHtml(Page, paneId), /terminals-linked-warn/);
+  await btn.onclick();
+  const html = stageHtml(Page, paneId);
+  assert.doesNotMatch(html, /terminals-linked-warn/,
+    'two amber boxes saying one thing is noise; the confirm is the stronger of the two');
+  assert.match(html, /terminals-linked-confirm/);
+
+  Page._panes.get(paneId).stageEl.querySelector('[data-linked-cancel]').onclick();
+  assert.match(stageHtml(Page, paneId), /terminals-linked-warn/, 'and comes back on cancel');
+});
+
+// --- Evidence over a question ------------------------------------------------
+//
+// The confirm used to ask whether the outside terminal was closed and believe
+// whatever it was told. The harness writes its own transcript whether or not a
+// Guard is relaying, so when that file moved seconds ago the app already knows
+// the answer, and asking anyway invites a click that is simply wrong.
+
+test('a fresh transcript is reported instead of asked about', async () => {
+  const { Page, paneId, btn } = await mountLinked(
+    linked('L1', { status: 'idle', transcript_age_seconds: 4 }), {}, RESUMERS);
+
+  await btn.onclick();
+  const html = stageHtml(Page, paneId);
+
+  assert.match(html, /Claude Code wrote to this session 4 seconds ago/);
+  assert.match(html, /looks like that terminal is still open/);
+  assert.match(html, /Start anyway<\/button>/,
+    'the button stops putting a false claim in the person mouth');
+  assert.doesNotMatch(html, /It is closed/);
+});
+
+test('with no transcript to read the confirm still asks', async () => {
+  const { Page, paneId, btn } = await mountLinked(linked('L1', { status: 'idle' }), {}, RESUMERS);
+
+  await btn.onclick();
+  const html = stageHtml(Page, paneId);
+
+  assert.match(html, /It is closed, start<\/button>/,
+    'no signal is no evidence, not evidence of closure');
+  assert.doesNotMatch(html, /looks like that terminal is still open/);
+});
+
+test('a stale transcript is not reported as liveness', async () => {
+  const { Page, paneId, cont } = await mountLinked(
+    linked('L1', { status: 'idle', transcript_age_seconds: 4000 }), {}, RESUMERS);
+
+  await cont.onclick();
+  const html = stageHtml(Page, paneId);
+
+  assert.doesNotMatch(html, /still open/);
+  assert.match(html, /It is closed, continue<\/button>/);
+});
+
+test('an idle row whose transcript is moving says so rather than claiming silence', async () => {
+  const { html } = await mountLinked(
+    linked('L1', { status: 'idle', transcript_age_seconds: 30 }), {}, RESUMERS);
+
+  assert.match(html, /No governed calls for a while, but Claude Code wrote to this session 30 seconds ago/,
+    'a gap in our own telemetry is not a fact about their terminal');
+  assert.doesNotMatch(html, /No activity reported for/);
+});
+
+test('an ended session spawns straight away, with nothing to acknowledge', async () => {
+  let calls = 0;
+  const { Page, paneId, btn } = await mountLinked(linked('L1', { status: 'done' }), {
+    terminalsLaunch: async () => { calls += 1; return { id: 'T2' }; },
+    terminalsTasks: async () => ({ items: [], running: 0 }),
+  }, RESUMERS);
+
+  await btn.onclick();
+
+  assert.strictEqual(calls, 1, 'a reported end is the one strong piece of evidence there is');
+  assert.ok(!Page._linkedConfirm);
+});
+
+test('the two offers say how they differ before either is pressed', async () => {
+  const { html } = await mountLinked(linked('L1', { status: 'done' }), {}, RESUMERS);
+
+  assert.match(html, /Both open a terminal in this pane\. Continuing brings the conversation with it/,
+    'both end in a governed terminal here, so the difference has to be stated');
 });
 
 test('a continue that fails puts the button back rather than stranding the pane', async () => {

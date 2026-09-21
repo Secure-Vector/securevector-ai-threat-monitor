@@ -101,8 +101,8 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=432/);
-  assert.match(html, /terminals\.js\?v=53/);
+  assert.match(html, /styles\.css\?v=450/);
+  assert.match(html, /terminals\.js\?v=77/);
   assert.match(html, /agent-runs\.js\?v=361/);
 });
 
@@ -221,6 +221,27 @@ test('_refreshRail() writes nothing to the traces panel if the task is detached 
   assert.strictEqual(requestCalls, 2, 're-attaching to the same task/session must trigger a new fetch, not reuse a stuck cache entry');
   resolveRequest({ runs: [] });
   await secondPending;
+});
+
+test('no section is opened by the markup; the state comes from what was remembered', () => {
+  // The markup carries no `open` at all. _applyGovSections puts each section
+  // where the person last left it, falling back to GOV_SECTION_DEFAULTS only
+  // on a first run. A hardcoded `open` here would fight the remembered value
+  // on every render, which is the bug both defaults were papering over.
+  const src = read('js/pages/terminals.js');
+  const sections = src.match(/<details class="terminals-gov-section[^>]*>/g) || [];
+  assert.strictEqual(sections.length, 5, 'all five sections are still there');
+  for (const tag of sections) {
+    assert.ok(!/\bopen\b/.test(tag), `a section still opens from the markup: ${tag}`);
+    assert.match(tag, /id="terminals-gov-[a-z]+"/, 'and each one is addressable');
+  }
+});
+
+test('an approval waiting still opens its own section when Review is pressed', () => {
+  // The one case that overrides the collapsed default: the task is paused and
+  // the person just asked to see what is blocking it.
+  const src = read('js/pages/terminals.js');
+  assert.match(src, /this\._expandGovDock\(\);\s*const sec = aEl\.closest\('details'\);\s*if \(sec\) sec\.open = true;/);
 });
 
 test('each governance section collapses on its own, and rows are cards not glyph lines', () => {

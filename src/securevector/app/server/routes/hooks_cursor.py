@@ -49,10 +49,11 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from . import _hooks_common
+from ._plugin_guard import require_local_origin
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +346,7 @@ async def plugin_status():
     )
 
 
-@router.post("/install", response_model=InstallResponse)
+@router.post("/install", response_model=InstallResponse, dependencies=[Depends(require_local_origin)])
 async def install_plugin():
     """Stage the plugin tree (URL-substituted), then — if Cursor is installed —
     copy it to ``~/.cursor/plugins/local/securevector-guard/`` so Cursor lists
@@ -432,7 +433,7 @@ async def install_plugin():
     )
 
 
-@router.post("/uninstall", response_model=UninstallResponse)
+@router.post("/uninstall", response_model=UninstallResponse, dependencies=[Depends(require_local_origin)])
 async def uninstall_plugin():
     """Remove the plugin everywhere we wrote it: the staged tree, the local
     plugin dir under ~/.cursor/plugins/local, and any legacy global-hooks

@@ -3,6 +3,7 @@ import stat
 from pathlib import Path
 
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.migrations import run_migrations
@@ -168,16 +169,21 @@ async def test_spawn_omits_plugin_dir_when_plugin_already_enabled(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_spawn_without_guard_hooks_launches_ungoverned(tmp_path):
+async def test_claude_code_launch_is_governed_by_the_relay_without_the_plugin(tmp_path):
+    """The --settings relay this host writes is what governs a launch.
+
+    The plugin governs sessions started OUTSIDE the app, where this host
+    writes no argv. Reporting a launch as ungoverned because the plugin is
+    unregistered marked the one always-relayed path as the unsafe one.
+    """
     m, ws = await _manager(tmp_path, plugin_installed=False)
     task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
-    assert task["id"] in m.ungoverned_ids()
-    assert "--plugin-dir" not in m.host.launches[task["id"]].argv
+    argv = m.host.launches[task["id"]].argv
+    assert "--settings" in argv, "the relay is what governs, so it must be on the command line"
+    assert "--plugin-dir" not in argv, "nothing is registered to inject"
+    assert task["id"] not in m.ungoverned_ids()
     events = await m.store.list_events(task["id"])
-    missing = [e for e in events if e["kind"] == "guard_missing"]
-    assert len(missing) == 1
-    assert missing[0]["origin"] == "ui"
-    assert "Claude Code Guard" in missing[0]["detail"]
+    assert not [e for e in events if e["kind"] == "guard_missing"]
 
 
 @pytest.mark.asyncio
@@ -249,13 +255,23 @@ async def test_executor_status_reports_installed_and_governed(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_executor_status_reports_claude_code_ungoverned_without_plugin(tmp_path):
+async def test_claude_code_status_is_governed_and_names_what_the_plugin_is_for(tmp_path):
     m, _ws = await _manager(tmp_path, plugin_installed=False)
     claude = {row["id"]: row for row in m.executor_status()}["claude-code"]
-    assert claude["installed"] is True and claude["governed"] is False
+    assert claude["installed"] is True and claude["governed"] is True
+    # Not silence: the plugin is still worth installing, just not for this.
     assert claude["hint"] == (
-        "Claude Code Guard is not enabled. Tasks launch ungoverned until you install it."
+        "Sessions you start in your own terminal are not governed until the "
+        "Claude Code Guard plugin is installed."
     )
+
+
+@pytest.mark.asyncio
+async def test_claude_code_status_says_nothing_once_the_plugin_is_registered(tmp_path):
+    m, _ws = await _manager(tmp_path, plugin_installed=True)
+    claude = {row["id"]: row for row in m.executor_status()}["claude-code"]
+    assert claude["installed"] is True and claude["governed"] is True
+    assert claude["hint"] == ""
 
 
 @pytest.mark.asyncio
@@ -691,6 +707,59 @@ async def test_spawn_with_a_resume_id_reopens_that_session_on_a_pty_the_app_owns
 
 
 @pytest.mark.asyncio
+async def test_continuing_a_linked_session_retires_the_linked_row(tmp_path):
+    """One session, one row.
+
+    A resume moves an existing harness session onto a PTY this host owns. The
+    linked row that offered it names the same session_id, so leaving it up
+    shows the session twice: once as a live terminal, and once as an outside
+    session whose liveness can no longer move, because the audit trail it was
+    derived from now belongs to the launched row.
+    """
+    m, ws = await _manager(tmp_path)
+    linked = await m.link_session(
+        "claude-code", "sess-abc12345", workspace=str(ws), title="Outside"
+    )
+    launched = await m.spawn(
+        "claude-code", str(ws), title=None, origin="ui", resume_session_id="sess-abc12345"
+    )
+
+    live = {t["id"] for t in await m.store.list_tasks()}
+    assert linked["id"] not in live, "the linked row is superseded, not duplicated"
+    assert launched["id"] in live
+    # Archived, never deleted: the audit the linked row collected is kept.
+    assert (await m.store.get_task(linked["id"])) is not None
+    events = await m.store.list_events(launched["id"])
+    assert [e for e in events if e["kind"] == "adopted"]
+
+
+@pytest.mark.asyncio
+async def test_a_resume_leaves_an_unrelated_linked_session_alone(tmp_path):
+    m, ws = await _manager(tmp_path)
+    other = await m.link_session(
+        "claude-code", "sess-other9999", workspace=str(ws), title="Someone else"
+    )
+    await m.spawn(
+        "claude-code", str(ws), title=None, origin="ui", resume_session_id="sess-abc12345"
+    )
+
+    live = {t["id"] for t in await m.store.list_tasks()}
+    assert other["id"] in live, "only the row for the resumed session is retired"
+
+
+@pytest.mark.asyncio
+async def test_a_plain_launch_retires_nothing(tmp_path):
+    m, ws = await _manager(tmp_path)
+    linked = await m.link_session(
+        "claude-code", "sess-abc12345", workspace=str(ws), title="Outside"
+    )
+    await m.spawn("claude-code", str(ws), title=None, origin="ui")
+
+    live = {t["id"] for t in await m.store.list_tasks()}
+    assert linked["id"] in live, "a fresh session is a different session"
+
+
+@pytest.mark.asyncio
 async def test_spawn_rejects_a_malformed_resume_id_before_anything_is_launched(tmp_path):
     m, ws = await _manager(tmp_path)
     for bad in ("short", "sess-abc12345\nx x", "; rm -rf /", "--dangerously-skip-permissions", ""):
@@ -819,3 +888,97 @@ async def test_a_failing_repair_leaves_the_row_and_the_listing_alone(tmp_path, m
     (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
     assert row["workspace"] == "not a folder"
     assert row["status"] in ("working", "idle")
+
+
+@pytest.mark.asyncio
+async def test_a_writing_transcript_keeps_a_linked_row_alive_without_a_guard(tmp_path, monkeypatch):
+    """The Guard is not the only thing that knows a session is running.
+
+    Liveness is otherwise derived from `tool_call_audit`, which only moves
+    while a Guard plugin is relaying. With the plugin unregistered a session
+    that is running right now ages into idle and then into done, and the
+    confirm before a resume has nothing to go on but the person's word.
+    """
+    m, ws = await _manager(tmp_path)
+    linked = await m.link_session(
+        "claude-code", "sess-writing01", workspace=str(ws), title="Outside"
+    )
+    # Older than the idle cutoff, so without the transcript this row is idle.
+    await m.store.update_linked_state(
+        linked["id"], status="idle", activity="linked", last_activity_at=None, ended_at=None
+    )
+    monkeypatch.setattr(manager_module, "session_last_write", lambda *_a, **_k: 3.0)
+
+    items = await m.refresh_linked([dict(linked, origin="linked", archived_at=None)])
+
+    assert items[0]["status"] == "working"
+    assert items[0]["transcript_age_seconds"] == 3.0
+
+
+@pytest.mark.asyncio
+async def test_a_stale_transcript_does_not_revive_a_reported_session(tmp_path, monkeypatch):
+    """Freshness is a signal; staleness is not the opposite signal.
+
+    Derivation is exercised directly here: a row with no audit at all is
+    "working" on its creation time whatever the transcript says, so going
+    through refresh_linked would pass without touching this branch.
+    """
+    m, _ws = await _manager(tmp_path)
+    old = (datetime.now(timezone.utc) - timedelta(seconds=99_000)).isoformat()
+    monkeypatch.setattr(manager_module, "session_last_write", lambda *_a, **_k: 99_000.0)
+
+    state = m._linked_state(
+        {"id": "T1", "executor_id": "claude-code", "session_id": "sess-stale0001"},
+        {"last_any": old},
+    )
+
+    assert state["status"] != "working"
+
+
+@pytest.mark.asyncio
+async def test_a_writing_transcript_outranks_a_quiet_audit_trail(tmp_path, monkeypatch):
+    m, _ws = await _manager(tmp_path)
+    old = (datetime.now(timezone.utc) - timedelta(seconds=99_000)).isoformat()
+    monkeypatch.setattr(manager_module, "session_last_write", lambda *_a, **_k: 2.0)
+
+    state = m._linked_state(
+        {"id": "T1", "executor_id": "claude-code", "session_id": "sess-live00001"},
+        {"last_any": old},
+    )
+
+    assert state["status"] == "working", "the session is running; only our telemetry stopped"
+
+
+@pytest.mark.asyncio
+async def test_a_reported_end_beats_a_transcript_that_is_still_moving(tmp_path, monkeypatch):
+    """`claude --resume` appends to the transcript of the session it reopened,
+    so mtime alone would revive a row whose session really did end."""
+    m, _ws = await _manager(tmp_path)
+    ended = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    monkeypatch.setattr(manager_module, "session_last_write", lambda *_a, **_k: 1.0)
+
+    state = m._linked_state(
+        {"id": "T1", "executor_id": "claude-code", "session_id": "sess-ended0001"},
+        {"last_any": ended, "last_end": ended},
+    )
+
+    assert state["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_transcript_is_no_signal_not_an_error(tmp_path, monkeypatch):
+    """Best effort, exactly as the folder lookup is: a board read must never
+    fail because a file on disk could not be stat'd."""
+    m, ws = await _manager(tmp_path)
+    linked = await m.link_session(
+        "claude-code", "sess-boom00001", workspace=str(ws), title="Outside"
+    )
+
+    def _boom(*_a, **_k):
+        raise OSError("nope")
+
+    monkeypatch.setattr(manager_module, "session_last_write", _boom)
+
+    items = await m.refresh_linked([dict(linked, origin="linked", archived_at=None)])
+
+    assert items[0]["transcript_age_seconds"] is None

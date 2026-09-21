@@ -123,6 +123,31 @@ class TerminalAuth:
         ):
             self._deny()
 
+    async def require_local_write(self, request: Request) -> None:
+        """Host and Origin only, no cookie, for the plugin install routes.
+
+        Those routes live under /api/hooks, and the terminals cookie is scoped
+        to COOKIE_PATH (/api/terminals), so the browser never sends it there.
+        Requiring it would lock the Integrations page out of its own buttons.
+
+        Host plus a REQUIRED matching Origin is nonetheless the check that
+        actually answers the threat model here: a page on another origin
+        driving these endpoints. A cross-origin fetch, even `mode: "no-cors"`,
+        carries its own Origin and is refused; a form post likewise. What this
+        does not stop is a non-browser process already running as this user,
+        which can read the token anyway and is outside the model.
+
+        Origin is REQUIRED, not merely validated when present. Treating a
+        missing Origin as acceptable is what makes these routes reachable from
+        a plain `curl` with no headers at all, which is exactly how the gap was
+        found.
+        """
+        if not (
+            self._host_ok(request.headers)
+            and self._origin_ok(request.headers, required=True)
+        ):
+            self._deny()
+
     async def require_read(self, request: Request) -> None:
         await self._check(request, origin_required=False)
 

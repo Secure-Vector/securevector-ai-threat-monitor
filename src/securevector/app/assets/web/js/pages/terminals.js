@@ -115,7 +115,7 @@ const TerminalsPage = {
             <section class="terminals-tasks">
               <div class="terminals-tasks-head">
                 <div class="terminals-tasks-actions">
-                  <input class="terminals-task-search" id="terminals-task-search" type="search" placeholder="Find a task" aria-label="Find a task">
+                  <input class="terminals-task-search" id="terminals-task-search" type="search" placeholder="Find a task" aria-label="Find a task" title="Filters the tasks below as you type. Clear this box to show every task again.">
                   <button class="btn btn-primary btn-sm terminals-launch-button" id="terminals-launch-btn">+ Launch</button>
                 </div>
               </div>
@@ -148,6 +148,10 @@ const TerminalsPage = {
                   <button type="button" class="btn btn-sm" id="terminals-guard-recheck" hidden>Check again</button>
                 </div>
                 <pre class="terminals-guard-commands" id="terminals-guard-commands" hidden></pre>
+                <details class="terminals-cli" id="terminals-cli">
+                  <summary>From your terminal</summary>
+                  <pre class="terminals-cli-cmd" id="terminals-cli-cmd"></pre>
+                </details>
                 <div class="terminals-unlinked" id="terminals-unlinked" hidden></div>
               </form>
               <div class="terminals-board-summary" id="terminals-board-summary" hidden></div>
@@ -183,6 +187,7 @@ const TerminalsPage = {
                 <span class="terminals-governance-summary" id="terminals-governance-summary">Attach a task to inspect its trace</span>
               </div>
               <div class="terminals-governance-body" id="terminals-governance-body">
+                <div class="terminals-gov-doing" id="terminals-gov-doing" hidden></div>
                 <div class="terminals-gov-hero" id="terminals-gov-hero" hidden>
                   <div class="terminals-gov-hero-bot" id="terminals-gov-hero-bot"></div>
                   <h4 class="terminals-gov-hero-title" id="terminals-gov-hero-title"></h4>
@@ -194,14 +199,14 @@ const TerminalsPage = {
                     <li><span class="terminals-gov-hero-k">Context &amp; cost</span><span>context fill, waste, and a Compact now button</span></li>
                   </ul>
                 </div>
-                <details class="terminals-gov-section terminals-gov-context" id="terminals-gov-context" open>
+                <details class="terminals-gov-section terminals-gov-context" id="terminals-gov-context">
                   <summary><h3>Context &amp; cost</h3><span class="terminals-gov-stage" id="terminals-context-stage"></span></summary>
                   <div id="terminals-context" class="terminals-context"><span class="terminals-empty">No task attached.</span></div>
                 </details>
-                <details class="terminals-gov-section" open><summary class="terminals-traces-head"><h3>Traces</h3><a href="#" class="terminals-traces-all" id="terminals-traces-all">All traces</a><span class="terminals-gov-count" id="terminals-traces-count"></span></summary><div id="terminals-traces" class="terminals-traces"><span class="terminals-empty">No task attached.</span></div></details>
-                <details class="terminals-gov-section" open><summary><h3>Egress</h3><span class="terminals-gov-count" id="terminals-egress-count"></span></summary><div id="terminals-egress" class="terminals-egress"><span class="terminals-empty">No task attached.</span></div></details>
-                <details class="terminals-gov-section" open><summary><h3>Tool calls</h3><span class="terminals-gov-count" id="terminals-verdicts-count"></span></summary><div id="terminals-verdicts" class="terminals-verdicts"><span class="terminals-empty">No task attached.</span></div></details>
-                <details class="terminals-gov-section" open><summary><h3>Approval inbox</h3><span class="terminals-gov-count" id="terminals-approvals-count"></span></summary><div id="terminals-approvals" class="terminals-approvals"><span class="terminals-empty">Nothing waiting.</span></div></details>
+                <details class="terminals-gov-section" id="terminals-gov-traces"><summary class="terminals-traces-head"><h3>Traces</h3><a href="#" class="terminals-traces-all" id="terminals-traces-all">All traces</a><span class="terminals-gov-count" id="terminals-traces-count"></span></summary><div id="terminals-traces" class="terminals-traces"><span class="terminals-empty">No task attached.</span></div></details>
+                <details class="terminals-gov-section" id="terminals-gov-egress"><summary><h3>Egress</h3><span class="terminals-gov-count" id="terminals-egress-count"></span></summary><div id="terminals-egress" class="terminals-egress"><span class="terminals-empty">No task attached.</span></div></details>
+                <details class="terminals-gov-section" id="terminals-gov-verdicts"><summary><h3>Tool calls</h3><span class="terminals-gov-count" id="terminals-verdicts-count"></span></summary><div id="terminals-verdicts" class="terminals-verdicts"><span class="terminals-empty">No task attached.</span></div></details>
+                <details class="terminals-gov-section" id="terminals-gov-approvals"><summary><h3>Approval inbox</h3><span class="terminals-gov-count" id="terminals-approvals-count"></span></summary><div id="terminals-approvals" class="terminals-approvals"><span class="terminals-empty">Nothing waiting.</span></div></details>
               </div>
             </section>
             </div>
@@ -214,6 +219,8 @@ const TerminalsPage = {
         } catch (e) { this._wantBoard = false; }
         this._bindPaneKeys();
         this._bindGovDock();
+        this._bindGovSections();
+        this._applyGovSections();
         this._bindLaunchForm(container);
         container.querySelector('#terminals-task-search').oninput = (ev) => {
             this._taskQuery = ev.target.value.trim().toLowerCase();
@@ -307,6 +314,19 @@ const TerminalsPage = {
         const modeLink = container.querySelector('#terminals-mode-link');
         if (modeLaunch) modeLaunch.onclick = () => this._setLaunchMode(container, 'launch');
         if (modeLink) modeLink.onclick = () => this._setLaunchMode(container, 'link');
+        // Redrawn as the form is filled in, so the command always matches the
+        // thing the button beside it would do.
+        for (const id of ['terminals-executor', 'terminals-workspace', 'terminals-title',
+            'terminals-session-id']) {
+            const node = container.querySelector(`#${id}`);
+            if (!node) continue;
+            // `.oninput` / `.onchange`, as everything else in this form does:
+            // one handler per node, replaced rather than stacked if the form is
+            // ever rebound.
+            node.oninput = () => this._renderCliHint(container);
+            node.onchange = () => this._renderCliHint(container);
+        }
+        this._renderCliHint(container);
         const guardInstall = container.querySelector('#terminals-guard-install');
         if (guardInstall) guardInstall.onclick = () => {
             const sel = container.querySelector('#terminals-executor');
@@ -347,6 +367,62 @@ const TerminalsPage = {
      *  harness session the user started in their own terminal. Only the
      *  fields and the submit verb change: the harness select, the folder and
      *  the title mean the same thing in both modes. */
+    /** The same action as the form beside it, spelled for a shell.
+     *
+     *  Built from what the form currently holds rather than shown as a generic
+     *  example, so it can be copied and run as it stands. It sits in a shut
+     *  drawer: this is a thing to discover once, not a thing to read on every
+     *  launch, and the form is the primary path.
+     *
+     *  `sv-monitor`, not `sv`: that is the console script setup.py installs,
+     *  and printing a command that is not on anyone's PATH would be worse than
+     *  printing none.
+     */
+    CLI_BIN: 'sv-monitor session',
+
+    _cliQuote(value) {
+        const v = String(value == null ? '' : value);
+        if (!v) return v;
+        // A leading dash is quoted even when every character is otherwise a
+        // bare word: a folder or title called "--all" would be emitted
+        // unquoted here and then parsed as an OPTION by whatever the person
+        // pastes it into, which is a different command from the one this line
+        // claims to be. Quoting costs two characters and removes the class.
+        if (v.startsWith('-')) return `'${v.replace(/'/g, `'\\''`)}'`;
+        // Otherwise single quotes unless the value contains one, which a real
+        // folder name can. Bare only when there is provably nothing for a
+        // shell to do.
+        if (/^[A-Za-z0-9_@%+=:,.\/-]+$/.test(v)) return v;
+        return `'${v.replace(/'/g, `'\\''`)}'`;
+    },
+
+    _renderCliHint(container) {
+        const root = container || this._container || document;
+        const el = root.querySelector ? root.querySelector('#terminals-cli-cmd') : null;
+        if (!el) return;
+        const val = (id) => {
+            const node = root.querySelector(`#${id}`);
+            return node && node.value ? String(node.value).trim() : '';
+        };
+        const harness = val('terminals-executor') || 'claude-code';
+        const title = val('terminals-title');
+        const lines = [`${this.CLI_BIN} list`];
+        if (this._mode === 'link') {
+            const session = val('terminals-session-id') || 'SESSION_ID';
+            let cmd = `${this.CLI_BIN} link ${harness} ${this._cliQuote(session)}`;
+            const folder = val('terminals-workspace');
+            if (folder) cmd += ` --folder ${this._cliQuote(folder)}`;
+            if (title) cmd += ` --title ${this._cliQuote(title)}`;
+            lines.push(cmd);
+        } else {
+            const folder = val('terminals-workspace') || '.';
+            let cmd = `${this.CLI_BIN} launch ${harness} ${this._cliQuote(folder)}`;
+            if (title) cmd += ` --title ${this._cliQuote(title)}`;
+            lines.push(cmd);
+        }
+        el.textContent = lines.join('\n');
+    },
+
     _setLaunchMode(container, mode) {
         this._mode = mode === 'link' ? 'link' : 'launch';
         const link = this._mode === 'link';
@@ -368,6 +444,7 @@ const TerminalsPage = {
         const err = container.querySelector('#terminals-launch-error');
         if (err) err.hidden = true;
         this._showExecutorState(container);
+        this._renderCliHint(container);
         if (link) {
             container.querySelector('#terminals-session-id')?.focus();
             this._loadUnlinked();
@@ -584,10 +661,17 @@ const TerminalsPage = {
             const calls = `${r.calls || 0} call${r.calls === 1 ? '' : 's'}`;
             const known = this._knownWorkspace(r.workspace);
             const folder = known ? this._shortPath(known) : 'folder not reported';
+            // The same eight characters the unlinked list shows. Two sessions
+            // of one harness in one folder are otherwise identical rows, and a
+            // row whose folder was never reported has nothing else naming it
+            // at all. It is also what the harness itself calls the session, so
+            // it is the handle a person can match against `--resume`.
+            const short = String(r.session_id || '').slice(0, 8);
             return `
               <div class="terminals-adopt-row">
                 <span class="terminals-adopt-harness">${this._esc(r.label || r.executor_id)}</span>
                 <span class="terminals-adopt-folder" title="${this._esc(r.workspace || '')}">${this._esc(folder)}</span>
+                <span class="terminals-adopt-sid" title="${this._esc(r.session_id || '')}">${this._esc(short)}</span>
                 <span class="terminals-adopt-when">${this._esc(this._ago(r.last_at))}</span>
                 <span class="terminals-adopt-calls">${this._esc(calls)}</span>
                 <button type="button" class="btn btn-sm btn-primary terminals-adopt-govern" data-session-id="${this._esc(r.session_id)}">Govern</button>
@@ -732,8 +816,18 @@ const TerminalsPage = {
                 this._wantBoard = false;
                 this._clearStoredLayout();
             } else {
+                // `sv-agent-task-id` carries two meanings on one key: the rail
+                // writes it to ASK for a task, and _focusPane writes it to
+                // REMEMBER which pane has the focus. The restore focuses a
+                // pane, so it would answer the rail's question with the old
+                // task and the ask would be lost. Hold the request across the
+                // restore and put it back.
+                const asked = sessionStorage.getItem('sv-agent-task-id');
                 await this._restoreLayout();
                 if (gen !== this._gen) return;
+                if (asked && sessionStorage.getItem('sv-agent-task-id') !== asked) {
+                    try { sessionStorage.setItem('sv-agent-task-id', asked); } catch (e) { /* storage unavailable */ }
+                }
             }
         }
         this._pruneLayoutToTasks();
@@ -787,20 +881,28 @@ const TerminalsPage = {
             return;
         }
         this._renderBoardSummary(shown);
-        const groups = new Map();
-        for (const t of shown) {
-            if (!groups.has(t.workspace)) groups.set(t.workspace, []);
-            groups.get(t.workspace).push(t);
-        }
-        let html = '';
-        const isSingleGroup = groups.size === 1;
-        for (const [ws, tasks] of groups) {
-            // The placeholder is a sentinel, not a path, so it must not be
-            // printed as one: shortPath would show it verbatim.
-            const knownWs = this._knownWorkspace(ws);
-            const groupName = knownWs ? this._shortPath(knownWs) : 'Folder not reported';
-            html += `<div class="terminals-group${isSingleGroup ? ' is-single' : ''}"><div class="terminals-group-name" title="${this._esc(knownWs || 'This session never reported a working folder')}">${this._esc(groupName)}</div>`;
-            for (const t of tasks) {
+        // ONE grid for every card, not a band per folder.
+        //
+        // Grouping by folder gave each folder its own row, so a folder holding
+        // a single session occupied a full row with the rest of it empty. With
+        // most folders holding one session that is the common case, not the
+        // edge: five sessions landed as rows of 1, 1 and 3, two of them three
+        // quarters empty. Reducing the wasted space is not the same as
+        // removing it, and a grid that cannot reflow a one-card group keeps
+        // producing that result.
+        //
+        // The folder is not lost, it moves onto the card where it belongs to
+        // the session rather than to a band. Cards stay sorted by folder, so
+        // sessions from one folder still sit together, they just no longer
+        // reserve a row.
+        const byFolder = [...shown].sort((a, b) => {
+            const fa = String(a.workspace || ''), fb = String(b.workspace || '');
+            if (fa !== fb) return fa < fb ? -1 : 1;
+            return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+        });
+        let html = '<div class="terminals-group"><div class="terminals-group-cards">';
+        {
+            for (const t of byFolder) {
                 const active = t.id === this._attached ? ' is-attached' : '';
                 const state = this._taskState(t);
                 // A linked session that ended can carry the folder placeholder
@@ -837,6 +939,31 @@ const TerminalsPage = {
                     : '';
                 const elapsed = this._elapsed(t.created_at, t.ended_at);
                 const guard = this._guardState(t);
+                // A linked row used to say "linked" three times on one card:
+                // as a chip beside the title, as the activity line, and again
+                // as the guard chip. The activity line is the one that carries
+                // no extra information when it only repeats a label already on
+                // the card, so it is the one that goes. Dropping it also gets
+                // the card a line shorter, which is the whole point of a board.
+                const activity = this._activityLine(t);
+                const doing = activity && activity.toLowerCase() !== String(guard.label || '').toLowerCase()
+                    ? `<span class="terminals-task-doing" title="${this._esc(activity)}">${this._esc(activity)}</span>`
+                    : '';
+                // Absent until something has actually been billed: "$0.00" and
+                // "nothing priced yet" look identical at a glance and only one
+                // is usually true. Neutral, never coloured: colour is security
+                // state, and spend is not one.
+                // Unverified is not a failure and not a security verdict: the
+                // session may be perfectly healthy. What it says is that this
+                // row's liveness is standing on a file's mtime rather than on
+                // a governed call, so nothing is watching. It must never look
+                // the same as "quiet", which is the trap it exists to close.
+                const unver = t.verified === false
+                    ? `<span class="terminals-task-unverified" title="${this._esc(t.verified_reason || '')}" aria-label="Unverified: ${this._esc(t.verified_reason || '')}">unverified</span>`
+                    : '';
+                const spend = typeof t.spend_usd === 'number'
+                    ? `<span class="terminals-task-spend" title="${this._esc(String(t.spend_requests || 0))} priced request(s) for this session">${this._esc(this._fmtSpend(t.spend_usd))}</span>`
+                    : '';
                 const branch = typeof t.branch === 'string' && t.branch
                     ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
                 html += `
@@ -844,15 +971,16 @@ const TerminalsPage = {
                     <button class="terminals-task-select" data-id="${this._esc(t.id)}" aria-label="Open ${this._esc(t.title || this._label(t.executor_id))}">
                       <span class="terminals-task-title-row">${window.TaskAvatar ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 44 }) : ''}<span class="terminals-task-title">${this._esc(t.title || this._label(t.executor_id))}</span>${t.origin === 'linked' ? '<span class="terminals-task-linked">linked</span>' : ''}</span>
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
-                      <span class="terminals-task-doing" title="${this._esc(this._activityLine(t))}">${this._esc(this._activityLine(t))}</span>
-                      <span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>
-                      <span class="terminals-task-when">${branch}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
+                      ${doing}
+                      <span class="terminals-task-folder" title="${this._esc(t.workspace || 'This session never reported a working folder')}">${this._esc(this._knownWorkspace(t.workspace) ? this._shortPath(this._knownWorkspace(t.workspace)) : 'Folder not reported')}</span>
+                      <span class="terminals-task-meta"><span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>${unver}${spend}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
+                      ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
                     ${relaunch || removable ? `<div class="terminals-task-actions">${relaunch}${removable}</div>` : ''}
                   </article>`;
             }
-            html += '</div>';
         }
+        html += '</div></div>';
         el.innerHTML = html;
         el.querySelectorAll('.terminals-task-select').forEach(b => {
             b.onclick = () => {
@@ -969,12 +1097,62 @@ const TerminalsPage = {
         const waiting = shown.filter(t => this._hasPendingApproval(t)).length;
         const blocked = shown.filter(t => t.status === 'blocked').length;
         const ungoverned = shown.filter(t => this._guardState(t).kind === 'ungoverned').length;
+        // Orphaned: the app went away while these were running, so the reaper
+        // marked them on the next start. The release plan asks for an orphaned-tasks view.
+        // It is this count made clickable rather than a separate page: the
+        // board already holds the rows and already filters, and a second
+        // surface listing the same rows would be one more thing to keep in
+        // step for no new information.
+        // The button reads "interrupted", not "orphaned": that is the word
+        // the card badge already shows (_statusLabel) and the exact word the
+        // click puts in the search box, so there is one name for this state
+        // instead of three ("orphaned" here, "Interrupted" on the card,
+        // whatever landed in the search box).
+        const orphaned = shown.filter(t => t.status === 'interrupted').length;
         const cell = (n, word, cls, title) => `<span class="terminals-board-stat${n > 0 && cls ? ' ' + cls : ''}" title="${this._esc(title)}"><b>${n}</b> ${this._esc(word)}</span>`;
         el.hidden = false;
         el.innerHTML = cell(running, 'running', '', 'Tasks whose harness is still alive')
             + cell(waiting, 'waiting on you', 'is-amber', 'Tasks paused for your decision')
             + cell(blocked, 'blocked', 'is-red', 'Tasks the harness stopped')
-            + cell(ungoverned, 'not governed', 'is-amber', 'Tasks launched without SecureVector Guard');
+            + cell(ungoverned, 'not governed', 'is-amber', 'Tasks launched without SecureVector Guard')
+            + (orphaned
+                ? `<button type="button" class="terminals-board-stat terminals-board-orphans" data-board-filter="interrupted" title="Tasks the app restarted out from under. Click to show only these; clear the search box above to show every task again."><b>${orphaned}</b> interrupted</button>`
+                : '');
+        const orphanBtn = el.querySelector('[data-board-filter]');
+        if (orphanBtn) {
+            orphanBtn.onclick = () => {
+                // Through the existing search, not a parallel filter state:
+                // one way to narrow the board means the input always shows
+                // what is being filtered on, and clearing it is the way back.
+                const box = document.getElementById('terminals-task-search');
+                if (box) box.value = 'interrupted';
+                this._taskQuery = 'interrupted';
+                this._renderTaskList();
+            };
+        }
+    },
+
+    /** Money, at the precision the number deserves.
+     *
+     *  Sub-cent runs are the common case early in a session, and rendering one
+     *  as "$0.00" reads as free rather than as "barely started", so those get a
+     *  third decimal. Above a cent, cents are all anyone reads.
+     */
+    _fmtSpend(usd) {
+        // Not Number(usd): Number(null) and Number('') are both 0, so a row
+        // with no pricing would render as "$0.00" and read as free. Absence
+        // and zero are different answers and must not collapse.
+        if (typeof usd !== 'number') return '';
+        const n = usd;
+        if (!isFinite(n) || n < 0) return '';
+        if (n === 0) return '$0.00';
+        // Below the smallest figure this format can show (a thousandth of a
+        // dollar), toFixed(3) rounds straight back to "$0.000" -- the exact
+        // "reads as free" trap this function exists to avoid. A floor label
+        // says "priced, and too small to show" instead of lying that it is 0.
+        if (n < 0.001) return '<$0.001';
+        if (n < 0.01) return '$' + n.toFixed(3);
+        return '$' + n.toFixed(2);
     },
 
     _activityLine(t) {
@@ -1045,6 +1223,18 @@ const TerminalsPage = {
     // a height is not a width, so it is read as foreign and dropped: the
     // person lands on the default column instead of a 132px sliver.
     GOV_KEY: 'sv-terminals-gov',
+    // Every disclosure in the governance column, in the order they are read.
+    GOV_SECTION_IDS: [
+        'terminals-gov-context', 'terminals-gov-traces', 'terminals-gov-egress',
+        'terminals-gov-verdicts', 'terminals-gov-approvals',
+    ],
+    // The first-run state, and only that: once a section has been opened or
+    // shut by hand, the remembered value wins. Tool calls is the one section
+    // that starts open, because "every call the harness makes, with its
+    // verdict" is what the column is for and five closed headers show none of
+    // it. The rest start shut: five open drawers in a 320px column leaves
+    // everything half read and nothing legible.
+    GOV_SECTION_DEFAULTS: { 'terminals-gov-verdicts': true },
     GOV_STATE_V: 2,
     GOV_MIN_W: 240,       // narrower than this and the section rows wrap badly
     GOV_DEFAULT_W: 320,
@@ -1066,6 +1256,8 @@ const TerminalsPage = {
     _govWidth: 0,         // px; 0 until restored or defaulted
     _govCollapsed: false, // effective state, expanded until the person collapses it
     _govUserSet: false,   // true once the person has clicked the toggle
+    _govSections: null,   // per-section open state, once anything is remembered
+    _govApplied: null,    // the last value the page knows about, per section
     _govStacked: false,   // measured workspace cannot hold panes + governance
     _govDrag: null,       // one cancellable pointer gesture at a time
     _govResizeObserver: null,
@@ -2040,6 +2232,50 @@ const TerminalsPage = {
         return !!(ex && ex.supports_resume);
     },
 
+    /** Whether starting a harness in this session's folder needs an explicit
+     *  acknowledgement first.
+     *
+     *  Only an actual reported end clears it. An idle row means no call has
+     *  arrived for a while, which is silence rather than proof: the agent may
+     *  be sitting at a prompt in the person's own terminal with the folder
+     *  still open. The app owns no process for a linked session, so it cannot
+     *  close that terminal or even ask it to stop. The person is the only one
+     *  who can, and the confirm says exactly that instead of spawning a second
+     *  harness into the same working folder on their behalf.
+     */
+    _linkedNeedsConfirm(task) {
+        return !this._isEnded(task);
+    },
+
+    _linkedConfirmHtml(task, action) {
+        // Continuing forks as well as collides: `--resume` reopens the
+        // transcript without touching the harness that is still holding it, so
+        // two conversations then grow from the same history. Worth naming,
+        // because it is the part that is not obvious from the folder warning.
+        const forks = action === 'continue'
+            ? ' Continuing also forks the conversation: the other terminal keeps its own copy.'
+            : '';
+        // Evidence beats a question. When the harness wrote its transcript
+        // seconds ago, the app already knows the answer it was about to ask
+        // for, and asking anyway invites a click that is simply wrong. Say
+        // what was observed, and change the button from a claim the person
+        // makes into a choice they own.
+        const fresh = this._transcriptFresh(task);
+        const go = fresh !== null
+            ? (action === 'continue' ? 'Continue anyway' : 'Start anyway')
+            : (action === 'continue' ? 'It is closed, continue' : 'It is closed, start');
+        const lead = fresh !== null
+            ? `<p class="terminals-linked-observed">${this._esc(this._label(task.executor_id))} wrote to this session ${this._esc(this._forAgo(fresh))}, so it looks like that terminal is still open.</p>`
+            : '';
+        return '<div class="terminals-linked-confirm">'
+            + lead
+            + '<p>Close this session in your own terminal first. SecureVector cannot close it, because that process is not ours, and two agents in one folder can overwrite each other\'s edits.'
+            + forks + '</p>'
+            + `<button type="button" class="terminals-task-confirm-yes" data-linked-go="${this._esc(task.id)}">${go}</button>`
+            + `<button type="button" class="terminals-task-confirm-no" data-linked-cancel="${this._esc(task.id)}">Cancel</button>`
+            + '</div>';
+    },
+
     _linkedStageHtml(task) {
         // The backend derives a linked task's status from its audit trail:
         // `working` while calls arrive, `idle` after a long silence, and an
@@ -2047,6 +2283,13 @@ const TerminalsPage = {
         const ended = this._isEnded(task);
         const quiet = task.status === 'idle';
         const resumes = this._harnessResumes(task);
+        // Which of the two spawning buttons, if either, is waiting on the
+        // person to confirm the outside terminal is closed. Read here as well
+        // as at the actions, because the standing caveat says the same thing
+        // the confirm does and steps aside once the confirm is up.
+        const pending = this._linkedConfirm && this._linkedConfirm.id === task.id
+            ? this._linkedConfirm.action
+            : null;
         let note;
         if (ended) {
             // The Guard reported an end, so nothing is left running to collide
@@ -2058,40 +2301,80 @@ const TerminalsPage = {
             // actually known and let them decide, rather than implying safety.
             // `_ago` gives '' for a row with no timestamp, which would leave the
             // sentence dangling, so name the gap loosely instead of not at all.
-            const when = this._ago(task.last_activity_at) || 'a while';
-            note = `<p class="terminals-linked-note">No activity reported for ${this._esc(when)}.</p>`
-                + '<p class="terminals-linked-warn">Opening a terminal here starts a separate session in this folder. Close the other one first if it is still open.</p>';
-        } else if (resumes) {
-            // Naming the window the terminal is in answers nothing the person
-            // did not already know, and they keep asking how to bring the
-            // session in here. Ending it there is the step that makes that
-            // possible, so the copy asks for it instead of describing the
-            // situation. No button: while calls are still arriving, resuming
-            // would put a second harness on one conversation and one folder.
-            note = '<p class="terminals-linked-note">This session is active. Close it in your own terminal, then continue it here.</p>';
+            const seen = this._transcriptFresh(task);
+            if (seen !== null) {
+                // The row aged into idle because the Guard stopped reporting,
+                // not because the session stopped. Saying "no activity" here
+                // would be the app repeating a gap in its own telemetry back
+                // to the person as a fact about their terminal.
+                note = `<p class="terminals-linked-note">No governed calls for a while, but ${this._esc(this._label(task.executor_id))} wrote to this session ${this._esc(this._forAgo(seen))}.</p>`;
+            } else {
+                const when = this._ago(task.last_activity_at) || 'a while';
+                note = `<p class="terminals-linked-note">No activity reported for ${this._esc(when)}.</p>`;
+            }
+            // Two amber boxes saying one thing reads as noise, and the confirm
+            // is the stronger of the two: it is the caveat at the moment it has
+            // to be answered.
+            if (!pending) {
+                note += '<p class="terminals-linked-warn">Opening a terminal here starts a separate session in this folder. Close the other one first if it is still open.</p>';
+            }
         } else {
-            note = '<p class="terminals-linked-note">This session is active. Its terminal is in the window you started it in.</p>';
+            // Live. This used to be offered nothing at all, on the grounds that
+            // starting a harness while calls arrive puts a second one on the
+            // same folder, and resuming puts two on one conversation. Both
+            // hazards are real, but the block made the offer unreachable for
+            // the session a person is sitting in, which is the one they ask
+            // about, and an absent button reads as "this cannot be done"
+            // rather than "this needs care". The acknowledgement is the right
+            // instrument: it states the hazard, names what the transcript
+            // actually shows, and leaves the call to them.
+            //
+            // Resume capability no longer changes the sentence. It decides
+            // which buttons appear, which the buttons themselves already say.
+            note = '<p class="terminals-linked-note">This session is active right now.</p>';
+            if (task.verified === false) {
+                note += `<p class="terminals-linked-note terminals-linked-unverified">Liveness here is read from the harness transcript, not from a governed call: ${this._esc(task.verified_reason || 'the Guard has not reported')}.</p>`;
+            }
+            if (!pending) {
+                note += '<p class="terminals-linked-warn">Its terminal is almost certainly still open. Opening one here puts a second agent in the same folder, so close that one first.</p>';
+            }
         }
         // "Here" has to mean somewhere. A session whose cwd was never reported
         // carries the placeholder, and spawning into that fails at the host, so
         // point at the launch form where a folder can be chosen instead.
         const folder = this._knownWorkspace(task.workspace);
         let action = '';
-        if ((ended || quiet) && folder) {
-            if (resumes) {
-                // The primary of the two: continuing keeps the conversation,
-                // where opening a terminal starts an empty one beside it.
-                action = `<button type="button" class="btn btn-sm btn-primary" data-linked-continue="${this._esc(task.id)}">Continue this session here</button>`;
+        // Every state that names a folder gets the offer now, live included.
+        // What differs by state is the acknowledgement in front of it, not
+        // whether the button exists: a hidden control cannot be reasoned
+        // about, and people were reading its absence as "this cannot be done".
+        if (folder) {
+            if (pending) {
+                action = this._linkedConfirmHtml(task, pending);
+            } else {
+                if (resumes) {
+                    // Both buttons end in a governed terminal in this folder,
+                    // which is why they read as the same offer. Say the one
+                    // thing that differs before either is pressed, rather than
+                    // leaving it to be discovered afterwards.
+                    action = '<p class="terminals-linked-note">Both open a terminal in this pane. Continuing brings the conversation with it; a new session starts empty in the same folder.</p>'
+                        + `<button type="button" class="btn btn-sm btn-primary" data-linked-continue="${this._esc(task.id)}">Continue this session here</button>`;
+                }
+                // Still offered either way. Someone may want a clean session in
+                // the same folder rather than the one that was running.
+                const openClass = resumes ? 'btn btn-sm' : 'btn btn-sm btn-primary';
+                // Not "governed": a linked session is already governed through
+                // its hooks, so naming governance here would offer something the
+                // person already has and imply the other button lacks it. What
+                // changes is only whether the conversation comes along, so that
+                // is the whole of the difference between the two labels.
+                action += `<button type="button" class="${openClass}" data-linked-open="${this._esc(task.id)}">Start a new session here</button>`;
             }
-            // Still offered either way. Someone may want a clean session in the
-            // same folder rather than the one that was running.
-            const openClass = resumes ? 'btn btn-sm' : 'btn btn-sm btn-primary';
-            action += `<button type="button" class="${openClass}" data-linked-open="${this._esc(task.id)}">Open a governed terminal here</button>`;
-        } else if (ended || quiet) {
+        } else {
             // Say which offer the missing folder costs them. Dropping the
             // button with no sentence reads as the app having decided the
             // session cannot be continued at all.
-            const lost = resumes ? 'continue it' : 'open a terminal';
+            const lost = resumes ? 'continue it' : 'start one';
             action = `<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to ${lost}. Use + Launch to start one in a folder you pick.</p>`;
         }
         // Unlinking belongs here as much as on the card: this pane is where a
@@ -2108,7 +2391,7 @@ const TerminalsPage = {
                 <h3>Runs outside SecureVector</h3>
                 <p>This session was started in your own terminal. There is no terminal here; governance is live.</p>
                 ${note}
-                <div class="terminals-linked-actions">${action}${unlink}</div>
+                <div class="terminals-linked-actions${pending ? ' is-confirming' : ''}">${action}${unlink}</div>
               </div>`;
     },
 
@@ -2145,56 +2428,60 @@ const TerminalsPage = {
                 }
             };
         });
-        rec.stageEl.querySelectorAll('[data-linked-continue]').forEach(b => {
-            b.onclick = async () => {
-                // The same flag the open button uses, deliberately: continuing
-                // and opening both put a harness in this one folder, so the
-                // second of the two must not start while the first is in
-                // flight either.
-                if (this._openingHereId) return;
-                this._openingHereId = task.id;
-                b.disabled = true;
-                b.textContent = 'Continuing…';
-                try {
-                    // Same harness, same folder, same pane as the open button.
-                    // The session id is the only difference: with it the
-                    // harness reopens the conversation instead of starting an
-                    // empty one, and the reopened session is on a PTY the app
-                    // owns, so it is governed like any other launch.
-                    await this._relaunchTask(task, { pane: paneId, resumeSessionId: task.session_id });
-                } catch (e) {
-                    this._banner(e.message || 'Could not continue the session here.', paneId);
-                    b.disabled = false;
-                    b.textContent = 'Continue this session here';
-                } finally {
-                    this._openingHereId = null;
-                }
-            };
+        // Both spawning buttons pass through one gate, so the acknowledgement
+        // is in a single place rather than two copies that can drift apart.
+        // `confirmed` is what the confirm's own button spends: without it the
+        // gate would raise itself again on the way through and the spawn would
+        // never be reached.
+        const run = async (action, b, label, confirmed) => {
+            if (!confirmed && this._linkedNeedsConfirm(task)) {
+                this._linkedConfirm = { id: task.id, action };
+                restage();
+                return;
+            }
+            // The same flag for both, deliberately: continuing and opening each
+            // put a harness in this one folder, so the second must not start
+            // while the first is in flight either.
+            if (this._openingHereId) return;
+            this._openingHereId = task.id;
+            b.disabled = true;
+            b.textContent = action === 'continue' ? 'Continuing…' : 'Opening…';
+            try {
+                // Same harness, same folder, same pane either way. The session
+                // id is the only difference: with it the harness reopens the
+                // conversation instead of starting an empty one, and the
+                // reopened session sits on a PTY the app owns, so it is
+                // governed like any other launch.
+                await this._relaunchTask(task, {
+                    pane: paneId,
+                    resumeSessionId: action === 'continue' ? task.session_id : null,
+                });
+                this._linkedConfirm = null;
+            } catch (e) {
+                this._banner(e.message || (action === 'continue'
+                    ? 'Could not continue the session here.'
+                    : 'Could not start a session here.'), paneId);
+                b.disabled = false;
+                b.textContent = label;
+            } finally {
+                this._openingHereId = null;
+            }
+        };
+        rec.stageEl.querySelectorAll('[data-linked-cancel]').forEach(b => {
+            b.onclick = () => { this._linkedConfirm = null; restage(); };
         });
-        const buttons = rec.stageEl.querySelectorAll('[data-linked-open]');
-        buttons.forEach(b => {
-            b.onclick = async () => {
-                // Its own flag rather than `_relaunchingId`: a restart running
-                // in some other pane must not silently swallow this click, and
-                // this launch must not block that restart.
-                if (this._openingHereId) return;
-                this._openingHereId = task.id;
-                b.disabled = true;
-                b.textContent = 'Opening…';
-                try {
-                    // Same harness, same folder, swapped into this pane: that
-                    // is `_relaunchTask` exactly, so it is called rather than
-                    // copied. `stopFirst` stays off because the app owns no
-                    // process here; there is nothing of ours left to stop.
-                    await this._relaunchTask(task, { pane: paneId });
-                } catch (e) {
-                    this._banner(e.message || 'Could not open a terminal here.', paneId);
-                    b.disabled = false;
-                    b.textContent = 'Open a governed terminal here';
-                } finally {
-                    this._openingHereId = null;
-                }
-            };
+        rec.stageEl.querySelectorAll('[data-linked-go]').forEach(b => {
+            const pending = this._linkedConfirm && this._linkedConfirm.action;
+            // Returns the promise rather than dropping it: the stage's own
+            // tests await the click, and a floating promise here would also
+            // lose a launch failure instead of banners it.
+            b.onclick = () => (pending ? run(pending, b, b.textContent, true) : Promise.resolve());
+        });
+        rec.stageEl.querySelectorAll('[data-linked-continue]').forEach(b => {
+            b.onclick = () => run('continue', b, 'Continue this session here', false);
+        });
+        rec.stageEl.querySelectorAll('[data-linked-open]').forEach(b => {
+            b.onclick = () => run('open', b, 'Start a new session here', false);
         });
     },
 
@@ -3375,8 +3662,66 @@ const TerminalsPage = {
             store.setItem(this.GOV_KEY, JSON.stringify({
                 v: this.GOV_STATE_V, w: Math.round(this._govWidth || this.GOV_DEFAULT_W),
                 collapsed: !!this._govCollapsed, userSet: !!this._govUserSet,
+                sections: this._govSections || {},
             }));
         } catch (e) { /* storage unavailable or full */ }
+    },
+
+    _govSectionOpen(id) {
+        const saved = this._govSections;
+        if (saved && typeof saved[id] === 'boolean') return saved[id];
+        return !!this.GOV_SECTION_DEFAULTS[id];
+    },
+
+    /** Put every section where the person last left it, or at its first-run
+     *  default if they never touched it. */
+    _applyGovSections() {
+        this._govApplied = this._govApplied || {};
+        for (const id of this.GOV_SECTION_IDS) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            const want = this._govSectionOpen(id);
+            el.open = want;
+            this._govApplied[id] = want;
+        }
+    },
+
+    _bindGovSections() {
+        for (const id of this.GOV_SECTION_IDS) {
+            const el = document.getElementById(id);
+            if (!el || el._svGovBound) continue;
+            el._svGovBound = true;
+            el.addEventListener('toggle', () => {
+                // `toggle` fires for a programmatic open too, so the restore
+                // and the attention overrides would otherwise write themselves
+                // back as if the person had chosen them. A flag set around the
+                // assignment does NOT work here: the HTML spec queues the
+                // details notification task, so the event lands after any
+                // synchronous window has closed. Compare against the last
+                // value the page itself set instead, which holds whenever the
+                // event arrives.
+                const applied = this._govApplied || (this._govApplied = {});
+                if (applied[id] === !!el.open) return;
+                applied[id] = !!el.open;
+                this._govSections = Object.assign({}, this._govSections);
+                this._govSections[id] = !!el.open;
+                this._persistGov();
+            });
+        }
+    },
+
+    /** Attention beats the remembered state, and only attention: a session
+     *  paused on an approval and a call that was refused are not preferences.
+     *  Never written back, so one deny does not quietly rewrite a section the
+     *  person had chosen to keep shut.
+     */
+    _forceGovSection(id) {
+        const el = document.getElementById(id);
+        if (!el || el.open) return;
+        el.open = true;
+        // Claimed as the page's own move before the queued toggle arrives, so
+        // the handler recognises it and leaves the stored preference alone.
+        (this._govApplied || (this._govApplied = {}))[id] = true;
     },
 
     _restoreGov() {
@@ -3395,6 +3740,16 @@ const TerminalsPage = {
             if (typeof saved.w === 'number' && isFinite(saved.w)) this._govWidth = saved.w;
             this._govUserSet = !!saved.userSet;
             this._govCollapsed = !!saved.collapsed;
+            // Only booleans, and only for sections that still exist: a stale
+            // key from an older build must not resurrect a section that has
+            // since been removed, or be handed to `el.open` as a string.
+            if (saved.sections && typeof saved.sections === 'object') {
+                const kept = {};
+                for (const id of this.GOV_SECTION_IDS) {
+                    if (typeof saved.sections[id] === 'boolean') kept[id] = saved.sections[id];
+                }
+                this._govSections = Object.keys(kept).length ? kept : null;
+            }
         } catch (e) { /* unreadable or not ours */ }
     },
 
@@ -4304,6 +4659,9 @@ const TerminalsPage = {
             setCount('terminals-verdicts-count', items.length);
             this._govHas.verdicts = items.length > 0;
             this._govCounts = { governed: items.length, blocked: items.filter(i => i.action === 'block').length };
+            // A refused call is a security state, and the rule is that a
+            // security state is never the thing hidden behind a closed drawer.
+            if (this._govCounts.blocked) this._forceGovSection('terminals-gov-verdicts');
             this._renderPaneFoot();
             const sessionId = v.session_id;
             let traceRuns = [];
@@ -4405,6 +4763,9 @@ const TerminalsPage = {
             if (summary) summary.textContent = summaryParts.join(' · ');
             if (attention) {
                 attention.hidden = !mine.length;
+                // The session is paused until this is answered, so the inbox
+                // opens itself rather than waiting to be found.
+                if (mine.length) this._forceGovSection('terminals-gov-approvals');
                 attention.innerHTML = mine.length
                     ? `<span><strong>Approval needed</strong> · This task is paused until you decide.</span><button class="btn btn-sm btn-primary" id="terminals-review-approval">Review</button>`
                     : '';
@@ -4457,7 +4818,50 @@ const TerminalsPage = {
      *  hero says what will land where, and the sections come back the moment
      *  anything actually arrives.
      */
+    /** One line at the top of the governance column: what the attached session
+     *  is doing right now.
+     *
+     *  The board card already carries this line and people read it there, but
+     *  the governance column is where a live session is actually watched, and
+     *  it was the one surface that never said what the current call was. It
+     *  renders hidden whenever there is nothing live to report, so a quiet
+     *  column costs no height at all.
+     */
+    /** Open a task from outside the page: the rail's agent rows.
+     *
+     *  Navigating would reload the page, which tears down every pane and its
+     *  socket only to restore them a moment later, and the restore then
+     *  answers the rail's request with whichever pane it focused. Attaching
+     *  here instead keeps the panes that are already open and puts the asked
+     *  for task in front, which is what the click meant.
+     */
+    async openTask(taskId) {
+        if (!taskId) return;
+        try { sessionStorage.setItem('sv-agent-task-id', taskId); } catch (e) { /* storage unavailable */ }
+        // A task the board has not caught up with yet is left to the poll
+        // tick, which attaches whatever the stored id names once it arrives.
+        if (!this._tasks.some(t => t.id === taskId)) return;
+        await this._attach(taskId);
+    },
+
+    _renderGovDoing() {
+        const el = document.getElementById('terminals-gov-doing');
+        if (!el) return;
+        const t = this._tasks.find(x => x.id === this._attached);
+        // `activity` only, never the status word: "working" is not a command,
+        // and a session with no reported call has nothing to show. An ended
+        // session is excluded too, or its last call would sit pinned at the
+        // top of the column reading as though it were still running.
+        const line = t && !this._isEnded(t) ? (t.activity || '') : '';
+        el.hidden = !line;
+        if (!line) { el.textContent = ''; return; }
+        el.innerHTML = '<span class="terminals-pane-live" aria-hidden="true"></span>'
+            + `<span class="terminals-gov-doing-text">${this._esc(line)}</span>`;
+        el.title = line;
+    },
+
     _renderGovHero() {
+        this._renderGovDoing();
         const hero = document.getElementById('terminals-gov-hero');
         const body = document.getElementById('terminals-governance-body');
         const bot = document.getElementById('terminals-gov-hero-bot');
@@ -4598,11 +5002,17 @@ const TerminalsPage = {
         // next poll throws away; it goes into the signature so a re-render
         // inside the window repaints a button that is still disabled.
         const cooling = Date.now() < (this._compactUntil || 0);
-        const sig = [t.id, pct, stage, s.model || '', advisories.join('|'), canCompact, cooling].join('~');
+        // Cost so far belongs beside the context meter, not in its own box:
+        // both answer "how expensive has this session got", and the release plan asks for
+        // it here as well as on the card. Read off the task row the board
+        // already decorated, so the rail and the card cannot disagree.
+        const spend = typeof t.spend_usd === 'number' ? this._fmtSpend(t.spend_usd) : '';
+        const sig = [t.id, pct, stage, s.model || '', advisories.join('|'), canCompact, cooling, spend].join('~');
         if (sig === this._contextSig) return;
         this._contextSig = sig;
         const meta = `${pct}% of ${this._fmtTok(s.context_window || 200000)} context · ${this._fmtTok(s.context_tokens_now || 0)} tokens`
-            + (s.model ? ' · ' + s.model : '');
+            + (s.model ? ' · ' + s.model : '')
+            + (spend ? ' · ' + spend : '');
         const list = advisories.length
             ? `<ul class="terminals-context-advice">${advisories.map(x => `<li>${this._esc(x)}</li>`).join('')}</ul>`
             : '';
@@ -4627,16 +5037,39 @@ const TerminalsPage = {
      */
     COMPACT_COOLDOWN_MS: 15000,
 
+    /** The live socket for the task the governance column is describing.
+     *
+     *  `this._ws` was the page's single terminal before panes existed. It is
+     *  no longer assigned anywhere, so reading it meant the compact button
+     *  could only ever report that nothing was attached, whatever was on
+     *  screen. Each pane owns its socket now, so ask the pane holding the
+     *  attached task.
+     */
+    _attachedSocket() {
+        if (!this._panes || !this._attached) return null;
+        const holder = this._paneForTask(this._attached);
+        const rec = holder ? this._panes.get(holder) : null;
+        const ws = rec && rec.ws;
+        return ws && ws.readyState === WebSocket.OPEN ? ws : null;
+    },
+
     _sendCompact() {
         const note = document.getElementById('terminals-context-note');
         const btn = document.getElementById('terminals-compact-btn');
-        const open = this._ws && this._ws.readyState === WebSocket.OPEN;
-        if (!open) {
-            if (note) note.textContent = 'Attach the task first.';
+        const ws = this._attachedSocket();
+        if (!ws) {
+            // A linked session has no terminal here at all, which is a
+            // different thing from not having attached one yet.
+            const task = this._tasks.find(t => t.id === this._attached);
+            if (note) {
+                note.textContent = task && task.origin === 'linked'
+                    ? 'This session runs in your own terminal, so compact has to be typed there.'
+                    : 'Attach the task first.';
+            }
             return;
         }
         if (Date.now() < (this._compactUntil || 0)) return;
-        this._ws.send(JSON.stringify({ t: 'input', data: btoa('/compact\r') }));
+        ws.send(JSON.stringify({ t: 'input', data: btoa('/compact\r') }));
         this._compactUntil = Date.now() + this.COMPACT_COOLDOWN_MS;
         if (note) note.textContent = 'Sent /compact to the terminal. The audit trail records it as a typed line.';
         if (btn) btn.disabled = true;
@@ -4948,6 +5381,29 @@ const TerminalsPage = {
         const m = Math.floor(ms / 60000), sec = Math.floor((ms % 60000) / 1000);
         if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
         return m ? `${m}m ${sec}s` : `${sec}s`;
+    },
+    // How recently the harness itself wrote this session's transcript. The
+    // board's own status comes from the audit trail, which only moves while a
+    // Guard is relaying; this moves whenever the session does, so it is the
+    // signal that can contradict a person who says the other terminal is
+    // closed. Null means no transcript to read, which is no evidence at all,
+    // not evidence of closure.
+    LIVE_TRANSCRIPT_SECONDS: 120,
+    _transcriptFresh(task) {
+        const age = task && task.transcript_age_seconds;
+        if (typeof age !== 'number' || !isFinite(age) || age < 0) return null;
+        return age <= this.LIVE_TRANSCRIPT_SECONDS ? age : null;
+    },
+    /** A duration in seconds as words. Separate from `_ago`, which starts
+     *  from a timestamp and rounds everything under a minute to "just now":
+     *  seconds are the whole point here, because "4 seconds ago" is what makes
+     *  a person look back at the other window. */
+    _forAgo(seconds) {
+        const n = Math.max(0, Math.round(seconds));
+        if (n < 2) return 'a moment ago';
+        if (n < 60) return `${n} seconds ago`;
+        const m = Math.round(n / 60);
+        return m === 1 ? 'a minute ago' : `${m} minutes ago`;
     },
     _ago(iso) {
         const s = Date.parse(iso);

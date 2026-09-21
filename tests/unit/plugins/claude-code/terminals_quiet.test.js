@@ -40,9 +40,21 @@ test('task rows are compact one-line entries with a sub label and elapsed time',
     'the attached row state marker stays');
 });
 
-test('folder grouping hides its heading when there is only one group', () => {
-  assert.match(page, /isSingleGroup \? ' is-single' : ''/,
-    'single-folder boards must mark the group so its heading can be hidden');
+test('the board is one grid, with the folder on the card', () => {
+  // Superseded 2026-09-21. Grouping by folder gave each folder its own row, so
+  // a folder holding one session took a full row with the rest empty. With
+  // most folders holding one session that is the common case: five sessions
+  // landed as rows of 1, 1 and 3, two of them three quarters empty. There is
+  // no per-group heading to hide any more because there are no per-group
+  // bands; the folder rides on the card it belongs to.
+  assert.doesNotMatch(page, /isSingleGroup/,
+    'no per-folder band means nothing to mark as a lone group');
+  assert.match(page, /class="terminals-task-folder"/,
+    'the folder is not lost, it moves onto the card');
+  assert.match(page, /const byFolder = \[\.\.\.shown\]\.sort/,
+    'cards stay sorted by folder so one folder sessions still sit together');
+  assert.strictEqual((page.match(/class="terminals-group-cards"/g) || []).length, 1,
+    'exactly one grid, so cards reflow across the whole board');
 });
 
 test('the empty stage keeps the heading and blurb without the SV mark tile', () => {
@@ -65,8 +77,8 @@ test('styles carry the quiet-workspace frame and rail tightening rules', () => {
 });
 
 test('pins are bumped for the touched assets', () => {
-  assert.match(html, /terminals\.js\?v=53/);
-  assert.match(html, /styles\.css\?v=432/);
+  assert.match(html, /terminals\.js\?v=77/);
+  assert.match(html, /styles\.css\?v=450/);
 });
 
 test('with nothing attached the board is the whole page', () => {
@@ -81,8 +93,8 @@ test('with nothing attached the board is the whole page', () => {
 });
 
 test('all tasks is a wrapping board of cards', () => {
-  assert.match(css, /\.terminals-page \.terminals-group \{ display: grid; grid-template-columns: repeat\(auto-fill, minmax\(282px, 1fr\)\)/,
-    'the group lays its tasks out as a card grid');
+  assert.match(css, /\.terminals-page \.terminals-group-cards \{ display: grid; grid-template-columns: repeat\(auto-fill, minmax\(282px, 1fr\)\)/,
+    'the cards grid is a sibling of the full-width group heading, not a grid-column: 1 / -1 item inside it. auto-FILL, not auto-fit: auto-fit collapses the unused tracks and stretches the survivors, which turned a folder holding one session into a single 1192px card carrying about 200px of content. Keeping the tracks leaves the rest of the row honestly empty instead.');
   assert.match(css, /\.terminals-page \.terminals-task \{[^\n]*border-radius: 8px/,
     'a card has its own frame');
   assert.match(css, /\.terminals-page \.terminals-task-select \{ display: flex; flex-direction: column/,

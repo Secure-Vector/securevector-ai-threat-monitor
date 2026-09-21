@@ -283,7 +283,8 @@ test('the confirm control carries its own styles, danger colour on the destructi
   const css = read('css/styles.css');
   assert.match(css, /\.terminals-task-confirm \{[^}]*inline-flex/);
   assert.match(css, /\.terminals-task-confirm-yes[^{]*\{[^}]*#fca5a5/);
-  assert.match(css, /\.terminals-task-confirm-no \{[^}]*--text-muted/);
+  assert.match(css, /\.terminals-task-confirm-no \{[^}]*--text-secondary/,
+    'the non-destructive half stays NEUTRAL, never the danger colour. It moved\n     from --text-muted to --text-secondary on 2026-09-21 because muted measured\n     4.29:1 at 12px on the pinned-dark stage, just under AA; the point of the\n     assertion is that it is not red, not which neutral it is.');
   assert.match(css, /\[data-theme="light"\] \.terminals-task-confirm-yes \{[^}]*#b91c1c/);
   assert.match(css, /\.terminals-task-confirm-yes, \.terminals-task-confirm-no \{[^}]*background: transparent/);
 });
@@ -416,4 +417,132 @@ test('a restart that never stops the old task does not start a second one', asyn
   assert.strictEqual(els['terminals-guard-banner-restart'].disabled, false,
     'the operator can try again');
   assert.strictEqual(els['terminals-guard-banner-restart'].textContent, 'Restart harness');
+});
+
+// --- compact reaches the pane's socket, not a field that no longer exists ---
+
+test('compact sends through the attached pane socket', () => {
+  // `this._ws` was the page's single terminal before panes existed. It is not
+  // assigned anywhere any more, so reading it meant the button could only ever
+  // report that nothing was attached, whatever was on screen.
+  const src = read('js/pages/terminals.js');
+  const fn = src.slice(src.indexOf('_sendCompact() {'), src.indexOf('COMPACT_COOLDOWN_MS') + 400);
+  assert.doesNotMatch(fn, /this\._ws\.send/, 'the dead field must not be written to');
+  assert.match(src, /_attachedSocket\(\) \{/);
+  const helper = src.slice(src.indexOf('_attachedSocket() {'));
+  assert.match(helper.slice(0, 400), /this\._paneForTask\(this\._attached\)/,
+    'the socket comes from the pane holding the attached task');
+  assert.match(helper.slice(0, 400), /readyState === WebSocket\.OPEN/);
+});
+
+test('a linked session says compact has to be typed where it runs', () => {
+  const src = read('js/pages/terminals.js');
+  const start = src.indexOf('_sendCompact() {');
+  const fn = src.slice(start, src.indexOf('if (Date.now()', start));
+  assert.match(fn, /origin === 'linked'/,
+    'no terminal here is a different thing from nothing attached yet');
+  assert.match(fn, /typed there/);
+});
+
+
+// --- Cost, evidence, and the orphaned view ------------------------------------
+//
+// Three release-gate checklist items land on the board card: cost, the
+// unverified marking (line 24, via its heartbeat), and the orphaned-tasks view
+// (line 25).
+
+const boardTask = (over = {}) => Object.assign({
+  id: 'b1', executor_id: 'claude-code', status: 'working', origin: 'launch',
+  workspace: '/w', title: 'A task', created_at: new Date().toISOString(),
+}, over);
+
+function boardEls() {
+  const list = makeEl({ querySelectorAll: () => [] });
+  const summary = makeEl({ querySelector: () => null, querySelectorAll: () => [] });
+  return { 'terminals-task-list': list, 'terminals-board-summary': summary };
+}
+
+function renderBoard(Page, els) {
+  const captured = { html: '' };
+  Object.defineProperty(els['terminals-task-list'], 'innerHTML', {
+    configurable: true,
+    get: () => captured.html,
+    set: (v) => { captured.html = v; },
+  });
+  Page._renderTaskList();
+  return captured.html;
+}
+
+test('spend shows on the card once something has actually been billed', () => {
+  const els = boardEls();
+  const { Page } = loadPage(els);
+  Page._tasks = [boardTask({ spend_usd: 1.2345, spend_requests: 9 })];
+  const html = renderBoard(Page, els);
+
+  assert.match(html, /\$1\.23/, 'cents are all anyone reads above a cent');
+  assert.match(html, /terminals-task-spend/);
+});
+
+test('a sub-cent run is not rendered as free', () => {
+  const Page = loadPage(boardEls()).Page;
+  // "$0.00" reads as free rather than as barely started, and early in a
+  // session barely started is the truth.
+  assert.strictEqual(Page._fmtSpend(0.004), '$0.004');
+  assert.strictEqual(Page._fmtSpend(0), '$0.00');
+  assert.strictEqual(Page._fmtSpend(12.5), '$12.50');
+  assert.strictEqual(Page._fmtSpend(null), '');
+  assert.strictEqual(Page._fmtSpend(-1), '', 'a negative price is a bug, not a credit');
+});
+
+test('nothing priced yet shows no figure at all, not a zero', () => {
+  const els = boardEls();
+  const { Page } = loadPage(els);
+  Page._tasks = [boardTask()];   // no spend_usd field
+  const html = renderBoard(Page, els);
+
+  assert.doesNotMatch(html, /terminals-task-spend/,
+    '"$0.00" and "nothing billed yet" look identical and only one is usually true');
+});
+
+test('an unverified session is marked, and a verified one is not', () => {
+  const els = boardEls();
+  const { Page } = loadPage(els);
+  Page._tasks = [boardTask({ verified: false, verified_reason: 'the Guard has never reported a call for this session' })];
+  let html = renderBoard(Page, els);
+  assert.match(html, /terminals-task-unverified/);
+  assert.match(html, /never reported a call/, 'the reason is the tooltip, not a mystery chip');
+
+  Page._tasks = [boardTask({ verified: true, verified_reason: 'the Guard reported recently' })];
+  html = renderBoard(Page, els);
+  assert.doesNotMatch(html, /terminals-task-unverified/,
+    'a badge on every healthy row is a badge people stop reading');
+});
+
+test('an ended session is never marked unverified', () => {
+  const els = boardEls();
+  const { Page } = loadPage(els);
+  // verified is null for an ended row: nothing is being claimed about now.
+  Page._tasks = [boardTask({ status: 'done', verified: null })];
+  assert.doesNotMatch(renderBoard(Page, els), /terminals-task-unverified/);
+});
+
+test('the orphaned count appears only when something was orphaned', () => {
+  const src = read('js/pages/terminals.js');
+  assert.match(src, /const orphaned = shown\.filter\(t => t\.status === 'interrupted'\)\.length;/);
+  assert.match(src, /data-board-filter="interrupted"/);
+  // A control, so it must be a button: a span with an onclick takes no focus
+  // and answers no keyboard.
+  assert.match(src, /<button type="button" class="terminals-board-stat terminals-board-orphans"/);
+  assert.match(src, /orphaned\s*\n?\s*\?/, 'rendered conditionally, not as a permanent 0');
+});
+
+test('clicking orphaned narrows the board through the search everyone can see', () => {
+  const src = read('js/pages/terminals.js');
+  const i = src.indexOf("orphanBtn.onclick");
+  assert.ok(i > 0);
+  const body = src.slice(i, i + 700);
+  assert.match(body, /box\.value = 'interrupted'/,
+    'the input has to show what is being filtered on, or there is no way back');
+  assert.match(body, /this\._taskQuery = 'interrupted'/);
+  assert.match(body, /this\._renderTaskList\(\)/);
 });

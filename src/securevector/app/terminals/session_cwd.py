@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -76,6 +77,37 @@ def resolve_session_cwd(executor_id: str, session_id: str) -> Optional[str]:
         return found
     except OSError:
         return None
+
+
+def session_last_write(executor_id: str, session_id: str) -> Optional[float]:
+    """Seconds since the harness last appended to this session's transcript,
+    or None when there is no transcript to read.
+
+    This is the one liveness signal that does not go through the Guard. The
+    board otherwise derives a linked session's status from `tool_call_audit`,
+    which only moves while the Guard plugin is relaying: with the plugin
+    unregistered, a session running right now reports as idle, and the confirm
+    before a resume then has nothing to go on but the person's word. The
+    harness writes its own transcript either way, so its mtime answers "is
+    that terminal still open" without having to ask.
+
+    Fresh is evidence; stale is not evidence of the opposite. A session
+    sitting at a prompt writes nothing either, so a caller may report
+    freshness and must never report silence as closure.
+    """
+    if not _safe_session_id(session_id):
+        return None
+    path = _transcript_for(executor_id, session_id)
+    if path is None:
+        return None
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    # Clamped at zero: a file dated in the future (a clock step, a restored
+    # backup) would otherwise read as negative and sort as the freshest thing
+    # on the board.
+    return max(0.0, time.time() - mtime)
 
 
 def _safe_session_id(session_id: str) -> bool:

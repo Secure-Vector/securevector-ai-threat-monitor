@@ -182,8 +182,8 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=177/);
-  assert.match(html, /styles\.css\?v=432/);
+  assert.match(html, /sidebar\.js\?v=178/);
+  assert.match(html, /styles\.css\?v=450/);
   assert.match(html, /app\.js\?v=69/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -279,7 +279,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=432/);
+  assert.match(read('index.html'), /styles\.css\?v=450/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -518,6 +518,22 @@ test('the collapsed rail is complete, and nothing it owns is stranded, leaked or
   assert.match(css, /\.sidebar-context \.nav-item:focus-visible/);
 });
 
+test('clicking an agent row while already on the page hands it over, never reloads', () => {
+  // App.loadPage has no already-on-page guard, so navigate() would re-render
+  // the whole page; the layout restore then rewrote sv-agent-task-id with the
+  // previously focused task and the click was lost. Going straight to the page
+  // also keeps the panes and sockets that are already open.
+  const src = read('js/components/sidebar.js');
+  const i = src.indexOf("sessionStorage.setItem('sv-agent-task-id', view.taskId);");
+  assert.ok(i > 0, 'the rail still records which task was asked for');
+  const after = src.slice(i, i + 1200);
+  assert.match(after, /if \(this\.currentPage === 'terminals' && window\.TerminalsPage\?\.openTask\) \{/);
+  assert.match(after, /TerminalsPage\.openTask\(view\.taskId\);/);
+  assert.match(after, /this\.setActive\('terminals'\);/);
+  // Coming from any other page still navigates, which is what loads it.
+  assert.match(after, /this\.navigate\('terminals'\);/);
+});
+
 test('the collapse control sits on the sidebar edge, icon-only, and names itself', () => {
   const js = read('js/components/sidebar.js');
   const css = read('css/styles.css');
@@ -586,7 +602,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=177/);
+  assert.match(read('index.html'), /sidebar\.js\?v=178/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {

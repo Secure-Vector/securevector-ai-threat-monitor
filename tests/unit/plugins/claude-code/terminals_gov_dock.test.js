@@ -537,6 +537,135 @@ test('every governance id the rest of the page queries still lives in the column
   }
 });
 
+// --- Which sections are open, and who decided ---------------------------------
+//
+// The column used to hardcode `open` on every section, so whatever anyone
+// opened or shut snapped back on the next attach, pane focus change or page
+// render. Neither "all open" nor "all shut" was the fix: the state has to be
+// remembered. The hardcoded default now only seeds a first run.
+
+const SECTIONS = [
+  'terminals-gov-context', 'terminals-gov-traces', 'terminals-gov-egress',
+  'terminals-gov-verdicts', 'terminals-gov-approvals',
+];
+const openSet = (els) => SECTIONS.filter((id) => els[id] && els[id].open === true);
+
+test('a first run opens Tool calls and nothing else', () => {
+  const els = dockEls();
+  const Page = loadPage(els);
+
+  Page._restoreGov();
+  Page._applyGovSections();
+
+  assert.deepStrictEqual(openSet(els), ['terminals-gov-verdicts'],
+    'the column has to show what it is for; four closed headers show none of it');
+});
+
+test('opening a section is remembered, and beats the first-run default', () => {
+  const store = memStore();
+  const els = dockEls();
+  const Page = loadPage(els, { localStorage: store });
+  Page._restoreGov();
+  Page._bindGovSections();
+  Page._applyGovSections();
+
+  // The person opens Egress and shuts Tool calls.
+  els['terminals-gov-egress'].open = true;
+  els['terminals-gov-egress'].dispatch('toggle');
+  els['terminals-gov-verdicts'].open = false;
+  els['terminals-gov-verdicts'].dispatch('toggle');
+
+  // A fresh page reads it back.
+  const els2 = dockEls();
+  const Page2 = loadPage(els2, { localStorage: store });
+  Page2._restoreGov();
+  Page2._applyGovSections();
+
+  assert.deepStrictEqual(openSet(els2), ['terminals-gov-egress'],
+    'the remembered state wins over GOV_SECTION_DEFAULTS');
+});
+
+test('the page moving a section is never recorded as a preference', () => {
+  const store = memStore();
+  const els = dockEls();
+  const Page = loadPage(els, { localStorage: store });
+  Page._restoreGov();
+  Page._bindGovSections();
+
+  // _applyGovSections fires `toggle` on a real <details> exactly as a click
+  // does, so without the guard the restore would write itself back.
+  Page._applyGovSections();
+  SECTIONS.forEach((id) => els[id].dispatch('toggle'));
+
+  assert.strictEqual(Page._govSections, null,
+    'nothing was chosen, so nothing is remembered');
+  const saved = JSON.parse(store.getItem('sv-terminals-gov') || '{}');
+  assert.ok(!saved.sections || Object.keys(saved.sections).length === 0);
+});
+
+test('the toggle guard survives the event arriving late, as a browser delivers it', () => {
+  // <details> queues its notification task, so `toggle` lands after any
+  // synchronous "I am applying" window would have closed. The guard compares
+  // against the last value the page set, which still holds whenever it fires.
+  const store = memStore();
+  const els = dockEls();
+  const Page = loadPage(els, { localStorage: store });
+  Page._restoreGov();
+  Page._bindGovSections();
+  Page._applyGovSections();
+  Page._forceGovSection('terminals-gov-approvals');
+
+  // Every queued event now drains, long after the calls that caused them.
+  SECTIONS.forEach((id) => els[id].dispatch('toggle'));
+
+  assert.strictEqual(Page._govSections, null,
+    'a late event must not turn the page own moves into preferences');
+});
+
+test('a refused call opens Tool calls, and does not rewrite what was chosen', () => {
+  const store = memStore();
+  const els = dockEls();
+  const Page = loadPage(els, { localStorage: store });
+  Page._restoreGov();
+  Page._bindGovSections();
+  // The person had deliberately shut Tool calls.
+  els['terminals-gov-verdicts'].open = false;
+  els['terminals-gov-verdicts'].dispatch('toggle');
+  assert.strictEqual(Page._govSections['terminals-gov-verdicts'], false);
+
+  Page._forceGovSection('terminals-gov-verdicts');
+  els['terminals-gov-verdicts'].dispatch('toggle');
+
+  assert.strictEqual(els['terminals-gov-verdicts'].open, true, 'a deny is never hidden');
+  assert.strictEqual(Page._govSections['terminals-gov-verdicts'], false,
+    'one refused call must not silently rewrite the preference');
+});
+
+test('attention is wired to the two states that actually block or refuse', () => {
+  const src = read('js/pages/terminals.js');
+  assert.match(src, /if \(this\._govCounts\.blocked\) this\._forceGovSection\('terminals-gov-verdicts'\);/,
+    'a blocked call opens the call list');
+  assert.match(src, /if \(mine\.length\) this\._forceGovSection\('terminals-gov-approvals'\);/,
+    'a pending approval opens the inbox: the session is paused until it is answered');
+});
+
+test('a stored section map from another build is ignored, not trusted', () => {
+  const store = memStore();
+  store.setItem('sv-terminals-gov', JSON.stringify({
+    v: 2, w: 320, collapsed: false, userSet: false,
+    // A section that no longer exists, and a value that is not a boolean.
+    sections: { 'terminals-gov-gone': true, 'terminals-gov-egress': 'yes' },
+  }));
+  const els = dockEls();
+  const Page = loadPage(els, { localStorage: store });
+
+  Page._restoreGov();
+  Page._applyGovSections();
+
+  assert.strictEqual(Page._govSections, null, 'nothing usable survived the read');
+  assert.deepStrictEqual(openSet(els), ['terminals-gov-verdicts'], 'so the seed applies');
+});
+
 test('the approval Review button opens the column without recording a preference', () => {
   const els = dockEls();
   const Page = loadPage(els);
@@ -549,6 +678,77 @@ test('the approval Review button opens the column without recording a preference
   assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'));
   assert.strictEqual(Page._govUserSet, false,
     'showing the inbox is the page acting, not the person choosing');
+});
+
+// --- The live line at the top of the column ---------------------------------
+//
+// The board card says what a session is doing right now, but the governance
+// column is where a live session is actually watched, and it never said which
+// call was running. One line, and no height at all when there is nothing to
+// report.
+
+const doing = (Page, els, task) => {
+  Page._tasks = task ? [task] : [];
+  Page._attached = task ? task.id : null;
+  Page._renderGovDoing();
+  return els['terminals-gov-doing'];
+};
+
+test('the live call shows as one line at the top of the governance column', () => {
+  const els = dockEls();
+  const Page = loadPage(els);
+
+  const el = doing(Page, els, { id: 't1', status: 'working', activity: 'Bash(npm test)' });
+
+  assert.strictEqual(el.hidden, false);
+  assert.match(el.innerHTML, /Bash\(npm test\)/);
+  assert.match(el.innerHTML, /terminals-pane-live/, 'it reuses the live dot, not a second one');
+  assert.strictEqual(el.title, 'Bash(npm test)', 'the full call is readable when it ellipses');
+});
+
+test('a session with no reported call takes no space at all', () => {
+  const els = dockEls();
+  const Page = loadPage(els);
+
+  const el = doing(Page, els, { id: 't1', status: 'working', activity: null });
+
+  assert.strictEqual(el.hidden, true, 'hidden, not an empty row holding height open');
+  assert.strictEqual(el.textContent, '');
+});
+
+test('the status word is never shown as a call', () => {
+  const els = dockEls();
+  const Page = loadPage(els);
+
+  const el = doing(Page, els, { id: 't1', status: 'working', activity: '' });
+
+  assert.strictEqual(el.hidden, true, '"working" is a state, not a command');
+});
+
+test('an ended session does not pin its last call to the top', () => {
+  const els = dockEls();
+  const Page = loadPage(els);
+
+  for (const status of ['done', 'failed', 'interrupted']) {
+    const el = doing(Page, els, { id: 't1', status, activity: 'Bash(npm test)' });
+    assert.strictEqual(el.hidden, true, `${status} still reads as running otherwise`);
+  }
+});
+
+test('nothing attached shows nothing', () => {
+  const els = dockEls();
+  const Page = loadPage(els);
+
+  assert.strictEqual(doing(Page, els, null).hidden, true);
+});
+
+test('the live line sits above the hero, inside the body', () => {
+  const src = read('js/pages/terminals.js');
+  const body = src.indexOf('id="terminals-governance-body"');
+  const line = src.indexOf('id="terminals-gov-doing"');
+  const hero = src.indexOf('id="terminals-gov-hero"');
+  assert.ok(body > 0 && line > body, 'the line is inside the column body');
+  assert.ok(line < hero, 'and above the hero, so it is the first thing read');
 });
 
 test('the governance column reads context, then the trail, then the decisions', () => {

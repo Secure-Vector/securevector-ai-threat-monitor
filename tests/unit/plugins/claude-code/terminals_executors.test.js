@@ -82,8 +82,8 @@ test('styles.css defines .terminals-executor-hint', () => {
 
 test('index.html pins the bumped executor cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=53/);
-  assert.match(html, /styles\.css\?v=432/);
+  assert.match(html, /terminals\.js\?v=77/);
+  assert.match(html, /styles\.css\?v=450/);
 });
 
 test('no em dash in the executor-hint UI strings', () => {
@@ -249,4 +249,68 @@ test('rejected executors fetch: submit stays disabled, the fallback hint shows, 
   assert.strictEqual(launchCalls, 0, 'a submit attempt with no launchable executor must never call API.terminalsLaunch');
   assert.strictEqual(err.hidden, false);
   assert.strictEqual(err.textContent, 'This harness is not ready to launch.');
+});
+
+
+// --- The same action, spelled for a shell -------------------------------------
+//
+// The launch form now carries the equivalent CLI command, built from what the
+// form currently holds so it can be copied and run as it stands. It is a shut
+// drawer: a thing to find once, not to read on every launch.
+
+test('the command matches what the form would do, and is copy-ready', () => {
+  const src = read('js/pages/terminals.js');
+
+  assert.match(src, /CLI_BIN: 'sv-monitor session'/,
+    'sv-monitor is the console script setup.py installs; `sv` is not on anyone PATH');
+  assert.match(src, /id="terminals-cli-cmd"/);
+  assert.match(src, /<details class="terminals-cli"/,
+    'shut by default, so it costs a summary line and no more');
+
+  const css = read('css/styles.css');
+  assert.match(css, /\.terminals-cli-cmd \{[\s\S]*?overflow-x: auto;/,
+    'a long folder path scrolls in its own box rather than widening the column');
+  assert.match(css, /\.terminals-cli-cmd \{[\s\S]*?user-select: text;/,
+    'the whole point is copy and paste');
+});
+
+test('a folder a shell would mangle is quoted', () => {
+  const Page = loadTerminalsPage();
+  // Bare when there is provably nothing for a shell to do.
+  assert.strictEqual(Page._cliQuote('/Users/me/p1'), '/Users/me/p1');
+  assert.strictEqual(Page._cliQuote('claude-code'), 'claude-code');
+  // Quoted when there is.
+  assert.strictEqual(Page._cliQuote('/Users/me/my project'), "'/Users/me/my project'");
+  assert.strictEqual(Page._cliQuote('a;rm -rf /'), "'a;rm -rf /'");
+  assert.strictEqual(Page._cliQuote('$(whoami)'), "'$(whoami)'");
+  // A single quote inside a single-quoted string has to close, escape, reopen.
+  assert.strictEqual(Page._cliQuote("it's"), "'it'\\''s'");
+});
+
+test('a value starting with a dash is quoted even when it is otherwise bare', () => {
+  const Page = loadTerminalsPage();
+  // Every character here is in the bare-word class, so the plain rule would
+  // emit it unquoted and the shell would read it as an OPTION rather than a
+  // value. That turns the printed line into a different command from the one
+  // it claims to be, which matters because the whole point is copy and paste.
+  assert.strictEqual(Page._cliQuote('--all'), "'--all'");
+  assert.strictEqual(Page._cliQuote('-rf'), "'-rf'");
+  assert.strictEqual(Page._cliQuote('--dangerously-skip-permissions'),
+    "'--dangerously-skip-permissions'");
+  // A dash inside the value is still ordinary.
+  assert.strictEqual(Page._cliQuote('claude-code'), 'claude-code');
+});
+
+test('the link placeholder is not shell redirection', () => {
+  const src = read('js/pages/terminals.js');
+  assert.doesNotMatch(src, /'<session-id>'/,
+    'a literal <session-id> pasted into a shell redirects stdin from a file');
+  assert.match(src, /'SESSION_ID'/);
+});
+
+test('an empty value stays empty rather than becoming two quote marks', () => {
+  const Page = loadTerminalsPage();
+  assert.strictEqual(Page._cliQuote(''), '');
+  assert.strictEqual(Page._cliQuote(null), '');
+  assert.strictEqual(Page._cliQuote(undefined), '');
 });

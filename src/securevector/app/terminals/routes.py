@@ -96,7 +96,56 @@ async def _decorate(manager: TerminalManager, items):
     audited = await manager.store.tasks_with_event("guard_missing", unknown)
     for item in items:
         item["governed_at_launch"] = not (item["id"] in ungoverned or item["id"] in audited)
+    await _with_spend(manager, items)
     return items
+
+
+async def _with_spend(manager: TerminalManager, items) -> None:
+    """What each session has cost so far, keyed by the harness session id.
+
+    The release plan asks for cost on the board card and cost so far in the
+    verdict rail,
+    and both are the same number. One grouped query for the whole page, like
+    the governed_at_launch read above: this list is polled every few seconds.
+
+    A row with no priced request is left without the field rather than given a
+    0.00, because "nothing has been billed yet" and "this cost nothing" read
+    the same at a glance and only one of them is usually true.
+    """
+    ids = [i.get("session_id") for i in items if i.get("session_id")]
+    if not ids:
+        return
+    try:
+        from securevector.app.database.repositories.costs import CostsRepository
+
+        usage = await CostsRepository(manager.store.db).get_run_usage_bulk(ids)
+    except Exception:  # noqa: BLE001 - the board must render without pricing
+        logger.debug("could not read spend for the board", exc_info=True)
+        return
+    for item in items:
+        row = usage.get(item.get("session_id") or "")
+        if row and row.get("requests"):
+            item["spend_usd"] = row["spend_usd"]
+            item["spend_requests"] = row["requests"]
+
+
+# Who asked, recorded on the task's own event trail. NOT the task row's
+# `origin`, which is `launch` or `linked` and says how the row came to exist: a
+# session started from the CLI is still a launch. An allowlist rather than a
+# free string, because the value is written verbatim into the tamper-evident
+# event chain and read back into the UI.
+ACTORS = frozenset({"ui", "cli"})
+
+
+def _actor(value: Optional[str]) -> str:
+    """The claim is only as trustworthy as the token that carried it, which is
+    the same token the UI uses, so this is descriptive rather than a control.
+    Constrained anyway so an unknown value cannot reach the audit trail."""
+    if value is None:
+        return "ui"
+    if value not in ACTORS:
+        raise HTTPException(status_code=400, detail="Unknown origin")
+    return value
 
 
 class SpawnRequest(BaseModel):
@@ -110,6 +159,8 @@ class SpawnRequest(BaseModel):
     # a name: the host decides what argv that turns into, and refuses the
     # harnesses that cannot reopen a named session.
     resume_session_id: Optional[str] = Field(default=None, max_length=128)
+    # Who asked. Omitted by the UI, which is the default.
+    origin: Optional[str] = Field(default=None, max_length=16)
 
 
 class LinkRequest(BaseModel):
@@ -120,6 +171,7 @@ class LinkRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=128)
     workspace: Optional[str] = Field(default=None, max_length=4096)
     title: Optional[str] = Field(default=None, max_length=120)
+    origin: Optional[str] = Field(default=None, max_length=16)
 
 
 @router.get("/session")
@@ -148,7 +200,7 @@ async def spawn_task(body: SpawnRequest, manager: TerminalManager = Depends(get_
             body.executor_id,
             body.workspace,
             title=body.title,
-            origin="ui",
+            origin=_actor(body.origin),
             resume_session_id=body.resume_session_id,
         )
         return (await _decorate(manager, [task]))[0]
@@ -177,6 +229,7 @@ async def link_task(body: LinkRequest, manager: TerminalManager = Depends(get_ma
             body.session_id,
             workspace=body.workspace,
             title=body.title,
+            origin=_actor(body.origin),
         )
         return (await _decorate(manager, [task]))[0]
     except UnknownExecutor as exc:
@@ -202,11 +255,15 @@ async def get_task(task_id: str, manager: TerminalManager = Depends(get_manager)
 
 
 @router.post("/tasks/{task_id}/stop", dependencies=[Depends(require_write)])
-async def stop_task(task_id: str, manager: TerminalManager = Depends(get_manager)):
+async def stop_task(
+    task_id: str,
+    origin: Optional[str] = None,
+    manager: TerminalManager = Depends(get_manager),
+):
     if await manager.store.get_task(task_id) is None:
         raise HTTPException(status_code=404, detail="Unknown task")
     try:
-        await manager.stop(task_id, origin="ui")
+        await manager.stop(task_id, origin=_actor(origin))
     except NotLinkable as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError:
@@ -226,8 +283,10 @@ async def archive_task(task_id: str, manager: TerminalManager = Depends(get_mana
 
 
 @router.post("/stop-all", dependencies=[Depends(require_write)])
-async def stop_all(manager: TerminalManager = Depends(get_manager)):
-    await manager.stop_all(origin="ui")
+async def stop_all(
+    origin: Optional[str] = None, manager: TerminalManager = Depends(get_manager)
+):
+    await manager.stop_all(origin=_actor(origin))
     return {"ok": True}
 
 

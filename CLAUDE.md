@@ -192,4 +192,80 @@ alone unless they changed.
   adopt code. Failures went 0 to 70 and `terminals.js` had to be reset to HEAD
   and rebuilt by hand. One anchored edit at a time, or a spec and a subagent.
 
+### Decisions recorded 2026-09-21
+
+- **Two meanings of "origin", and they must not be confused.**
+  `terminal_tasks.origin` is `launch` or `linked` and says HOW the row came to
+  exist. The event trail's origin is the ACTOR (`ui`, `cli`, plus internal
+  `process`, `shutdown`, `quit`) and says WHO asked. A session started from the
+  CLI is still a `launch`. `_supersede_linked` and the board's "linked" chip
+  read the first; anything auditing who did something reads the second.
+- **The CLI is `sv-monitor session`, not `sv`.** There is no `sv` console
+  script; setup.py installs `sv-monitor` and `securevector-monitor`. It is a
+  thin client over the same loopback API the page uses (`terminals/client.py`),
+  so spawn/link/stop have exactly one implementation and the CLI cannot acquire
+  powers the page lacks. It never builds argv, chooses an env, or starts a
+  process.
+- **Unverified marking replaces the screen-manifest fallback.** That fallback
+  existed for harnesses without hooks; all four shipped harnesses have hooks,
+  so it is moot. The same hazard arrived by another road: a linked row's
+  liveness can come from the transcript file's mtime, which says the harness is
+  alive, not that anything is watching it. `GUARD_HEARTBEAT_SECONDS = 300`
+  decides verified vs unverified; an ended row is neither. Deliberately longer
+  than `LINKED_WORKING_SECONDS` so the badge does not flicker between tool
+  calls.
+- **Cost on the board comes from `llm_cost_records` only.** That table is
+  populated by the SecureVector proxy, so a session talking straight to the
+  provider shows no figure. A cost is deliberately NOT estimated from token
+  counts: an invented number on a security product's board is worse than none.
+  Absence renders nothing, never `$0.00`, because "not billed yet" and "free"
+  must not look the same.
+- **Guard uninstall is refused, not made to stop sessions.** Removing a
+  harness's Guard while its sessions are live strands them, and nothing records
+  when governance ended because what writes the trail is what was removed.
+  `?force=true` exists for a wedged session and writes `guard_removed` to each
+  affected trail first. OpenClaw is deliberately unguarded: it has a Guard but
+  is not a Terminals executor, so no board session depends on it. NOTE: the
+  claude-code uninstall route lives in `hooks_claude_code.py`; `hooks.py` is
+  OpenClaw. Guarding the wrong file once let a live uninstall through.
+- **Never verify a destructive endpoint with a live POST.** Doing so on
+  2026-09-21 removed two Guard plugins from a running install. Exercise it
+  through the test suite.
+
+### npm: no auto install, decided 2026-09-21
+
+The npm launcher (`npm/`, published as `@securevector/cli`) never installs a
+Python runtime, and `npm install` never touches the network: there is no
+`postinstall`, `preinstall` or `prepare` hook, and a test fails if one is added.
+
+A security product that quietly provisions a language runtime is doing the
+thing it warns about in other software, and a postinstall that downloads and
+executes is that shape exactly. The cost is one extra step for a Node developer
+with no Python. That is accepted. Owner confirmed.
+
+No Python, or one older than 3.10, produces instructions naming the platform's
+install command and an exit 1, never a stack trace. The two cases read
+differently on purpose: "none found" and "found, too old" lead to different
+actions, the second usually being PATH order rather than a missing install.
+
+If the friction ever needs removing, the honest routes are a standalone binary
+or a real Node SDK, not a silent install.
+
+### 6.0.0 also ships npm install for the harnesses
+
+Every harness Agent Terminals launches is an npm package: `@anthropic-ai/claude-code`,
+`@openai/codex`, `@github/copilot`, `opencode-ai`. When one is absent the board
+says "Install <harness> to launch tasks with it", which names no package and
+offers no action. Closing that is part of 6.0.0, paired with the Terminals work
+rather than following it: governing four harnesses while leaving people to
+install them by hand is half a feature.
+
+The design constraint is the one that already governs spawn, and it is not
+negotiable: **the host owns the package name.** A client names an executor id
+and nothing else. No package name, version, registry or npm flag may arrive
+from the page or the CLI, the allowlist sits beside the binary names in
+`executors.py`, and the install route carries the same Host plus required
+Origin gate the plugin routes do. Never automatic, never `sudo`, audited like
+any other action with the actor recorded.
+
 <!-- MANUAL ADDITIONS END -->

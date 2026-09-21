@@ -45,10 +45,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from . import _hooks_common
+from securevector.app.terminals.guardrail import block_uninstall
+from ._plugin_guard import ForceBody, require_local_origin
 
 logger = logging.getLogger(__name__)
 
@@ -805,7 +807,7 @@ async def plugin_status():
     )
 
 
-@router.post("/install", response_model=InstallResponse)
+@router.post("/install", response_model=InstallResponse, dependencies=[Depends(require_local_origin)])
 async def install_plugin():
     """Stage the plugin tree + auto-install into ~/.codex if present.
 
@@ -881,8 +883,25 @@ async def install_plugin():
     )
 
 
-@router.post("/uninstall", response_model=UninstallResponse)
-async def uninstall_plugin():
+@router.post("/uninstall", response_model=UninstallResponse, dependencies=[Depends(require_local_origin)])
+async def uninstall_plugin(request: Request, body: Optional[ForceBody] = None):
+    """Remove this harness's Guard plugin.
+
+    A thin wrapper so the same work is reachable from the CLI path in
+    `app/main.py`, which has no Request and no running board to consult.
+    """
+    # Removing this Guard while sessions of this harness are live would
+    # strand them: the hooks stop firing and nothing records the moment
+    # governance ended, because the thing that writes the trail is what
+    # was removed. Refused rather than made to stop them; force writes
+    # the loss to each session trail instead.
+    refusal = await block_uninstall(request.app, "codex", bool(body and body.force))
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+    return await _uninstall_plugin()
+
+
+async def _uninstall_plugin():
     """Remove the staged plugin tree + Codex cache entry + config.toml
     sections. All steps are independently best-effort. Idempotent.
     """
