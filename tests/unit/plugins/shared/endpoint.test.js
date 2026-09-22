@@ -21,11 +21,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const PLUGINS = path.join(__dirname, '..', '..', '..', '..', 'src', 'securevector', 'plugins');
-const HARNESSES = fs
+// Every plugin directory, not only the ones with a lib/client.js. Keying on
+// the resolver's presence meant OpenClaw, which resolves in its own config.ts
+// and has no lib/, was never swept at all: the check that said "nothing else
+// reads the variable" was not looking at the one plugin where that had been
+// true. Two separate lists below, because the question "who has a resolver"
+// and the question "who must be swept" are not the same question.
+const ALL_PLUGINS = fs
   .readdirSync(PLUGINS, { withFileTypes: true })
-  .filter((d) => d.isDirectory() && fs.existsSync(path.join(PLUGINS, d.name, 'lib', 'client.js')))
+  .filter((d) => d.isDirectory())
   .map((d) => d.name)
   .sort();
+
+const HARNESSES = ALL_PLUGINS.filter((n) =>
+  fs.existsSync(path.join(PLUGINS, n, 'lib', 'client.js')),
+);
 
 test('every harness that ships a client exposes one endpoint resolver', () => {
   assert.ok(HARNESSES.length >= 5, `only found ${HARNESSES}`);
@@ -36,25 +46,78 @@ test('every harness that ships a client exposes one endpoint resolver', () => {
   }
 });
 
-test('no hook reads the endpoint environment variable for itself', () => {
-  // Nineteen inline copies is nineteen places to forget the warning. The
-  // resolver is the only reader, so adding a hook cannot reintroduce a silent
-  // path by accident.
-  const offenders = [];
-  for (const h of HARNESSES) {
-    const hooks = path.join(PLUGINS, h, 'hooks');
-    if (!fs.existsSync(hooks)) continue;
-    for (const f of fs.readdirSync(hooks).filter((n) => n.endsWith('.js'))) {
-      const src = fs.readFileSync(path.join(hooks, f), 'utf8');
-      // A READ, not a mention. Matching the bare name also matched the
-      // comment explaining why the read was removed, so the only way to pass
-      // would have been to stop explaining.
-      if (/process\.env\.(SECUREVECTOR_ENGINE_ENDPOINT|SV_BASE_URL|SECUREVECTOR_URL)\b/.test(src)) {
-        offenders.push(`${h}/hooks/${f}`);
+/** Every source file under a plugin, at any depth. */
+function* sourcesOf(harness) {
+  const root = path.join(PLUGINS, harness);
+  const stack = [root];
+  const SUFFIXES = ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts'];
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') stack.push(full);
+      } else if (SUFFIXES.some((x) => entry.name.endsWith(x))) {
+        yield full;
       }
     }
   }
-  assert.deepEqual(offenders, [], 'these hooks resolve the endpoint themselves');
+}
+
+test('nothing but each plugin resolver reads the endpoint variable', () => {
+  // Twenty-one inline copies was twenty-one places to forget the warning. The
+  // resolver is the only reader, so adding a hook cannot reintroduce a silent
+  // path by accident.
+  //
+  // Walks the WHOLE plugin tree, every source extension, not just hooks/*.js:
+  // the Python twin of this check globbed "*.js" and therefore could not see
+  // openclaw/config.ts, which read the variable with no loopback check while
+  // the test reported that nothing did.
+  // Exempt by RELATIVE PATH, not basename: exempting "config.ts" anywhere
+  // would silently exempt a future plugins/foo/hooks/config.ts.
+  const RESOLVERS = new Set([
+    ...HARNESSES.map((h) => path.join(h, 'lib', 'client.js')),
+    path.join('openclaw', 'config.ts'),
+  ]);
+  const offenders = [];
+  for (const h of ALL_PLUGINS) {
+    for (const full of sourcesOf(h)) {
+      if (RESOLVERS.has(path.relative(PLUGINS, full))) continue;
+      const src = fs.readFileSync(full, 'utf8');
+      // A READ, not a mention, and in the shapes someone writes by accident:
+      // plain access, optional chaining, index access, destructuring. Matching
+      // the bare name also matched the comment explaining why a read had been
+      // removed, so the only way to pass would have been to stop explaining.
+      const NAMES = 'SECUREVECTOR_ENGINE_ENDPOINT|SV_BASE_URL|SECUREVECTOR_URL';
+      const reads = [
+        new RegExp(`process\\.env\\??\\.(${NAMES})\\b`),
+        new RegExp(`process\\.env\\[\\s*["'\`](${NAMES})["'\`]`),
+        new RegExp(`\\{[^}]*\\b(${NAMES})\\b[^}]*\\}\\s*=\\s*process\\.env`),
+      ];
+      if (reads.some((r) => r.test(src))) {
+        offenders.push(path.relative(PLUGINS, full));
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], 'these files resolve the endpoint themselves');
+});
+
+test('the sweep covers every plugin, including one with no lib/client.js', () => {
+  // OpenClaw is the case that was invisible: it resolves in config.ts and has
+  // no lib/ at all, so a list keyed on the resolver's presence skipped it.
+  assert.ok(ALL_PLUGINS.includes('openclaw'), `swept plugins: ${ALL_PLUGINS}`);
+  assert.ok(!HARNESSES.includes('openclaw'), 'openclaw has no lib/client.js by design');
+  assert.ok(ALL_PLUGINS.length > HARNESSES.length, 'the two lists must differ');
+});
+
+test('the sweep above actually walks past hooks/ and past .js', () => {
+  // Only evidence if it can see the files it claims to clear. Both times this
+  // check was wrong, it was because it could not see the offending file.
+  const seen = [...sourcesOf('openclaw')].map((p) => path.basename(p));
+  assert.ok(seen.includes('config.ts'), `openclaw walk saw only ${seen}`);
+  const cc = [...sourcesOf('claude-code')].map((p) => path.relative(PLUGINS, p));
+  assert.ok(cc.some((p) => p.includes('lib/')), 'the walk never descended into lib/');
+  assert.ok(cc.length >= 8, `claude-code walk found only ${cc.length} files`);
 });
 
 /** Load a fresh copy of one harness's client with a chosen environment. */

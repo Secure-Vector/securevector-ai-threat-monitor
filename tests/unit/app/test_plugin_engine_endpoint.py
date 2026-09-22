@@ -38,13 +38,24 @@ UNIFIED_JS = re.compile(
 # reads as evidence.
 SOURCE_SUFFIXES = (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts")
 
-# The files allowed to read it: each plugin's own resolver.
-RESOLVER_NAMES = {"client.js", "config.ts"}
+# The files allowed to read it, by RELATIVE PATH, not basename. Exempting
+# "config.ts" anywhere would silently exempt a future
+# plugins/foo/hooks/config.ts, which is the same blindness that hid a reader
+# twice already: once behind a .js-only glob, once behind a bare-name match.
+def _resolver_paths() -> set[str]:
+    allowed = {f"{d.name}/lib/client.js" for d in PLUGINS.iterdir() if d.is_dir()}
+    allowed.add("openclaw/config.ts")
+    return allowed
+
+
+RESOLVER_PATHS = _resolver_paths()
 
 PLUGIN_SOURCES = sorted(
     p
     for p in PLUGINS.rglob("*")
-    if p.is_file() and p.suffix in SOURCE_SUFFIXES and p.name not in RESOLVER_NAMES
+    if p.is_file()
+    and p.suffix in SOURCE_SUFFIXES
+    and str(p.relative_to(PLUGINS)) not in RESOLVER_PATHS
 )
 
 
@@ -88,18 +99,24 @@ def test_nothing_else_reads_the_endpoint_variable(source):
     arguments to whatever the variable names without the warning that says so.
     """
     src = source.read_text()
-    # A READ, not a mention: `process.env.NAME`. Matching the bare name also
-    # matched the comment explaining why the read was removed, which would
-    # have made the only way to pass be to stop explaining.
+    # A READ, not a mention: matching the bare name also matched the comment
+    # explaining why a read had been removed, which would have made the only
+    # way to pass be to stop explaining. The shapes below are the ones someone
+    # writes without meaning to reintroduce a silent reader: plain access,
+    # optional chaining, index access, and destructuring. Deliberate evasion
+    # (building the name by concatenation) is out of scope; this guards
+    # against the accident, not against someone who wants past it.
     for name in ("SECUREVECTOR_ENGINE_ENDPOINT", "SV_BASE_URL", "SECUREVECTOR_URL"):
-        assert not re.search(rf"process\.env\.{name}\b", src), (
-            f"{source.relative_to(PLUGINS)} reads {name} directly; call "
-            "resolveBaseUrl() from lib/client.js instead"
-        )
-        assert not re.search(rf"""process\.env\[\s*["']{name}["']""", src), (
-            f"{source.relative_to(PLUGINS)} reads {name} by index; call "
-            "resolveBaseUrl() from lib/client.js instead"
-        )
+        reads = {
+            "directly": rf"process\.env\??\.{name}\b",
+            "by index": rf"""process\.env\[\s*["'`]{name}["'`]""",
+            "by destructuring": rf"\{{[^}}]*\b{name}\b[^}}]*\}}\s*=\s*process\.env",
+        }
+        for how, pattern in reads.items():
+            assert not re.search(pattern, src), (
+                f"{source.relative_to(PLUGINS)} reads {name} {how}; call "
+                "resolveBaseUrl() from lib/client.js instead"
+            )
 
 
 def test_openclaw_config_prefers_engine_endpoint():

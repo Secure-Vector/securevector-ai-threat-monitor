@@ -145,24 +145,67 @@ def test_sidebar_banner_collapses_with_the_rail(element_id):
     )
 
 
-@pytest.mark.parametrize("slug", HARNESSES)
-def test_permission_prompts_name_the_runtime(slug):
-    """The just-in-time approval prompt must be able to say who is asking.
+# Every map that turns a runtime_kind into something a person reads. All of
+# them fall back to the raw slug, so a missing entry never throws: the UI just
+# says "opencode" where it should say "OpenCode". They are listed here as
+# (file, regex naming the map body) because they live in three languages and
+# two repositories' worth of conventions, and there is no honest way to find
+# them by shape. Adding a harness means adding it to all of them, which is
+# exactly the thing nobody remembers, so the list is the memory.
+LABEL_REGISTRIES = [
+    ("js/pages/tool-permissions.js", r"_JIT_RUNTIME_LABEL:\s*\{(.*?)\},\n",
+     "the just-in-time permission prompt"),
+    ("js/pages/storylines.js", r"STORY_RUNTIME_LABEL\s*=\s*\{(.*?)\};", "Storylines"),
+    ("js/pages/redactions.js", r"_runtimeLabel\(slug\)\s*\{.*?const map = \{(.*?)\};", re.S and "the Redactions table"),
+]
 
-    `_JIT_RUNTIME_LABEL` falls back to the raw runtime_kind, so a missing
-    entry does not throw: the prompt simply reads "opencode wants to run"
-    instead of "OpenCode wants to run", in the one dialog where a person is
-    being asked to grant a permission. Both OpenCode and Antigravity were
-    missing from it while every other test passed, which is why this is
-    asserted here rather than left to the eye.
+# Not under WEB: the backend's own copy, rendered into Tool Inventory.
+BACKEND_LABELS = (
+    Path(__file__).resolve().parents[3]
+    / "src" / "securevector" / "app" / "server" / "routes" / "tool_permissions.py"
+)
+
+
+def _map_keys(body: str) -> set[str]:
+    """The keys of an object literal, ignoring anything in a comment.
+
+    Parsed rather than substring-matched: a slug mentioned in a comment inside
+    the map, or appearing as a fragment of another key, would satisfy `in` and
+    the prompt would still render a raw id.
     """
-    label = re.search(
-        r"_JIT_RUNTIME_LABEL:\s*\{(.*?)\},\n", _read("js/pages/tool-permissions.js"), re.S
+    without_comments = re.sub(r"//[^\n]*", "", body)
+    return set(re.findall(r"""['"]?([A-Za-z][A-Za-z0-9_-]*)['"]?\s*:""", without_comments))
+
+
+@pytest.mark.parametrize("slug", HARNESSES)
+@pytest.mark.parametrize("rel,pattern,what", LABEL_REGISTRIES, ids=lambda v: v if isinstance(v, str) and "/" not in v else "")
+def test_every_label_registry_names_the_runtime(slug, rel, pattern, what):
+    """A harness absent from one of these renders as a raw slug.
+
+    The permission prompt is the one that matters most, because it is the
+    dialog where a person is asked to grant access and the subject of the
+    sentence is the harness. OpenCode and Antigravity were missing from it,
+    and from two others, while every test passed.
+    """
+    found = re.search(pattern, _read(rel), re.S)
+    assert found, f"{rel}: the label map matching {pattern!r} moved or was renamed"
+    keys = _map_keys(found.group(1))
+    assert slug in keys, (
+        f"{what} has no display name for {slug}, so it shows a raw runtime id. "
+        f"Known: {sorted(keys)}"
     )
-    assert label, "tool-permissions.js _JIT_RUNTIME_LABEL moved or was renamed"
-    assert slug in label.group(1), (
-        f"the permission prompt has no display name for {slug}, so it asks the "
-        "user to approve a raw runtime id"
+
+
+@pytest.mark.parametrize("slug", HARNESSES)
+def test_the_backend_label_map_names_the_runtime(slug):
+    """Tool Inventory renders its rows from the server's own copy."""
+    src = BACKEND_LABELS.read_text(encoding="utf-8")
+    found = re.search(r"_RUNTIME_LABELS = \{(.*?)\n\}", src, re.S)
+    assert found, "tool_permissions.py _RUNTIME_LABELS moved or was renamed"
+    keys = set(re.findall(r'"([^"]+)":', re.sub(r"#[^\n]*", "", found.group(1))))
+    assert slug in keys, (
+        f"the backend label map has no display name for {slug}, so Tool "
+        f"Inventory shows a raw runtime id. Known: {sorted(keys)}"
     )
 
 
