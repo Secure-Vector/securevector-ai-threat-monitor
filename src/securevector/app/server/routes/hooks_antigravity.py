@@ -147,14 +147,24 @@ def _assert_within_allowed_roots(path: Path) -> None:
     check that keeps a future edit, or a relocated $GEMINI_HOME pointing
     somewhere unexpected, from turning a plugin install into an arbitrary
     directory overwrite.
+
+    $GEMINI_HOME is deliberately NOT one of the allowed roots. It used to be,
+    which made the check authorise whatever it was asked to authorise:
+    GEMINI_HOME=/etc put the plugin dir at /etc/config/plugins, the
+    containment test passed because /etc was in its own allowlist, and
+    uninstall would then rmtree inside /etc. A relocated home is honoured
+    only while it stays under the user's own home directory, which is the
+    case relocation is actually for.
     """
     resolved = path.resolve(strict=False)
     home = Path.home().resolve(strict=False)
     allowed = [
         (home / ".gemini").resolve(strict=False),
         (home / ".securevector").resolve(strict=False),
-        GEMINI_HOME.resolve(strict=False),
     ]
+    gemini_home = GEMINI_HOME.resolve(strict=False)
+    if gemini_home.is_relative_to(home):
+        allowed.append(gemini_home)
     if not any(resolved.is_relative_to(root) for root in allowed):
         raise PermissionError(
             "refusing to write outside allowed dirs (~/.gemini or ~/.securevector): "

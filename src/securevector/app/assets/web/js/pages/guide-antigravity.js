@@ -159,6 +159,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         root.appendChild(h2('Known limitations'));
         root.appendChild(note('No prompt scanning', 'Antigravity exposes no hook event carrying the user’s prompt. PreInvocation carries invocationNum, initialNumSteps, conversationId, workspacePaths, transcriptPath, artifactDirectoryPath, and modelName, and no prompt text.'));
         root.appendChild(note('No tool-result scanning', 'Antigravity’s documented PostToolUse payload is the PreToolUse payload plus an optional error string, and carries no tool result. Indirect-prompt-injection and output-leak detection have no input on this harness; the code path exists and is dormant.'));
+        root.appendChild(note('Not launchable from Agent Sessions', 'Claude Code, Codex, Copilot CLI and OpenCode can be started inside SecureVector and watched live. Antigravity cannot, because nothing here has run its CLI, and offering to spawn a harness nobody has started is a worse answer than not offering it. Governance is the same either way: the hooks run wherever you start Antigravity yourself, and its sessions appear in Traces and the audit chain like every other harness.'));
         root.appendChild(note('No cost panel yet', 'There is no token-usage or cost panel for this harness yet: Antigravity’s on-disk session log format is undocumented.'));
 
         // --- Configuration ---

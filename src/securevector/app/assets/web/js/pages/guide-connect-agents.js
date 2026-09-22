@@ -21,6 +21,8 @@ const GuideConnectAgentsPage = {
     AGENTS: [
         { id: 'python', route: 'A', label: 'Python @guard', guide: 'guide-frameworks', integration: 'proxy-python', pkg: 'securevector-ai-monitor[app]',
             wire: 'from securevector import guard\n\n# Decorate the functions your agent calls. Arguments are scanned on the\n# way in, the return value on the way out; every call lands in Traces and\n# the audit chain. observe = log-only (default); mode="enforce" blocks.\n@guard\ndef search_web(query: str) -> str:\n    ...' },
+        { id: 'node', route: 'A', label: 'Node and TypeScript', guide: 'guide-frameworks', integration: 'proxy-node', pkg: '@securevector/sdk',
+            wire: "import { guard, session, generation } from '@securevector/sdk';\n\n// Wrap the functions your agent calls. Arguments are scanned on the way\n// in, the return value on the way out; every call lands in Traces and\n// the audit chain. observe = log-only (default); mode: 'enforce' blocks.\nconst searchWeb = guard(async (query) => { ... }, { toolId: 'search.web' });" },
         { id: 'langchain', route: 'A', label: 'LangChain', guide: 'guide-frameworks', integration: 'proxy-langchain', pkg: 'securevector-sdk-langchain',
             wire: 'from langchain.agents import create_agent\nfrom securevector_sdk_langchain import secure_middleware\n\n# requires langchain>=1.0 · observe = log-only (default); mode="enforce" blocks\nagent = create_agent(model, tools, middleware=[secure_middleware(mode="observe")])' },
         { id: 'langgraph', route: 'A', label: 'LangGraph', guide: 'guide-frameworks', integration: 'proxy-langgraph', pkg: 'securevector-sdk-langgraph',

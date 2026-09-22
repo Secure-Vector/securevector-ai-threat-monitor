@@ -235,3 +235,32 @@ def test_plugin_tree_intact_on_disk():
     tree = Path(__file__).resolve().parents[3] / "src" / "securevector" / "plugins" / "antigravity"
     for rel in mod.PLUGIN_FILES:
         assert (tree / rel).is_file(), f"missing Antigravity plugin file: {rel}"
+
+
+def test_a_relocated_gemini_home_cannot_authorise_a_write_outside_home(tmp_path, monkeypatch):
+    """$GEMINI_HOME must not be its own permission slip.
+
+    The containment check used to list GEMINI_HOME among the allowed roots,
+    which meant it approved whatever it was pointed at: GEMINI_HOME=/etc put
+    the plugin directory at /etc/config/plugins/securevector-guard, the check
+    passed because /etc had authorised itself, and uninstall would then
+    rmtree inside /etc. A relocated home is honoured only under the user's
+    own home directory.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(mod.Path, "home", staticmethod(lambda: fake_home))
+
+    outside = tmp_path / "elsewhere"
+    monkeypatch.setattr(mod, "GEMINI_HOME", outside)
+    with pytest.raises(PermissionError):
+        mod._assert_within_allowed_roots(outside / "config" / "plugins" / mod.PLUGIN_NAME)
+
+    # The case relocation actually exists for still works.
+    inside = fake_home / ".gemini-relocated"
+    monkeypatch.setattr(mod, "GEMINI_HOME", inside)
+    mod._assert_within_allowed_roots(inside / "config" / "plugins" / mod.PLUGIN_NAME)
+
+    # And the two fixed roots are always allowed.
+    mod._assert_within_allowed_roots(fake_home / ".gemini" / "x")
+    mod._assert_within_allowed_roots(fake_home / ".securevector" / "y")

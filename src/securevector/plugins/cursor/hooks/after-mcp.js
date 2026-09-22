@@ -21,6 +21,7 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
+const { resolveBaseUrl } = require('../lib/client.js');
 const { postCallAudit, scanIncoming } = require('../lib/audit.js');
 const { sessionIdFrom, readAllStdin, DEFAULT_BASE_URL } = require('../lib/decide.js');
 const { serverSlugFrom } = require('./before-mcp.js');
@@ -58,7 +59,7 @@ async function main() {
   } catch {
     return; // malformed stdin — nothing to audit
   }
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   try {
     const toolName = (event && (event.tool_name || event.toolName)) || '';
     const candidates = normalize(toolName, {

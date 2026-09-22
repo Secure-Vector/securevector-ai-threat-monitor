@@ -58,7 +58,7 @@ const Sidebar = {
             { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', aliases: ['skill-permissions'],
               tooltip: 'Static scan of installed agent skills before they run' },
           ] },
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['connect-wizard', 'integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-antigravity', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['connect-wizard', 'integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-antigravity', 'proxy-openclaw', 'proxy-python', 'proxy-node', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
           tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
         { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
           tooltip: 'SIEM forwarding and Cloud Connect activity',

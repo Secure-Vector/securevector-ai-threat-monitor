@@ -15,7 +15,7 @@
  */
 
 import { normalize, isMcpToolName } from './normalize.js';
-import { fetchSyncedOverrides, evaluateEgress } from './client.js';
+import { fetchSyncedOverrides, evaluateEgress, resolveBaseUrl } from './client.js';
 import { redactForScan } from './redact.js';
 
 const RUNTIME_KIND = 'opencode';
@@ -332,13 +332,7 @@ function extractPromptText(output) {
   return parts.join('\n');
 }
 
-function resolveBaseUrl() {
-  // Unified engine endpoint (#190) — HOP 1, agent -> engine (the local app OR a
-  // self-host / Terraform deployment). NOT the SecureVector cloud. The legacy
-  // SV_BASE_URL name stays as a fallback only. Kept as one literal expression
-  // so the cross-plugin drift guard can verify the precedence order.
-  return process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
-}
+
 
 export {
   ALLOW,

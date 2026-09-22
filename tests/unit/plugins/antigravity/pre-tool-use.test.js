@@ -71,13 +71,35 @@ test('decideFromOverrides maps effects onto Antigravity decisions', () => {
   assert.equal(decideFromOverrides(['run_command'], mk('allow')).decision, 'allow');
 });
 
-test('decideFromOverrides fails open on no rules, no candidates, unknown effect', () => {
+test('decideFromOverrides fails open when there is no rule to apply', () => {
   assert.equal(decideFromOverrides([], { synced: [{ tool_id: 'run_command', effect: 'deny' }] }).decision, 'allow');
   assert.equal(decideFromOverrides(['run_command'], null).decision, 'allow');
   assert.equal(decideFromOverrides(['run_command'], { synced: [] }).decision, 'allow');
+});
+
+test('an effect this plugin does not understand asks the human, it does not allow', () => {
+  // A rule that MATCHED is not the same as no rule. The engine already grew
+  // deny_unless_prior_grant after this plugin was written, and mapping an
+  // unrecognised effect to allow turns every future effect into a silent
+  // bypass of a rule someone deliberately wrote.
+  const out = decideFromOverrides(['run_command'], {
+    synced: [{ tool_id: 'run_command', effect: 'deny_unless_prior_grant' }],
+  });
+  assert.equal(out.decision, 'force_ask');
+  assert.equal(out.unknownEffect, true);
+  assert.match(out.reason, /does not understand/);
+});
+
+test('an effect in a different casing is still the effect it names', () => {
+  // The tool id is lowercased before lookup so a deny cannot fail open on a
+  // casing mismatch. The effect was not, and could.
   assert.equal(
-    decideFromOverrides(['run_command'], { synced: [{ tool_id: 'run_command', effect: 'wat' }] }).decision,
-    'allow',
+    decideFromOverrides(['run_command'], { synced: [{ tool_id: 'run_command', effect: 'Deny' }] }).decision,
+    'deny',
+  );
+  assert.equal(
+    decideFromOverrides(['run_command'], { synced: [{ tool_id: 'run_command', effect: ' PROMPT ' }] }).decision,
+    'force_ask',
   );
 });
 

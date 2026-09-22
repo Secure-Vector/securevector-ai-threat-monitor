@@ -24,6 +24,7 @@
 'use strict';
 
 const { hasCredentialMarkers } = require('../lib/redact.js');
+const { resolveBaseUrl } = require('../lib/client.js');
 const { newRequestId, scanIncoming } = require('../lib/audit.js');
 const { sessionIdFrom, readAllStdin, DEFAULT_BASE_URL } = require('../lib/decide.js');
 
@@ -43,7 +44,7 @@ async function main() {
     }
     const content = typeof event.content === 'string' ? event.content : '';
     if (content.length > 0 && hasCredentialMarkers(content)) {
-      const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+      const baseUrl = resolveBaseUrl();
       const filePath = typeof event.file_path === 'string' ? event.file_path : '';
       scanIncoming(baseUrl, `${filePath ? `# file: ${filePath}\n` : ''}${content}`, {
         requestId: newRequestId(),

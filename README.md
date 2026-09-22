@@ -255,6 +255,7 @@ Runs entirely on your machine. No accounts required. No data leaves your infrast
 | Agent/Framework | Integration |
 |-----------------|-------------|
 | **Any Python agent** (OpenAI, Anthropic, Bedrock, Gemini, plain functions) | [**`@guard` decorator**](#any-python-agent-one-decorator), ships in `pip install securevector-ai-monitor[app]` |
+| **Any JavaScript or TypeScript agent** (Vercel AI SDK, LangChain.js, Mastra, plain OpenAI or Anthropic calls from Node) | [**`@securevector/sdk`**](#any-javascript-agent-one-import), `npm install @securevector/sdk`, zero runtime dependencies |
 | **LangChain** | [**`securevector-sdk-langchain`**](docs/USECASES.md#langchain) (tool-call SDK, recommended) or LLM Proxy |
 | **LangGraph** | [**`securevector-sdk-langgraph`**](docs/USECASES.md#langgraph) (tool-call SDK, recommended) or LLM Proxy |
 | **CrewAI** | [**`securevector-sdk-crewai`**](docs/USECASES.md#crewai) (tool-call SDK, recommended) or LLM Proxy |
@@ -302,6 +303,45 @@ with guard.session("run-42", user_id="u-1"):
 ```
 
 Already on OpenTelemetry? Point your exporter at `http://127.0.0.1:8741/v1/traces` (OTLP/HTTP JSON) and skip the SDK. [Tracing guide](docs/TRACING.md)
+
+### Any JavaScript agent (one import)
+
+The same three things the Python package gives, for Node. Zero runtime dependencies, Node 20 or newer, and no OpenTelemetry setup: the package is a client that talks to the app you are already running.
+
+```bash
+npm install @securevector/sdk
+```
+
+```javascript
+import { guard, session, generation, flush, GuardBlocked } from '@securevector/sdk';
+
+// Wrap the functions your agent calls. Arguments are scanned on the way in,
+// the return value on the way out, and every call lands in Tool Activity,
+// Traces and the audit chain. observe is the default; enforce blocks.
+const lookupOrder = guard(
+  async ({ orderId }) => fetchOrder(orderId),
+  { toolId: 'orders.lookup', mode: 'enforce' },
+);
+
+await session('run-42', { userId: 'u-1' }, async () => {
+  const gen = await generation({ model: 'gpt-4o-mini', provider: 'openai', input: messages });
+  const res = await callTheModel(messages);
+  await gen.end({ output: res.message, usage: res.usage });
+
+  try {
+    await lookupOrder({ orderId });
+  } catch (err) {
+    if (err instanceof GuardBlocked) console.log(`blocked by ${err.rule}`);
+    else throw err;
+  }
+});
+
+await flush();
+```
+
+`generation()` is async here, unlike its Python twin: in enforce mode the scan has to finish before the model call goes out, and a synchronous handle could not wait. Everything else matches, including the environment variables (`SECUREVECTOR_SDK_MODE`, `SECUREVECTOR_ENGINE_ENDPOINT`, `SECUREVECTOR_API_KEY`).
+
+Fail-open, same as Python: if the app is unreachable your agent finishes normally and nothing is thrown from the SDK.
 
 ### OpenClaw / ClawdBot
 

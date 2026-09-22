@@ -25,7 +25,7 @@
 'use strict';
 
 const { normalize, isMcpToolName } = require('../lib/normalize.js');
-const { postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
 const { redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
@@ -231,7 +231,7 @@ async function main() {
   } catch {
     return; // malformed stdin — nothing to audit
   }
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   try {
     await audit(event, baseUrl);
   } catch { /* never crash the hook */ }

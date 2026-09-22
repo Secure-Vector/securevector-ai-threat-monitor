@@ -28,7 +28,7 @@
 'use strict';
 
 const { normalize, isMcpToolName } = require('../lib/normalize.js');
-const { fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
+const { resolveBaseUrl, fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
 
 /**
@@ -81,6 +81,28 @@ const EFFECT_TO_DECISION = Object.freeze({
   prompt: 'force_ask',
 });
 
+/**
+ * Map a policy row's effect to a decision, case-insensitively.
+ *
+ * The tool id is already lowercased before lookup so a deny cannot fail open
+ * on a casing mismatch; the effect deserves the same treatment, and did not
+ * have it. An effect that is still unrecognised after normalising is NOT an
+ * allow: it is a row this plugin is too old to understand, and the engine
+ * gained `deny_unless_prior_grant` exactly this way. Asking the human is the
+ * only answer that is safe whichever direction the unknown effect meant.
+ *
+ * @param {unknown} effect
+ * @returns {{ decision: string, known: boolean }}
+ */
+function decisionForEffect(effect) {
+  const key = typeof effect === 'string' ? effect.trim().toLowerCase() : '';
+  const mapped = Object.prototype.hasOwnProperty.call(EFFECT_TO_DECISION, key)
+    ? EFFECT_TO_DECISION[key]
+    : undefined;
+  if (mapped === undefined) return { decision: 'force_ask', known: false };
+  return { decision: mapped, known: true };
+}
+
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ALLOW = Object.freeze({ decision: 'allow' });
 const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
@@ -128,8 +150,8 @@ function decideFromOverrides(candidates, overrides, sessionId = null) {
   // arrives is meant to act.
   const runRow = byToolId.get('*');
   if (runRow) {
-    const runMapped = EFFECT_TO_DECISION[runRow.effect];
-    if (runMapped && runMapped !== 'allow') {
+    const runMapped = decisionForEffect(runRow.effect).decision;
+    if (runMapped !== 'allow') {
       return {
         decision: runMapped,
         reason: typeof runRow.reason === 'string' && runRow.reason.length > 0
@@ -144,14 +166,16 @@ function decideFromOverrides(candidates, overrides, sessionId = null) {
   for (const cand of candidates) {
     const match = byToolId.get(cand.toLowerCase());
     if (!match) continue;
-    const mapped = EFFECT_TO_DECISION[match.effect];
-    if (!mapped) return ALLOW; // unknown effect, fail-open
+    const { decision: mapped, known } = decisionForEffect(match.effect);
     if (mapped === 'allow') return ALLOW;
     return {
       decision: mapped,
+      unknownEffect: !known,
       reason: typeof match.reason === 'string' && match.reason.length > 0
         ? match.reason
-        : `Tool ${cand} matched policy with effect ${match.effect}`,
+        : (known
+          ? `Tool ${cand} matched policy with effect ${match.effect}`
+          : `Tool ${cand} matched a policy rule this plugin does not understand. Approve only if you meant to.`),
       // The matched (most-specific) candidate, exposed on the non-allow path
       // so the entry-point can audit with the canonical tool_id without
       // re-running normalize().
@@ -288,7 +312,7 @@ async function decideEgress(toolName, toolInput, baseUrl, sessionId) {
   try {
     const result = await evaluateEgress(baseUrl, {
       tool_name: toolName,
-      tool_input: toolInput || {},
+      tool_input: toolInput === undefined || toolInput === null ? {} : toolInput,
       runtime_kind: RUNTIME_KIND,
       session_id: sessionId,
     });
@@ -361,7 +385,7 @@ async function main() {
     return;
   }
   const { name: toolName, args: toolInput } = readToolCall(event);
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   const sessionId = readSessionId(event);
   let decision = ALLOW;
   try {

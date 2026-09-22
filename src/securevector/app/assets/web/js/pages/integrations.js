@@ -256,6 +256,42 @@ async def run_sql(sql: str) -> list[dict]:
 with guard.session("run-42"):                # group one agent run
     search_web("weather in Austin")`
         },
+        'proxy-node': {
+            name: 'Node and TypeScript',
+            description: 'Any JavaScript agent: one import, no OpenTelemetry setup',
+            defaultProvider: 'openai',
+            runtimeKind: 'node',
+            sdkPackage: '@securevector/sdk',
+            sdkInstallCmd: 'npm install @securevector/sdk',
+            sdkInstallNote: 'Zero runtime dependencies, Node 20 or newer. The package is a client: it calls the app that is serving this page, so keep the app running or point SECUREVECTOR_ENGINE_ENDPOINT at your self-host engine.',
+            sdkSnippet: `import { guard, session, generation, flush, GuardBlocked } from '@securevector/sdk';
+
+// Wrap the functions your agent calls. Arguments are scanned on the way in,
+// the return value on the way out, and every call lands in Tool Activity,
+// Traces and the audit chain (runtime_kind=node). Fail-open: if the app is
+// unreachable the tool still runs.
+const lookupOrder = guard(
+  async ({ orderId }) => fetchOrder(orderId),
+  { toolId: 'orders.lookup', mode: 'enforce' },   // observe is the default
+);
+
+await session('run-42', { userId: 'demo' }, async () => {
+  // generation() is async here, unlike the Python version: the enforce-mode
+  // scan has to finish before the model call goes out.
+  const gen = await generation({ model: 'gpt-4o-mini', provider: 'openai', input: messages });
+  const res = await callTheModel(messages);
+  await gen.end({ output: res.message, usage: res.usage });
+
+  try {
+    await lookupOrder({ orderId });
+  } catch (err) {
+    if (err instanceof GuardBlocked) console.log(\`blocked by \${err.rule}\`);
+    else throw err;
+  }
+});
+
+await flush();`
+        },
         'proxy-langchain': {
             name: 'LangChain',
             description: 'Python framework for building LLM agents',

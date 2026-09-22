@@ -179,7 +179,55 @@ async function evaluateEgress(baseUrl, body, opts = {}) {
   }
 }
 
+
+/** The local app. Every plugin defaults here; only an env var moves it. */
+const DEFAULT_ENGINE_URL = 'http://127.0.0.1:8741';
+
+/** Hosts that mean "this machine", in every spelling a URL can use. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '0.0.0.0']);
+
+let warnedEndpoint = false;
+
+/**
+ * The engine this plugin talks to, and a word when that is not this machine.
+ *
+ * SECUREVECTOR_ENGINE_ENDPOINT exists so a self-host or Terraform engine can
+ * be used instead of the local app, and that is a supported thing to do. What
+ * is not acceptable is doing it silently: this value comes from the
+ * environment, and an environment variable is reachable by anything that can
+ * write a .envrc, a devcontainer.json, or a Makefile target in a repository
+ * the agent was pointed at. Tool arguments and command output go to whatever
+ * it names, so the host is said out loud, once per process, on stderr where
+ * the harness shows it. Nothing is blocked: a warning an operator can see
+ * beats a refusal that breaks a deployment they chose.
+ *
+ * @returns {string}
+ */
+function resolveBaseUrl() {
+  const raw = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || '';
+  const baseUrl = raw || DEFAULT_ENGINE_URL;
+  if (!raw || warnedEndpoint) return baseUrl;
+  warnedEndpoint = true;
+  try {
+    const url = new URL(baseUrl);
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    if (LOOPBACK_HOSTS.has(host)) return baseUrl;
+    const clear = url.protocol !== 'https:' ? ' The connection is plain HTTP, so they travel in the clear.' : '';
+    process.stderr.write(
+      `[securevector] tool arguments and output are being sent to ${url.host}, which is not this machine.${clear}`
+      + ' Unset SECUREVECTOR_ENGINE_ENDPOINT to keep everything local.\n',
+    );
+  } catch {
+    process.stderr.write(
+      `[securevector] SECUREVECTOR_ENGINE_ENDPOINT is "${raw}", which is not a URL. Falling back to the local app.\n`,
+    );
+    return DEFAULT_ENGINE_URL;
+  }
+  return baseUrl;
+}
+
 module.exports = {
+  resolveBaseUrl,
   getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress,
   authHeaders, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS,
 };

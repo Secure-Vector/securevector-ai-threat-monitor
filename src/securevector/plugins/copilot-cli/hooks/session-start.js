@@ -24,7 +24,7 @@
 
 'use strict';
 
-const { postJsonAndForget, getJson } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget, getJson } = require('../lib/client.js');
 const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
@@ -62,7 +62,7 @@ async function main() {
     event = raw ? JSON.parse(raw) : {};
   } catch { /* swallow — empty event is fine */ }
 
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
 
   // Reachability probe — keyed on the SHAPE of the response (presence of the
   // `synced` key), not on whether any rules are present. getJson fails open

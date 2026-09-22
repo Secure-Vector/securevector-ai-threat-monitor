@@ -32,7 +32,7 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
-const { fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
+const { resolveBaseUrl, fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
 const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
@@ -308,7 +308,7 @@ async function main() {
       return;
     }
     const toolName = (event && (event.toolName || event.tool_name)) || '';
-    const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+    const baseUrl = resolveBaseUrl();
     const sessionId = (event && (event.sessionId || event.session_id)) || null;
     const toolInputForCall = (event && (event.tool_input || event.toolInput)) || null;
     let decision = ALLOW;

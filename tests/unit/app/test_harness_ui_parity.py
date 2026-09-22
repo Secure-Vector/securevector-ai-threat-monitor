@@ -119,25 +119,51 @@ def test_observability_lenses_label_the_runtime(slug):
     assert slug in _read("js/pages/agent-runs.js"), f"agent-runs omits {slug}"
 
 
-@pytest.mark.parametrize("slug", HARNESSES)
-def test_sidebar_banner_collapses_with_the_rail(slug):
-    """A banner the collapsed rail does not shrink spills past the 36px rail.
-
-    Only asserted for harnesses that actually declare a banner: not every
-    harness has one, and inventing a CSS rule for an element that does not
-    exist would be worse than the gap it guards.
-    """
+def _banner_ids() -> list[str]:
+    """Every sidebar banner element, read from the code that creates them."""
     sidebar = _read("js/components/sidebar.js")
-    banner = re.search(rf"id\s*=\s*'([a-z-]+)-plugin-active-banner'", sidebar)
     ids = set(re.findall(r"id\s*=\s*'([a-z-]+-plugin-active-banner)'", sidebar))
     texts = set(re.findall(r"id\s*=\s*'([a-z-]+-plugin-banner-text)'", sidebar))
-    del banner
-    css = _read("css/styles.css")
-    for element_id in sorted(ids | texts):
-        assert f"#{element_id}" in css, (
-            f"sidebar.js creates #{element_id} but styles.css never collapses it, "
-            "so it spills out of the collapsed rail"
-        )
+    found = sorted(ids | texts)
+    assert found, "no sidebar plugin banners found; sidebar.js changed shape"
+    return found
+
+
+@pytest.mark.parametrize("element_id", _banner_ids())
+def test_sidebar_banner_collapses_with_the_rail(element_id):
+    """A banner the collapsed rail does not shrink spills past the 36px rail.
+
+    Parametrized over the banner elements rather than over harnesses, because
+    not every harness declares one and a harness is not the thing that can be
+    wrong here: a specific element id is. Asserting per element is also what
+    makes a failure name the element that spills, instead of failing once per
+    harness with the same global message.
+    """
+    assert f"#{element_id}" in _read("css/styles.css"), (
+        f"sidebar.js creates #{element_id} but styles.css never collapses it, "
+        "so it spills out of the collapsed rail"
+    )
+
+
+@pytest.mark.parametrize("slug", HARNESSES)
+def test_permission_prompts_name_the_runtime(slug):
+    """The just-in-time approval prompt must be able to say who is asking.
+
+    `_JIT_RUNTIME_LABEL` falls back to the raw runtime_kind, so a missing
+    entry does not throw: the prompt simply reads "opencode wants to run"
+    instead of "OpenCode wants to run", in the one dialog where a person is
+    being asked to grant a permission. Both OpenCode and Antigravity were
+    missing from it while every other test passed, which is why this is
+    asserted here rather than left to the eye.
+    """
+    label = re.search(
+        r"_JIT_RUNTIME_LABEL:\s*\{(.*?)\},\n", _read("js/pages/tool-permissions.js"), re.S
+    )
+    assert label, "tool-permissions.js _JIT_RUNTIME_LABEL moved or was renamed"
+    assert slug in label.group(1), (
+        f"the permission prompt has no display name for {slug}, so it asks the "
+        "user to approve a raw runtime id"
+    )
 
 
 def test_setup_prose_names_the_same_harnesses_as_the_chip_row():

@@ -34,7 +34,7 @@
 'use strict';
 
 const { normalize, isMcpToolName } = require('../lib/normalize.js');
-const { postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
 const { redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
@@ -369,7 +369,7 @@ async function main() {
     process.stdout.write('{}');
     return;
   }
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   try {
     await audit(event, baseUrl);
   } catch {

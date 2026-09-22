@@ -2312,9 +2312,10 @@ const ToolPermissionsPage = {
     // this session only.
     _JIT_RUNTIME_LABEL: {
         'claude-code': 'Claude Code', codex: 'Codex', openclaw: 'OpenClaw',
-        'copilot-cli': 'Copilot CLI', cursor: 'Cursor',
+        'copilot-cli': 'Copilot CLI', cursor: 'Cursor', opencode: 'OpenCode',
+        antigravity: 'Antigravity',
         langchain: 'LangChain', langgraph: 'LangGraph', crewai: 'CrewAI',
-        hermes: 'Hermes',
+        hermes: 'Hermes', python: 'Python', node: 'Node',
     },
 
     _jitRel(sqlTs) {

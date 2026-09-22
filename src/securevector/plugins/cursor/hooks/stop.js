@@ -19,7 +19,7 @@
 
 'use strict';
 
-const { postJsonAndForget } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget } = require('../lib/client.js');
 const { sessionIdFrom, readAllStdin, DEFAULT_BASE_URL } = require('../lib/decide.js');
 
 const RUNTIME_KIND = 'cursor';
@@ -50,7 +50,7 @@ async function main() {
     event = raw ? JSON.parse(raw) : {};
   } catch { /* swallow — empty event is fine */ }
 
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   try {
     postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionEndBody(event));
   } catch { /* swallow */ }
