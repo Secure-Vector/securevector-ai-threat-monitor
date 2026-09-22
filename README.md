@@ -40,6 +40,7 @@ Any other provider gets one span per call with `guard.generation()`, and anythin
 
 ## What you get
 
+- **Run it here.** Launch Claude Code, Codex, Copilot CLI or OpenCode from inside SecureVector and watch the terminal live, with every call and its verdict beside it. Sessions you started in your own terminal can be adopted onto the same board.
 - **See it.** One trace per agent session. Pick an agent on the left, read its whole run as a waterfall on the right. Live follow, replay, and a costliest-turn mark on every run.
 - **Stop it.** Allow, block or log-only per tool, at runtime. Blocked tools become just-in-time requests you approve for fifteen minutes or an hour. Enforce mode blocks a model call before it leaves your process.
 - **Catch it.** 72 rules covering the OWASP LLM Top 10 plus 28 agent-attack chains, and an optional offline ML model, applied while the agent is still running.
@@ -55,6 +56,7 @@ Any other provider gets one span per call with `guard.generation()`, and anythin
 | Python with OpenAI or Anthropic | The two lines above |
 | LangChain, LangGraph, CrewAI | One SDK each: [langchain](https://github.com/Secure-Vector/securevector-sdk-langchain), [langgraph](https://github.com/Secure-Vector/securevector-sdk-langgraph), [crewai](https://github.com/Secure-Vector/securevector-sdk-crewai) |
 | Claude Code, Codex, Copilot CLI, Cursor, OpenCode | Open the app, **Connect Agents**, pick yours, **Install Plugin** |
+| One of those, and you want to watch it run | **Agents** in the rail, **+ Launch**. See [Agent Sessions](#agent-sessions) |
 | OpenClaw | **Connect Agents**, OpenClaw, **Install Plugin**, restart OpenClaw |
 | Anything else with an OpenAI-compatible endpoint | **Connect Agents**, **Start Proxy**, point the base URL at it |
 
@@ -328,6 +330,78 @@ securevector-app --install-plugin claude-code
 
 <br>
 
+## Agent Sessions
+
+Launch a coding agent from inside SecureVector, or adopt one you already
+started, and watch it work with its governance beside it.
+
+Open the app, pick **Agents** in the rail, then **+ Launch**: choose a harness,
+choose a folder, go. The session runs on a terminal the app owns, so you can
+read it, type into it, and split panes to watch several at once. Closing the
+window does not kill anything.
+
+**Claude Code, Codex, GitHub Copilot CLI and OpenCode.** Each launches only when
+its Guard plugin is installed and enabled, so a session cannot start outside
+governance by accident. macOS and Linux get a full PTY; Windows is streams-only
+for now.
+
+### What sits beside the terminal
+
+| | |
+|---|---|
+| **Tool calls** | Every call the harness makes, with the verdict and the rule that fired |
+| **Traces** | The full span of each governed call |
+| **Egress** | Every external host the session reached |
+| **Context & cost** | Context fill, waste, and a Compact now button |
+| **Approval inbox** | Anything paused waiting on your decision, through the existing JIT flow |
+
+Each section remembers whether you left it open. A blocked call or a waiting
+approval opens its own section regardless, because neither should be something
+you have to go looking for.
+
+### Sessions you started yourself
+
+A harness you launched in your own terminal shows up under **Running outside
+SecureVector** once its Guard reports a call. Click **Govern** and it joins the
+board: its calls, traces, egress and context are all there, even though
+SecureVector owns no process for it.
+
+From there you can **continue it here**, which reopens the same conversation on
+a terminal the app owns, or **start a new session** in the same folder. Either
+one asks first when the outside terminal may still be open, because two agents
+editing one folder can overwrite each other, and continuing also forks the
+conversation. **Unlink** takes a session off the board and leaves it running;
+the audit trail it has already written is kept.
+
+### Watched, or merely quiet
+
+A session's liveness normally comes from governed calls. When those stop but the
+harness is still writing its transcript, the row is marked **unverified**: the
+agent is alive, but nothing is watching it. That is a different thing from a
+session that has simply gone quiet, and the board will not let the two look the
+same. `securevector monitor session list` says the same thing in a WATCHED
+column, and names the count in a line under the table.
+
+### From a terminal
+
+```bash
+securevector monitor session list          # the board
+securevector monitor session harnesses     # what can launch, and is it governed
+securevector monitor session unlinked      # reporting in, not on the board yet
+securevector monitor session launch claude-code ~/project --title "refactor"
+securevector monitor session link codex <session-id>
+securevector monitor session stop <id>     # or --all
+```
+
+Every command takes `--json`. The CLI is a thin client over the same local API
+the page uses, so there is one implementation of launch, link and stop, and it
+can do nothing the page cannot. It never builds a command line or chooses an
+environment: you name a harness and a folder, and the host decides what that
+becomes. Actions are recorded as `cli` rather than `ui` on the session's trail,
+so an audit shows which surface asked.
+
+If you use pip rather than npm, `sv-monitor session ...` is the same command.
+
 ## What It Detects
 
 | Input Threats (User to LLM) | Output Threats (LLM to User) |
@@ -515,7 +589,46 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-### Option 2: Binary installers
+### Option 2: npm
+
+For Node toolchains. Same product, same version number as the PyPI release.
+
+```bash
+npm install -g @securevector/cli
+securevector
+```
+
+or without installing anything globally:
+
+```bash
+npx @securevector/cli
+```
+
+**Requires:** Python 3.10+ on PATH. The npm package is a launcher, not a
+reimplementation: it finds your Python, installs the matching release into a
+virtual environment it manages, and hands over.
+
+`npm install` itself makes no network request beyond fetching the package. There
+is no install script. The first time you actually run `securevector` it says
+what it is about to do, sets up once, and every run after that is immediate.
+That is deliberate: a postinstall that downloads and executes code is the
+supply-chain shape this product exists to warn you about, and it will not
+install a Python runtime for you either. If Python is missing or too old,
+`securevector doctor` tells you exactly what to do.
+
+```
+securevector [app]           Start the local app (default)
+securevector monitor ...     The sv-monitor CLI, including session commands
+securevector proxy ...       The LLM proxy
+securevector mcp ...         The MCP server
+securevector doctor          Check this machine, report what is missing
+securevector where           Print the managed environment path
+```
+
+Anything after the verb is passed through untouched, so `securevector monitor
+session list` is exactly `sv-monitor session list`.
+
+### Option 3: Binary installers
 
 No Python required. Download and run.
 
@@ -662,6 +775,7 @@ Every request is scanned for prompt injection. Every response is scanned for dat
 | Method | Command |
 |--------|---------|
 | **PyPI** | `pip install --upgrade securevector-ai-monitor[app]` |
+| **npm** | `npm install -g @securevector/cli@latest`. The next run sets up the new version; the old environment stays until you remove it with `securevector where` |
 | **Source** | `git pull && pip install -e ".[app]"` |
 | **Windows** | Download latest [.exe installer](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and run it (overwrites previous version) |
 | **macOS** | Download latest [.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest), drag to Applications |
