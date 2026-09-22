@@ -34,6 +34,7 @@ const App = {
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
         'proxy-cursor': { render: (c) => IntegrationPage.render(c, 'proxy-cursor') },
         'proxy-opencode': { render: (c) => IntegrationPage.render(c, 'proxy-opencode') },
+        'proxy-antigravity': { render: (c) => IntegrationPage.render(c, 'proxy-antigravity') },
         // Connect Wizard (v5.0.0) — detect → protect → verify activation flow.
         // Auto-launched once on fresh installs (see maybeAutoLaunchWizard).
         'connect-wizard': { render: (c) => ConnectWizardPage.render(c) },
@@ -43,6 +44,7 @@ const App = {
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
         'guide-cursor': { render: (c) => GuideCursorPage.render(c) },
         'guide-opencode': { render: (c) => GuideOpenCodePage.render(c) },
+        'guide-antigravity': { render: (c) => GuideAntigravityPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         'guide-frameworks': { render: (c) => GuideFrameworksPage.render(c) },
         settings: SettingsPage,

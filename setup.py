@@ -155,6 +155,9 @@ setup(
             # explicitly or the wheel ships the plugin without its manifest.
             "plugins/cursor/**/*",
             "plugins/cursor/.cursor-plugin/*",
+            # Antigravity plugin: both plugin.json and hooks.json sit at the
+            # tree root (no dot-dir), so the recursive glob covers everything.
+            "plugins/antigravity/**/*",
         ],
         "": ["NOTICE"],
     },
