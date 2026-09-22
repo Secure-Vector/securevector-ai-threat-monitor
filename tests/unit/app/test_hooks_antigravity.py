@@ -291,3 +291,45 @@ def test_a_relocated_gemini_home_cannot_authorise_a_write_outside_home(tmp_path,
     # And the two fixed roots are always allowed.
     mod._assert_within_allowed_roots(fake_home / ".gemini" / "x")
     mod._assert_within_allowed_roots(fake_home / ".securevector" / "y")
+
+
+def test_an_unresolved_plugin_root_is_not_reported_as_governing(client, gemini_home):
+    """Present is not the same as governing, and this is how they diverge.
+
+    `agy plugin install <path>` copies a plugin verbatim. Our hooks.json ships
+    `__SV_PLUGIN_ROOT__`, which only this app's install route substitutes, so
+    installing the bundled plugin with the Antigravity CLI directly produces a
+    plugin the CLI lists as enabled whose every hook command points at a path
+    that does not exist. Antigravity runs, the Guard never fires, and the only
+    thing that could say so is this status route.
+
+    Found by installing the real CLI and doing exactly that.
+    """
+    client.post("/api/hooks/antigravity/install", headers=PAGE_HEADERS)
+    assert client.get("/api/hooks/antigravity/status").json()["enabled"] is True
+
+    # Put the placeholder back, the way a CLI-side install leaves it.
+    hooks_json = mod.ANTIGRAVITY_PLUGIN_DIR / "hooks.json"
+    resolved = hooks_json.read_text()
+    hooks_json.write_text(resolved.replace(str(mod.ANTIGRAVITY_PLUGIN_DIR), mod._ROOT_PLACEHOLDER))
+
+    body = client.get("/api/hooks/antigravity/status").json()
+    assert body["enabled"] is False, "a Guard whose hooks cannot run is not enabled"
+    assert body["auto_installed"] is False
+    assert "never resolved" in (body["problem"] or ""), body["problem"]
+
+    # Reinstalling from here is the documented fix, and it must actually work.
+    client.post("/api/hooks/antigravity/install", headers=PAGE_HEADERS)
+    after = client.get("/api/hooks/antigravity/status").json()
+    assert after["enabled"] is True
+    assert after["problem"] is None
+
+
+def test_a_missing_hook_script_is_not_reported_as_governing(client, gemini_home):
+    """The other way an install can be present but dead."""
+    client.post("/api/hooks/antigravity/install", headers=PAGE_HEADERS)
+    (mod.ANTIGRAVITY_PLUGIN_DIR / "hooks" / "pre-tool-use.js").unlink()
+
+    body = client.get("/api/hooks/antigravity/status").json()
+    assert body["enabled"] is False
+    assert "pre-tool-use.js" in (body["problem"] or ""), body["problem"]

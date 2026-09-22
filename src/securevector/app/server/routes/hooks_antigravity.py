@@ -115,9 +115,13 @@ class StatusResponse(BaseModel):
     staging_dir: str
     files_present: list[str]
     antigravity_detected: bool = False
-    # True when the plugin dir and its manifest exist under the plugins dir.
+    # True when the plugin dir and its manifest exist AND the hooks in it can
+    # actually run. Presence alone is not governance: see _hooks_runnable.
     auto_installed: bool = False
     enabled: bool = False
+    # Set when the plugin is present but cannot govern, so the UI can say which
+    # of the two it is rather than showing a green light over a dead Guard.
+    problem: str | None = None
 
 
 class InstallResponse(BaseModel):
@@ -216,15 +220,53 @@ def _auto_install_to_antigravity() -> Path:
     return ANTIGRAVITY_PLUGIN_DIR
 
 
+def _hooks_runnable() -> Optional[str]:
+    """None when the installed hooks can actually run, else why they cannot.
+
+    Presence is not governance. ``agy plugin install <path>`` copies a plugin
+    verbatim, and our hooks.json carries ``__SV_PLUGIN_ROOT__`` which only this
+    app's install route substitutes. So someone who installs the bundled plugin
+    directly with the Antigravity CLI gets a plugin the CLI lists as enabled,
+    whose every hook command points at a path that does not exist. Antigravity
+    runs, the Guard never fires, and nothing says so.
+
+    That is the one state this product must never report as governed, so the
+    placeholder and the referenced files are both checked before anything here
+    claims the Guard is on.
+    """
+    hooks_json = ANTIGRAVITY_PLUGIN_DIR / "hooks.json"
+    if not hooks_json.is_file():
+        return "hooks.json is missing, so no hook is registered."
+    try:
+        text = hooks_json.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"hooks.json could not be read ({exc.strerror or exc})."
+    if _ROOT_PLACEHOLDER in text:
+        return (
+            "the hook paths were never resolved, so every hook points at a file "
+            "that does not exist. This happens when the plugin is installed with "
+            "`agy plugin install` instead of from here. Reinstall from this page."
+        )
+    missing = sorted(
+        name for name in PLUGIN_FILES
+        if name.startswith("hooks/") and not (ANTIGRAVITY_PLUGIN_DIR / name).is_file()
+    )
+    if missing:
+        return f"these hook scripts are missing from the install: {', '.join(missing)}."
+    return None
+
+
 def _is_installed_enabled() -> bool:
-    """True when the plugin dir exists with its manifest.
+    """True when the plugin is present AND its hooks can run.
 
     Antigravity's docs describe plugin discovery by directory presence and name
-    no registry recording enabled state, so presence is the only signal
-    available. If ``agy plugin disable`` turns out to write one, this is the
-    function that should learn to read it.
+    no registry recording enabled state, so presence is the only availability
+    signal there is. Presence is not enough to call it governed, though, which
+    is what `_hooks_runnable` adds. If ``agy plugin disable`` turns out to
+    write a registry, this is the function that should learn to read it.
     """
-    return ANTIGRAVITY_PLUGIN_DIR.is_dir() and ANTIGRAVITY_MANIFEST.is_file()
+    present = ANTIGRAVITY_PLUGIN_DIR.is_dir() and ANTIGRAVITY_MANIFEST.is_file()
+    return present and _hooks_runnable() is None
 
 
 # --- Routes -----------------------------------------------------------------
@@ -235,7 +277,9 @@ async def plugin_status():
     """Whether the plugin is staged, whether Antigravity is installed, and
     whether the plugin dir and manifest are present. Read-only."""
     files_present = [f for f in PLUGIN_FILES if (STAGING_DIR / f).is_file()]
-    enabled = _is_installed_enabled()
+    present = ANTIGRAVITY_PLUGIN_DIR.is_dir() and ANTIGRAVITY_MANIFEST.is_file()
+    problem = _hooks_runnable() if present else None
+    enabled = present and problem is None
     return StatusResponse(
         installed=len(files_present) == len(PLUGIN_FILES),
         staging_dir=str(STAGING_DIR),
@@ -243,6 +287,7 @@ async def plugin_status():
         antigravity_detected=GEMINI_HOME.is_dir(),
         auto_installed=enabled,
         enabled=enabled,
+        problem=problem,
     )
 
 

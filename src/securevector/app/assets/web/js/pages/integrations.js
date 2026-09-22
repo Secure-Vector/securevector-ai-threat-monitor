@@ -2438,6 +2438,16 @@ def chat_with_protection(user_input):
                     setStatusPill('installed');
                     installBtn.textContent = 'Reinstall Plugin';
                     uninstallBtn.style.display = '';
+                } else if (status.problem) {
+                    // Present but not governing. `agy plugin install` copies the
+                    // plugin verbatim and leaves the hook paths unresolved, so
+                    // Antigravity lists the Guard as enabled while every hook
+                    // command points at a file that is not there. A green pill
+                    // here would be the worst thing this page could show.
+                    setStatusPill('error', { message: 'Installed but not governing' });
+                    showResult('warning', 'Antigravity has this plugin, but ' + status.problem);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
                 } else if (status.installed) {
                     setStatusPill('staged');
                     installBtn.textContent = 'Reinstall Plugin';
