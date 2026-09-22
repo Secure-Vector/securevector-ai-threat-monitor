@@ -65,13 +65,26 @@ class PerformanceConfig:
     garbage_collect_interval: int = 100
 
 
+def _package_version() -> str:
+    """The installed package version, for anything that reports one."""
+    try:
+        from securevector import __version__
+
+        return str(__version__)
+    except Exception:  # noqa: BLE001 - a version is never worth an exception
+        return "0"
+
+
 @dataclass
 class MCPServerConfig:
     """Main configuration for SecureVector MCP server."""
 
     # Server identification
     name: str = "SecureVector AI Threat Monitor"
-    version: str = "1.0.0"
+    # The package version, not a literal. This was "1.0.0" and stayed there
+    # across five releases, so every MCP client was told it was talking to
+    # version one of a product on its sixth.
+    version: str = field(default_factory=_package_version)
     description: str = "AI threat analysis and security monitoring via MCP"
 
     # Server settings

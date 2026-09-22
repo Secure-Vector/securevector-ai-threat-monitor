@@ -66,3 +66,53 @@ def test_the_cli_actually_prints_the_declared_version():
     )
     printed = (out.stdout + out.stderr).strip()
     assert declared(ROOT / "src/securevector/__init__.py") in printed, printed
+
+
+def test_nothing_reports_a_version_of_its_own():
+    """No module may declare a version literal that is not the package's.
+
+    The original version of this file pinned the three declarations it knew
+    about. It did not look for others, so two more sat there for five releases:
+    the MCP subpackage said 3.4.0 and the MCP server told every client it was
+    version 1.0.0, both because a literal is a thing nobody remembers to bump
+    and nothing was checking.
+
+    This looks instead. Any `__version__ = "..."` or `version: str = "..."`
+    under src/securevector must either be the real version or be derived, and
+    a new one fails here rather than in a client's logs.
+
+    One exemption, and it is a real distinction rather than a convenience: a
+    security policy document carries its own schema version, which has nothing
+    to do with which release of SecureVector is reading it and must NOT move
+    when the product does. Those live in one module and are named here.
+    """
+    import re
+
+    root = ROOT / "src" / "securevector"
+    expected = declared(ROOT / "src/securevector/__init__.py")
+
+    # Versions that describe something other than this package.
+    NOT_THE_PRODUCT = {"models/policy_models.py"}
+
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root)
+        if rel.as_posix() in NOT_THE_PRODUCT:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(
+            r'^\s*(?:__version__|version)\s*(?::\s*str\s*)?=\s*["\']([^"\']+)["\']',
+            text,
+            re.M,
+        ):
+            literal = match.group(1)
+            if literal == expected:
+                continue
+            line = text[: match.start()].count("\n") + 1
+            offenders.append(f"{rel}:{line} declares version {literal!r}")
+
+    assert not offenders, (
+        "these declare a version literal that is not "
+        f"{expected!r}; derive it from securevector.__version__ instead:\n  "
+        + "\n  ".join(offenders)
+    )

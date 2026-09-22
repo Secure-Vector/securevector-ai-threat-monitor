@@ -44,7 +44,10 @@ except ImportError:
                 "pip install securevector-ai-monitor[mcp]"
             )
 
-__version__ = "3.4.0"
+# Follows the package rather than repeating it: this read "3.4.0" while the
+# package was on 6.0.0, because a literal here is a thing nobody remembers to
+# bump and nothing checks.
+from securevector import __version__  # noqa: E402
 __all__ = [
     "SecureVectorMCPServer",
     "MCPServerConfig",

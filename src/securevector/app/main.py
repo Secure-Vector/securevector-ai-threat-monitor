@@ -736,9 +736,13 @@ def _find_pi_ai_path() -> str:
     try:
         # Use 'where' on Windows, 'which' on Unix
         which_cmd = "where" if sys.platform == "win32" else "which"
+        # No shell. Both arguments are constants, so there was never an
+        # injection path here, but `where` is a real executable on Windows
+        # (where.exe in System32) and passing a list through cmd.exe is the
+        # kind of thing that works until a path has a space in it.
         result = subprocess.run(
             [which_cmd, "openclaw"],
-            capture_output=True, text=True, timeout=10, shell=(sys.platform == "win32")
+            capture_output=True, text=True, timeout=10,
         )
         if result.returncode == 0:
             # On Windows, 'where' returns multiple lines; take the first
