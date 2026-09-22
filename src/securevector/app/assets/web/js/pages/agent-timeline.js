@@ -17,6 +17,8 @@
 const TL_RUNTIME_COLOR = {
     // v5: runtimes are labels, not statuses — one neutral dot for all.
     'claude-code': '#8b949e', codex: '#8b949e', openclaw: '#8b949e',
+    'copilot-cli': '#8b949e', cursor: '#8b949e', opencode: '#8b949e',
+    antigravity: '#8b949e',
     langchain: '#8b949e', langgraph: '#8b949e', crewai: '#8b949e',
     hermes: '#8b949e',
 };

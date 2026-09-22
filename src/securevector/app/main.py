@@ -1687,8 +1687,12 @@ def _handle_plugin_command(args) -> None:
         from securevector.app.server.routes import hooks_opencode as mod
         handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
         result = asyncio.run(handler())
+    elif name == "antigravity":
+        from securevector.app.server.routes import hooks_antigravity as mod
+        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        result = asyncio.run(handler())
     else:
-        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor, opencode.", file=sys.stderr)
+        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor, opencode, antigravity.", file=sys.stderr)
         sys.exit(1)
 
     # Response models are Pydantic — serialise consistently.
@@ -1891,16 +1895,16 @@ Examples:
     parser.add_argument(
         "--install-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode", "antigravity"],
         metavar="NAME",
-        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, or opencode) and exit",
+        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, opencode, or antigravity) and exit",
     )
     parser.add_argument(
         "--uninstall-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode", "antigravity"],
         metavar="NAME",
-        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, or opencode) and exit",
+        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, opencode, or antigravity) and exit",
     )
 
     args = parser.parse_args()

@@ -348,7 +348,7 @@ const ToolPermissionsPage = {
             scopeSel = document.createElement('select');
             scopeSel.className = 'filter-select';
             scopeSel.style.cssText = 'width:100%;margin-bottom:8px;';
-            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['hermes', 'Hermes only'], ['opencode', 'OpenCode only'], ['mcp', 'MCP only']]
+            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['hermes', 'Hermes only'], ['opencode', 'OpenCode only'], ['antigravity', 'Antigravity only'], ['mcp', 'MCP only']]
                 .forEach(([v, t]) => {
                     const o = document.createElement('option');
                     o.value = v; o.textContent = t;
@@ -1720,6 +1720,7 @@ const ToolPermissionsPage = {
             copilot_cli: 'GitHub Copilot CLI',
             cursor: 'Cursor',
             opencode: 'OpenCode',
+            antigravity: 'Antigravity',
             hermes: 'Hermes',
             communication: 'Communication',
             project_management: 'Project Management',
@@ -1745,6 +1746,7 @@ const ToolPermissionsPage = {
             copilot_cli: BRAND_ACCENT,
             cursor: BRAND_ACCENT,
             opencode: BRAND_ACCENT,
+            antigravity: BRAND_ACCENT,
             hermes: BRAND_ACCENT,
             communication: BRAND_ACCENT,
             project_management: BRAND_ACCENT,
@@ -1766,6 +1768,7 @@ const ToolPermissionsPage = {
             'cursor',         // Cursor agent tools (shell / read / write / edit / …)
             'hermes',         // Hermes (hermes-agent) built-in tools (terminal / execute_code / …)
             'opencode',       // OpenCode built-in tools (bash / read / write / webfetch / …)
+            'antigravity',    // Antigravity built-in tools (run_command / view_file / search_web / …)
             'browser_automation',
             'communication',
             'project_management',

@@ -415,6 +415,12 @@ def chat_with_protection(user_input):
             description: 'Cursor IDE agent, real-time policy enforcement + tamper-evident audit for shell, MCP, file edits, and prompts',
             isCursor: true,
             defaultProvider: 'openai'
+        },
+        'proxy-antigravity': {
+            name: 'Antigravity',
+            description: 'Policy enforcement and tamper-evident audit for Antigravity agent sessions',
+            isAntigravity: true,
+            defaultProvider: 'gemini'
         }
     },
 
@@ -485,6 +491,9 @@ def chat_with_protection(user_input):
             } else if (integration.isCursor) {
                 // Cursor: Plugin card only (native .cursor-plugin install, no proxy/block-mode)
                 container.appendChild(this.createCursorPluginCard());
+            } else if (integration.isAntigravity) {
+                // Antigravity: Plugin card only (native plugin install, no proxy/block-mode)
+                container.appendChild(this.createAntigravityPluginCard());
             } else if (integration.isOpenClaw) {
                 // OpenClaw: Plugin card + separate block mode card
                 container.appendChild(this.createOpenClawPluginCard());
@@ -2234,6 +2243,215 @@ def chat_with_protection(user_input):
         return card;
     },
 
+    createAntigravityPluginCard() {
+        // SecureVector Guard for Antigravity, a native plugin
+        // (hooks/pre-tool-use.js, post-tool-use.js, pre-invocation.js) copied
+        // into ~/.gemini/config/plugins/securevector-guard/. Antigravity reads
+        // its plugins directory at startup, so activation means restarting
+        // Antigravity, then confirming with `agy plugin list`. If ~/.gemini is
+        // absent, Antigravity was not detected: install Antigravity, then
+        // click Install again.
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px;';
+        title.textContent = 'SecureVector Guard for Antigravity';
+        header.appendChild(title);
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        subtitle.textContent = 'Real-time policy enforcement and tamper-evident audit for Antigravity agent sessions';
+        header.appendChild(subtitle);
+        card.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 14px;';
+
+        const installBtn = document.createElement('button');
+        installBtn.id = 'install-antigravity-plugin-btn';
+        installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        installBtn.textContent = 'Install Plugin';
+
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.id = 'uninstall-antigravity-plugin-btn';
+        uninstallBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        uninstallBtn.textContent = 'Uninstall';
+
+        const statusPill = document.createElement('span');
+        statusPill.id = 'antigravity-plugin-status';
+        statusPill.setAttribute('role', 'status');
+        statusPill.setAttribute('aria-live', 'polite');
+        statusPill.setAttribute('aria-atomic', 'true');
+        statusPill.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        statusPill.textContent = 'Checking...';
+
+        btnRow.appendChild(installBtn);
+        btnRow.appendChild(uninstallBtn);
+        btnRow.appendChild(statusPill);
+        content.appendChild(btnRow);
+
+        const resultArea = document.createElement('div');
+        resultArea.id = 'antigravity-plugin-result';
+        resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
+        content.appendChild(resultArea);
+
+        const setStatusPill = (state, opts = {}) => {
+            statusPill.textContent = '';
+            const span = document.createElement('strong');
+            if (state === 'installed') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Installed & enabled · restart Antigravity to activate';
+            } else if (state === 'staged') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Staged · install Antigravity, then click Reinstall';
+            } else if (state === 'not-staged') {
+                statusPill.style.color = 'var(--text-secondary)';
+                span.style.fontWeight = '400';
+                span.textContent = 'Not staged';
+            } else if (state === 'error') {
+                span.style.color = 'var(--error)';
+                span.textContent = opts.message || 'Status unknown';
+            } else {
+                span.style.fontWeight = '400';
+                span.textContent = 'Checking...';
+            }
+            statusPill.appendChild(span);
+        };
+
+        const showResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.textContent = '';
+            if (kind === 'success') {
+                resultArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                resultArea.style.border = '1px solid var(--success)';
+            } else if (kind === 'warning') {
+                resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                resultArea.style.border = '1px solid var(--warning)';
+            } else {
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+            }
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
+        };
+
+        installBtn.onclick = async () => {
+            installBtn.disabled = true;
+            const wasReinstall = installBtn.textContent === 'Reinstall Plugin';
+            installBtn.textContent = wasReinstall ? 'Reinstalling...' : 'Installing...';
+            try {
+                const res = await fetch('/api/hooks/antigravity/install', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    if (result.auto_installed) {
+                        showResult('success', `Installed and enabled (${result.files.length} files at ${result.install_path}). ${result.next_step || ''}`.trim());
+                        setStatusPill('installed');
+                    } else {
+                        // Antigravity not detected (~/.gemini is absent): staged only.
+                        showResult('warning', `Plugin staged at ${result.staging_dir} (${result.files.length} files). ${result.next_step || 'Antigravity was not detected (~/.gemini is absent). Install Antigravity, then click Install again.'}`.trim());
+                        setStatusPill('staged');
+                    }
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    showResult('error', 'Install failed. Check the threat-monitor server logs.');
+                    installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+                }
+            } catch (e) {
+                showResult('error', 'Failed to reach the SecureVector server.');
+                installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+            }
+            installBtn.disabled = false;
+        };
+
+        uninstallBtn.onclick = async () => {
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Uninstalling...';
+            try {
+                const res = await fetch('/api/hooks/antigravity/uninstall', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    showResult('warning', 'Plugin removed: deleted ~/.gemini/config/plugins/securevector-guard/ (your other config untouched). Restart Antigravity to drop the hooks.');
+                    setStatusPill('not-staged');
+                    installBtn.textContent = 'Install Plugin';
+                    uninstallBtn.style.display = 'none';
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = 'Uninstall';
+        };
+
+        // Initial status check. `auto_installed`+`enabled` mean the plugin dir
+        // exists under ~/.gemini/config/plugins/securevector-guard/.
+        // `antigravity_detected` mirrors the sibling harnesses' *_detected
+        // field name (installed vs. merely staged).
+        setTimeout(async () => {
+            try {
+                const res = await fetch('/api/hooks/antigravity/status');
+                const status = await res.json();
+                if (status.auto_installed) {
+                    setStatusPill('installed');
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
+                    setStatusPill('staged');
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.files_present && status.files_present.length > 0) {
+                    setStatusPill('staged', { message: 'Partially staged' });
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.antigravity_detected === false) {
+                    setStatusPill('not-staged', { message: 'Antigravity not detected' });
+                } else {
+                    setStatusPill('not-staged');
+                }
+            } catch {
+                setStatusPill('error');
+            }
+        }, 0);
+
+        const featuresLabel = document.createElement('div');
+        featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
+        featuresLabel.textContent = 'Capabilities (v6.0)';
+        content.appendChild(featuresLabel);
+
+        const featuresGrid = document.createElement('div');
+        featuresGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;';
+        const features = [
+            { name: 'Tool Permissions', desc: 'Allow / deny / force_ask via PreToolUse' },
+            { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=antigravity' },
+            { name: 'Content Scans', desc: 'Prose-bearing tool args → /analyze (no prompt or result scan yet)' },
+            { name: 'Fail-Open on App Down', desc: 'Explicit JSON + exit 0 · never blocks your session' },
+        ];
+        for (const f of features) {
+            const item = document.createElement('div');
+            item.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            const fn = document.createElement('div');
+            fn.style.cssText = 'font-size: 12px; font-weight: 600;';
+            fn.textContent = f.name;
+            const fd = document.createElement('div');
+            fd.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 2px;';
+            fd.textContent = f.desc;
+            item.appendChild(fn);
+            item.appendChild(fd);
+            featuresGrid.appendChild(item);
+        }
+        content.appendChild(featuresGrid);
+
+        card.appendChild(content);
+        return card;
+    },
+
     createCodexPluginCard() {
         // SecureVector Guard for Codex — mirrors createClaudeCodePluginCard
         // but adapted for Codex's TOML config + `~/.codex/` layout. Install
@@ -3813,7 +4031,7 @@ def chat_with_protection(user_input):
         const slug = (integrationId || '').replace('proxy-', '');
         const ep = engineUrl || 'https://<your-engine-endpoint>';
         const isSdk = !!integration.sdkPackage;
-        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenCode || integration.isOpenClaw;
+        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenCode || integration.isOpenClaw || integration.isAntigravity;
 
         const details = document.createElement('details');
         details.style.cssText = 'margin-bottom: 16px;';

@@ -2503,7 +2503,8 @@ const GettingStartedPage = {
             frag.appendChild(row);
         };
         group('Coding agents', [['Claude Code', 'guide-claude-code'], ['Codex', 'guide-codex'], ['GitHub Copilot CLI', 'guide-copilot-cli'],
-            ['Cursor', 'guide-cursor'], ['OpenCode', 'guide-opencode'], ['OpenClaw / ClawdBot', 'guide-openclaw']]);
+            ['Cursor', 'guide-cursor'], ['OpenCode', 'guide-opencode'], ['Antigravity', 'guide-antigravity'],
+            ['OpenClaw / ClawdBot', 'guide-openclaw']]);
         group('Frameworks and Python', [['Python @guard', 'proxy-python'], ['LangChain, LangGraph, CrewAI, Hermes', 'guide-frameworks']]);
         group('Proxies', [['n8n', 'proxy-n8n'], ['Ollama', 'proxy-ollama']]);
         group('Start here', [['Connect Agents', 'guide-connect-agents']]);

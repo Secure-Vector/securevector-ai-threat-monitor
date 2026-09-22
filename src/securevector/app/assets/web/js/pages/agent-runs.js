@@ -17,7 +17,8 @@
 const RUNTIME_NEUTRAL = '#8b949e';
 const RUNTIME_COLOR = {
     'claude-code': RUNTIME_NEUTRAL, codex: RUNTIME_NEUTRAL, openclaw: RUNTIME_NEUTRAL,
-    cursor: RUNTIME_NEUTRAL,
+    cursor: RUNTIME_NEUTRAL, 'copilot-cli': RUNTIME_NEUTRAL, opencode: RUNTIME_NEUTRAL,
+    antigravity: RUNTIME_NEUTRAL,
     langchain: RUNTIME_NEUTRAL, langgraph: RUNTIME_NEUTRAL, crewai: RUNTIME_NEUTRAL,
     hermes: RUNTIME_NEUTRAL, python: RUNTIME_NEUTRAL,
 };

@@ -23,6 +23,7 @@ from securevector.app.database.migrations import run_migrations
 from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
 from securevector.app.server.routes import tool_permissions as tp_routes
 from securevector.app.server.routes.tool_permissions import (
+    ANTIGRAVITY_BUILTINS,
     CLAUDE_CODE_BUILTINS,
     CODEX_BUILTINS,
     COPILOT_CLI_BUILTINS,
@@ -39,6 +40,7 @@ NORMALIZE_JS_CODEX = REPO / "src" / "securevector" / "plugins" / "codex" / "lib"
 NORMALIZE_JS_COPILOT = REPO / "src" / "securevector" / "plugins" / "copilot-cli" / "lib" / "normalize.js"
 NORMALIZE_JS_CURSOR = REPO / "src" / "securevector" / "plugins" / "cursor" / "lib" / "normalize.js"
 NORMALIZE_JS_OPENCODE = REPO / "src" / "securevector" / "plugins" / "opencode" / "lib" / "normalize.js"
+NORMALIZE_JS_ANTIGRAVITY = REPO / "src" / "securevector" / "plugins" / "antigravity" / "lib" / "normalize.js"
 
 
 def _builtins_from_js(path: Path) -> set[str]:
@@ -291,6 +293,84 @@ def test_opencode_normalize_unknown_single_token_is_skipped():
     joins server+tool with one), so it is internal plumbing: return [] and stay
     fail-open rather than audit/enforce an unknown surface."""
     assert _opencode_normalize("someunknowninternaltool") == []
+
+
+def _antigravity_normalize(tool_name: str):
+    """Invoke the Antigravity plugin's normalize() via node (CommonJS)."""
+    import json
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    script = (
+        f"const {{normalize}}=require({str(NORMALIZE_JS_ANTIGRAVITY)!r});"
+        f"process.stdout.write(JSON.stringify(normalize({tool_name!r})));"
+    )
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=20)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def test_antigravity_builtins_table_mirrors_antigravity_normalize_js():
+    """Drift-check for the Antigravity copy of normalize.js.
+
+    Doubly load-bearing on this harness: Antigravity's MCP tool-name shape is
+    not documented first-party, so "not in BUILTIN_TOOLS" is the only way the
+    plugin can tell an MCP tool from a built-in. A name missing from one side
+    is therefore not merely an unmatched rule, it silently reclassifies the
+    tool."""
+    js_names = _builtins_from_js(NORMALIZE_JS_ANTIGRAVITY)
+    py_names = {name for (name, _r, _d) in ANTIGRAVITY_BUILTINS}
+    missing_in_py = js_names - py_names
+    missing_in_js = py_names - js_names
+    assert not missing_in_py, (
+        f"ANTIGRAVITY_BUILTINS missing built-ins present in Antigravity normalize.js: {missing_in_py}"
+    )
+    assert not missing_in_js, (
+        f"ANTIGRAVITY_BUILTINS has names absent from Antigravity normalize.js: {missing_in_js}"
+    )
+
+
+def test_antigravity_finish_is_not_governable():
+    """`finish` returns the agent's final output. Denying it cannot prevent
+    anything that has not already happened, and would leave the session unable
+    to terminate, so it is excluded from both lists and normalizes to []."""
+    assert "finish" not in {name for (name, _r, _d) in ANTIGRAVITY_BUILTINS}
+    assert _antigravity_normalize("finish") == []
+
+
+def test_antigravity_normalize_builtin_names():
+    """Built-ins normalize to their exact lowercase id, case-insensitively.
+    Names carrying an underscore must hit the built-in branch BEFORE the
+    server-qualified MCP branch, or a core tool is treated as third-party."""
+    assert _antigravity_normalize("run_command") == ["run_command"]
+    assert _antigravity_normalize("RUN_COMMAND") == ["run_command"]
+    assert _antigravity_normalize("read_url_content") == ["read_url_content"]
+    assert _antigravity_normalize("view_file") == ["view_file"]
+
+
+def test_antigravity_normalize_mcp_candidates_cover_every_plausible_shape():
+    """Antigravity's MCP name shape is undocumented and unverified against a
+    live CLI, so committing to one and returning [] for the rest would leave
+    real MCP tools unaudited and ungoverned. Every plausible shape must yield
+    the cloud `<server>:<tool>` rule key and the bare tool name."""
+    for wire in ("mcp__github__create_issue", "github__create_issue",
+                 "github.create_issue", "github-create_issue"):
+        cands = _antigravity_normalize(wire)
+        assert "github:create_issue" in cands, f"{wire}: {cands}"
+        assert "create_issue" in cands, f"{wire}: {cands}"
+    # The literal wire name is also offered for the unprefixed shapes, so a
+    # local override written against what the user actually saw still fires.
+    assert "github.create_issue" in _antigravity_normalize("github.create_issue")
+
+
+def test_antigravity_normalize_bare_unknown_token_stays_governable():
+    """Unlike OpenCode (whose MCP names always carry a separator), a
+    prefix-less Antigravity tool could be either an uncatalogued built-in or a
+    bare MCP tool. Returning [] would make it invisible: not audited, not
+    enforceable. Keeping it costs at most a stray rule match."""
+    assert _antigravity_normalize("someunknowntool") == ["someunknowntool"]
 
 
 def test_essential_response_includes_24_builtins(client):

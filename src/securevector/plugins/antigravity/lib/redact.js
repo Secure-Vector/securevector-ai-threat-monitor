@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: Apache-2.0
+/**
+ * Shared secret-redaction patterns + helper.
+ *
+ * Used by both post-tool-use.js (outbound tool inputs) and
+ * user-prompt-submit.js (inbound user prompts) so the patterns
+ * stay in lockstep — a leak surface added in one place must not
+ * silently miss in the other.
+ *
+ * The patterns are conservative, covering the highest-blast-radius
+ * leaks first. Loopback-only wire path today, but matches persist
+ * to threat_intel_records so redaction failures are durable.
+ */
+
+'use strict';
+
+const SECRET_PATTERNS = [
+  /\bsk-proj-[A-Za-z0-9_-]{20,}/g,                                                            // OpenAI project key (sk-proj-...)
+  /\bsk_(?:live|test)_[A-Za-z0-9]{20,}\b/g,                                                   // Stripe live / test keys (sk_live_…, sk_test_…)
+  /(?:sk|pk)-[A-Za-z0-9_-]{20,}/g,                                                            // OpenAI / Anthropic sk-/pk-
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,                                                          // GitHub PAT / OAuth / user / server / refresh
+  /\bAKIA[0-9A-Z]{16}\b/g,                                                                    // AWS Access Key ID
+  /\b(?:aws_secret_access_key\s*[:=]\s*['"]?)[A-Za-z0-9/+=]{40}\b/gi,                         // AWS Secret Access Key (40-char b64)
+  /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,                           // JWT
+  /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY-----[\s\S]{1,8192}?-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY-----/g, // PEM private keys (any flavor) — bounded to 8 KB body to cap ReDoS worst-case on inputs with BEGIN but no END
+  /(["']?(?:password|secret|token|api[_-]?key|bearer|auth[_-]?token|access[_-]?token|client[_-]?secret)["']?\s*[:=]\s*["']?)[^"'\s,}\]]{6,256}/gi, // labelled kv-pairs (broadened, bounded to 256 chars to cap ReDoS on 16 KB Bash stdout)
+];
+
+/**
+ * Redact secrets in `text`. Returns '' for non-string / empty input.
+ * `String.prototype.replace` with a /g regex resets `lastIndex`
+ * internally per ECMA-262 §22.2.6.11, so calling this repeatedly in
+ * the same Node process is safe — no manual reset required.
+ */
+function redactForScan(text) {
+  if (typeof text !== 'string' || text.length === 0) return '';
+  let out = text;
+  for (const pat of SECRET_PATTERNS) {
+    out = out.replace(pat, (m, prefix) => (prefix ? `${prefix}[REDACTED]` : '[REDACTED]'));
+  }
+  return out;
+}
+
+/**
+ * Does `text` contain at least one credential / leak SHAPE worth
+ * scanning?
+ *
+ * Reuses the exact same `SECRET_PATTERNS` the redactor masks against, so
+ * the "is this worth sending to /analyze" decision can never drift from
+ * the "what do we mask" decision — one list, one source of truth.
+ *
+ * This is the gate for the high-volume, syntax-shaped command-output
+ * scan path (Bash / PowerShell `tool_response`). A multi-KB `strings
+ * <binary>` dump, a `grep` over source, a `sqlite3 .dump` — none of these
+ * contain a credential shape, so `hasCredentialMarkers` returns false and
+ * the blob is NOT shipped to /analyze. A `printenv` / `cat .env` output
+ * that DOES carry an `AKIA…` / `ghp_…` / PEM block returns true and is
+ * still scanned, preserving the output-leakage value of the feature.
+ *
+ * `RegExp.prototype.test` on a /g regex advances `lastIndex`, which would
+ * make repeated calls in-process flaky. We reset `lastIndex` to 0 before
+ * each test to stay stateless.
+ *
+ * Returns false for non-string / empty input (fail-open: nothing to gate).
+ */
+function hasCredentialMarkers(text) {
+  if (typeof text !== 'string' || text.length === 0) return false;
+  for (const pat of SECRET_PATTERNS) {
+    pat.lastIndex = 0;
+    if (pat.test(text)) {
+      pat.lastIndex = 0; // leave the shared regex object clean for redactForScan
+      return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { SECRET_PATTERNS, redactForScan, hasCredentialMarkers };

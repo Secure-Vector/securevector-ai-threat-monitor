@@ -55,7 +55,7 @@ Any other provider gets one span per call with `guard.generation()`, and anythin
 |---|---|
 | Python with OpenAI or Anthropic | The two lines above |
 | LangChain, LangGraph, CrewAI | One SDK each: [langchain](https://github.com/Secure-Vector/securevector-sdk-langchain), [langgraph](https://github.com/Secure-Vector/securevector-sdk-langgraph), [crewai](https://github.com/Secure-Vector/securevector-sdk-crewai) |
-| Claude Code, Codex, Copilot CLI, Cursor, OpenCode | Open the app, **Connect Agents**, pick yours, **Install Plugin** |
+| Claude Code, Codex, Copilot CLI, Cursor, OpenCode, Antigravity | Open the app, **Connect Agents**, pick yours, **Install Plugin** |
 | One of those, and you want to watch it run | **Agents** in the rail, **+ Launch**. See [Agent Sessions](#agent-sessions) |
 | OpenClaw | **Connect Agents**, OpenClaw, **Install Plugin**, restart OpenClaw |
 | Anything else with an OpenAI-compatible endpoint | **Connect Agents**, **Start Proxy**, point the base URL at it |
@@ -72,6 +72,7 @@ Prefer an installer? [Windows, macOS and Linux builds](https://github.com/Secure
 | **GitHub Copilot CLI** | Native plugin | `copilot-cli` |
 | **Cursor** | Native plugin | `cursor` |
 | **OpenCode** *(1.18+)* | Native plugin — in-process ES module, no subprocess hooks | `opencode` |
+| **Antigravity** | Native plugin, bundled hooks | `antigravity` |
 | **OpenClaw / ClawdBot** | Native plugin | `openclaw` |
 | **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install`) | `langchain` |
 | **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install`) | `langgraph` |

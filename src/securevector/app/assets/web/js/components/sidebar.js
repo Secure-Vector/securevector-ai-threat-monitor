@@ -58,7 +58,7 @@ const Sidebar = {
             { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', aliases: ['skill-permissions'],
               tooltip: 'Static scan of installed agent skills before they run' },
           ] },
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['connect-wizard', 'integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['connect-wizard', 'integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-antigravity', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
           tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
         { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
           tooltip: 'SIEM forwarding and Cloud Connect activity',
@@ -66,7 +66,7 @@ const Sidebar = {
             { id: 'siem-export', label: 'SIEM Forwarder' },
             { id: 'cloud-activity', label: 'Cloud Activity', cloud: true },
           ] },
-        { id: 'guide', label: 'Guide', icon: 'book', aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
+        { id: 'guide', label: 'Guide', icon: 'book', aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-antigravity', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
           tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
         { id: 'settings', label: 'Settings', icon: 'settings', aliases: ['guardian-ml'] },
     ],
@@ -1057,6 +1057,31 @@ const Sidebar = {
         opencodePluginBanner.addEventListener('click', () => this.navigate('proxy-opencode'));
         statusStack.appendChild(opencodePluginBanner);
 
+        // Antigravity plugin indicator. Same three states and cadence as the
+        // four banners above; polls /api/hooks/antigravity/status. Neutral dot
+        // like its siblings: on this page colour carries security state, and
+        // which harness a row names is not one.
+        const antigravityPluginBanner = document.createElement('button');
+        antigravityPluginBanner.type = 'button';
+        antigravityPluginBanner.id = 'antigravity-plugin-active-banner';
+        antigravityPluginBanner.className = 'proxy-banner-pulse';
+        antigravityPluginBanner.setAttribute('aria-label', 'Open Antigravity plugin settings');
+        antigravityPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid var(--border-default); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        antigravityPluginBanner.addEventListener('mouseenter', () => { antigravityPluginBanner.style.background = 'var(--bg-hover)'; });
+        antigravityPluginBanner.addEventListener('mouseleave', () => { antigravityPluginBanner.style.background = 'transparent'; });
+        const antigravityDot = document.createElement('span');
+        antigravityDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
+        antigravityDot.setAttribute('aria-hidden', 'true');
+        antigravityPluginBanner.appendChild(antigravityDot);
+        const antigravityText = document.createElement('span');
+        antigravityText.id = 'antigravity-plugin-banner-text';
+        antigravityText.setAttribute('aria-live', 'polite');
+        antigravityText.setAttribute('aria-atomic', 'true');
+        antigravityText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        antigravityPluginBanner.appendChild(antigravityText);
+        antigravityPluginBanner.addEventListener('click', () => this.navigate('proxy-antigravity'));
+        statusStack.appendChild(antigravityPluginBanner);
+
         // SIEM Forwarder active indicator — mirrors the proxy banner
         // styling so both stack cleanly when on together. Visible only
         // when the master toggle is enabled AND at least one destination
@@ -1097,6 +1122,7 @@ const Sidebar = {
                     this.checkCodexPluginStatus();
                     this.checkCopilotPluginStatus();
                     this.checkOpenCodePluginStatus();
+                    this.checkAntigravityPluginStatus();
                 }
             });
         }
@@ -1128,6 +1154,7 @@ const Sidebar = {
         this.checkCodexPluginStatus();
         this.checkCopilotPluginStatus();
         this.checkOpenCodePluginStatus();
+        this.checkAntigravityPluginStatus();
 
         // Put the user back where the rebuild found them (see the capture at
         // the top of render): same rail button focused, same scroll offset —
@@ -2537,6 +2564,42 @@ const Sidebar = {
             const delay = visible ? 10000 : 2000;
             clearTimeout(this._opencodePluginStatusTimer);
             this._opencodePluginStatusTimer = setTimeout(() => this.checkOpenCodePluginStatus(), delay);
+        }
+    },
+
+    async checkAntigravityPluginStatus() {
+        // Sidebar "Antigravity plugin" indicator. Mirrors the CC/Codex/Copilot/
+        // OpenCode pollers: same three states (Active / Installed, not enabled /
+        // Staged), same cadence (2s while hidden, 10s once visible). The
+        // Antigravity /status route reports installed from the staged tree, and
+        // enabled from the presence of the plugin dir plus its manifest under
+        // ~/.gemini/config/plugins, because Antigravity documents discovery by
+        // directory and names no registry recording enabled state.
+        const banner = document.getElementById('antigravity-plugin-active-banner');
+        const textEl = document.getElementById('antigravity-plugin-banner-text');
+        if (!banner || !textEl) return;
+        try {
+            const res = await fetch('/api/hooks/antigravity/status');
+            const status = res.ok ? await res.json() : null;
+            if (!status || !status.installed) {
+                banner.style.display = 'none';
+            } else if (status.auto_installed && status.enabled) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Antigravity plugin \u00b7 Active';
+            } else if (status.auto_installed) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Antigravity plugin \u00b7 Installed, not enabled';
+            } else {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Antigravity plugin \u00b7 Staged';
+            }
+        } catch (_) { /* ignore */ }
+        if (document.visibilityState === 'visible'
+            && document.getElementById('antigravity-plugin-active-banner')) {
+            const visible = banner.style.display !== 'none';
+            const delay = visible ? 10000 : 2000;
+            clearTimeout(this._antigravityPluginStatusTimer);
+            this._antigravityPluginStatusTimer = setTimeout(() => this.checkAntigravityPluginStatus(), delay);
         }
     },
 

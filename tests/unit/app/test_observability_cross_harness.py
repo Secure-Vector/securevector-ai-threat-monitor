@@ -21,7 +21,7 @@ from securevector.app.database.repositories.custom_tools import CustomToolsRepos
 
 # Every runtime the app can attribute a call to — CLI harnesses + SDK frameworks.
 ALL_HARNESSES = [
-    "claude-code", "codex", "cursor", "copilot-cli",
+    "claude-code", "codex", "cursor", "copilot-cli", "antigravity",
     "langchain", "langgraph", "crewai", "hermes",
 ]
 
