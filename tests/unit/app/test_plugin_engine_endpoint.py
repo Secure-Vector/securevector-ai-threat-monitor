@@ -30,8 +30,21 @@ UNIFIED_JS = re.compile(
 )
 
 # Everything that runs inside an agent and could read the endpoint itself.
+#
+# Every source extension, not just .js. The first version of this globbed
+# "*.js" and therefore could not see `openclaw/config.ts`, which read the
+# variable inline with no loopback check while this test reported that nothing
+# did. A guard that cannot see the file it guards is worse than no guard: it
+# reads as evidence.
+SOURCE_SUFFIXES = (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts")
+
+# The files allowed to read it: each plugin's own resolver.
+RESOLVER_NAMES = {"client.js", "config.ts"}
+
 PLUGIN_SOURCES = sorted(
-    p for p in PLUGINS.rglob("*.js") if p.name != "client.js"
+    p
+    for p in PLUGINS.rglob("*")
+    if p.is_file() and p.suffix in SOURCE_SUFFIXES and p.name not in RESOLVER_NAMES
 )
 
 
@@ -39,6 +52,20 @@ def test_every_plugin_has_a_resolver():
     # Sanity: the glob really found them, so the parametrized test below
     # cannot pass by matching nothing.
     assert len(RESOLVERS) >= 5, f"expected >=5 plugin clients, found {len(RESOLVERS)}"
+
+
+def test_the_source_sweep_actually_sees_typescript():
+    """The sweep below is only evidence if it can see every source file.
+
+    Pinned because the omission that made it blind was invisible: it globbed
+    "*.js", found nothing wrong, and passed.
+    """
+    suffixes = {p.suffix for p in PLUGIN_SOURCES}
+    assert ".ts" in suffixes, (
+        f"the source sweep sees only {sorted(suffixes)}; a TypeScript plugin "
+        "reader would be invisible to it"
+    )
+    assert len(PLUGIN_SOURCES) >= 25, f"only swept {len(PLUGIN_SOURCES)} files"
 
 
 @pytest.mark.parametrize("client", RESOLVERS, ids=lambda p: str(p.relative_to(PLUGINS)))
@@ -61,9 +88,16 @@ def test_nothing_else_reads_the_endpoint_variable(source):
     arguments to whatever the variable names without the warning that says so.
     """
     src = source.read_text()
-    for name in ("SECUREVECTOR_ENGINE_ENDPOINT", "SV_BASE_URL"):
-        assert name not in src, (
+    # A READ, not a mention: `process.env.NAME`. Matching the bare name also
+    # matched the comment explaining why the read was removed, which would
+    # have made the only way to pass be to stop explaining.
+    for name in ("SECUREVECTOR_ENGINE_ENDPOINT", "SV_BASE_URL", "SECUREVECTOR_URL"):
+        assert not re.search(rf"process\.env\.{name}\b", src), (
             f"{source.relative_to(PLUGINS)} reads {name} directly; call "
+            "resolveBaseUrl() from lib/client.js instead"
+        )
+        assert not re.search(rf"""process\.env\[\s*["']{name}["']""", src), (
+            f"{source.relative_to(PLUGINS)} reads {name} by index; call "
             "resolveBaseUrl() from lib/client.js instead"
         )
 

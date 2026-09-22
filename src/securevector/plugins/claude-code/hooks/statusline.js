@@ -37,7 +37,14 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const BASE_URL = process.env.SECUREVECTOR_URL || 'http://127.0.0.1:8741';
+// Through the shared resolver, like every other hook: it honours the unified
+// SECUREVECTOR_ENGINE_ENDPOINT (this line used to read only the legacy
+// SECUREVECTOR_URL, so the statusline stayed pointed at the local app while
+// the rest of the plugin followed a self-host engine), and it names a host
+// that is not this machine before anything is requested from it.
+const { resolveBaseUrl } = require('../lib/client.js');
+
+const BASE_URL = resolveBaseUrl();
 
 // Foreground fetch budget — only governs the fast endpoints.
 const FAST_TIMEOUT_MS = 1500;

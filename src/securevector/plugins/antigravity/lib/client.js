@@ -204,7 +204,8 @@ let warnedEndpoint = false;
  * @returns {string}
  */
 function resolveBaseUrl() {
-  const raw = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || '';
+  const raw = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL
+    || process.env.SECUREVECTOR_URL || '';
   const baseUrl = raw || DEFAULT_ENGINE_URL;
   if (!raw || warnedEndpoint) return baseUrl;
   warnedEndpoint = true;

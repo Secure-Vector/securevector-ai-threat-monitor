@@ -46,7 +46,10 @@ test('no hook reads the endpoint environment variable for itself', () => {
     if (!fs.existsSync(hooks)) continue;
     for (const f of fs.readdirSync(hooks).filter((n) => n.endsWith('.js'))) {
       const src = fs.readFileSync(path.join(hooks, f), 'utf8');
-      if (src.includes('SECUREVECTOR_ENGINE_ENDPOINT') || src.includes('SV_BASE_URL')) {
+      // A READ, not a mention. Matching the bare name also matched the
+      // comment explaining why the read was removed, so the only way to pass
+      // would have been to stop explaining.
+      if (/process\.env\.(SECUREVECTOR_ENGINE_ENDPOINT|SV_BASE_URL|SECUREVECTOR_URL)\b/.test(src)) {
         offenders.push(`${h}/hooks/${f}`);
       }
     }
