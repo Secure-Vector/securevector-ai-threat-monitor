@@ -37,7 +37,6 @@ const { normalize, isMcpToolName } = require('../lib/normalize.js');
 const { resolveBaseUrl, postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
 const { redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'antigravity';
 

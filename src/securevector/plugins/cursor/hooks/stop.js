@@ -20,7 +20,7 @@
 'use strict';
 
 const { resolveBaseUrl, postJsonAndForget } = require('../lib/client.js');
-const { sessionIdFrom, readAllStdin, DEFAULT_BASE_URL } = require('../lib/decide.js');
+const { sessionIdFrom, readAllStdin } = require('../lib/decide.js');
 
 const RUNTIME_KIND = 'cursor';
 

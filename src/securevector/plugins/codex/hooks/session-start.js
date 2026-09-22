@@ -28,7 +28,6 @@
 const { resolveBaseUrl, postJsonAndForget, getJson } = require('../lib/client.js');
 const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'codex';
 
 async function readAllStdin() {

@@ -147,12 +147,39 @@ def test_installed_hooks_register_the_three_documented_events(client):
 
 def test_install_substitutes_the_local_app_url(client, monkeypatch):
     """Staging rewrites the default loopback URL to the app's actual port, or
-    every hook posts its audit rows into the void on a relocated install."""
+    every hook posts its audit rows into the void on a relocated install.
+
+    Asserted over the WHOLE installed tree rather than one named file. It used
+    to check `hooks/pre-tool-use.js`, because that is where the default lived;
+    when the default moved into `lib/client.js` the check failed loudly, which
+    was lucky. Had it been written against a file that merely still contained
+    SOME url, it would have passed while the real default went unsubstituted
+    and every hook posted into the void. The property is about the tree, so
+    the test is too: the app's port is present somewhere, and the stock one is
+    present nowhere.
+    """
     monkeypatch.setattr(mod._hooks_common, "resolve_sv_url", lambda: "http://127.0.0.1:9911")
     client.post("/api/hooks/antigravity/install", headers=PAGE_HEADERS)
-    hook = (mod.ANTIGRAVITY_PLUGIN_DIR / "hooks" / "pre-tool-use.js").read_text()
-    assert "http://127.0.0.1:9911" in hook
-    assert "http://127.0.0.1:8741" not in hook
+
+    installed = sorted(
+        p for p in mod.ANTIGRAVITY_PLUGIN_DIR.rglob("*")
+        if p.is_file() and p.suffix in {".js", ".json"}
+    )
+    assert installed, "nothing was installed"
+
+    stock = [
+        p.relative_to(mod.ANTIGRAVITY_PLUGIN_DIR)
+        for p in installed
+        if "http://127.0.0.1:8741" in p.read_text() or "http://localhost:8741" in p.read_text()
+    ]
+    assert not stock, f"these still carry the stock port and would post into the void: {stock}"
+
+    substituted = [
+        p.relative_to(mod.ANTIGRAVITY_PLUGIN_DIR)
+        for p in installed
+        if "http://127.0.0.1:9911" in p.read_text()
+    ]
+    assert substituted, "the app's actual port does not appear anywhere in the installed tree"
 
 
 def test_install_is_idempotent(client):

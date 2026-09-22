@@ -29,7 +29,6 @@ const { resolveBaseUrl, postJsonAndForget, fetchSyncedOverrides } = require('../
 const { redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'copilot-cli';
 const SOURCE = 'copilot-cli-plugin';

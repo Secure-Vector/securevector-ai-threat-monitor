@@ -30,7 +30,6 @@
 const { redactForScan } = require('../lib/redact.js');
 const { resolveBaseUrl, postJsonAndForget } = require('../lib/client.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'codex';
 const SCAN_TEXT_LIMIT = 8000; // bytes, matches PostToolUse cap
 const SESSION_ID_MAX = 128;
