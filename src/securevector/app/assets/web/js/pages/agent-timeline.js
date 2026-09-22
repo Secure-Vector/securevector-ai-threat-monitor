@@ -20,7 +20,7 @@ const TL_RUNTIME_COLOR = {
     'copilot-cli': '#8b949e', cursor: '#8b949e', opencode: '#8b949e',
     antigravity: '#8b949e',
     langchain: '#8b949e', langgraph: '#8b949e', crewai: '#8b949e',
-    hermes: '#8b949e',
+    hermes: '#8b949e', python: '#8b949e', node: '#8b949e',
 };
 const TL_OUTCOME = {
     block: { color: '#ef4444', label: 'BLOCKED' },

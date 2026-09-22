@@ -138,3 +138,35 @@ def test_sidebar_banner_collapses_with_the_rail(slug):
             f"sidebar.js creates #{element_id} but styles.css never collapses it, "
             "so it spills out of the collapsed rail"
         )
+
+
+def test_setup_prose_names_the_same_harnesses_as_the_chip_row():
+    """The one-line Setup guides blurb and the chip row below it must agree.
+
+    Two lists of the same thing, forty lines apart, one prose and one data.
+    The chip row is inside a card that is collapsed by default, so an omission
+    in the prose is what a reader actually sees and the chip row is what looks
+    correct when someone greps. Antigravity landed in the chips and not in the
+    prose, and nothing noticed.
+
+    The expected names are read out of the chip row rather than listed here,
+    so this cannot drift into a second hand-maintained copy of the same list.
+    """
+    src = _read("js/pages/getting-started.js")
+
+    row = re.search(r"group\('Coding agents',\s*\[(.*?)\]\);", src, re.S)
+    assert row, "the Coding agents chip row moved or was renamed"
+    chips = re.findall(r"\['([^']+)',\s*'guide-[a-z-]+'\]", row.group(1))
+    assert len(chips) >= 5, f"only parsed {chips} out of the chip row"
+
+    blurb = re.search(r"coding-agent plugins \(([^)]*)\)", src)
+    assert blurb, "the Setup guides blurb no longer lists the coding agents"
+    named = blurb.group(1)
+
+    # "GitHub Copilot CLI" in the chip is "Copilot CLI" in the blurb, and
+    # "OpenClaw / ClawdBot" is "OpenClaw": compare on the distinctive word.
+    missing = [c for c in chips if c.split(" / ")[0].split()[-1] not in named]
+    assert not missing, (
+        f"the Setup guides blurb omits {missing}, so the collapsed card is the "
+        "only place a reader would learn those harnesses are supported"
+    )

@@ -101,9 +101,9 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=450/);
+  assert.match(html, /styles\.css\?v=451/);
   assert.match(html, /terminals\.js\?v=77/);
-  assert.match(html, /agent-runs\.js\?v=361/);
+  assert.match(html, /agent-runs\.js\?v=363/);
 });
 
 test('terminals.js coerces run counters with Number() before interpolating', () => {

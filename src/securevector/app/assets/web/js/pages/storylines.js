@@ -32,14 +32,14 @@ const STORY_RUNTIME_COLOR = {
     'copilot-cli': '#8b949e', cursor: '#8b949e', opencode: '#8b949e',
     antigravity: '#8b949e',
     langchain: '#8b949e', langgraph: '#8b949e', crewai: '#8b949e',
-    hermes: '#8b949e',
+    hermes: '#8b949e', python: '#8b949e', node: '#8b949e',
 };
 const STORY_RUNTIME_LABEL = {
     'claude-code': 'Claude Code', codex: 'Codex', openclaw: 'OpenClaw',
     'copilot-cli': 'Copilot CLI', cursor: 'Cursor', opencode: 'OpenCode',
     antigravity: 'Antigravity',
     langchain: 'LangChain', langgraph: 'LangGraph', crewai: 'CrewAI',
-    hermes: 'Hermes',
+    hermes: 'Hermes', python: 'Python', node: 'Node',
 };
 const STORY_RISK_COLOR = { green: '#10b981', amber: '#f59e0b', red: '#ef4444' };
 const STORY_VERDICT = {

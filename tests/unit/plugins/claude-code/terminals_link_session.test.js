@@ -452,5 +452,5 @@ test('index.html pins the bumped asset versions', () => {
   assert.match(html, /api\.js\?v=326/);
   assert.match(html, /terminals\.js\?v=77/);
   assert.match(html, /sidebar\.js\?v=178/);
-  assert.match(html, /styles\.css\?v=450/);
+  assert.match(html, /styles\.css\?v=451/);
 });
