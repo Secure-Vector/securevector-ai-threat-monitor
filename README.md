@@ -105,14 +105,15 @@ Prefer an installer? [Windows, macOS and Linux builds](https://github.com/Secure
   <p><em>Meet the Guardian, our new on-device advisor. Pick any of its six colors.</em></p>
 </div>
 
-> **What's new in v5.2.0**
-> - **Cost / Token Optimizer** — Cost Tracking answers *how much*; the Optimizer answers *why* and *what to change*. An opt-in local scan ranks each session's waste and deep-links every finding to the exact turns in Traces. Copy a fix and it re-measures: only measured wins are celebrated.
-> - **Per-run limits** — opt-in tool-call caps, a loop breaker, and per-run cost/token ceilings on the existing deny rails, each with an audit row and a one-click, time-boxed exemption. Ships off.
-> - **SecureVector Guard for OpenCode** — the Guard plugin family gains OpenCode (1.18+) as a native in-process module, one-click installed, on the same policy rails as every other harness.
-> - **The Guardian assistant** — a docked, advisory character that orients you on whatever page you just opened, announces a blocked egress the moment it happens with one click through to the evidence, and wears whichever of six accent colors you pick (above). It never types into a session or edits your files.
-> - **An honest fill gauge** — context-fill percentage now comes from evidence in the transcript, so it can never read "118% full" again.
+> **What's new in v6.0.0**
+> - **Agent Sessions**: launch Claude Code, Codex, GitHub Copilot CLI or OpenCode from inside SecureVector on a terminal the app owns, and watch it work with tool calls, traces, egress, context and approvals beside it. A session only starts when its Guard plugin is installed and enabled. [More](#agent-sessions)
+> - **Adopt the sessions you started yourself**: a harness running in your own terminal appears under **Running outside SecureVector** once its Guard reports a call. Govern it, continue it on an app terminal, or unlink it.
+> - **Watched, or merely quiet**: a session that is still writing its transcript but no longer sending governed calls is marked **unverified**, so an ungoverned agent never looks the same as an idle one.
+> - **Session commands in the CLI**: `sv-monitor session list | harnesses | unlinked | launch | link | stop`, every one with `--json`, over the same local API the page uses.
+> - **SecureVector Guard for Antigravity**: the Guard family's seventh harness, installed from **Connect Agents** like the others. The app reports a Guard as governing only when its hooks can actually run.
+> - **Install from npm**: `npx @securevector/cli` starts the same app for Node toolchains, with no install script. JavaScript and TypeScript agents get [`@securevector/sdk`](#any-javascript-agent-one-import), zero runtime dependencies.
 >
-> Also: a redesigned Cost Summary and a full model-pricing re-verification. **Previously:** v5.1.0 shipped Agent Egress Governance, blast-radius inventory, scope-expansion alerting, and counterfactual policy replay.
+> **Previously:** v5.3.0 shipped the native desktop shell, the three-group navigation rail, and full 8 KB traces kept locally with secrets redacted on every write. v5.2.0 shipped the Cost / Token Optimizer, per-run limits, and the Guard for OpenCode.
 >
 > Full release history in the [CHANGELOG](CHANGELOG.md).
 
