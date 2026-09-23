@@ -14,6 +14,8 @@ import sys
 from unittest.mock import Mock, patch
 from typing import Dict, Any
 
+import securevector
+
 # Add src to path for testing
 sys.path.insert(0, 'src')
 
@@ -57,7 +59,7 @@ class TestMCPServer:
 
         assert server is not None
         assert server.config.name == "SecureVector AI Threat Monitor"
-        assert server.config.version == "1.0.0"
+        assert server.config.version == securevector.__version__
 
     def test_server_configuration(self, test_server):
         """Test server configuration."""
@@ -284,7 +286,7 @@ class TestMCPConfiguration:
         config = create_default_config()
 
         assert config.name == "SecureVector AI Threat Monitor"
-        assert config.version == "1.0.0"
+        assert config.version == securevector.__version__
         assert config.transport == "stdio"
 
     def test_development_config_creation(self):
