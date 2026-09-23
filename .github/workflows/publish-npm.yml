@@ -20,9 +20,11 @@
 #        Workflow name:    publish-npm.yml
 #        Environment:      production-npm        (must match the job below)
 #
-# Leave NPM_TOKEN unset. The env below still reads it, exactly as the n8n
-# workflow does, so a token remains a working fallback if OIDC is ever
-# unavailable; with no secret set it resolves to empty and npm uses OIDC.
+# OIDC only, which is how the n8n package actually publishes (no NPM_TOKEN
+# secret exists there either). Unlike the n8n workflow, the publish step here
+# reads no token at all, so a stray NPM_TOKEN secret can never become a second,
+# unreviewed way to publish. Match n8n's Publishing access setting too:
+# "Require two-factor authentication and disallow tokens".
 #
 # THE FIRST PUBLISH is the one exception. A package that does not exist yet has
 # no settings page to add a trusted publisher to, so version one has to be
@@ -38,6 +40,18 @@
 # a security product. Configure it at
 #   Settings, Environments, New environment, name: production-npm,
 #   Required reviewers, add the repo owners.
+#   Deployment branches and tags: selected, tag pattern v* only (n8n uses
+#   *.*.* because its tags carry no v).
+#
+# ─── MASTER ONLY ──────────────────────────────────────────────────────────────
+#
+# Three layers, each enough on its own to stop a publish from anywhere else:
+#   1. The environment accepts only v* tags, so a run on a branch never gets
+#      the OIDC token npm trusts.
+#   2. The job refuses any ref that is not a v* tag.
+#   3. The tagged commit must already be on master. A tag pushed on a feature
+#      or release branch fails here, before anything is published.
+# Tags themselves are protected by the protect-release-tags ruleset.
 
 name: Publish npm launcher
 
@@ -55,6 +69,8 @@ on:
 jobs:
   publish:
     name: Publish @securevector/cli
+    # A dispatch has to be started on a v* tag, never on a branch.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: production-npm
 
@@ -65,12 +81,28 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to commit SHAs: a moved tag on a third-party action
+      # must not be able to run inside a job that can mint a publish token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history so the master check below can see the branch.
+          fetch-depth: 0
+          # Nothing after checkout needs to push, so leave no token on disk.
+          persist-credentials: false
+
+      - name: Refuse anything that is not on master
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on master. Publish only from a release merged to master."
+            exit 1
+          fi
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 'lts/*'
+          # Node 24 ships npm 11, the first major that can publish through
+          # trusted publishing (11.5.1 and later).
+          node-version: '24'
           # Provenance only signs when the publish target is set explicitly
           # through setup-node.
           registry-url: 'https://registry.npmjs.org/'
@@ -80,7 +112,8 @@ jobs:
       # reproducible rather than whatever npm resolves on the day.
       - name: Install dependencies
         working-directory: npm
-        run: npm ci
+        # No lifecycle scripts from anything in the tree run in this job.
+        run: npm ci --ignore-scripts
 
       - name: Run the launcher's tests
         working-directory: npm
@@ -112,8 +145,8 @@ jobs:
             exit 1
           fi
         env:
-          TAG_NAME: ${{ github.event.release.tag_name }}
-        if: github.event_name == 'release'
+          # The release's tag, or the tag a dispatch was started on.
+          TAG_NAME: ${{ github.event.release.tag_name || github.ref_name }}
 
       - name: Publish
         # --provenance requires the id-token: write permission above; the
@@ -122,8 +155,6 @@ jobs:
         # and exists to satisfy their community-node rules. Plain npm publish
         # does the same job here without the dependency.
         working-directory: npm
-        run: npm publish --provenance --access public
-        env:
-          # Both, as the n8n workflow sets them. Unset means empty means OIDC.
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm --version
+          npm publish --provenance --access public
