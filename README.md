@@ -22,7 +22,7 @@
 
 </div>
 
-<p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Agent Sessions: every agent on this machine, with a governance column beside the open session showing context and cost, egress hosts, and a verdict on every tool call" width="100%"></p>
+<p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Agent Sessions: launch a governed Claude Code session, split the pane vertically to run it beside another, with the governance column on the right" width="100%"></p>
 
 ## Python: two lines
 
@@ -41,8 +41,6 @@ with guard.session("ticket-8812", user_id="u-42"):
 ```
 
 Open [http://localhost:8741](http://localhost:8741) and every model call is there: model, tokens, cost, duration, finish reason, a verdict, and a redacted preview of the prompt and the response. Every `@guard` tool call nests under the model turn that asked for it.
-
-<p align="center"><img src="docs/screenshots/traces-split-pane.gif" alt="Traces: pick an agent on the left, read its whole run as a waterfall on the right" width="100%"></p>
 
 Any other provider gets one span per call with `guard.generation()`, and anything already instrumented with the OpenTelemetry GenAI conventions can send straight to `/v1/traces`. Details in [docs/TRACING.md](docs/TRACING.md).
 
