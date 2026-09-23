@@ -11,7 +11,7 @@
 <table>
   <tr><th></th><th>Python</th><th>JavaScript / TypeScript</th></tr>
   <tr><td><strong>Run the app</strong><br><sub>once per machine, pick one</sub></td><td><code>pip install "securevector-ai-monitor[app]"</code><br><code>securevector-app --web</code></td><td><code>npx @securevector/cli</code></td></tr>
-  <tr><td><strong>Trace your agent</strong> <em>(optional)</em><br><sub>from your own code; Claude Code, Codex, and other harnesses do not need it</sub></td><td>included: <code>from securevector import guard</code></td><td><code>npm install @securevector/sdk</code></td></tr>
+  <tr><td><strong>Trace your agent</strong> <em>(optional)</em><br><sub>agents you build, e.g. with LangGraph, CrewAI, or LangChain.js. Claude Code, Codex, and other harnesses do not need it</sub></td><td><code>from securevector import guard</code> (included)<br>or the <a href="https://github.com/Secure-Vector/securevector-sdk-langgraph">LangGraph</a>, <a href="https://github.com/Secure-Vector/securevector-sdk-crewai">CrewAI</a>, <a href="https://github.com/Secure-Vector/securevector-sdk-langchain">LangChain</a> SDKs</td><td><code>npm install @securevector/sdk</code><br><sub>LangChain.js, Vercel AI SDK, Mastra, plain Node</sub></td></tr>
 </table>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
