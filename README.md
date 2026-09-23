@@ -10,8 +10,8 @@
 
 <table>
   <tr><th></th><th>Python</th><th>JavaScript / TypeScript</th></tr>
-  <tr><td><strong>1. Run the app</strong></td><td><code>pip install "securevector-ai-monitor[app]"</code><br><code>securevector-app --web</code></td><td><code>npx @securevector/cli</code></td></tr>
-  <tr><td><strong>2. Trace your agent</strong></td><td>included: <code>from securevector import guard</code></td><td><code>npm install @securevector/sdk</code></td></tr>
+  <tr><td><strong>Run the app</strong><br><sub>once per machine, pick one</sub></td><td><code>pip install "securevector-ai-monitor[app]"</code><br><code>securevector-app --web</code></td><td><code>npx @securevector/cli</code></td></tr>
+  <tr><td><strong>Your own agent code</strong><br><sub>optional, not needed for Claude Code, Codex, and other harnesses</sub></td><td>included: <code>from securevector import guard</code></td><td><code>npm install @securevector/sdk</code></td></tr>
 </table>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
@@ -48,17 +48,17 @@ Open [http://localhost:8741](http://localhost:8741) and every model call is ther
 
 Any other provider gets one span per call with `guard.generation()`, and anything already instrumented with the OpenTelemetry GenAI conventions can send straight to `/v1/traces`. Details in [docs/TRACING.md](docs/TRACING.md).
 
-## JavaScript and npm: two lines
+## JavaScript and npm
 
-New in 6.0. Everything above, for Node toolchains and JavaScript or TypeScript agents. SDK source and full API: [`securevector-sdk-js`](https://github.com/Secure-Vector/securevector-sdk-js) · [npm](https://www.npmjs.com/package/@securevector/sdk).
+New in 6.0. Two separate pieces, and most people need only the first. SDK source and full API: [`securevector-sdk-js`](https://github.com/Secure-Vector/securevector-sdk-js) · [npm](https://www.npmjs.com/package/@securevector/sdk).
 
-Start the app with the launcher:
+**The app, from npm.** Use this instead of `pip install` if you live in Node. You need the app once per machine, from either PyPI or npm, not both. Claude Code, Codex, Copilot CLI, and OpenCode are governed by their Guard plugins from here, with no SDK.
 
 ```bash
 npx @securevector/cli            # or: npm install -g @securevector/cli && securevector
 ```
 
-Trace a JavaScript or TypeScript agent with the SDK:
+**The SDK, only for agents you write yourself.** If your own Node or TypeScript code calls a model or runs tools, add the SDK to that project. It reports to the app above, however you installed it.
 
 ```bash
 npm install @securevector/sdk
