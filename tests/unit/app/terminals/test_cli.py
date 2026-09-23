@@ -9,6 +9,7 @@ not running, bad harness, missing folder).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -75,8 +76,7 @@ def test_the_cli_never_offers_argv_env_or_a_command():
     text = parser.format_help()
     for forbidden in ("--argv", "--env", "--command", "--exec", "--shell"):
         assert forbidden not in text
-    source = (session_cli.__file__,)
-    body = open(source[0], encoding="utf-8").read()
+    body = Path(session_cli.__file__).read_text(encoding="utf-8")
     assert "subprocess" not in body, "the CLI must never start a process itself"
     assert "os.exec" not in body
 
@@ -390,7 +390,7 @@ def test_a_runtime_file_with_no_usable_port_is_refused(monkeypatch, tmp_path):
 def test_the_token_comes_from_the_same_resolver_the_server_writes_with():
     """A second copy of the per-platform path would read a token no app ever
     wrote, and report "open the app once" while the app was running."""
-    body = open(session_client.__file__, encoding="utf-8").read()
+    body = Path(session_client.__file__).read_text(encoding="utf-8")
     assert "get_app_data_dir" in body
     assert "Application Support" not in body, "no hand-rolled platform path"
 
@@ -398,7 +398,7 @@ def test_the_token_comes_from_the_same_resolver_the_server_writes_with():
 def test_quoting_is_left_to_the_shell_nowhere_in_this_module():
     """The CLI builds no command line at all. Anything it prints for a person
     to copy lives in the page, which quotes for display only."""
-    body = open(session_cli.__file__, encoding="utf-8").read()
+    body = Path(session_cli.__file__).read_text(encoding="utf-8")
     assert "shell=True" not in body
     assert "os.system" not in body
 

@@ -369,7 +369,6 @@ class TerminalManager:
         # first (then fill in the pid once spawn returns) makes that race
         # harmless: _on_exit always finds a row to update.
         created = False
-        spawned = False
         try:
             await self.store.create_task(
                 task_id, executor_id=executor_id, workspace=str(launch.cwd), title=title, pid=None
@@ -386,12 +385,9 @@ class TerminalManager:
                 self.settings.default_cols,
                 self._on_exit_threadsafe,
             )
-            spawned = True
         except Exception as exc:
             self._hook_tokens.pop(task_id, None)
             self._running.discard(task_id)
-            if spawned:
-                self.host.forget(task_id)
             if created:
                 await self.store.set_exit(task_id, None)
             detail = redact_secrets(f"{type(exc).__name__}: {exc}", "outgoing")[0]
@@ -532,7 +528,7 @@ class TerminalManager:
         try:
             rows = await self.store.list_verdicts(session_id, limit=50)
         except Exception:
-            logger.debug("linked workspace lookup failed for %s", session_id, exc_info=True)
+            logger.debug("linked workspace lookup failed for %s", str(session_id).replace("\n", " ").replace("\r", " "), exc_info=True)
             return UNKNOWN_WORKSPACE
         for row in rows:
             found = cwd_from_preview(row.get("args_preview"))
@@ -552,7 +548,7 @@ class TerminalManager:
                 None, resolve_session_cwd, executor_id, session_id
             )
         except Exception:
-            logger.debug("session cwd lookup failed for %s", session_id, exc_info=True)
+            logger.debug("session cwd lookup failed for %s", str(session_id).replace("\n", " ").replace("\r", " "), exc_info=True)
             return None
 
     async def _repair_workspace(self, item: dict) -> None:

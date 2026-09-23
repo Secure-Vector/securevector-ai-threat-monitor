@@ -466,12 +466,12 @@ async def task_socket(websocket: WebSocket, task_id: str):
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
-                logger.debug("terminal ws pump task failed for %s", task_id, exc_info=result)
+                logger.debug("terminal ws pump task failed for %s", str(task_id).replace("\n", " ").replace("\r", " "), exc_info=result)
         manager.detach(task_id, sub)
         try:
             await manager.store.add_event(task_id, kind="detach", origin="ui")
         except Exception:
-            logger.debug("detach audit failed for %s", task_id, exc_info=True)
+            logger.debug("detach audit failed for %s", str(task_id).replace("\n", " ").replace("\r", " "), exc_info=True)
         try:
             await websocket.close()
         except Exception:
