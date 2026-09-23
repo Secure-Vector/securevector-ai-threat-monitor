@@ -157,20 +157,27 @@ async def test_stop_kills_the_whole_process_group(tmp_path):
 async def test_slow_subscriber_drops_oldest_and_counts(tmp_path):
     host = InProcessPtyHost(queue_size=4)
     loop = asyncio.get_running_loop()
+    # Pause first so the attach below happens before any output, then print
+    # in spaced bursts: one tight loop can land before attach, or coalesce
+    # into four PTY reads or fewer, and then nothing overflows.
     host.spawn(
         "t4",
-        _sh("i=0; while [ $i -lt 200 ]; do echo line$i; i=$((i+1)); done", str(tmp_path)),
+        _sh(
+            "sleep 0.3; i=0; while [ $i -lt 20 ]; do echo line$i; sleep 0.02; i=$((i+1)); done",
+            str(tmp_path),
+        ),
         rows=24,
         cols=80,
         on_exit=lambda *_: None,
     )
     _, sub = host.attach("t4", loop)
-    # Do not read for a moment so the bounded queue overflows.
-    await asyncio.sleep(0.5)
+    # Never read, so the bounded queue overflows. Wait for the last line.
+    assert await _wait_for(lambda: b"line19" in host.snapshot("t4"), timeout=10.0)
+    await asyncio.sleep(0.1)  # let the final call_soon_threadsafe pushes land
     assert sub.queue.qsize() <= 4
     assert sub.dropped > 0
     # Everything is still in the ring for a later replay.
-    assert b"line199" in host.snapshot("t4")
+    assert b"line0" in host.snapshot("t4")
 
 
 def test_subscriber_push_drops_oldest_directly():

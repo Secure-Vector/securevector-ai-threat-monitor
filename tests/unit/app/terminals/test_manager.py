@@ -120,6 +120,18 @@ def _stub_binary(tmp_path, name: str) -> None:
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+async def _until_done(store, task_id, timeout=5.0):
+    """Wait until the exit handler has marked ``task_id`` done. A fixed sleep
+    races the handler's database writes on a slow CI runner."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if (await store.get_task(task_id))["status"] == "done":
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"task {task_id} never reached done")
+
+
 async def _manager(
     tmp_path, host=None, plugin_installed=True, plugin_enabled=False, codex_plugin_enabled=False,
     copilot_cli_plugin_enabled=False, opencode_plugin_enabled=False,
@@ -355,13 +367,18 @@ async def test_finished_sessions_are_retired_from_the_host_once_the_limit_is_pas
     b = await m.spawn("claude-code", str(ws), title=None, origin="ui")
     c = await m.spawn("claude-code", str(ws), title=None, origin="ui")
     host.exit(a["id"], 0)
-    await asyncio.sleep(0.05)
+    await _until_done(m.store, a["id"])
     assert host.forgotten == []
     host.exit(b["id"], 0)
-    await asyncio.sleep(0.05)
+    await _until_done(m.store, b["id"])
     assert host.forgotten == []
     host.exit(c["id"], 0)
-    await asyncio.sleep(0.05)
+    await _until_done(m.store, c["id"])
+    # Retirement runs after the task is marked done, so poll for it.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 5.0
+    while not host.forgotten and loop.time() < deadline:
+        await asyncio.sleep(0.02)
     # a was the oldest finished task: once a third finishes, it alone is
     # forgotten from the host. b and c (the two newest) remain attachable.
     assert host.forgotten == [a["id"]]

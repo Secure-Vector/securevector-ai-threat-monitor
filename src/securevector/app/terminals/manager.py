@@ -751,6 +751,10 @@ class TerminalManager:
         future = asyncio.run_coroutine_threadsafe(self._on_exit(task_id, code), self._loop)
 
         def _log_if_failed(fut: "asyncio.Future") -> None:
+            # Cancelled at loop shutdown: nothing failed, and .exception()
+            # would raise CancelledError from inside the callback.
+            if fut.cancelled():
+                return
             exc = fut.exception()
             if exc is not None:
                 logger.exception("_on_exit failed for task %s", task_id, exc_info=exc)
