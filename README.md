@@ -8,7 +8,11 @@
 
 <p><strong>Python and JavaScript.</strong> Install from <a href="https://pypi.org/project/securevector-ai-monitor">PyPI</a> or <a href="https://www.npmjs.com/package/@securevector/cli">npm</a>, and govern Node and TypeScript agents with the <a href="https://github.com/Secure-Vector/securevector-sdk-js"><code>@securevector/sdk</code></a> JavaScript SDK, the same verdicts, traces, and audit chain as the Python package.</p>
 
-<p><code>pip install "securevector-ai-monitor[app]"</code> &nbsp;·&nbsp; <code>npx @securevector/cli</code> &nbsp;·&nbsp; <code>npm install @securevector/sdk</code></p>
+<table>
+  <tr><th></th><th>Python</th><th>JavaScript / TypeScript</th></tr>
+  <tr><td><strong>1. Run the app</strong></td><td><code>pip install "securevector-ai-monitor[app]"</code><br><code>securevector-app --web</code></td><td><code>npx @securevector/cli</code></td></tr>
+  <tr><td><strong>2. Trace your agent</strong></td><td>included: <code>from securevector import guard</code></td><td><code>npm install @securevector/sdk</code></td></tr>
+</table>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
