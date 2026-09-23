@@ -16,6 +16,8 @@
 
 </div>
 
+<p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Agent Sessions: every agent on this machine, with a governance column beside the open session showing context and cost, egress hosts, and a verdict on every tool call" width="100%"></p>
+
 ## Two lines of Python
 
 ```bash
