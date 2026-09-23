@@ -157,6 +157,13 @@ const TerminalsPage = {
               <div class="terminals-board-summary" id="terminals-board-summary" hidden></div>
               <div class="terminals-adopt" id="terminals-adopt" hidden></div>
               <div id="terminals-task-list" class="terminals-task-list"></div>
+              <details class="terminals-cli terminals-board-cli" id="terminals-board-cli">
+                <summary>Launch from your terminal</summary>
+                <pre class="terminals-cli-cmd">${this.CLI_BIN} launch claude-code ~/project
+${this.CLI_BIN} list
+${this.CLI_BIN} stop &lt;id&gt;
+# with npm: securevector monitor session ...</pre>
+              </details>
             </section>
             <div class="terminals-workspace">
             <section class="terminals-centre">
