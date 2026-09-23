@@ -11,7 +11,7 @@
 <table>
   <tr><th></th><th>Python</th><th>JavaScript / TypeScript</th></tr>
   <tr><td><strong>Run the app</strong><br><sub>once per machine, pick one</sub></td><td><code>pip install "securevector-ai-monitor[app]"</code><br><code>securevector-app --web</code></td><td><code>npx @securevector/cli</code></td></tr>
-  <tr><td><strong>Your own agent code</strong><br><sub>optional, not needed for Claude Code, Codex, and other harnesses</sub></td><td>included: <code>from securevector import guard</code></td><td><code>npm install @securevector/sdk</code></td></tr>
+  <tr><td><strong>Trace your agent</strong> <em>(optional)</em><br><sub>from your own code; Claude Code, Codex, and other harnesses do not need it</sub></td><td>included: <code>from securevector import guard</code></td><td><code>npm install @securevector/sdk</code></td></tr>
 </table>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
