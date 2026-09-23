@@ -1092,6 +1092,10 @@ async def migrate_to_v25(db: DatabaseConnection) -> None:
     # if none and the CHECK is tight, the rebuild below handles the rest.
     cur = await conn.execute("PRAGMA table_info(external_forwarders)")
     cols = await cur.fetchall()
+    # Close before the rebuild: an open statement on this connection makes
+    # the DROP TABLE below fail with "database table is locked", and on
+    # older Pythons when the cursor is finalized depends on GC timing.
+    await cur.close()
     if not cols:
         # Table doesn't exist on this DB yet — nothing to do. A later
         # migrate_to_v22 run on an older install will create it with the

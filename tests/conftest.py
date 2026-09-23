@@ -44,7 +44,16 @@ def client_config():
     return {"raise_on_threat": False, "cache_enabled": True, "timeout": 30}
 
 
+_EXIT_STATUS = None
+
+
 def pytest_sessionfinish(session, exitstatus):
+    """Remember the exit status for pytest_unconfigure below."""
+    global _EXIT_STATUS
+    _EXIT_STATUS = int(exitstatus)
+
+
+def pytest_unconfigure(config):
     """Force-exit after the session summary so leaked non-daemon threads
     don't keep the runner alive past the test results.
 
@@ -56,13 +65,17 @@ def pytest_sessionfinish(session, exitstatus):
     interpreter shutdown waits indefinitely for every non-daemon thread,
     so a single leaked worker blocks `sys.exit()`.
 
-    `os._exit` skips atexit handlers and the thread-join barrier. By
-    the time this hook fires, pytest has already printed the summary
-    and computed the exit status, so the runner sees the correct
-    pass/fail status — just without the post-summary wait.
+    `os._exit` skips atexit handlers and the thread-join barrier. It runs
+    here rather than in pytest_sessionfinish because the terminal reporter
+    prints the failure details and the summary line after sessionfinish
+    returns; exiting there hid every failure's traceback in CI.
 
     This is a tactical unblock. A future cleanup should audit fixtures
     that leak DatabaseConnection / TestClient / subprocess state so
     the process can exit cleanly on its own.
     """
-    os._exit(exitstatus)
+    if _EXIT_STATUS is None:
+        return
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_EXIT_STATUS)

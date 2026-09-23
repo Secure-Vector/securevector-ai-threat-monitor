@@ -54,7 +54,13 @@ class Subscriber:
 
     def __init__(self, loop: asyncio.AbstractEventLoop, maxsize: int) -> None:
         self.loop = loop
-        self.queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
+        if sys.version_info < (3, 10):
+            # Before 3.10 a Queue binds to get_event_loop() at construction,
+            # which is not necessarily ``loop`` and raises when the calling
+            # thread has no current loop. Bind it to the loop that serves it.
+            self.queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize, loop=loop)
+        else:
+            self.queue = asyncio.Queue(maxsize=maxsize)
         self.dropped = 0
 
     def _push(self, chunk: Optional[bytes]) -> None:
