@@ -6,9 +6,15 @@
 
 <p><em>Every model call and every tool call your agent makes, on one timeline, with a security verdict on each. On your machine.</em></p>
 
+<p><strong>Python and JavaScript.</strong> Install from <a href="https://pypi.org/project/securevector-ai-monitor">PyPI</a> or <a href="https://www.npmjs.com/package/@securevector/cli">npm</a>, and govern Node and TypeScript agents with the <a href="https://github.com/Secure-Vector/securevector-sdk-js"><code>@securevector/sdk</code></a> JavaScript SDK, the same verdicts, traces, and audit chain as the Python package.</p>
+
+<p><code>pip install "securevector-ai-monitor[app]"</code> &nbsp;·&nbsp; <code>npx @securevector/cli</code> &nbsp;·&nbsp; <code>npm install @securevector/sdk</code></p>
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
+[![npm SDK](https://img.shields.io/npm/v/@securevector/sdk.svg?style=for-the-badge&logo=npm&label=%40securevector%2Fsdk&color=CB3837)](https://www.npmjs.com/package/@securevector/sdk)
+[![npm CLI](https://img.shields.io/npm/v/@securevector/cli.svg?style=for-the-badge&logo=npm&label=%40securevector%2Fcli&color=CB3837)](https://www.npmjs.com/package/@securevector/cli)
 [![Downloads/month](https://img.shields.io/pypi/dm/securevector-ai-monitor?style=for-the-badge&label=downloads%2Fmonth&color=orange)](https://pypistats.org/packages/securevector-ai-monitor)
 [![Downloads total](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads%20total&color=orange)](https://pepy.tech/project/securevector-ai-monitor)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
@@ -18,7 +24,7 @@
 
 <p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Agent Sessions: every agent on this machine, with a governance column beside the open session showing context and cost, egress hosts, and a verdict on every tool call" width="100%"></p>
 
-## Two lines of Python
+## Python: two lines
 
 ```bash
 pip install "securevector-ai-monitor[app]"
@@ -40,7 +46,9 @@ Open [http://localhost:8741](http://localhost:8741) and every model call is ther
 
 Any other provider gets one span per call with `guard.generation()`, and anything already instrumented with the OpenTelemetry GenAI conventions can send straight to `/v1/traces`. Details in [docs/TRACING.md](docs/TRACING.md).
 
-## Or from npm
+## JavaScript and npm: two lines
+
+New in 6.0. Everything above, for Node toolchains and JavaScript or TypeScript agents. SDK source and full API: [`securevector-sdk-js`](https://github.com/Secure-Vector/securevector-sdk-js) · [npm](https://www.npmjs.com/package/@securevector/sdk).
 
 Start the app with the launcher:
 
