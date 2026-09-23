@@ -38,6 +38,39 @@ Open [http://localhost:8741](http://localhost:8741) and every model call is ther
 
 Any other provider gets one span per call with `guard.generation()`, and anything already instrumented with the OpenTelemetry GenAI conventions can send straight to `/v1/traces`. Details in [docs/TRACING.md](docs/TRACING.md).
 
+## Or from npm
+
+Start the app with the launcher:
+
+```bash
+npx @securevector/cli            # or: npm install -g @securevector/cli && securevector
+```
+
+Trace a JavaScript or TypeScript agent with the SDK:
+
+```bash
+npm install @securevector/sdk
+```
+
+```ts
+import { guard, session } from '@securevector/sdk';
+
+const lookupOrder = guard(async ({ orderId }) => fetchOrder(orderId), { toolId: 'orders.lookup' });
+
+await session('ticket-8812', { userId: 'u-42' }, async () => {
+  await lookupOrder({ orderId: '8812' });   // scanned, traced, and on the audit chain
+});
+```
+
+**Requirements**
+
+| | Needs | Notes |
+|---|---|---|
+| `@securevector/cli` (launcher) | Node 18+, Python 3.10+ on PATH | The app itself is the PyPI release. On first run the launcher says what it will do, then installs the matching version into a virtual environment it manages. That first run needs network access to PyPI. There is no install script, and it never installs Python for you: `securevector doctor` says what is missing. |
+| `@securevector/sdk` | Node 20+ | Zero runtime dependencies, ESM and CommonJS. Sends to the app at `http://127.0.0.1:8741`, or to `SECUREVECTOR_ENGINE_ENDPOINT` if set. Fail-open: if the app is not running, your agent runs normally. |
+
+Full launcher commands in [Install](#option-2-npm); the SDK API in [Any JavaScript agent](#any-javascript-agent-one-import).
+
 ## What you get
 
 - **Run it here.** Launch Claude Code, Codex, Copilot CLI or OpenCode from inside SecureVector and watch the terminal live, with every call and its verdict beside it. Sessions you started in your own terminal can be adopted onto the same board.
