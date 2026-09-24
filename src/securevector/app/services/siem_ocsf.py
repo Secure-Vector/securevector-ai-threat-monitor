@@ -452,6 +452,8 @@ def encode_batch(batch: list[dict[str, Any]], *, redaction: str = "standard") ->
             out.append(encode_scan_event(payload, redaction=redaction))
         elif kind == "tool_audit":
             out.append(encode_tool_audit_event(payload, redaction=redaction))
+        # `task_event` rows are fleet-only (Agent Task lifecycle metadata);
+        # they are never encoded for a SIEM, so they fall through here too.
         # Unknown kinds are silently dropped — the outbox CHECK constraint
         # should prevent this, so this is pure belt-and-suspenders.
     return out
@@ -572,6 +574,36 @@ def _fleet_scan_verdict_row(p: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Agent Task lifecycle row (outbox kind `task_event`). The payload is already
+# flat and metadata-only; it is passed through field for field, projected on
+# this fixed key list so nothing outside it can ride along.
+_FLEET_TASK_EVENT_FIELDS = (
+    "schema",
+    "event",
+    "event_origin",
+    "emitted_at",
+    "task_id",
+    "executor_id",
+    "status",
+    "task_origin",
+    "workspace_digest",
+    "has_session",
+    "session_digest",
+    "exit_code",
+    "created_at",
+    "last_activity_at",
+    "ended_at",
+    "archived_at",
+)
+
+
+def _fleet_task_event_row(p: dict[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = {"row_type": "task_event"}
+    for key in _FLEET_TASK_EVENT_FIELDS:
+        row[key] = p.get(key)
+    return row
+
+
 def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
     """Encode outbox rows as newline-delimited flat fleet metadata (NDJSON).
 
@@ -579,7 +611,9 @@ def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
     with a detection verdict (BLOCK/DETECTED) become scan-verdict rows so the
     cloud console can show local-rule detections (#197 Phase 2) — ALLOW scans
     are skipped: the engine counts every scan-verdict row as a detection, so
-    forwarding clean scans would inflate the detected figure. Returns UTF-8
+    forwarding clean scans would inflate the detected figure. task_event rows
+    (Agent Task lifecycle metadata) pass through flat with row_type
+    "task_event". Returns UTF-8
     NDJSON bytes ready to POST to the cloud /ocsf/ingest endpoint.
     """
     lines: list[str] = []
@@ -591,6 +625,8 @@ def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
         elif kind in ("scan", "output_scan"):
             if str(payload.get("verdict") or "").upper() in ("BLOCK", "DETECTED"):
                 lines.append(json.dumps(_fleet_scan_verdict_row(payload), separators=(",", ":")))
+        elif kind == "task_event":
+            lines.append(json.dumps(_fleet_task_event_row(payload), separators=(",", ":")))
     return ("\n".join(lines)).encode("utf-8")
 
 

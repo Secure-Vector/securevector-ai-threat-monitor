@@ -25,10 +25,11 @@ Three rules hold that line, in this order:
    or an exception message. `emit()` deliberately has no parameter for it.
    The emitter takes the task row and the event kind, and nothing else.
 
-Transport: there is no cloud endpoint for this yet (a separate cloud story owns it), so this
-module ships the payload builder, the no-op gate, and a pluggable sink.
-`set_sink()` is the seam. With no sink installed, `emit()` is a no-op.
-Inventing a URL here would be worse than leaving an honest seam.
+Transport: `set_sink()` is the seam. With no sink installed, `emit()` is a
+no-op. At app startup the fleet sink (services/fleet_task_events.py) is
+installed; it queues each payload for the enrolled fleet destination only,
+through the same outbox as tool activity, and does nothing on a device that
+is not enrolled.
 """
 
 from __future__ import annotations
@@ -39,7 +40,6 @@ import hmac
 import inspect
 import logging
 import os
-import re
 import secrets
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -57,9 +57,9 @@ SCHEMA = "securevector.live_run/1"
 
 # Row columns from `terminal_tasks` that are safe to export, and why:
 #
-#   id               app-local random hex (uuid4().hex[:12]); names nothing
-#                    outside SecureVector and is the only handle the cloud
-#                    needs to follow one run across its events.
+#   id               app-local random hex (uuid4().hex[:12]). Sent only as a
+#                    keyed digest (domain "task"): stable across one run's
+#                    events, so the cloud can follow it, but not the local id.
 #   executor_id      closed set of four harness ids; a product fact.
 #   status           closed set from the table's own CHECK constraint.
 #   origin           'launch' or 'linked'; says how the run reached the board.
@@ -144,6 +144,9 @@ EVENT_KINDS = frozenset(
         "hook",
         "attach",
         "detach",
+        # Periodic "still running" beat for a launched task, so the fleet
+        # view's freshness window holds while nothing else changes.
+        "heartbeat",
     }
 )
 # `shutdown` (server/app.py's stop_all on a clean web shutdown) and `quit`
@@ -154,9 +157,6 @@ EVENT_ORIGINS = frozenset(
     {"ui", "cli", "api", "hook", "linked", "process", "startup", "shutdown", "quit"}
 )
 
-# An app-local opaque id: uuid4 hex today. Anything outside this shape did
-# not come from our own id generator, so it is digested instead of sent.
-_OPAQUE_ID = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
 
 
 # -- keyed digests ---------------------------------------------------------
@@ -305,23 +305,6 @@ def _enum(value: Any, allowed: frozenset) -> Optional[str]:
     return value if isinstance(value, str) and value in allowed else None
 
 
-def _opaque_id(value: Any, *, key: Optional[bytes] = None) -> Optional[str]:
-    """Pass an app-generated id through; digest anything else.
-
-    `id` is ours (uuid4 hex), so it carries nothing. This guard exists so
-    that if a row ever arrives whose id was built from something else, a
-    path or a label say, the odd value is digested instead of exported.
-    """
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    if _OPAQUE_ID.match(text):
-        return text
-    return _digest(text, domain="task-id", key=key)
-
-
 def _timestamp(value: Any) -> Optional[str]:
     """Re-serialise a stored timestamp to ISO UTC.
 
@@ -372,7 +355,7 @@ def build_payload(
         "event": _enum(kind, EVENT_KINDS),
         "event_origin": _enum(origin, EVENT_ORIGINS),
         "emitted_at": stamp.isoformat(timespec="milliseconds"),
-        "task_id": _opaque_id(row.get("id"), key=key),
+        "task_id": _digest(row.get("id"), domain="task", key=key),
         "executor_id": _enum(row.get("executor_id"), EXECUTOR_IDS),
         "status": _enum(row.get("status"), STATUSES),
         "task_origin": _enum(row.get("origin"), TASK_ORIGINS),
@@ -394,16 +377,30 @@ Sink = Callable[[dict], Union[None, Awaitable[None]]]
 _sink: Optional[Sink] = None
 _pending: Set["asyncio.Task"] = set()
 
+# How often a running task re-announces itself while a sink is installed.
+HEARTBEAT_SECONDS = 60.0
+
 # A sink that hangs must not hold a stop open. A cloud outage is allowed to
 # lose a Live Runs event; it is not allowed to slow a local agent down.
 EMIT_TIMEOUT_SECONDS = 5.0
 
 
+async def drain_pending(timeout: float = 2.0) -> None:
+    """Wait briefly for scheduled emits to finish (used at shutdown)."""
+    pending = [t for t in _pending if not t.done()]
+    if not pending:
+        return
+    try:
+        await asyncio.wait(pending, timeout=timeout)
+    except Exception:
+        logger.debug("live_runs: drain failed", exc_info=True)
+
+
 def set_sink(sink: Optional[Sink]) -> None:
     """Install the transport, or clear it so `emit()` is inert.
 
-    The cloud story owns the endpoint. Until it exists there is no sink and every
-    `emit()` returns False without touching the network.
+    With no sink installed every `emit()` returns False without touching
+    the network.
 
     A sink must be non-blocking: return a coroutine and do its I/O with an
     async client. A sink that blocks the loop defeats the point of this
@@ -418,22 +415,26 @@ def get_sink() -> Optional[Sink]:
 
 
 def has_sink() -> bool:
-    """True once the cloud side installs a real transport; False on every install today.
+    """True once a transport is installed (the app installs the fleet sink at startup).
 
     A cheap, allocation-free check a hot-path caller can use to skip
     `emit_nowait()` entirely rather than pay for it. Without a sink, `emit()`
     returns False as its very first check, but by then `emit_nowait()` has
     already snapshotted the row, scheduled an asyncio Task, and held a
     strong reference to it -- real work spent to run code whose only
-    possible outcome is a no-op. Every spawn and stop pays that on every
-    install that has never called `set_sink()`, which as of 6.0.0 is all of
-    them.
+    possible outcome is a no-op. Every lifecycle transition would pay that
+    in any process that never called `set_sink()`.
     """
     return _sink is not None
 
 
 async def cloud_connected() -> bool:
-    """True only when Cloud Connect is configured and switched on.
+    """True only when Cloud Connect is switched on or the device is enrolled.
+
+    Enrolled means an enabled fleet destination (source "enrollment") is
+    registered: a device enrolled from the command line has one without
+    Cloud Connect mode being toggled in settings, and that is exactly the
+    device a fleet view needs to see.
 
     Imported lazily so this module stays cheap to import from the spawn
     path and cannot form an import cycle with the database layer. Any
@@ -445,7 +446,23 @@ async def cloud_connected() -> bool:
         from securevector.app.database.repositories.settings import SettingsRepository
 
         settings = await SettingsRepository(get_database()).get()
-        return bool(getattr(settings, "cloud_mode_enabled", False))
+        if bool(getattr(settings, "cloud_mode_enabled", False)):
+            return True
+    except Exception:
+        return False
+    return await fleet_enrolled()
+
+
+async def fleet_enrolled() -> bool:
+    """True when an enabled enrollment (fleet) destination exists. Fails closed."""
+    try:
+        from securevector.app.database.connection import get_database
+        from securevector.app.database.repositories.external_forwarders import (
+            ExternalForwardersRepository,
+        )
+
+        active = await ExternalForwardersRepository(get_database()).list_active()
+        return any(str(f.get("source") or "") == "enrollment" for f in active)
     except Exception:
         return False
 
@@ -456,6 +473,7 @@ async def emit(
     *,
     origin: Any = None,
     timeout: float = EMIT_TIMEOUT_SECONDS,
+    now: Optional[datetime] = None,
 ) -> bool:
     """Best effort: send one lifecycle event outward. Never raises.
 
@@ -470,7 +488,7 @@ async def emit(
             return False
         if not await cloud_connected():
             return False
-        payload = build_payload(task, kind, origin=origin)
+        payload = build_payload(task, kind, origin=origin, now=now)
         result = sink(payload)
         if inspect.isawaitable(result):
             await asyncio.wait_for(result, timeout)
@@ -500,12 +518,15 @@ def emit_nowait(
         return None
     try:
         snapshot = dict(task) if isinstance(task, Mapping) else {}
+        # Stamped with the snapshot, not when the task happens to run, so
+        # emitted_at order follows the real transition order.
+        stamp = datetime.now(timezone.utc)
         loop = asyncio.get_running_loop()
     except Exception:
         return None
     try:
         handle = loop.create_task(
-            emit(snapshot, kind, origin=origin), name="live-runs-emit"
+            emit(snapshot, kind, origin=origin, now=stamp), name="live-runs-emit"
         )
     except Exception:
         return None

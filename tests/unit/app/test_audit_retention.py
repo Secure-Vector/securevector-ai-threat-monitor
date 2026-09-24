@@ -98,11 +98,13 @@ async def test_schema_version_advances_to_45(tmp_path):
     db = await _build_db(tmp_path)
     # v51: egress_audit.action accepts 'observed' for calls read back from a
     # harness transcript after the fact (no hook fired, nothing was governed).
-    assert CURRENT_SCHEMA_VERSION == 51
+    # v52: external_forward_outbox.kind accepts 'task_event' for metadata-only
+    # Agent Task lifecycle rows bound for the fleet destination.
+    assert CURRENT_SCHEMA_VERSION == 52
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 51
+    assert row["v"] == 52
     exists = await db.fetch_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
     )

@@ -101,7 +101,13 @@ def test_payload_keys_are_exactly_the_published_shape():
     assert payload["schema"] == live_runs.SCHEMA
     assert payload["event"] == "spawn"
     assert payload["event_origin"] == "ui"
-    assert payload["task_id"] == "a1b2c3d4e5f6"
+    # A keyed digest of the local id, never the id itself, and inside the
+    # charset the fleet ingest accepts.
+    assert payload["task_id"] != "a1b2c3d4e5f6"
+    assert payload["task_id"] == live_runs._digest("a1b2c3d4e5f6", domain="task", key=KEY)
+    import re as _re
+
+    assert _re.fullmatch(r"[0-9a-f]{32}", payload["task_id"])
     assert payload["executor_id"] == "claude-code"
     assert payload["status"] == "working"
     assert payload["task_origin"] == "launch"
@@ -497,22 +503,31 @@ _MANAGER = (
 ).read_text(encoding="utf-8")
 
 
-def test_spawn_and_stop_both_emit():
-    assert _MANAGER.count("live_runs.emit_nowait(") == 2
-    # Both sites pass the row they already have in hand -- fetched a few
-    # lines above for another reason in each case -- rather than re-reading
-    # the store just for this call.
+def test_every_lifecycle_transition_emits():
+    import re as _re
+
+    kinds = _re.findall(r'live_runs\.emit_nowait\([^,]+, "([a-z_]+)"', _MANAGER)
+    assert sorted(kinds) == sorted(
+        ["spawn", "stop", "hook", "exit", "interrupted", "archived", "heartbeat"]
+    )
+    assert _MANAGER.count("live_runs.emit_nowait(") == len(kinds)
+    # Spawn and stop pass the row they already have in hand -- fetched a
+    # few lines above for another reason in each case -- rather than
+    # re-reading the store just for this call.
     assert 'live_runs.emit_nowait(task, "spawn"' in _MANAGER
     assert 'live_runs.emit_nowait(task, "stop"' in _MANAGER
 
 
-def test_both_emit_sites_are_guarded_by_has_sink():
-    """With no sink installed -- every install today -- scheduling
-    `emit_nowait()` is pure waste: a snapshot, an asyncio Task, and a
-    settings read that can only ever resolve to a no-op. Both call sites
-    must check `has_sink()` first so that cost is not paid on every spawn
-    and stop."""
-    assert _MANAGER.count("live_runs.has_sink()") == 2
+def test_every_emit_site_is_guarded_by_has_sink():
+    """With no sink installed, scheduling `emit_nowait()` is pure waste: a
+    snapshot, an asyncio Task, and a settings read that can only ever
+    resolve to a no-op. Every call site checks `has_sink()` first so that
+    cost is not paid on each transition."""
+    lines = _MANAGER.splitlines()
+    for i, line in enumerate(lines):
+        if "live_runs.emit_nowait(" in line:
+            window = "\n".join(lines[max(0, i - 20):i])
+            assert "live_runs.has_sink()" in window, line
 
 
 def test_the_manager_never_awaits_the_emit():

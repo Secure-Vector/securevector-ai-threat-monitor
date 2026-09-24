@@ -197,6 +197,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         49: migrate_to_v49,
         50: migrate_to_v50,
         51: migrate_to_v51,
+        52: migrate_to_v52,
     }
 
     if version in migrations:
@@ -2569,3 +2570,98 @@ async def migrate_to_v51(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v51: observed egress action")
+
+
+async def migrate_to_v52(db: DatabaseConnection) -> None:
+    """v51 -> v52: `task_event` joins the forward-outbox kind vocabulary.
+
+    Agent Task lifecycle events (spawn, status change, exit, stop, archive
+    and a periodic heartbeat) travel to the fleet destination through the
+    same outbox as scans and tool audits. Their payload is the metadata-only
+    Live Runs shape: enums, keyed digests, integers and timestamps.
+
+    SQLite cannot widen a CHECK in place, so the table is rebuilt, the same
+    way v51 rebuilds egress_audit, inside one ``BEGIN IMMEDIATE``
+    transaction so a concurrent enqueue waits instead of writing into a
+    table that is about to be dropped. Idempotent: an install whose
+    constraint already allows ``task_event`` is left alone, a rebuild
+    interrupted on a previous run is repaired first, and the pending index
+    is (re)created on every run so a crash after the rename cannot leave the
+    queue without it.
+    """
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    async def _create_indexes() -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+            "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+            "WHERE delivered_at IS NULL"
+        )
+
+    leftover = await _table_sql("external_forward_outbox_v52")
+    if leftover:
+        if await _table_sql("external_forward_outbox"):
+            # The swap never happened; the live table is the source of truth.
+            await conn.execute("DROP TABLE external_forward_outbox_v52")
+        else:
+            # Interrupted between the drop and the rename: the staging table
+            # holds the queue, so keep it.
+            await conn.execute(
+                "ALTER TABLE external_forward_outbox_v52 RENAME TO external_forward_outbox"
+            )
+            await _create_indexes()
+        await conn.commit()
+
+    existing = await _table_sql("external_forward_outbox")
+    if existing and "'task_event'" not in existing:
+        try:
+            await conn.executescript(
+            """
+            BEGIN IMMEDIATE;
+            CREATE TABLE external_forward_outbox_v52 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+                kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit', 'task_event')),
+                payload_json  TEXT NOT NULL,
+                created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                delivered_at  TIMESTAMP,
+                last_error    TEXT
+            );
+            INSERT INTO external_forward_outbox_v52 (
+                id, forwarder_id, kind, payload_json, created_at,
+                attempts, delivered_at, last_error
+            )
+            SELECT id, forwarder_id, kind, payload_json, created_at,
+                   attempts, delivered_at, last_error
+            FROM external_forward_outbox;
+            DROP TABLE external_forward_outbox;
+            ALTER TABLE external_forward_outbox_v52 RENAME TO external_forward_outbox;
+            CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending
+                ON external_forward_outbox (forwarder_id, delivered_at, id)
+                WHERE delivered_at IS NULL;
+            COMMIT;
+            """
+            )
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    if await _table_sql("external_forward_outbox"):
+        await _create_indexes()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (52, CURRENT_TIMESTAMP, 'Agent Task events in the forward outbox')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v52: task_event outbox kind")

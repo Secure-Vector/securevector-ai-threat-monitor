@@ -274,7 +274,7 @@ async def stop_task(
 @router.post("/tasks/{task_id}/archive", dependencies=[Depends(require_write)])
 async def archive_task(task_id: str, manager: TerminalManager = Depends(get_manager)):
     try:
-        archived = await manager.store.archive_task(task_id)
+        archived = await manager.archive_task(task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not archived:

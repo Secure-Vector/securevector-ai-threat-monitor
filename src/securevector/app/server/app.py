@@ -112,6 +112,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not start external_forwarder: {_e}")
 
+    # Agent Task lifecycle events -> fleet destination. Installed before the
+    # task board restores so startup "interrupted" transitions are queued
+    # too. Metadata only, and a no-op on a device that is not enrolled.
+    try:
+        from securevector.app.services import fleet_task_events
+        fleet_task_events.install()
+    except Exception as _e:
+        logger.warning(f"Could not install the fleet task-event sink: {_e}")
+
     # Register the pre-uninstall backstop (#112). Idempotent. Emits
     # device.lifecycle.uninstalling to enrollment-sourced destinations on a
     # hard process exit that bypasses the graceful lifespan shutdown below.
@@ -205,6 +214,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _terminal_manager = getattr(app.state, "terminal_manager", None)
     if _terminal_manager is not None:
         try:
+            await _terminal_manager.stop_heartbeat()
+        except Exception:
+            logger.debug("Stopping the task heartbeat failed", exc_info=True)
+        try:
             await _terminal_manager.stop_all(origin="shutdown")
         except Exception:
             logger.debug("Stopping terminal tasks on shutdown failed", exc_info=True)
@@ -220,6 +233,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await stop_external_forwarder()
     except Exception as _e:
         logger.warning(f"Could not stop external_forwarder cleanly: {_e}")
+
+    try:
+        from securevector.app.services import fleet_task_events
+        from securevector.app.terminals import live_runs as _live_runs
+
+        # Let the stop and exit events scheduled above reach the outbox.
+        await _live_runs.drain_pending(timeout=2.0)
+        fleet_task_events.uninstall()
+    except Exception:
+        logger.debug("Removing the fleet task-event sink failed", exc_info=True)
 
 
 def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:

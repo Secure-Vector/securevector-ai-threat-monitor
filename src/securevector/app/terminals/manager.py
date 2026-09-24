@@ -155,6 +155,10 @@ class TerminalManager:
         # session whose transcript no longer exists would re-glob the harness
         # stores on every poll, forever.
         self._workspace_repaired: set = set()
+        # Last status sent to Live Runs per task, so a hook that repeats the
+        # current status does not send a second event for it.
+        self._live_status: dict = {}
+        self._heartbeat: Optional["asyncio.Task"] = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -170,9 +174,59 @@ class TerminalManager:
                 origin="startup",
                 detail="app restarted while the task was running",
             )
+            if live_runs.has_sink():
+                live_runs.emit_nowait(task, "interrupted", origin="startup")
             # _reap does blocking os.kill / subprocess.run(timeout=2); keep it
             # off the event loop.
             await loop.run_in_executor(None, self._reap, task)
+        if live_runs.has_sink():
+            self.start_heartbeat()
+
+    # -- Live Runs heartbeat --------------------------------------------------
+
+    def start_heartbeat(self, interval: Optional[float] = None) -> None:
+        """Start the single heartbeat loop if it is not already running."""
+        if self._heartbeat is not None and not self._heartbeat.done():
+            return
+        period = live_runs.HEARTBEAT_SECONDS if interval is None else interval
+        self._heartbeat = asyncio.get_running_loop().create_task(
+            self._heartbeat_loop(period), name="live-runs-heartbeat"
+        )
+
+    async def stop_heartbeat(self) -> None:
+        """Cancel the heartbeat loop and wait for it to finish."""
+        handle, self._heartbeat = self._heartbeat, None
+        if handle is None or handle.done():
+            return
+        handle.cancel()
+        try:
+            await handle
+        except asyncio.CancelledError:
+            pass
+
+    async def _heartbeat_loop(self, period: float) -> None:
+        """Re-announce every task this process is running, once per period.
+
+        Only launched tasks this process owns: a linked session's liveness
+        is derived from its audit trail, not from a process held here.
+        Never raises out of a tick, so one bad read does not end the loop.
+        """
+        while True:
+            await asyncio.sleep(period)
+            if not live_runs.has_sink() or not self._running:
+                continue
+            # One enrollment check per tick: an install that is not enrolled
+            # pays one small read a minute and schedules nothing.
+            if not await live_runs.fleet_enrolled():
+                continue
+            for task_id in list(self._running):
+                try:
+                    task = await self.store.get_task(task_id)
+                except Exception:
+                    logger.debug("heartbeat read failed for %s", task_id, exc_info=True)
+                    continue
+                if task is not None and task.get("archived_at") is None:
+                    live_runs.emit_nowait(task, "heartbeat")
 
     def _reap(self, task: Mapping) -> None:
         """Startup reaper. Only signals a pid that is alive AND still runs the
@@ -406,10 +460,11 @@ class TerminalManager:
         # folder, which is exactly what must not leave the machine. Reuses
         # the row just read (needed below for the return value anyway)
         # instead of a second store hit, and only schedules the emit at all
-        # when something is listening: with no sink installed -- every
-        # install today, since nothing calls `set_sink()` yet -- this would
-        # otherwise be a task and a settings read spent purely to no-op.
+        # when something is listening: with no sink installed (any process
+        # that did not start the app, tests included) this would otherwise
+        # be a task and a settings read spent purely to no-op.
         if live_runs.has_sink():
+            self._live_status[task_id] = task.get("status")
             live_runs.emit_nowait(task, "spawn", origin=origin)
         if not governed:
             self._ungoverned.add(task_id)
@@ -446,13 +501,31 @@ class TerminalManager:
         prior = await self.store.task_for_session(session_id)
         if prior is None or prior["id"] == task_id or prior.get("origin") != "linked":
             return
-        await self.store.archive_task(prior["id"])
+        if await self.store.archive_task(prior["id"]):
+            await self._emit_archived(prior["id"], origin=origin)
         await self.store.add_event(
             task_id,
             kind="adopted",
             origin=origin,
             detail=f"Continued from linked session {session_id}; the linked row was retired",
         )
+
+    async def archive_task(self, task_id: str, *, origin: str = "ui") -> bool:
+        """Take a finished task off the board (the store keeps its audit)."""
+        archived = await self.store.archive_task(task_id)
+        if archived:
+            await self._emit_archived(task_id, origin=origin)
+        return archived
+
+    async def _emit_archived(self, task_id: str, *, origin: str) -> None:
+        self._live_status.pop(task_id, None)
+        if not live_runs.has_sink():
+            return
+        try:
+            task = await self.store.get_task(task_id)
+        except Exception:
+            return
+        live_runs.emit_nowait(task, "archived", origin=origin)
 
     # -- linked sessions ----------------------------------------------------
 
@@ -771,6 +844,13 @@ class TerminalManager:
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
+        self._live_status.pop(task_id, None)
+        if live_runs.has_sink():
+            try:
+                exited = await self.store.get_task(task_id)
+            except Exception:
+                exited = None
+            live_runs.emit_nowait(exited, "exit", origin="process")
         # Bound how many finished sessions the host keeps alive: each one
         # holds a ring buffer up to the host's ring capacity, so an
         # unbounded backlog of finished tasks is a slow memory leak. The
@@ -810,7 +890,7 @@ class TerminalManager:
         # only appends to the audit trail, it does not touch terminal_tasks,
         # so re-reading here would return identical data at the cost of a
         # second store hit. Only bother scheduling it when something is
-        # listening (see the spawn-path comment for why that matters today).
+        # listening (see the spawn-path comment for why that matters).
         if live_runs.has_sink():
             live_runs.emit_nowait(task, "stop", origin=origin)
         await asyncio.get_running_loop().run_in_executor(None, self.host.stop, task_id)
@@ -842,13 +922,38 @@ class TerminalManager:
             return True
         if activity:
             activity = redact_secrets(activity, "outgoing")[0]
+        # Live Runs: one event per actual status change. The last status sent
+        # is remembered per task; with nothing remembered yet (sink installed
+        # after spawn), the stored status before this update stands in.
+        # Emitting is best effort: a failed read here never breaks the hook.
+        changed = False
+        tracking = live_runs.has_sink()
+        if tracking:
+            try:
+                previous = self._live_status.get(task_id)
+                if previous is None:
+                    before = await self.store.get_task(task_id)
+                    previous = before.get("status") if before else None
+                changed = previous != status
+            except Exception:
+                logger.debug("live runs: status read failed for %s", task_id, exc_info=True)
         await self.store.update_status(task_id, status, activity=activity)
+        if tracking:
+            # Only once the new status is stored, so a failed write cannot
+            # suppress the event for the retry.
+            self._live_status[task_id] = status
         await self.store.add_event(
             task_id,
             kind="hook",
             origin="hook",
             detail=f"{event.get('hook_event_name')} -> {status}",
         )
+        if changed and live_runs.has_sink():
+            try:
+                current = await self.store.get_task(task_id)
+            except Exception:
+                current = None
+            live_runs.emit_nowait(current, "hook", origin="hook")
         return True
 
     # -- attached terminal ----------------------------------------------------
