@@ -23,7 +23,10 @@
             // Claude Code's read-only and UI helpers (tool discovery, questions to
             // the person, reading a shell's output, the todo list, plan mode):
             // the Guard hook skips or has nothing to govern in them.
-            'ToolSearch', 'AskUserQuestion', 'BashOutput', 'TaskOutput', 'TodoWrite', 'TodoRead', 'EnterPlanMode', 'ExitPlanMode'],
+            'ToolSearch', 'AskUserQuestion', 'BashOutput', 'TaskOutput', 'TodoWrite', 'TodoRead', 'EnterPlanMode', 'ExitPlanMode',
+            // Claude's own agent coordination (messages between its agents, its
+            // notification inbox): no effect outside Claude. Agent / Task stay counted.
+            'SendMessage', 'ListAgents', 'ReadNotifications'],
 
         esc(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

@@ -181,6 +181,14 @@ const API = {
         return this.request(`/api/run-health${qs ? '?' + qs : ''}`).catch(() => null);
     },
 
+    // Agent Governance: coverage of model-issued tool calls plus the gaps to
+    // close, from real activity in the window. Null on failure.
+    async getGovernanceGaps(params = {}) {
+        const days = Number(params.window_days) || 7;
+        const fresh = params.refresh ? '&refresh=true' : '';
+        return this.request(`/api/governance/gaps?window_days=${encodeURIComponent(days)}${fresh}`).catch(() => null);
+    },
+
     // conversion-ux — Instant Agent Audit. Opt-in retroactive scan of on-disk
     // agent transcripts; consent travels in the run request body.
     async getInstantAuditStatus() {

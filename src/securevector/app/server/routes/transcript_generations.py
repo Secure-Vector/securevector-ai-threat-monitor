@@ -642,7 +642,8 @@ _CODEX_HOOK_NAMES = {
 
 
 def build_generations_codex(
-    session_id: str, *, store_text: bool, with_analysis: bool = False
+    session_id: str, *, store_text: bool, with_analysis: bool = False,
+    path: Optional[Path] = None,
 ) -> list[dict]:
     """Reconstruct Generation spans for one Codex session from its rollout.
 
@@ -653,7 +654,8 @@ def build_generations_codex(
     of assistant text since the previous token_count). Same privacy contract:
     metadata always; redacted 8 KB preview only when store_text is on.
     """
-    path = _find_codex_rollout(session_id)
+    if path is None:
+        path = _find_codex_rollout(session_id)
     if path is None:
         return []
 

@@ -14,15 +14,13 @@ const Sidebar = {
         { id: 'terminals', label: 'Agent Sessions', icon: 'terminal',
           tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        { id: 'agent-runs', label: 'Observability', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'],
-          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
-          views: [
-            { id: 'agent-runs', label: 'Runs' },
-            { id: 'run-health', label: 'Health', tooltip: 'Loops, failing steps and waste across runs, each linked to the step' },
-            { id: 'tool-activity', label: 'Tool Activity', aliases: ['bill-of-tools'] },
-            { id: 'instant-audit', label: 'Instant Audit' },
-          ] },
-        { id: 'threats', label: 'Threats', icon: 'shield', aliases: ['threat-monitor'], count: 'threats',
+        // Observability has no sub-views: the in-page tabs (Runs, Health,
+        // Map) switch between them. Health and Map stay aliases so those
+        // pages keep this row lit. Tool Activity moved under Policies >
+        // Tool Permissions; Instant Audit is a button on the Threats page.
+        { id: 'agent-runs', label: 'Observability', icon: 'history', aliases: ['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'],
+          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost' },
+        { id: 'threats', label: 'Threats', icon: 'shield', aliases: ['threat-monitor', 'instant-audit'], count: 'threats',
           tooltip: 'Prompt injection, jailbreak and exfiltration attempts, plus what was blocked and which secrets were caught',
           views: [
             { id: 'threats', label: 'Detections' },
@@ -46,7 +44,7 @@ const Sidebar = {
             // row and the sliding indicator hides. Carried here instead so
             // the hoisted Overview row still matches it.
             { id: 'policies', label: 'Overview', aliases: ['policies-controls'], tooltip: 'Every control at a glance, with live status for each' },
-            { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
+            { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', aliases: ['tool-activity', 'bill-of-tools'],
               tooltip: 'Which tools each agent may call, and requests waiting on you' },
             { id: 'rules', label: 'Rules', icon: 'rules',
               tooltip: 'Detection rules: the community library plus your own' },

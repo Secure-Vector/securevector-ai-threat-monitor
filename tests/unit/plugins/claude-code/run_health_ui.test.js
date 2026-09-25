@@ -397,13 +397,14 @@ test('Dashboard: Needs attention lists the top 5 by severity, escaped, linked to
 
 // ---------------- Nav labels and routing ----------------
 
-test('nav: Observability section with Runs, Health, Tool Activity, Instant Audit', () => {
+test('nav: Observability has no sub-views; Health and Map stay aliases so the row stays lit', () => {
   const sb = read('js/components/sidebar.js');
-  assert.match(sb, /id: 'agent-runs', label: 'Observability', icon: 'history', aliases: \['agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'\]/);
+  assert.match(sb, /id: 'agent-runs', label: 'Observability', icon: 'history', aliases: \['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'\]/);
   const views = sb.slice(sb.indexOf("label: 'Observability'"), sb.indexOf("id: 'threats'"));
+  assert.doesNotMatch(views, /views:/);
   const labels = [...views.matchAll(/\{ id: '([a-z-]+)', label: '([^']+)'/g)].map(m => `${m[1]}:${m[2]}`);
-  assert.deepStrictEqual(labels, ['agent-runs:Runs', 'run-health:Health', 'tool-activity:Tool Activity', 'instant-audit:Instant Audit']);
-  assert.match(views, /aliases: \['bill-of-tools'\]/);
+  assert.deepStrictEqual(labels, []);
+  assert.match(read('js/components/obs-tabs.js'), /page: 'run-health'/);
   const pal = read('js/components/command-palette.js');
   assert.match(pal, /'Observability: trace \+ run waterfall'/);
   assert.match(pal, /'Observability: Health findings'/);

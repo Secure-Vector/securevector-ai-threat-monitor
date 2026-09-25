@@ -1977,7 +1977,7 @@ const AgentRunsPage = {
         const focusKey = active && box.contains(active) && active.getAttribute ? active.getAttribute('data-fk') : null;
         box.innerHTML = TraceSteps.html(traceId, trace, {
             prefix: 'trace-steps',
-            stepsMax: 20,
+            stepsMax: 8,
             chipsMax: 8,
             detailKey: sd ? sd.key : undefined,
             fullRunLabel: '',

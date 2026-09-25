@@ -73,9 +73,17 @@ test('product controls are real accessible buttons and retain the SecureVector s
 
 test('folded pages are views of a destination, so every old page id still lands', () => {
   const nav = navItemsSource();
-  for (const id of ['tool-activity', 'instant-audit', 'blocked-ledger', 'redactions', 'cloud-activity']) {
+  for (const id of ['blocked-ledger', 'redactions', 'cloud-activity']) {
     assert.match(nav, new RegExp(`\\{ id: '${id}', label: '[^']+'`), `${id} must be a view`);
   }
+  // Tool Activity and Instant Audit left the rail in 6.0.0 but stay routable
+  // aliases: Tool Activity lights Policies > Tool Permissions, Instant Audit
+  // lights Threats.
+  for (const id of ['tool-activity', 'instant-audit']) {
+    assert.doesNotMatch(nav, new RegExp(`\\{ id: '${id}', label:`), `${id} is no longer a view`);
+  }
+  assert.match(nav, /\{ id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', aliases: \['tool-activity', 'bill-of-tools'\]/);
+  assert.match(nav, /id: 'threats', label: 'Threats', icon: 'shield', aliases: \['threat-monitor', 'instant-audit'\]/);
   // the policy surfaces fold under Policies as views, each with an icon, so
   // Configure is one row at rest and seven while you are inside it
   for (const id of ['tool-permissions', 'rules', 'egress-policy', 'cost-settings', 'mcp-policies', 'skill-scanner']) {
@@ -182,8 +190,8 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=180/);
-  assert.match(html, /styles\.css\?v=458/);
+  assert.match(html, /sidebar\.js\?v=181/);
+  assert.match(html, /styles\.css\?v=459/);
   assert.match(html, /app\.js\?v=71/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -222,7 +230,7 @@ test('governance credits a control only on current evidence', () => {
   assert.match(gov, /no agent has run in the last 7 days/);
   // an absent setting is unknown, never a pass
   assert.match(gov, /has never been configured on this device, so it cannot be reported as enforced/);
-  assert.match(read('index.html'), /governance\.js\?v=24/);
+  assert.match(read('index.html'), /governance\.js\?v=26/);
 });
 
 test('posture is computed once, in governance, and the rail no longer reads it', () => {
@@ -251,7 +259,7 @@ test('picking a search result with the mouse actually navigates', () => {
   assert.match(p, /_syncSel\(\) \{/);
   assert.match(p, /row\.addEventListener\('mousedown'/);
   assert.match(p, /row\.addEventListener\('click', \(\) => this\._go\(item\)\);/);
-  assert.match(read('index.html'), /command-palette\.js\?v=18/);
+  assert.match(read('index.html'), /command-palette\.js\?v=20/);
 });
 
 test('the collapse button is reachable, not buried under the resize handle', () => {
@@ -279,7 +287,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=458/);
+  assert.match(read('index.html'), /styles\.css\?v=459/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -602,7 +610,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=180/);
+  assert.match(read('index.html'), /sidebar\.js\?v=181/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
@@ -635,4 +643,43 @@ test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', (
   // No other handler in the app owns Cmd/Ctrl+B.
   assert.doesNotMatch(read('js/components/command-palette.js'), /'b' \|\| e\.key === 'B'/);
   assert.doesNotMatch(read('js/pages/terminals.js'), /key: 'b'/);
+});
+
+test('every page id dropped from the Visibility menu still resolves to a nav item and a route', () => {
+  const vm = require('node:vm');
+  const src = read('js/components/sidebar.js');
+  const start = src.indexOf('navItems: [') + 'navItems: '.length;
+  const end = src.indexOf('productGroups: [', start);
+  const arr = src.slice(start, end).trim().replace(/,\s*$/, '');
+  const items = JSON.parse(JSON.stringify(vm.runInNewContext('(' + arr + ')')));
+  const reach = (item) => {
+    const ids = [item.id, ...(item.aliases || [])];
+    (item.views || []).forEach(v => { ids.push(v.id); (v.aliases || []).forEach(a => ids.push(a)); });
+    return ids;
+  };
+  const owner = (id) => items.find(i => reach(i).includes(id));
+  const expected = { 'run-health': 'agent-runs', 'agent-map': 'agent-runs', 'agent-timeline': 'agent-runs',
+    'storylines': 'agent-runs', 'replay': 'agent-runs', 'agent-activity': 'agent-runs',
+    'tool-activity': 'policies', 'bill-of-tools': 'policies', 'instant-audit': 'threats' };
+  const app = read('js/app.js');
+  for (const [id, parent] of Object.entries(expected)) {
+    const it = owner(id);
+    assert.ok(it, `${id} resolves to a nav item`);
+    assert.equal(it.id, parent, `${id} highlights ${parent}`);
+    if (id === 'agent-activity') continue; // legacy alias only, never a page of its own
+    assert.match(app, new RegExp(`^\\s+'?${id}'?:\\s`, 'm'), `${id} is routed in app.js`);
+  }
+  const agentRuns = items.find(i => i.id === 'agent-runs');
+  assert.equal(agentRuns.views, undefined);
+  const threats = items.find(i => i.id === 'threats');
+  assert.deepStrictEqual(threats.views.map(v => v.id), ['threats', 'blocked-ledger', 'redactions']);
+  // nothing becomes unreachable from the command palette
+  const pal = read('js/components/command-palette.js');
+  for (const id of ['run-health', 'agent-map', 'agent-timeline', 'tool-activity', 'instant-audit']) {
+    assert.match(pal, new RegExp(`push\\('${id}', '`), `${id} in palette`);
+  }
+  // Instant Audit's entry point is a button on the Threats page
+  const th = read('js/pages/threats.js');
+  assert.match(th, /auditBtn\.textContent = 'Audit past sessions'/);
+  assert.match(th, /Sidebar\.navigate\('instant-audit'\)/);
 });

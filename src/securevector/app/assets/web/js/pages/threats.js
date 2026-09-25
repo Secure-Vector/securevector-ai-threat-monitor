@@ -202,6 +202,23 @@ const ThreatsPage = {
             container.appendChild(banner);
         }
 
+        // Instant Audit left the rail in 6.0.0; its entry point is here, on
+        // the page whose question it answers for past sessions.
+        const headerActions = document.createElement('div');
+        headerActions.className = 'tm-header-actions';
+        headerActions.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:8px;';
+        const auditBtn = document.createElement('button');
+        auditBtn.type = 'button';
+        auditBtn.id = 'tm-audit-past';
+        auditBtn.className = 'btn btn-sm btn-secondary';
+        auditBtn.textContent = 'Audit past sessions';
+        auditBtn.title = 'Scan earlier agent sessions for threats with Instant Audit';
+        auditBtn.addEventListener('click', () => {
+            if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('instant-audit');
+        });
+        headerActions.appendChild(auditBtn);
+        container.appendChild(headerActions);
+
         // Filters bar (will be populated after loading categories)
         const filtersBar = document.createElement('div');
         filtersBar.className = 'filters-bar';

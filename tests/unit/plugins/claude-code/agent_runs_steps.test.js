@@ -127,7 +127,7 @@ test('a deep link opens the full timeline for that trace without changing the sa
   assert.match(src, /this\._timelineForce = wantTrace;\s*this\.selectRun\(wantTrace\);/);
 });
 
-test('step list: trace-steps markup from the fetched trace, 20 step cap, no See full run', () => {
+test('step list: trace-steps markup from the fetched trace, 8 step cap, no See full run', () => {
   const { P, els } = loadPage();
   els['ar-steps'] = makeBox();
   const trace = sampleTrace();
@@ -142,8 +142,14 @@ test('step list: trace-steps markup from the fetched trace, 20 step cap, no See 
   assert.match(html, /Blocked: Host &lt;not&gt; allowed/);
   assert.match(html, /class="trace-steps-jump"[^>]*>View in timeline</);
   const src = read('js/pages/agent-runs.js');
-  assert.match(src, /stepsMax: 20,/);
+  assert.match(src, /stepsMax: 8,/);
   assert.match(src, /chipsMax: 8,/);
+});
+
+test('desktop timeline is bounded and scrollable without changing mobile document flow', () => {
+  const css = read('css/styles.css');
+  assert.match(css, /@media \(min-width: 761px\) \{\s*\.ar-timeline \{[^}]*max-height: min\(720px, calc\(100vh - 220px\)\);[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain;/);
+  assert.doesNotMatch(css, /@media \(max-width: 760px\) \{\s*\.ar-timeline \{[^}]*overflow-y: auto;/);
 });
 
 test('clicking a chip shows its detail; clicking it again shuts it', () => {

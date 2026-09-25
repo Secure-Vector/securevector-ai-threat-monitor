@@ -507,6 +507,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # conversion-ux — Instant Agent Audit (opt-in retroactive transcript scan).
     from securevector.app.server.routes import instant_audit
     app.include_router(instant_audit.router, prefix="/api", tags=["Instant Audit"])
+
+    from securevector.app.server.routes import governance
+    app.include_router(governance.router, prefix="/api", tags=["Governance"])
     # v5.2.0 #202 — Cost / Token Optimizer (opt-in transcript waste analysis).
     from securevector.app.server.routes import cost_optimizer
     app.include_router(cost_optimizer.router, prefix="/api", tags=["Cost Optimizer"])

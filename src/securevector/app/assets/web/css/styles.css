@@ -8960,6 +8960,13 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .ar-timeline-toggle { align-self: flex-start; margin: 0 0 8px; padding: 3px 10px; border: 1px solid rgba(148,163,184,.28); border-radius: 4px; background: transparent; color: var(--text-secondary, #cbd5e1); font: inherit; font-size: 11px; cursor: pointer; }
 .ar-timeline-toggle:hover { border-color: rgba(148,163,184,.5); }
 .ar-timeline-toggle:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 1px; }
+/* The complete trace remains available, but a long-running agent should not
+   turn the surrounding page into a hundreds-of-rows scroll.  On desktop the
+   timeline owns its scroll area; on mobile the natural document flow remains
+   easier to navigate. */
+@media (min-width: 761px) {
+  .ar-timeline { max-height: min(720px, calc(100vh - 220px)); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+}
 /* A call the transcript shows but the Guard plugin never saw: neutral, dashed. */
 .terminals-steps-chip-unrecorded, .trace-steps-chip-unrecorded, .terminals-steps-chip-unchecked, .trace-steps-chip-unchecked { border-style: dashed; border-color: rgba(148,163,184,.4); color: var(--text-muted, #94a3b8); }
 .terminals-steps-detail-unrecorded, .trace-steps-detail-unrecorded, .terminals-steps-detail-unchecked, .trace-steps-detail-unchecked { border-left-style: dashed; }

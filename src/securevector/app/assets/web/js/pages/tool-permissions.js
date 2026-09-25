@@ -486,6 +486,23 @@ const ToolPermissionsPage = {
             container.appendChild(tabs);
         }
 
+        // Tool Activity left the rail in 6.0.0 and lives under Tool
+        // Permissions now; this page shows no tab bar, so link to it here.
+        if (this.hideTabBar && this.activeTab === 'permissions') {
+            const links = document.createElement('div');
+            links.className = 'tp-activity-links';
+            links.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:12px;';
+            const act = document.createElement('button');
+            act.type = 'button';
+            act.id = 'tp-activity-link';
+            act.className = 'btn btn-sm btn-secondary';
+            act.textContent = 'Tool Activity';
+            act.title = 'Every tool call your agents made, with its verdict';
+            act.addEventListener('click', () => { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('tool-activity'); });
+            links.appendChild(act);
+            container.appendChild(links);
+        }
+
         // Tab content area
         const content = document.createElement('div');
         content.id = 'tp-content';
