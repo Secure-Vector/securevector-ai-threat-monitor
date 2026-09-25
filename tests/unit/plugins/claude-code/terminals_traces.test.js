@@ -75,7 +75,9 @@ test('the trace id opens the same trace details as the Details control', () => {
   // Same data attribute the Details button carries, so the shared handler
   // reads the trace id off either control.
   assert.match(src, /<button type="button" class="terminals-trace-id" data-trace-id="\$\{this\._esc\(r\.trace_id\)\}" title="Open trace and nested spans">/);
-  assert.match(src, /querySelectorAll\('\.terminals-trace-open, button\.terminals-trace-id'\)/);
+  // The per-run Spans button became the Show steps toggle; the run id and
+  // See full run are now the two controls that open Agent Runs.
+  assert.match(src, /querySelectorAll\('button\.terminals-trace-id, button\.terminals-steps-full, button\.terminals-steps-more'\)/);
   const css = read('css/styles.css');
   assert.match(css, /button\.terminals-trace-id\s*\{[^}]*cursor:\s*pointer/);
   assert.match(css, /button\.terminals-trace-id:hover,\s*button\.terminals-trace-id:focus-visible\s*\{[^}]*text-decoration:\s*underline/);
@@ -101,9 +103,9 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=451/);
-  assert.match(html, /terminals\.js\?v=77/);
-  assert.match(html, /agent-runs\.js\?v=363/);
+  assert.match(html, /styles\.css\?v=456/);
+  assert.match(html, /terminals\.js\?v=82/);
+  assert.match(html, /agent-runs\.js\?v=368/);
 });
 
 test('terminals.js coerces run counters with Number() before interpolating', () => {

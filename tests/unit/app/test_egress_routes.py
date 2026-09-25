@@ -22,6 +22,11 @@ class _StubRepo:
         self.called_with = (session_id, limit)
         return self._rows
 
+    async def session_blocked_call_count(self, session_id):
+        # One per refused call: the rows' per-host `blocked` totals overcount
+        # a call that named several hosts.
+        return sum(1 for r in self._rows if (r.get("blocked") or 0) > 0)
+
 
 @pytest.fixture
 def stub_repo(monkeypatch):
@@ -65,7 +70,7 @@ class TestSessionDestinationsRoute:
             egress_routes.codex_web_observer, "consent_granted", lambda: True)
         out = await egress_routes.get_session_destinations("s1")
         assert out == {"session_id": "s1", "distinct_hosts": 0,
-                       "blocked_hosts": 0, "observed_calls": 0,
+                       "blocked_hosts": 0, "blocked_calls": 0, "observed_calls": 0,
                        "transcript_consent": True, "destinations": []}
 
     def test_route_is_registered(self):

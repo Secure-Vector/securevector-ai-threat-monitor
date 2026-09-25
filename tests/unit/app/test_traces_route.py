@@ -164,3 +164,92 @@ async def test_orphan_rows_excluded_from_runs(tmp_path):
     runs = await repo.get_trace_runs(window_days=7)
     assert runs == []
     await db.disconnect()
+
+
+# ---------------- egress denies in the runs list ----------------
+
+
+def _egress_verdict(host):
+    from securevector.core.egress.destinations import EgressAttempt
+    from securevector.core.egress.engine import EgressVerdict
+    return EgressVerdict(action="block", rule_id="r1", attempt=EgressAttempt(
+        host=host, operation="read", kind="http", detector="bash",
+        confidence="PARSED", scheme="https", port=443, evidence=""))
+
+
+@pytest.mark.asyncio
+async def test_runs_list_counts_egress_denies_once(tmp_path, monkeypatch):
+    from securevector.app.database.repositories.egress import EgressRepository
+    from securevector.app.server.routes import traces as traces_mod
+    db = await _build_db(tmp_path)
+    monkeypatch.setattr(traces_mod, "get_database", lambda: db)
+    repo = CustomToolsRepository(db)
+    egress = EgressRepository(db)
+    # s1: only allowed calls, but one WebFetch refused by egress (two hosts,
+    # one call). s2: a tool block and an egress deny. s3: clean.
+    await _seed_run(repo, "claude-code", "s1", [("WebFetch", "allow", None), ("Read", "allow", None)])
+    await egress.log_attempts([_egress_verdict("evil.example"), _egress_verdict("evil2.example")],
+                              tool_name="WebFetch", session_id="s1", request_id="q1")
+    await _seed_run(repo, "claude-code", "s2", [("Bash", "block", "rule")])
+    await egress.log_attempts([_egress_verdict("x.example")], tool_name="Bash", session_id="s2", request_id="q2")
+    await _seed_run(repo, "claude-code", "s3", [("Read", "allow", None)])
+    # An egress deny for a session with no run in the list changes nothing.
+    await egress.log_attempts([_egress_verdict("y.example")], tool_name="Bash", session_id="s9")
+
+    out = await traces_mod.list_traces(window_days=7, limit=50)
+    by = {r["session_id"]: r for r in out["runs"]}
+    assert (by["s1"]["blocked"], by["s1"]["egress_blocked"], by["s1"]["risk"]) == (1, 1, "red")
+    assert (by["s2"]["blocked"], by["s2"]["egress_blocked"], by["s2"]["risk"]) == (2, 1, "red")
+    assert (by["s3"]["blocked"], by["s3"]["egress_blocked"], by["s3"]["risk"]) == (0, 0, "green")
+
+    # The detail keeps them apart, so nothing adds the same refusal twice.
+    detail = await traces_mod.get_trace(by["s1"]["trace_id"])
+    assert detail["blocked"] == 0
+    assert detail["egress_blocked"] == 1
+    assert detail["egress_blocks"][0]["hosts"] == ["evil.example", "evil2.example"]
+
+
+def test_assign_egress_one_run_per_deny():
+    from securevector.app.server.routes.traces import _assign_egress, _ts_key
+    t = lambda s: _ts_key(f"2026-01-01 10:00:{s:02d}")
+    a = {"trace_id": "A", "session_id": "s1", "runtime_kind": None, "start": t(0), "end": t(10)}
+    b = {"trace_id": "B", "session_id": "s1", "runtime_kind": None, "start": t(13), "end": t(20)}
+    call = lambda s, k: {"session_id": "s1", "runtime_kind": None, "called_at": f"2026-01-01 10:00:{s:02d}", "call_key": k}
+    got = _assign_egress([call(5, "in-a"), call(12, "gap"), call(15, "in-b"), call(24, "near-b"), call(59, "far")], [a, b])
+    assert got == {("s1", "in-a"): "A", ("s1", "gap"): "B", ("s1", "in-b"): "B", ("s1", "near-b"): "B"}
+    # One run in the session: its deny belongs to it even outside the padding.
+    assert _assign_egress([call(59, "far")], [a]) == {("s1", "far"): "A"}
+    # Another session's runs are never candidates.
+    assert _assign_egress([dict(call(5, "x"), session_id="s2")], [a, b]) == {}
+
+
+@pytest.mark.asyncio
+async def test_deny_between_two_runs_counts_once_in_list_and_detail(tmp_path, monkeypatch):
+    """Runs A and B of one session string (two runtimes) are 3 s apart; a deny
+    in the gap, closer to B, shows once in the list and only in B's detail."""
+    from securevector.app.database.repositories.egress import EgressRepository
+    from securevector.app.server.routes import traces as traces_mod
+    db = await _build_db(tmp_path)
+    monkeypatch.setattr(traces_mod, "get_database", lambda: db)
+    repo = CustomToolsRepository(db)
+    await _seed_run(repo, "claude-code", "s1", [("Read", "allow", None)])
+    await _seed_run(repo, "codex", "s1", [("Bash", "allow", None)])
+    from datetime import datetime, timezone
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    conn = await db.connect()
+    await conn.execute(f"UPDATE tool_call_audit SET called_at = '{day} 00:00:00' WHERE runtime_kind = 'claude-code'")
+    await conn.execute(f"UPDATE tool_call_audit SET called_at = '{day} 00:00:03' WHERE runtime_kind = 'codex'")
+    await conn.commit()
+    await EgressRepository(db).log_attempts([_egress_verdict("evil.example")], tool_name="Bash",
+                                            session_id="s1", request_id="q1")
+    await conn.execute(f"UPDATE egress_audit SET timestamp = '{day} 00:00:02'")
+    await conn.commit()
+
+    out = await traces_mod.list_traces(window_days=90, limit=50)
+    runs = {r["runtime_kind"]: r for r in out["runs"] if r["session_id"] == "s1"}
+    assert runs["claude-code"]["egress_blocked"] == 0
+    assert runs["codex"]["egress_blocked"] == 1
+    assert sum(r["egress_blocked"] for r in runs.values()) == 1
+    a = await traces_mod.get_trace(runs["claude-code"]["trace_id"])
+    b = await traces_mod.get_trace(runs["codex"]["trace_id"])
+    assert (a["egress_blocked"], b["egress_blocked"]) == (0, 1)

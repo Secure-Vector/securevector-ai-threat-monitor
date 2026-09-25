@@ -479,3 +479,37 @@ class TestObservedMigration:
             "SELECT name FROM sqlite_master WHERE type = 'table' "
             "AND name = 'egress_audit_v51'")
         assert await cur.fetchone() is None
+
+
+class TestBlockedCalls:
+    @pytest.mark.asyncio
+    async def test_one_row_per_refused_call_in_sql(self, tmp_path):
+        repo = await _repo(tmp_path)
+        # One call refused two hosts (same request_id): one row, both hosts.
+        await repo.log_attempts([_verdict("b.example", action="block", rule_id="r1"),
+                                 _verdict("a.example", action="block", rule_id="r1")],
+                                tool_name="Bash", session_id="s1", request_id="q1")
+        await repo.log_attempts([_verdict("ok.example")], tool_name="Bash", session_id="s1")
+        await repo.log_attempts([_verdict("x.example", action="block")], tool_name="Bash", session_id="s2")
+        rows = await repo.blocked_calls(["s1"])
+        assert [(r["session_id"], r["tool_name"], r["hosts"], r["rule_ids"]) for r in rows] == [
+            ("s1", "Bash", ["a.example", "b.example"], ["r1"])]
+        assert await repo.session_blocked_call_count("s1") == 1
+        assert await repo.session_blocked_call_count("s2") == 1
+        assert await repo.blocked_calls([]) == []
+
+    @pytest.mark.asyncio
+    async def test_row_cap_drops_the_oldest_calls(self, tmp_path):
+        repo = await _repo(tmp_path)
+        conn = await repo.db.connect()
+        insert = """INSERT INTO egress_audit (timestamp, host, operation, kind, action,
+                    confidence, detector, tool_name, session_id)
+                    VALUES (?, ?, 'read', 'http', 'block', 'PARSED', 'bash', 'Bash', 's1')"""
+        for i in range(30):
+            await conn.execute(insert, (f"2026-01-01 00:00:{i:02d}", f"h{i}.example"))
+        await conn.execute(insert, ("2026-01-01 10:00:00", "late.example"))
+        await conn.commit()
+        rows = await repo.blocked_calls(["s1"], limit=5)
+        assert len(rows) == 5
+        assert rows[0]["hosts"] == ["late.example"], "newest first: the cap drops the oldest"
+        assert await repo.session_blocked_call_count("s1") == 31

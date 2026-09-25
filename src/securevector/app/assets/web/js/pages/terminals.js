@@ -1179,6 +1179,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  (__session_start__ / __session_end__). They are boundaries, not calls,
      *  so listing them as calls overstates what was actually checked. */
     _isBoundaryRow(row) {
+        if (window.TraceSteps && window.TraceSteps.isBoundaryRow) return window.TraceSteps.isBoundaryRow(row);
+        // Fallback when the shared module is not loaded.
         const sentinel = (name) => {
             const s = String(name || '');
             return s.length >= 4 && s.slice(0, 2) === '__' && s.slice(-2) === '__';
@@ -2587,7 +2589,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const dests = (egress && egress.destinations) || [];
                 still.gov = {
                     calls: items.length,
-                    blocked: items.filter(x => x.action === 'block').length,
+                    // Egress denies are recorded apart from the tool-call
+                    // verdicts, so they are added from the destinations here.
+                    blocked: items.filter(x => x.action === 'block').length + this._egressBlockedOf(egress),
                     hosts: dests.length,
                 };
             }
@@ -4226,9 +4230,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const elapsed = this._elapsed(t.created_at, t.ended_at);
         // A pane's counts are its own; the page level pair belongs to the
         // focused pane, which is what the fallback element shows.
+        const railCounts = this._govCounts || { governed: 0, blocked: 0 };
         const counts0 = own
             ? (own.gov ? { governed: own.gov.calls, blocked: own.gov.blocked } : { governed: 0, blocked: 0 })
-            : (this._govCounts || { governed: 0, blocked: 0 });
+            : {
+                governed: railCounts.governed,
+                // Plus the session's egress denies, from the destinations the
+                // rail already reads (recorded apart from the verdicts).
+                blocked: railCounts.blocked + (this._egressSid && this._egressSid === t.session_id ? this._egressBlockedOf(this._egress) : 0),
+            };
         const footSig = [t.id, t.workspace, t.branch || '', t.executor_id, state.kind, counts0.governed, counts0.blocked].join('|');
         if (footSig === (own ? own.footSig : this._footSig)) {
             // Only the clock moved. Patching one text node keeps the rest of
@@ -4631,6 +4641,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
             aEl.innerHTML = '<span class="terminals-empty">Nothing waiting.</span>';
             if (tEl) tEl.innerHTML = '<span class="terminals-empty">No task attached.</span>';
             this._tracesCache = null;
+            this._tracesPaint = null;
+            this._traceRender = null;
+            this._stepsOpen = null;
+            this._railApprovals = [];
+            this._traceOwner = null;
             setCount('terminals-verdicts-count', 0);
             setCount('terminals-traces-count', 0);
             setCount('terminals-approvals-count', 0);
@@ -4673,20 +4688,41 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const sessionId = v.session_id;
             let traceRuns = [];
             let fetchFailed = false;
+            // A tick that lands while another tick's fetch is in flight has
+            // nothing new: it neither prunes nor repaints the list.
+            let pendingHit = false;
+            // A different task or session is a different list: nothing open,
+            // painted or cached for the last one carries over.
+            const owner = this._traceOwner;
+            if (!owner || owner.taskId !== id || owner.sessionId !== sessionId) {
+                this._traceOwner = { taskId: id, sessionId };
+                this._traceRender = null;
+                this._tracesPaint = null;
+                this._stepsOpen = null;
+                this._stepsCache = {};
+                this._stepsDetail = {};
+            }
             if (tEl) {
                 if (!sessionId) {
                     tEl.innerHTML = '<span class="terminals-empty">Traces appear after the first governed call.</span>';
                     this._tracesCache = null;
+                    this._tracesPaint = null;
+                    this._traceRender = null;
                 } else {
                     const cache = this._tracesCache;
                     if (cache && cache.taskId === id && cache.sessionId === sessionId
                         && (cache.pending ? Date.now() - cache.at < 20000 : Date.now() - cache.at < 12000)) {
                         traceRuns = cache.runs;
+                        pendingHit = !!cache.pending;
                     } else {
                         // Stamp the cache before awaiting so a concurrent caller (the 4s
                         // rail timer racing the attach path) sees a pending entry instead
                         // of also missing the cache and firing a duplicate fetch.
-                        this._tracesCache = { taskId: id, sessionId, at: Date.now(), runs: [], pending: true };
+                        // Same task and session: keep the runs already shown,
+                        // so an overlapping tick paints them rather than an
+                        // empty list.
+                        const prevRuns = cache && cache.taskId === id && cache.sessionId === sessionId ? (cache.runs || []) : [];
+                        this._tracesCache = { taskId: id, sessionId, at: Date.now(), runs: prevRuns, pending: true };
                         let tr = null;
                         let requestFailed = false;
                         try {
@@ -4719,49 +4755,33 @@ ${this.CLI_BIN} stop &lt;id&gt;
                             this._tracesCache = { taskId: id, sessionId, at: Date.now(), runs: traceRuns };
                         }
                     }
-                    tEl.innerHTML = fetchFailed
-                        ? '<span class="terminals-error">Traces unavailable.</span>'
-                        : (traceRuns.length ? `<div class="terminals-trace-session">
-                          <div class="terminals-trace-session-head"><span>Session</span><code>${this._esc(String(sessionId).slice(0, 12))}</code><span class="terminals-trace-session-path">› traces › spans</span></div>${traceRuns.map(r => {
-                        const risk = (r.blocked > 0 || r.risk === 'red') ? 'red' : (r.risk === 'amber' ? 'amber' : 'green');
-                        const riskLabel = risk === 'red' ? 'blocked' : (risk === 'amber' ? 'flagged' : 'clean');
-                        const shortId = String(r.trace_id || '').slice(0, 12);
-                        const metaParts = [
-                            `${Number(r.spans) || 0} spans`,
-                            `${Number(r.blocked) || 0} blocked`,
-                            `${Number(r.detections) || 0} detections`,
-                            this._ago(r.started_at),
-                        ].filter(Boolean);
-                        return `
-                      <div class="terminals-trace" data-trace-id="${this._esc(r.trace_id)}">
-                        <span class="terminals-dot sv-status-${risk}" role="img" aria-label="${this._esc(riskLabel)}"></span>
-                        <span class="terminals-trace-main">
-                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">trace ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span></span>
-                          <span class="terminals-trace-meta">${this._esc(metaParts.join(' · '))}</span>
-                        </span>
-                        <button type="button" class="terminals-trace-open" data-trace-id="${this._esc(r.trace_id)}">Spans</button>
-                      </div>`;
-                    }).join('')}</div>` : '<span class="terminals-empty">No traces yet.</span>');
-                    setCount('terminals-traces-count', fetchFailed ? 0 : traceRuns.length);
-                    // A transient fetch failure is not "no traces". Flipping
-                    // this to false would let the hero pop over live sections
-                    // mid-poll and then vanish again on the next tick.
-                    if (!fetchFailed) this._govHas.traces = traceRuns.length > 0;
-                    if (!fetchFailed) {
-                        // The id and the Details button are the same control.
-                        tEl.querySelectorAll('.terminals-trace-open, button.terminals-trace-id').forEach(b => {
-                            b.onclick = () => {
-                                const traceId = b.dataset.traceId;
-                                if (window.AgentRunsPage) AgentRunsPage._pendingTrace = traceId;
-                                if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs');
-                            };
-                        });
+                    // The list is painted by _renderTraceList so an expanded
+                    // run's steps can repaint on their own (a fetch landing, a
+                    // chip clicked) without waiting for the next rail tick.
+                    if (!pendingHit) {
+                        this._traceRender = { taskId: id, sessionId, runs: fetchFailed ? [] : traceRuns, failed: fetchFailed };
+                        if (!fetchFailed) this._pruneTraceSteps(traceRuns);
+                        this._renderTraceList(tEl);
+                        setCount('terminals-traces-count', fetchFailed ? 0 : traceRuns.length);
+                        // A transient fetch failure is not "no traces". Flipping
+                        // this to false would let the hero pop over live sections
+                        // mid-poll and then vanish again on the next tick.
+                        if (!fetchFailed) this._govHas.traces = traceRuns.length > 0;
+                    }
+                    // The newest run is the one still growing, so while it is
+                    // expanded its steps refresh on the traces cadence (12s).
+                    if (!fetchFailed && this._stepsOpen && traceRuns[0] && traceRuns[0].trace_id === this._stepsOpen) {
+                        this._loadTraceSteps(this._stepsOpen, true);
                     }
                 }
             }
             const jit = await API.getJitRequests('pending');
             if (this._attached !== id) return;
             const mine = (jit.items || []).filter(r => !sessionId || r.session_id === sessionId);
+            // An expanded run offers Approve only for a call that is really
+            // waiting, so it repaints once the inbox is known.
+            this._railApprovals = mine;
+            if (this._stepsOpen && tEl) this._renderTraceList(tEl);
             const summaryParts = [
                 `${items.length} call${items.length === 1 ? '' : 's'} checked`,
                 fetchFailed ? null : `${traceRuns.length} trace${traceRuns.length === 1 ? '' : 's'}`,
@@ -5144,6 +5164,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         setBadge(rows.length, blocked > 0);
         this._govHas.egress = rows.length > 0;
         this._renderGovHero();
+        this._renderPaneFoot(); // the footer's blocked count includes egress denies
         // Codex's own web tool never reaches a hook, so its destinations are
         // read back from the local transcript afterwards. That reading is the
         // same consent the Cost Optimizer asks for once; without it the list
@@ -5205,6 +5226,185 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (params.limit) q.set('limit', params.limit);
         const qs = q.toString();
         return API.request(`/api/traces${qs ? '?' + qs : ''}`);
+    },
+
+    // --- Traces: the run list and a run's steps ---------------------------
+    //
+    // A run in the Traces section expands in place into its steps: one row
+    // per model turn, a two part time bar (model time, then the tool time
+    // that followed it), and the tool calls that turn made. The pure parts
+    // (_buildTraceSteps, _stepBarWidths, _fmtStepDur, _stepChipState,
+    // _traceStepsHtml) take plain data so the tests can drive them directly.
+    STEPS_MAX: 6,             // rows shown before "+ N more steps"
+    STEPS_CHIPS_MAX: 8,       // chips per step before "+N more"
+    _stepsOpen: null,         // trace id of the one expanded run
+    _stepsCache: null,        // trace id -> { data, at } | { error } | { pending }
+    _stepsDetail: null,       // trace id -> open chip key ('' when shut by hand)
+    _railApprovals: [],       // the rail's last pending approvals, this session
+    _traceRender: null,       // { sessionId, runs, failed } last painted
+    _tracesPaint: null,       // { el, html } so an unchanged list keeps focus
+
+    // The step maths and markup live in js/components/trace-steps.js
+    // (window.TraceSteps), shared with the Traces page and its exports.
+    // These thin wrappers keep the names this page and its tests use.
+    _traceSteps() { return window.TraceSteps; },
+    _buildTraceSteps(spans) { return this._traceSteps().build(spans); },
+    _stepBarWidths(step, maxTotal) { return this._traceSteps().barWidths(step, maxTotal); },
+    _stepsMaxTotal(steps) { return this._traceSteps().maxTotal(steps); },
+    _fmtStepDur(ms) { return this._traceSteps().fmtDur(ms); },
+    _stepDurText(step) { return this._traceSteps().durText(step); },
+    _stepChipState(span) { return this._traceSteps().chipState(span); },
+    _stepApprovalFor(span, approvals, traceId) { return this._traceSteps().approvalFor(span, approvals, traceId); },
+    _stepChipKeys(steps) { return this._traceSteps().chipKeys(steps); },
+
+    /** The expanded run's body. `opts.detailKey`: the open chip ('step:call'),
+     *  '' for none, undefined for the default (first blocked call shown). */
+    _traceStepsHtml(traceId, detail, opts = {}) {
+        const rt = detail && detail.runtime_kind;
+        return this._traceSteps().html(traceId, detail, Object.assign({
+            prefix: 'terminals-steps', stepsMax: this.STEPS_MAX, chipsMax: this.STEPS_CHIPS_MAX,
+            // Same wording as the Traces page: only Claude Code's model is Claude.
+            modelLabel: rt && rt !== 'claude-code' ? 'Model thinking' : 'Claude thinking',
+        }, opts));
+    },
+
+    /** Loading / error / steps for the expanded run. */
+    _stepsPanelHtml(traceId) {
+        const e = (this._stepsCache || {})[traceId];
+        if (e && e.data) {
+            return this._traceStepsHtml(traceId, e.data, {
+                detailKey: (this._stepsDetail || {})[traceId],
+                approvals: this._railApprovals,
+            });
+        }
+        if (e && e.error) return '<span class="terminals-error">Steps unavailable.</span>';
+        return '<span class="terminals-empty">Loading steps…</span>';
+    },
+
+    /** Fetch a run's spans once and reuse them; `refresh` refetches only when
+     *  the copy is older than the traces cadence. Errors are not cached, and
+     *  a fetch still pending after 20s is given up so opening again retries. */
+    _loadTraceSteps(traceId, refresh = false) {
+        const cache = this._stepsCache || (this._stepsCache = {});
+        const e = cache[traceId];
+        if (e && e.pending && Date.now() - e.pendingAt < 20000) return;
+        if (e && e.data && !e.pending && (!refresh || Date.now() - e.at < 12000)) return;
+        // Whose run this is: a late answer for a task or session the rail
+        // has since left must not repaint the new one.
+        const st = this._traceRender || {};
+        const owner = { taskId: st.taskId, sessionId: st.sessionId };
+        const token = {};
+        const had = e && e.data ? { data: e.data, at: e.at } : null;
+        cache[traceId] = Object.assign({}, had || {}, { pending: true, pendingAt: Date.now(), token });
+        const current = () => cache[traceId] && cache[traceId].token === token;
+        Promise.resolve()
+            .then(() => API.request(`/api/traces/${encodeURIComponent(traceId)}`))
+            .then((data) => { if (current()) cache[traceId] = { data: data || {}, at: Date.now() }; })
+            .catch(() => {
+                // Keep a copy we already had; with none, say so until the
+                // run is closed and opened again, which retries.
+                if (current()) cache[traceId] = had || { error: true };
+            })
+            .then(() => {
+                const now = this._traceRender || {};
+                if (this._stepsOpen !== traceId || now.taskId !== owner.taskId || now.sessionId !== owner.sessionId) return;
+                this._renderTraceList();
+            });
+    },
+
+    /** Drop cached steps for runs that left the list. */
+    _pruneTraceSteps(runs) {
+        const keep = new Set((runs || []).map(r => r.trace_id));
+        for (const k of Object.keys(this._stepsCache || {})) if (!keep.has(k)) delete this._stepsCache[k];
+        for (const k of Object.keys(this._stepsDetail || {})) if (!keep.has(k)) delete this._stepsDetail[k];
+        if (this._stepsOpen && !keep.has(this._stepsOpen)) this._stepsOpen = null;
+    },
+
+    /** Paint the Traces list from _traceRender. An unchanged list is left
+     *  alone so the 4s rail tick does not steal focus from a chip. */
+    _renderTraceList(tEl) {
+        tEl = tEl || document.getElementById('terminals-traces');
+        const st = this._traceRender;
+        if (!tEl || !st) return;
+        const { sessionId } = st;
+        const traceRuns = st.runs || [];
+        const html = st.failed
+            ? '<span class="terminals-error">Traces unavailable.</span>'
+            : (traceRuns.length ? `<div class="terminals-trace-session">
+                          <div class="terminals-trace-session-head"><span>Session</span><code>${this._esc(String(sessionId).slice(0, 12))}</code><span class="terminals-trace-session-path">› traces › spans</span></div>${traceRuns.map((r) => {
+                        const risk = (r.blocked > 0 || r.risk === 'red') ? 'red' : (r.risk === 'amber' ? 'amber' : 'green');
+                        const riskLabel = risk === 'red' ? 'blocked' : (risk === 'amber' ? 'flagged' : 'clean');
+                        const shortId = String(r.trace_id || '').slice(0, 12);
+                        const spans = Number(r.spans) || 0;
+                        const blocked = Number(r.blocked) || 0;
+                        const detections = Number(r.detections) || 0;
+                        const state = blocked > 0 ? `${blocked} blocked`
+                            : (detections > 0 ? `${detections} flagged` : (risk === 'amber' ? '1 flagged' : 'clean'));
+                        const metaParts = [
+                            this._ago(r.started_at),
+                            state,
+                            `${spans} span${spans === 1 ? '' : 's'}`,
+                        ].filter(Boolean);
+                        const open = this._stepsOpen === r.trace_id;
+                        return `
+                      <div class="terminals-trace" data-trace-id="${this._esc(r.trace_id)}">
+                        <span class="terminals-dot sv-status-${risk}" role="img" aria-label="${this._esc(riskLabel)}"></span>
+                        <span class="terminals-trace-main">
+                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">Run ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span></span>
+                          <span class="terminals-trace-meta">${this._esc(metaParts.join(' · '))}</span>
+                        </span>
+                        <button type="button" class="terminals-trace-open terminals-steps-toggle" data-trace-id="${this._esc(r.trace_id)}" data-fk="t:${this._esc(r.trace_id)}" aria-expanded="${open ? 'true' : 'false'}"${open ? ` aria-controls="terminals-steps-${this._esc(r.trace_id)}"` : ''}>${open ? 'Hide steps ▴' : 'Show steps ▾'}</button>
+                      </div>${open ? `<div class="terminals-steps" id="terminals-steps-${this._esc(r.trace_id)}">${this._stepsPanelHtml(r.trace_id)}</div>` : ''}`;
+                    }).join('')}</div>` : '<span class="terminals-empty">No traces yet.</span>');
+        const last = this._tracesPaint;
+        if (last && last.el === tEl && last.html === html) return;
+        const active = typeof document !== 'undefined' ? document.activeElement : null;
+        const focusKey = active && active.getAttribute && tEl.contains && tEl.contains(active) ? active.getAttribute('data-fk') : null;
+        tEl.innerHTML = html;
+        this._tracesPaint = { el: tEl, html };
+        if (st.failed) return;
+        // The run id and See full run both open the run in Agent Runs.
+        tEl.querySelectorAll('button.terminals-trace-id, button.terminals-steps-full, button.terminals-steps-more').forEach(b => {
+            b.onclick = () => {
+                const traceId = b.dataset.traceId;
+                if (window.AgentRunsPage) AgentRunsPage._pendingTrace = traceId;
+                if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs');
+            };
+        });
+        tEl.querySelectorAll('button.terminals-steps-toggle').forEach(b => {
+            b.onclick = () => {
+                const traceId = b.dataset.traceId;
+                if (this._stepsOpen === traceId) {
+                    this._stepsOpen = null;
+                } else {
+                    this._stepsOpen = traceId;
+                    const e = (this._stepsCache || {})[traceId];
+                    if (e && e.error) delete this._stepsCache[traceId];
+                    this._loadTraceSteps(traceId);
+                }
+                this._renderTraceList(tEl);
+            };
+        });
+        tEl.querySelectorAll('button.terminals-steps-chip:not(.terminals-steps-more)').forEach(b => {
+            b.onclick = () => {
+                const traceId = b.dataset.traceId;
+                const k = b.dataset.stepKey;
+                const detail = this._stepsDetail || (this._stepsDetail = {});
+                detail[traceId] = b.getAttribute && b.getAttribute('aria-pressed') === 'true' ? '' : k;
+                this._renderTraceList(tEl);
+            };
+        });
+        tEl.querySelectorAll('button.terminals-steps-approve').forEach(b => {
+            b.onclick = () => {
+                this._forceGovSection('terminals-gov-approvals');
+                const sec = document.getElementById('terminals-gov-approvals');
+                if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            };
+        });
+        if (focusKey) {
+            const again = Array.from(tEl.querySelectorAll('[data-fk]')).find(x => x.getAttribute('data-fk') === focusKey);
+            if (again && again.focus) again.focus();
+        }
     },
 
     _label(executorId) {
@@ -5423,6 +5623,16 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (h < 24) return `${h}h ago`;
         const d = Math.floor(h / 24);
         return `${d}d ago`;
+    },
+    /** Refused egress calls in a session-destinations answer: the server's
+     *  `blocked_calls`, one per call however many hosts it named (request_id,
+     *  else second and tool, as the traces list counts them). The per-host
+     *  `destinations[].blocked` totals cannot be deduped here (they carry no
+     *  request_id or timestamp), so an answer without `blocked_calls` adds 0
+     *  rather than a guess. */
+    _egressBlockedOf(egress) {
+        const n = egress ? Number(egress.blocked_calls) : NaN;
+        return Number.isFinite(n) && n > 0 ? n : 0;
     },
     _esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

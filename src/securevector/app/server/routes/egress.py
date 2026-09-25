@@ -285,6 +285,9 @@ async def get_session_destinations(session_id: str, limit: int = 50):
         "session_id": session_id,
         "distinct_hosts": len(rows),
         "blocked_hosts": sum(1 for r in rows if (r.get("blocked") or 0) > 0),
+        # Refused calls, one per call however many hosts it named: the same
+        # count the traces list folds into a run's `blocked`.
+        "blocked_calls": await repo.session_blocked_call_count(session_id),
         "observed_calls": sum((r.get("observed") or 0) for r in rows),
         "transcript_consent": codex_web_observer.consent_granted(),
         "destinations": rows,

@@ -128,3 +128,13 @@ test('Codex decideFromOverrides: case-insensitive tool_id matching (issue #138)'
   const pascal = { synced: [{ tool_id: 'Read', effect: 'deny' }], total: 1 };
   assert.equal(decideFromOverrides(['read'], pascal).decision, 'deny');
 });
+
+test('codex: an egress deny is recorded once, in egress_audit, not again as a call-audit row', () => {
+  // /api/egress/evaluate writes the egress_audit row before it answers; the
+  // Traces step view reads it from there (trace.egress_blocks) and shows the
+  // call as blocked. A second call-audit row here would double count it.
+  const src = require('node:fs').readFileSync(require.resolve(
+    '../../../../src/securevector/plugins/codex/hooks/pre-tool-use.js'), 'utf8');
+  require('node:assert/strict').match(src, /decision\.decision === 'deny' && decision\.toolId && !decision\.egress/);
+  require('node:assert/strict').match(src, /tool_name: toolName,[\s\S]{0,120}session_id: sessionId/);
+});

@@ -677,6 +677,26 @@ class CostsRepository:
         )
         return [dict(r) for r in rows] if rows else []
 
+    async def get_run_windows_for_sessions(self, session_ids) -> list[dict]:
+        """Each run's time bounds over its stored generations, for these
+        sessions. Mirrors ``CustomToolsRepository.get_run_windows_for_sessions``."""
+        ids = [s for s in dict.fromkeys(session_ids or []) if s][:500]
+        if not ids:
+            return []
+        marks = ", ".join("?" for _ in ids)
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT trace_id, MAX(session_id) AS session_id, MAX(runtime_kind) AS runtime_kind,
+                   MIN(COALESCE(started_at, recorded_at)) AS started_at,
+                   MAX(COALESCE(started_at, recorded_at)) AS ended_at
+            FROM llm_cost_records
+            WHERE session_id IN ({marks}) AND trace_id IS NOT NULL
+            GROUP BY trace_id
+            """,
+            tuple(ids),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def get_monthly_spend(self, agent_id: Optional[str] = None) -> float:
         """Return this calendar month's total spend in USD, optionally filtered by agent_id."""
         now = datetime.utcnow()

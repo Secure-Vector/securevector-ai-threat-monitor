@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from datetime import datetime
 from typing import Optional
 
 from securevector.app.utils.trace_text import TRACE_TEXT_CAP, sanitize_trace_text
@@ -92,6 +93,22 @@ def _text_of(content) -> str:
             if isinstance(t, str) and t:
                 parts.append(t)
     return "\n".join(parts)
+
+
+# Claude Code's own wrappers in user records: slash-command echoes, local
+# command output, and the caveat it injects around them. Not a typed prompt.
+_CC_WRAPPER_PREFIXES = (
+    "<command-name>", "<command-message>", "<command-args>",
+    "<local-command-stdout>", "<local-command-stderr>", "<local-command-caveat>",
+)
+
+
+def _is_meta_user_record(rec: dict, text: str) -> bool:
+    """A user record Claude Code wrote itself (isMeta, or a command/caveat
+    wrapper), as opposed to a prompt a person typed."""
+    if rec.get("isMeta"):
+        return True
+    return text.lstrip().startswith(_CC_WRAPPER_PREFIXES)
 
 
 def _tool_uses_of(content) -> list[str]:
@@ -192,6 +209,50 @@ def _tool_results_of(content) -> list[tuple]:
     return out
 
 
+# A gap longer than this between the record that fed a turn and the turn
+# itself is someone away from the keyboard, not model time.
+_MAX_ESTIMATED_TURN_MS = 30 * 60 * 1000
+
+
+def _parse_ts(ts) -> Optional[datetime]:
+    if not isinstance(ts, str) or not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt
+
+
+def _estimated_duration_ms(fed_at, called_at) -> Optional[int]:
+    """Model time for a transcript turn: its record timestamp minus the
+    timestamp of the record that fed it (the prompt or the tool result).
+    None when either is missing or unparseable, the gap is negative, or it is
+    longer than 30 minutes."""
+    a = _parse_ts(fed_at)
+    b = _parse_ts(called_at)
+    if a is None or b is None:
+        return None
+    if (a.tzinfo is None) != (b.tzinfo is None):
+        return None
+    ms = int(round((b - a).total_seconds() * 1000))
+    if ms < 0 or ms > _MAX_ESTIMATED_TURN_MS:
+        return None
+    return ms
+
+
+def _stamp_estimated_duration(gen: dict, fed_at, fed_by: Optional[str] = None) -> None:
+    """Additive: set duration_ms (+ duration_estimated) only when known, and
+    turn_start ("prompt" | "tool_result"): which record fed this turn. A turn
+    fed by a prompt means the gap before it was the person, not a tool."""
+    if fed_by in ("prompt", "tool_result"):
+        gen["turn_start"] = fed_by
+    ms = _estimated_duration_ms(fed_at, gen.get("called_at"))
+    if ms is not None:
+        gen["duration_ms"] = ms
+        gen["duration_estimated"] = True
+
+
 def _preview(text: str) -> tuple[str, bool]:
     """Redact secrets, then cap at PREVIEW_CAP. Returns (preview, truncated)."""
     if not text:
@@ -278,6 +339,10 @@ def build_generations(
         gen["tools_called"] = [
             t for t in list(base_tools) + cur_tools if not (t in seen or seen.add(t))
         ]
+        # Every tool_use by name, repeats kept (names only, never args), so a
+        # step can tell which calls the Guard plugin never saw.
+        base_names = (gen.get("tool_use_names") or []) if reopen else []
+        gen["tool_use_names"] = list(base_names) + list(cur_tools)
         ids_for_last = cur_tool_ids
         # Claude Code writes synthetic assistant records (system-injected turns)
         # with model "<synthetic>" and zero usage — not real API calls, so they
@@ -303,6 +368,11 @@ def build_generations(
     # reads honestly ("responding to a tool result") rather than blank.
     last_user_text = ""
     last_user_was_tool = False
+    # Timestamp of the latest user record (a prompt or a tool_result): the
+    # record that fed the next generation, for its estimated model time.
+    last_user_ts = None
+    # Which kind of user record that was: "prompt" or "tool_result".
+    last_user_kind = None
     try:
         with path.open("r", encoding="utf-8") as fh:
             for line in fh:
@@ -317,11 +387,18 @@ def build_generations(
                 role = msg.get("role")
                 if role == "user" and rec.get("type") == "user":
                     _flush()  # a user turn ends any open round-trip
+                    last_user_ts = rec.get("timestamp")
                     content = msg.get("content")
                     # Tool results belong to the LLM run that just flushed — it
                     # made the calls (matched by tool_use_id). This is Pillar 3:
                     # "what the tool returned", captured, not guessed.
                     results = _tool_results_of(content)
+                    if results:
+                        last_user_kind = "tool_result"
+                    elif not _is_meta_user_record(rec, _text_of(content)):
+                        last_user_kind = "prompt"
+                    # A meta record (isMeta, command/caveat wrapper) is not
+                    # a typed prompt: it leaves the kind as it was.
                     if results and last_gen is not None:
                         tr = []
                         for tid, text, is_err in results:
@@ -404,6 +481,7 @@ def build_generations(
                             "tool_results": [],
                         },
                     }
+                    _stamp_estimated_duration(cur["gen"], last_user_ts, last_user_kind)
                     cur_out_parts = []
                 # Accumulate this record's text + tool_use requests (name + id, so
                 # the returned result can be matched back); keep the latest
@@ -450,6 +528,15 @@ def _find_codex_rollout(session_id: str) -> Optional[Path]:
     return None
 
 
+# Codex runs shell commands through several tool names; its hook reports all
+# of them as "Bash" (plugins/codex/lib/normalize.js). Matching a transcript
+# call to the Guard's row needs the hook's name.
+_CODEX_HOOK_NAMES = {
+    "exec": "Bash", "exec_command": "Bash", "shell": "Bash",
+    "shell_command": "Bash", "local_shell": "Bash", "container.exec": "Bash",
+}
+
+
 def build_generations_codex(
     session_id: str, *, store_text: bool, with_analysis: bool = False
 ) -> list[dict]:
@@ -471,9 +558,12 @@ def build_generations_codex(
     last_user_text = ""
     last_user_was_tool = False
     pending_out: list[str] = []
+    # Tool calls the model made since the last token_count, by the name the
+    # Guard hook reports (names only, never args).
+    pending_calls: list[str] = []
 
     def _emit(usage: dict) -> None:
-        nonlocal pending_out
+        nonlocal pending_out, pending_calls
         out_text = "\n".join(p for p in pending_out if p)
         inp = int(usage.get("input_tokens") or 0)
         cached = int(usage.get("cached_input_tokens") or 0)
@@ -512,12 +602,30 @@ def build_generations_codex(
             gen["output_preview"] = op
             gen["input_truncated"] = it
             gen["output_truncated"] = ot
+        gen["tool_use_names"] = pending_calls
         gens.append(gen)
         pending_out = []
+        pending_calls = []
 
     try:
         with path.open("r", encoding="utf-8") as fh:
             last_ts = None
+            # Timestamp of the record that fed the next turn: the user
+            # message or a tool call's output.
+            fed_ts = None
+            fed_by = None  # "prompt" | "tool_result": what fed_ts was
+            # A model call's own record order, as Codex writes it: its output
+            # items (reasoning, assistant message, function/custom tool call),
+            # then a token_usage_record, then (for a tool call) the tool's
+            # output, and only then the event_msg token_count carrying its
+            # usage. So the call is timed from its own records, not from the
+            # token_count: `call_fed` is the feeding record seen when its first
+            # output item arrived, `call_out_ts` its last output item, and
+            # `call_end_ts` its token_usage_record (the model end).
+            call_fed = None  # (ts, "prompt" | "tool_result") or None
+            call_out_ts = None
+            call_end_ts = None
+            last_total = None  # info.total_token_usage of the last emitted call
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -534,6 +642,23 @@ def build_generations_codex(
                 if rec.get("type") == "turn_context" and payload.get("model"):
                     model = payload.get("model")
                     continue
+                if rec.get("type") == "token_usage_record" or ptype == "token_usage_record":
+                    if isinstance(ts, str):
+                        call_end_ts = ts
+                    continue
+                is_output = ptype in ("reasoning", "function_call", "custom_tool_call") or (
+                    ptype == "message" and payload.get("role") == "assistant")
+                if is_output:
+                    if call_fed is None:
+                        call_fed = (fed_ts, fed_by)
+                    if ptype != "reasoning" and isinstance(ts, str):
+                        call_out_ts = ts
+                    if ptype in ("function_call", "custom_tool_call"):
+                        n = payload.get("name")
+                        if isinstance(n, str) and n:
+                            pending_calls.append(_CODEX_HOOK_NAMES.get(n, n))
+                    if ptype != "message":
+                        continue
                 if ptype == "message":
                     role = payload.get("role")
                     text = _codex_text(payload.get("content"))
@@ -541,6 +666,9 @@ def build_generations_codex(
                         if text:
                             pending_out.append(text)
                     elif role == "user":
+                        fed_by = "prompt"
+                        if isinstance(ts, str):
+                            fed_ts = ts
                         if text:
                             last_user_text = text
                             last_user_was_tool = False
@@ -548,12 +676,42 @@ def build_generations_codex(
                             last_user_text = ""
                             last_user_was_tool = True
                     continue
+                if ptype in ("function_call_output", "custom_tool_call_output"):
+                    fed_by = "tool_result"
+                    if isinstance(ts, str):
+                        fed_ts = ts
+                    continue
                 if ptype == "token_count":
-                    usage = (payload.get("info") or {}).get("last_token_usage")
+                    info = payload.get("info") or {}
+                    usage = info.get("last_token_usage")
+                    total = info.get("total_token_usage")
                     if isinstance(usage, dict) and int(usage.get("output_tokens") or 0) > 0:
+                        if total is not None and total == last_total and call_fed is None \
+                                and call_end_ts is None:
+                            # The same call's usage reported again: the running
+                            # total did not move and no model output came
+                            # between. One call, one generation.
+                            continue
+                        last_total = total
                         _emit(usage)
-                        if last_ts:
-                            gens[-1]["called_at"] = last_ts
+                        if call_fed is not None:
+                            # Timed from the call's own records (see above).
+                            end = call_end_ts or call_out_ts or last_ts
+                            start_ts, start_by = call_fed
+                        else:
+                            # An older rollout with no output items: the
+                            # token_count is the only mark of the call.
+                            end = call_end_ts or last_ts
+                            start_ts, start_by = fed_ts, fed_by
+                        if end:
+                            gens[-1]["called_at"] = end
+                        _stamp_estimated_duration(gens[-1], start_ts, start_by)
+                        if call_fed is None:
+                            fed_ts = None
+                            fed_by = None
+                        call_fed = None
+                        call_out_ts = None
+                        call_end_ts = None
     except OSError:
         return []
     return gens

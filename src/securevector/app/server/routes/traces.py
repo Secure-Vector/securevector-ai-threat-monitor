@@ -176,6 +176,7 @@ async def list_traces(
         })
     runs.sort(key=lambda x: _ts_key(x.get("ended_at")), reverse=True)
     runs = runs[:limit]
+    await _add_egress_blocked(db, runs)
     return {"window_days": window_days, "runs": runs}
 
 
@@ -334,6 +335,8 @@ async def get_trace(trace_id: str):
     for i, s in enumerate(merged):
         s["turn_index"] = i
 
+    egress_blocks = await _egress_blocks(db, trace_id, session_id)
+
     return {
         "trace_id": trace_id,
         "runtime_kind": runtime_kind,
@@ -349,10 +352,137 @@ async def get_trace(trace_id: str):
         "started_at": started_at,
         "ended_at": ended_at,
         "blocked": blocked,
+        # Egress denies for this run. The hook records them only in
+        # egress_audit, so the step view matches them to the calls they
+        # stopped. Host and tool only, never a URL path or query.
+        "egress_blocks": egress_blocks,
+        # Counted apart from `blocked` (tool_call_audit only), so no surface
+        # adds the same refusal twice; the list folds it into its `blocked`.
+        "egress_blocked": len(egress_blocks),
         # 5.3.0 cost view: spend per model and the turn that cost the most.
         "cost_by_model": _cost_by_model(generations),
         "expensive_turn": _expensive_turn(merged),
     }
+
+
+# How far outside a run's window a deny may still belong to it. The hook calls
+# /api/egress/evaluate after the harness hands it the call, and that row is
+# written before the answer, so it lands within about a second of the call.
+# The run's own bounds come from second-precision audit rows; 5 s covers both
+# roundings plus a slow local app without reaching into a neighbouring run.
+_EGRESS_PAD_S = 5
+
+
+async def _session_run_windows(db, session_ids) -> list[dict]:
+    """Every run of these sessions with its time bounds: tool-call rows and
+    stored generations merged per trace_id. The list and the detail both
+    read windows from here, so they assign each deny the same way."""
+    merged: dict = {}
+    sources = []
+    try:
+        sources.append(await CustomToolsRepository(db).get_run_windows_for_sessions(session_ids))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        sources.append(await CostsRepository(db).get_run_windows_for_sessions(session_ids))
+    except Exception:  # noqa: BLE001
+        pass
+    for rows in sources:
+        for r in rows:
+            tid = r.get("trace_id")
+            if not tid:
+                continue
+            w = merged.setdefault(tid, {"trace_id": tid, "session_id": r.get("session_id"),
+                                        "runtime_kind": r.get("runtime_kind"),
+                                        "start": None, "end": None})
+            for k, pick in (("start", min), ("end", max)):
+                v = r.get("started_at" if k == "start" else "ended_at")
+                if v:
+                    t = _ts_key(v)
+                    w[k] = t if w[k] is None else pick(w[k], t)
+    return [w for w in merged.values() if w["start"] is not None and w["end"] is not None]
+
+
+def _assign_egress(calls: list, windows: list) -> dict:
+    """Give each refused call to exactly one run: the run whose unpadded
+    window holds it; else the nearest run within _EGRESS_PAD_S; else, when
+    the session has a single run (one run is one session, utils/trace_id.py),
+    that run, since the deny can belong to no other; else none. Only runs of
+    the call's session (and runtime, when both are known) are candidates.
+    Returns {(session_id, call_key): trace_id}."""
+    out: dict = {}
+    for c in calls:
+        sid = c.get("session_id")
+        rk = c.get("runtime_kind")
+        cands = [w for w in windows if w["session_id"] == sid
+                 and not (rk and w.get("runtime_kind") and w["runtime_kind"] != rk)]
+        if not cands:
+            continue
+        t = _ts_key(c.get("called_at"))
+        inside = [w for w in cands if w["start"] <= t <= w["end"]]
+        if inside:
+            pick = max(inside, key=lambda w: w["start"])  # the later run when windows overlap
+        else:
+            def gap(w):
+                return (w["start"] - t).total_seconds() if t < w["start"] else (t - w["end"]).total_seconds()
+            near = [w for w in cands if gap(w) <= _EGRESS_PAD_S]
+            if near:
+                pick = min(near, key=lambda w: (gap(w), -w["start"].timestamp()))
+            elif len(cands) == 1:
+                pick = cands[0]
+            else:
+                continue
+        out[(sid, c.get("call_key"))] = pick["trace_id"]
+    return out
+
+
+async def _egress_calls_by_trace(db, session_ids) -> dict:
+    """{trace_id: [refused call, ...]} for these sessions, each call in one run."""
+    sids = [s for s in dict.fromkeys(session_ids or []) if s]
+    if not sids:
+        return {}
+    try:
+        from securevector.app.database.repositories.egress import EgressRepository
+        calls = await EgressRepository(db).blocked_calls(sids)
+    except Exception:  # noqa: BLE001 — egress is additive; never 500 a trace read
+        return {}
+    if not calls:
+        return {}
+    windows = await _session_run_windows(db, sids)
+    owner = _assign_egress(calls, windows)
+    by_trace: dict = {}
+    for c in sorted(calls, key=lambda c: _ts_key(c.get("called_at"))):
+        tid = owner.get((c.get("session_id"), c.get("call_key")))
+        if tid:
+            by_trace.setdefault(tid, []).append(c)
+    return by_trace
+
+
+async def _add_egress_blocked(db, runs: list) -> None:
+    """Fold each run's egress denies into its blocked count and risk.
+
+    A hook's egress deny is recorded only in egress_audit (never as a
+    tool_call_audit block), so `blocked` from the audit rows alone reads 0 for
+    a run whose only refusal was a destination. One query covers every listed
+    run; each refused call counts once, in the run `_assign_egress` gives it.
+    `egress_blocked` keeps that part visible on its own."""
+    by_trace = await _egress_calls_by_trace(db, [r.get("session_id") for r in runs])
+    for r in runs:
+        n = len(by_trace.get(r.get("trace_id"), []))
+        r["egress_blocked"] = n
+        if n:
+            r["blocked"] = int(r.get("blocked") or 0) + n
+            r["risk"] = "red"
+
+
+async def _egress_blocks(db, trace_id, session_id) -> list[dict]:
+    """This run's refused calls (host, tool and rule only), assigned exactly
+    as the runs list assigns them."""
+    if not session_id:
+        return []
+    calls = (await _egress_calls_by_trace(db, [session_id])).get(trace_id, [])
+    return [{"called_at": c.get("called_at"), "tool_name": c.get("tool_name"),
+             "hosts": c.get("hosts") or [], "rule_ids": c.get("rule_ids") or []} for c in calls]
 
 
 def _stored_generation(g: dict) -> dict:

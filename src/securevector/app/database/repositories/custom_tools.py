@@ -1306,6 +1306,25 @@ class CustomToolsRepository:
                 bucket["secrets"] += 1
         return out
 
+    async def get_run_windows_for_sessions(self, session_ids) -> list[dict]:
+        """Each run's time bounds over its tool-call rows, for these sessions
+        (trace_id, session_id, runtime_kind, started_at, ended_at)."""
+        ids = [s for s in dict.fromkeys(session_ids or []) if s][:500]
+        if not ids:
+            return []
+        marks = ", ".join("?" for _ in ids)
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT trace_id, MAX(session_id) AS session_id, MAX(runtime_kind) AS runtime_kind,
+                   MIN(called_at) AS started_at, MAX(called_at) AS ended_at
+            FROM tool_call_audit
+            WHERE session_id IN ({marks}) AND trace_id IS NOT NULL
+            GROUP BY trace_id
+            """,
+            tuple(ids),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def get_trace_spans(self, trace_id: str) -> list[dict]:
         """Return the ordered spans (tool-call audit rows) for one run.
 

@@ -329,6 +329,61 @@ class EgressRepository:
                 "hard_blocked", "first_seen", "last_seen"]
         return [dict(zip(cols, r)) for r in await cur.fetchall()]
 
+    # One refused call: rows written for the same evaluation share a
+    # request_id (one row per host); without one, the second and the tool.
+    _CALL_KEY_SQL = "COALESCE(request_id, timestamp || '|' || COALESCE(tool_name, ''))"
+
+    async def blocked_calls(self, session_ids, limit: int = 5000) -> list:
+        """Refused egress calls for these sessions, one row per call (deduped
+        and grouped in SQL), newest first so the row cap drops the oldest.
+        Each row: session_id, runtime_kind, called_at (the call's first
+        stamp), tool_name, hosts and rule_ids (comma lists), call_key."""
+        ids = [s for s in dict.fromkeys(session_ids or []) if s][:500]
+        if not ids:
+            return []
+        conn = await self.db.connect()
+        marks = ", ".join("?" for _ in ids)
+        cur = await conn.execute(
+            f"""
+            SELECT session_id,
+                   MAX(runtime_kind)          AS runtime_kind,
+                   MIN(timestamp)             AS called_at,
+                   MAX(tool_name)             AS tool_name,
+                   GROUP_CONCAT(DISTINCT host)    AS hosts,
+                   GROUP_CONCAT(DISTINCT rule_id) AS rule_ids,
+                   {self._CALL_KEY_SQL}       AS call_key
+            FROM egress_audit
+            WHERE session_id IN ({marks}) AND action = 'block' AND host IS NOT NULL
+            GROUP BY session_id, call_key
+            ORDER BY called_at DESC
+            LIMIT ?
+            """,
+            (*ids, max(1, min(int(limit), 50000))),
+        )
+        cols = ["session_id", "runtime_kind", "called_at", "tool_name", "hosts", "rule_ids", "call_key"]
+        out = []
+        for r in await cur.fetchall():
+            row = dict(zip(cols, r))
+            row["hosts"] = sorted(h for h in (row["hosts"] or "").split(",") if h)
+            row["rule_ids"] = sorted(x for x in (row["rule_ids"] or "").split(",") if x)
+            out.append(row)
+        return out
+
+    async def session_blocked_call_count(self, session_id: str) -> int:
+        """How many calls in one session egress refused (one per call, not
+        per host), keyed the same way as `blocked_calls`."""
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            f"""
+            SELECT COUNT(DISTINCT {self._CALL_KEY_SQL})
+            FROM egress_audit
+            WHERE session_id = ? AND action = 'block' AND host IS NOT NULL
+            """,
+            (session_id,),
+        )
+        row = await cur.fetchone()
+        return int(row[0] or 0) if row else 0
+
     async def session_scope(self, days: int = 7, limit: int = 50) -> list:
         """Per-session egress shape: how wide, how novel, how fast.
 
