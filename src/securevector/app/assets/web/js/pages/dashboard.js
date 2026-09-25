@@ -595,6 +595,10 @@ const DashboardPage = {
         // placement, v5.2.0). Spend is not a security state, so it lives down
         // here with the report tiles, never in the hero strip, and stays
         // neutral + teal.
+        // Needs attention: the top run health findings of the last 24 h,
+        // most severe first, each opening its run with the steps shown.
+        this._renderNeedsAttentionCard(container);
+
         this._renderOptimizerTile(container);
 
         // Reports — weekly artifacts as compact tiles; the full pages (and
@@ -1188,6 +1192,64 @@ const DashboardPage = {
     /** Compact Optimizer tile: the headline comparison in the user's billing
      *  mode plus the top finding, or a first-scan invitation. Render-then-fill
      *  like the report tiles so the dashboard stays snappy. */
+    /** Top 5 run health findings (loop, failing, wasteful) by severity,
+     *  newest first within a severity. Blocked calls live on Threats. */
+    _needsAttentionItems(data, max = 5) {
+        const rank = { high: 0, warn: 1, info: 2 };
+        const t = (v) => { const n = window.TraceSteps ? TraceSteps.time(v) : Date.parse(v); return n == null || !Number.isFinite(n) ? 0 : n; };
+        return (data && Array.isArray(data.findings) ? data.findings : [])
+            .filter(f => f && f.category !== 'blocked')
+            .slice()
+            .sort((a, b) => ((rank[a.severity] ?? 3) - (rank[b.severity] ?? 3)) || (t(b.ended_at) - t(a.ended_at)))
+            .slice(0, max);
+    },
+
+    /** The "Needs attention" card body for a /api/run-health payload. */
+    _needsAttentionHtml(data) {
+        const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const items = this._needsAttentionItems(data);
+        const icon = { loop: '', failing: '', wasteful: '' };
+        if (window.TraceSteps) Object.keys(icon).forEach(k => { icon[k] = TraceSteps.healthIcon(k); });
+        const head = '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Needs attention</div>';
+        if (!items.length) {
+            return head + '<div style="font-size:12px;color:var(--text-secondary);">No loops, failing steps or waste in agent runs in the last 24 hours.</div>';
+        }
+        const ago = (ts) => (window.RunHealthPage ? RunHealthPage.ago(ts) : '');
+        const rows = items.map(f => `
+          <li class="sv-health-row">
+            <span class="trace-steps-finding-icon${f.category === 'failing' ? ' sv-health-badge-failing' : ''}" style="border:0" aria-hidden="true">${icon[f.category] || ''}</span>
+            <span class="sv-health-row-main">
+              <span class="sv-health-row-title">${esc(f.title)}</span>
+              <span class="sv-health-row-sub">${esc([f.runtime_kind, ago(f.ended_at)].filter(Boolean).join(' · '))}</span>
+            </span>
+            <button type="button" class="sv-health-open" data-trace-id="${esc(f.trace_id)}">Open run</button>
+          </li>`).join('');
+        return head + `<ul class="sv-health-list">${rows}</ul>`;
+    },
+
+    _renderNeedsAttentionCard(container) {
+        const card = document.createElement('div');
+        card.className = 'sv-dash-attention';
+        card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);' +
+            'border-radius:12px;padding:16px 20px;margin-bottom:16px;';
+        container.appendChild(card);
+        const fill = async () => {
+            const data = await API.getRunHealth({ window_days: 1, limit: 200 });
+            if (!data) { card.remove(); return; }
+            card.innerHTML = this._needsAttentionHtml(data);
+            card.querySelectorAll('button.sv-health-open').forEach(b => {
+                b.addEventListener('click', () => {
+                    if (window.AgentRunsPage) {
+                        AgentRunsPage._pendingTrace = b.dataset.traceId;
+                        AgentRunsPage._pendingHealthOpen = true;
+                    }
+                    if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs');
+                });
+            });
+        };
+        fill().catch(() => card.remove());
+    },
+
     _renderOptimizerTile(container) {
         const card = document.createElement('div');
         card.style.cssText =

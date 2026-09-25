@@ -196,10 +196,10 @@ test('CSV export: per call step number, step times and the merged tool list; no 
   P._exportCSV();
   const csv = captured.downloads[0].content;
   const [head, ...lines] = csv.trim().split('\n');
-  assert.match(head, /,reason,step,step_model_ms,step_model_estimated,step_tool_ms,step_tool_capped,step_time_ms,step_tools$/);
+  assert.match(head, /,reason,step,step_model_ms,step_model_estimated,step_tool_ms,step_tool_capped,step_time_ms,step_tools,findings$/);
   assert.strictEqual(lines.length, 4);
-  assert.match(lines[0], /,1,1000,false,3000,false,,"bash ×2, WebFetch \(blocked\)"$/);
-  assert.match(lines[3], /,2,500,false,100,false,,Read \(flagged\)$/);
+  assert.match(lines[0], /,1,1000,false,3000,false,,"bash ×2, WebFetch \(blocked\)",$/);
+  assert.match(lines[3], /,2,500,false,100,false,,Read \(flagged\),$/);
   assert.ok(!csv.includes('SECRET-ARG'));
 });
 

@@ -14,6 +14,11 @@ Pure read over tool_call_audit (+ the v36 trace keys); no migration, no writes.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import threading
+import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -24,12 +29,16 @@ from securevector.app.database.repositories.costs import CostsRepository
 from securevector.app.database.repositories.custom_tools import CustomToolsRepository
 from securevector.app.database.repositories.settings import SettingsRepository
 from securevector.app.server.routes.transcript_generations import (
+    _find_codex_rollout,
+    _find_transcript,
     apply_cost,
     build_generations,
     build_generations_codex,
 )
+from securevector.app.services import run_health
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _HIGH_RISK = {"delete", "admin", "write"}
 
@@ -95,12 +104,25 @@ def _run_risk(
 async def list_traces(
     window_days: int = Query(7, ge=1, le=90),
     limit: int = Query(50, ge=1, le=500),
+    health: Optional[str] = Query(None, pattern="^(loop|failing|wasteful|0)$"),
 ):
     """List agent runs (traces) in the window, newest first.
 
     Each run summarises one agent session: span + block counts, time bounds,
-    the distinct tools touched, and a roll-up risk ring.
+    the distinct tools touched, and a roll-up risk ring. Each run also
+    carries ``health`` counts ({loop, failing, wasteful}); ``health``
+    narrows the list to runs with that kind of finding (applied before the
+    limit), and ``health=0`` skips health for callers that do not show it.
     """
+    if health == "0":
+        return {"window_days": window_days, "runs": await _collect_runs(window_days, limit)}
+    runs, _ = await _runs_with_health(window_days, limit, health)
+    return {"window_days": window_days, "runs": runs}
+
+
+async def _collect_runs(window_days: int, limit: int) -> list:
+    """The runs list body: audit runs plus generation-only runs, newest
+    first, with egress denies folded in."""
     db = get_database()
     repo = CustomToolsRepository(db)
     rows = await repo.get_trace_runs(window_days=window_days, limit=limit)
@@ -177,7 +199,57 @@ async def list_traces(
     runs.sort(key=lambda x: _ts_key(x.get("ended_at")), reverse=True)
     runs = runs[:limit]
     await _add_egress_blocked(db, runs)
-    return {"window_days": window_days, "runs": runs}
+    return runs
+
+
+def _health_key(ts: Optional[str]) -> str:
+    """Cache key time for a run: its last span time, normalised so the
+    list (SQL text) and the detail (the same rows) agree."""
+    return _ts_key(ts).isoformat() if ts else ""
+
+
+# A health filter looks past the page limit: filter this many newest runs,
+# then keep ``limit`` of the matches.
+_HEALTH_FILTER_SCAN = 500
+
+
+async def _runs_with_health(window_days: int, limit: int, health: Optional[str] = None) -> tuple:
+    """Runs plus each run's findings. One grouped read of tool_call_audit
+    covers every listed run (same_call, cycle, reread, blocked). A run with a
+    full result in the cache uses it, marked ``health_stale`` when the run
+    has moved on since (kept until the warm-up or an open recomputes it, so
+    badges do not vanish mid-run); the rest are ``health_partial``. No
+    transcript is read here."""
+    want = health if health in ("loop", "failing", "wasteful") else None
+    runs = await _collect_runs(window_days, _HEALTH_FILTER_SCAN if want else limit)
+    db = get_database()
+    try:
+        rows_by_trace = await CustomToolsRepository(db).get_health_rows(
+            [r.get("trace_id") for r in runs if int(r.get("spans") or 0) > 0],
+            prefix_chars=run_health.IDENTITY_PREFIX_CHARS,
+        )
+    except Exception:  # noqa: BLE001 - health is additive; never hide the runs
+        rows_by_trace = {}
+    findings_by_trace: dict = {}
+    for r in runs:
+        tid = r.get("trace_id")
+        full = run_health.cached_any(tid, _health_key(r.get("ended_at")))
+        if full is not None:
+            findings = full.get("findings") or []
+            r["health_partial"] = False
+            r["health_stale"] = bool(full.get("stale"))
+        else:
+            calls = run_health.calls_from_spans(rows_by_trace.get(tid) or [])
+            findings = run_health.audit_findings(calls, int(r.get("egress_blocked") or 0))
+            r["health_partial"] = True
+            r["health_stale"] = False
+        counts = run_health.counts_of(findings)
+        r["health"] = {k: counts[k] for k in ("loop", "failing", "wasteful")}
+        findings_by_trace[tid] = findings
+    if want:
+        runs = [r for r in runs if r["health"].get(want)]
+    runs = runs[:limit]
+    return runs, {r.get("trace_id"): findings_by_trace.get(r.get("trace_id")) or [] for r in runs}
 
 
 @router.get("/blocked-ledger")
@@ -196,6 +268,11 @@ async def blocked_ledger(window_days: int = Query(7, ge=1, le=90)):
 
 @router.get("/traces/{trace_id}")
 async def get_trace(trace_id: str):
+    """Return the ordered spans for one run (see _build_trace)."""
+    return await _build_trace(trace_id)
+
+
+async def _build_trace(trace_id: str, generations: Optional[list] = None):
     """Return the ordered spans for one run — the waterfall body.
 
     Spans are tool-call audit rows ordered by turn_index, each stamped with the
@@ -259,19 +336,19 @@ async def get_trace(trace_id: str):
     # transcript (§2). Additive: a trace with no readable transcript (an SDK
     # framework, an old/pruned session) still returns its tool spans. Claude
     # Code and Codex both persist a parseable transcript with token usage.
-    generations: list[dict] = []
-    if runtime_kind in ("claude-code", "codex") and session_id:
+    # ``generations`` given: the caller already parsed this session's
+    # transcript (the health route parses once and reuses it here).
+    parsed_given = generations is not None
+    generations = list(generations) if parsed_given else []
+    if not parsed_given and runtime_kind in ("claude-code", "codex") and session_id:
         try:
             settings = await SettingsRepository(db).get()
             store_text = bool(getattr(settings, "store_text_content", True))
         except Exception:  # noqa: BLE001 — a settings read must not 500 the trace
             store_text = False
-        generations = (
-            build_generations_codex(session_id, store_text=store_text)
-            if runtime_kind == "codex"
-            else build_generations(session_id, store_text=store_text)
-        )
-        if generations:
+        generations = await parse_generations(runtime_kind, session_id, store_text=store_text)
+    if generations:
+        if not any(g.get("cost") is not None for g in generations):
             try:
                 pricing = await CostsRepository(db).list_pricing()
                 price_map = {
@@ -364,6 +441,241 @@ async def get_trace(trace_id: str):
         "expensive_turn": _expensive_turn(merged),
     }
 
+
+
+# A runtime's 30-day medians move slowly: reuse them for this long.
+_BASELINE_TTL_S = 600
+_baseline_memo: dict = {}
+
+
+async def _runtime_baseline(db, runtime_kind: Optional[str]) -> dict:
+    """This runtime's own medians over the last 30 days, memoised per
+    (database, runtime) for _BASELINE_TTL_S."""
+    if not runtime_kind:
+        return {"runs": 0}
+    key = (id(db), runtime_kind)
+    hit = _baseline_memo.get(key)
+    now = time.monotonic()
+    if hit and now - hit[0] < _BASELINE_TTL_S:
+        return dict(hit[1])
+    out = await _runtime_baseline_read(db, runtime_kind)
+    _baseline_memo[key] = (now, out)
+    if len(_baseline_memo) > 64:
+        _baseline_memo.pop(next(iter(_baseline_memo)))
+    return dict(out)
+
+
+async def _runtime_baseline_read(db, runtime_kind: str) -> dict:
+    """Governed calls per run from tool_call_audit, model turns and cost per
+    run from llm_cost_records. Two grouped reads; best effort."""
+    out: dict = {"runs": 0}
+    try:
+        out.update(await CustomToolsRepository(db).get_runtime_call_medians(runtime_kind, 30))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        rows = await db.fetch_all(
+            """
+            SELECT COUNT(*) AS turns, SUM(total_cost_usd) AS cost
+            FROM llm_cost_records
+            WHERE runtime_kind = ? AND trace_id IS NOT NULL
+              AND recorded_at >= datetime('now', '-30 days')
+            GROUP BY trace_id
+            """,
+            (runtime_kind,),
+        )
+        if rows and len(rows) >= run_health.RUNAWAY_MIN_BASELINE_RUNS:
+            out["median_turns"] = run_health.median([r["turns"] for r in rows])
+            out["median_cost"] = run_health.median([float(r["cost"] or 0) for r in rows])
+            out["runs"] = max(int(out.get("runs") or 0), len(rows))
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+# --- transcript parsing, off the event loop and parsed once -----------------
+
+_PARSE_CACHE_MAX = 40  # a full warm-up pass (20 runs) fits with room for opens
+_parse_cache: "OrderedDict[tuple, list]" = OrderedDict()
+_parse_lock = threading.Lock()
+
+
+def _transcript_path(runtime_kind: Optional[str], session_id: Optional[str]):
+    if not session_id or runtime_kind not in ("claude-code", "codex"):
+        return None
+    try:
+        return _find_codex_rollout(session_id) if runtime_kind == "codex" else _find_transcript(session_id)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def transcript_stamp(runtime_kind: Optional[str], session_id: Optional[str]) -> str:
+    """The transcript's mtime (ns) as text, '' when there is none."""
+    path = _transcript_path(runtime_kind, session_id)
+    try:
+        return str(path.stat().st_mtime_ns) if path is not None else ""
+    except OSError:
+        return ""
+
+
+def _parse_with_stamp(runtime_kind, session_id, store_text: bool, with_analysis: bool) -> tuple:
+    """Blocking: parse (or reuse) one session's generations. Cached by
+    (path, mtime, size, flags), bounded; callers get their own copies."""
+    path = _transcript_path(runtime_kind, session_id)
+    key = None
+    stamp = ""
+    if path is not None:
+        try:
+            st = path.stat()
+            stamp = str(st.st_mtime_ns)
+            key = (str(path), st.st_mtime_ns, st.st_size, store_text, with_analysis)
+        except OSError:
+            key = None
+    gens = None
+    if key is not None:
+        with _parse_lock:
+            gens = _parse_cache.get(key)
+            if gens is not None:
+                _parse_cache.move_to_end(key)
+    if gens is None:
+        gens = (
+            build_generations_codex(session_id, store_text=store_text, with_analysis=with_analysis)
+            if runtime_kind == "codex"
+            else build_generations(session_id, store_text=store_text, with_analysis=with_analysis)
+        ) or []
+        if key is not None:
+            with _parse_lock:
+                _parse_cache[key] = gens
+                while len(_parse_cache) > _PARSE_CACHE_MAX:
+                    _parse_cache.popitem(last=False)
+    return [dict(g) for g in gens], stamp
+
+
+async def parse_generations(runtime_kind, session_id, *, store_text: bool, with_analysis: bool = False) -> list:
+    gens, _ = await asyncio.to_thread(_parse_with_stamp, runtime_kind, session_id, store_text, with_analysis)
+    return gens
+
+
+async def _run_identity(db, trace_id: str) -> tuple:
+    """(runtime_kind, session_id) for a run, from its audit rows or its
+    stored generations."""
+    for sql in (
+        "SELECT runtime_kind, session_id FROM tool_call_audit WHERE trace_id = ? LIMIT 1",
+        "SELECT runtime_kind, session_id FROM llm_cost_records WHERE trace_id = ? LIMIT 1",
+    ):
+        try:
+            row = await db.fetch_one(sql, (trace_id,))
+        except Exception:  # noqa: BLE001
+            row = None
+        if row:
+            return row["runtime_kind"], row["session_id"]
+    return None, None
+
+
+async def compute_health(trace_id: str) -> dict:
+    """Full findings for one run, cached under (last tool span time,
+    transcript mtime, generation count). The transcript is parsed once, off
+    the event loop, and that one parse feeds both the trace detail and the
+    analysis."""
+    db = get_database()
+    runtime_kind, session_id = await _run_identity(db, trace_id)
+    gens: list = []
+    stamp = ""
+    if runtime_kind in ("claude-code", "codex") and session_id:
+        try:
+            gens, stamp = await asyncio.to_thread(_parse_with_stamp, runtime_kind, session_id, False, True)
+        except Exception:  # noqa: BLE001 - transcript trouble leaves the audit findings
+            gens, stamp = [], ""
+    detail = await _build_trace(trace_id, generations=gens)
+    baseline = await _runtime_baseline(db, detail.get("runtime_kind"))
+    result = run_health.analyze_run(detail, gens, baseline)
+    tool_times = [s.get("called_at") for s in detail.get("spans") or []
+                  if s.get("span_kind") == "tool_call" and s.get("called_at")]
+    key_time = max(tool_times, key=_ts_key) if tool_times else detail.get("ended_at")
+    run_health.remember(trace_id, (_health_key(key_time), stamp, len(gens)), result)
+    return result
+
+
+@router.get("/traces/{trace_id}/health")
+async def get_trace_health(trace_id: str):
+    """Health findings for one run: loops, failures, waste and blocks, each
+    with why it matters, what to do and the steps it refers to."""
+    result = await compute_health(trace_id)
+    return {"trace_id": trace_id, **result}
+
+
+# --- proactive warm-up ----------------------------------------------------------
+
+async def warm_health_once(now: Optional[datetime] = None) -> list:
+    """One warm-up pass: full health for runs active in the last 2 hours
+    whose cache key moved (newest first, capped). Returns the trace ids it
+    recomputed. Cheap when idle: an unchanged run costs one stat."""
+    runs = await _collect_runs(1, 200)
+    now = now or datetime.now(timezone.utc)
+    recent = run_health.recent_runs(runs, now, _ts_key)
+    stamps = await asyncio.to_thread(
+        lambda: {r.get("trace_id"): transcript_stamp(r.get("runtime_kind"), r.get("session_id")) for r in recent})
+    todo = run_health.select_warm_runs(recent, stamps, _health_key)
+    done = []
+    for tid in todo:
+        try:
+            await compute_health(tid)
+            done.append(tid)
+        except Exception:  # noqa: BLE001 - one bad run never stops the pass
+            logger.debug("run health warm-up failed for %s", tid, exc_info=True)
+    return done
+
+
+async def run_health_warmer(interval: float = run_health.WARM_INTERVAL_SECONDS,
+                            first_delay: float = run_health.WARM_FIRST_DELAY_SECONDS) -> None:
+    """Background loop started by the app lifespan and cancelled on shutdown.
+    The first pass runs soon after startup, so a restart does not leave the
+    Health view on partial results for a minute."""
+    delay = first_delay
+    while True:
+        await asyncio.sleep(delay)
+        delay = interval
+        try:
+            await warm_health_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("run health warm-up pass failed", exc_info=True)
+
+
+@router.get("/run-health")
+async def list_run_health(
+    window_days: int = Query(7, ge=1, le=90),
+    limit: int = Query(200, ge=1, le=500),
+    warm: bool = Query(False),
+):
+    """Findings across runs in the window, for the Health view and the
+    dashboard. Same single pass as the runs list: audit-derived findings for
+    every run, full findings where a run's health was already computed.
+    ``warm=true`` first runs one warm-up pass on demand (runs active in the
+    last 2 hours, at most 20, unchanged ones skipped)."""
+    if warm is True:  # a direct call sees the Query default object, not a bool
+        try:
+            await warm_health_once()
+        except Exception:  # noqa: BLE001 - a failed warm still answers
+            logger.debug("on-demand run health warm-up failed", exc_info=True)
+    runs, by_trace = await _runs_with_health(window_days, limit)
+    findings = []
+    partial = 0
+    for r in runs:
+        if r.get("health_partial"):
+            partial += 1
+        for f in by_trace.get(r.get("trace_id")) or []:
+            findings.append({
+                **f,
+                "trace_id": r.get("trace_id"),
+                "session_id": r.get("session_id"),
+                "runtime_kind": r.get("runtime_kind"),
+                "ended_at": r.get("ended_at"),
+            })
+    counts = run_health.counts_of(findings)
+    return {"window_days": window_days, "findings": findings, "counts": counts,
+            "runs": len(runs), "partial_runs": partial}
 
 # How far outside a run's window a deny may still belong to it. The hook calls
 # /api/egress/evaluate after the harness hands it the call, and that row is

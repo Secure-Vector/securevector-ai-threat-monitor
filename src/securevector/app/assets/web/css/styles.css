@@ -9942,3 +9942,47 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
     .sidebar-resize-handle,
     .sidebar-collapse-btn { display: none; }
 }
+
+/* Run health: findings strip above a run's steps, markers on the steps a
+   finding names, and small badges on runs and task cards. Neutral chips
+   with a small icon: colour stays security state only. A failing finding
+   may use amber; teal is focus and selection only. */
+.terminals-steps-findings, .trace-steps-findings { display: flex; flex-direction: column; gap: 3px; margin: 2px 0; padding: 4px 6px; border: 1px solid rgba(148,163,184,.22); border-radius: 4px; min-width: 0; }
+.terminals-steps-findings-sum, .trace-steps-findings-sum { display: flex; align-items: center; gap: 8px; color: var(--text-secondary, #cbd5e1); }
+.terminals-steps-findings-list, .trace-steps-findings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.terminals-steps-finding, .trace-steps-finding { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 2px 6px; min-width: 0; }
+.terminals-steps-finding-icon, .trace-steps-finding-icon { flex: 0 0 14px; text-align: center; color: var(--text-muted, #94a3b8); font-weight: 700; }
+.terminals-steps-finding-failing .terminals-steps-finding-icon, .trace-steps-finding-failing .trace-steps-finding-icon { color: #fcd34d; }
+.terminals-steps-finding-body, .trace-steps-finding-body { display: flex; flex-direction: column; flex: 1 1 160px; min-width: 0; }
+.terminals-steps-finding-title, .trace-steps-finding-title { color: var(--text-primary, #e6edf3); overflow-wrap: anywhere; }
+.terminals-steps-finding-why, .trace-steps-finding-why { color: var(--text-muted, #94a3b8); font-size: 10px; overflow-wrap: anywhere; }
+.terminals-steps-finding-actions, .trace-steps-finding-actions { display: inline-flex; gap: 8px; flex: 0 0 auto; }
+.terminals-steps-finding-jump, .trace-steps-finding-jump, .terminals-steps-finding-copy, .trace-steps-finding-copy, .terminals-steps-findings-toggle, .trace-steps-findings-toggle { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 10px; text-decoration: underline; cursor: pointer; }
+.terminals-steps-finding-jump:focus-visible, .trace-steps-finding-jump:focus-visible, .terminals-steps-finding-copy:focus-visible, .trace-steps-finding-copy:focus-visible, .terminals-steps-findings-toggle:focus-visible, .trace-steps-findings-toggle:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 1px; }
+.terminals-steps-mark, .trace-steps-mark { flex: 0 0 auto; color: var(--text-muted, #94a3b8); font-weight: 700; }
+.terminals-steps-mark-failing, .trace-steps-mark-failing { color: #fcd34d; }
+.terminals-steps-row-focus, .trace-steps-row-focus { box-shadow: inset 2px 0 0 var(--accent-primary, #2dd4bf); }
+.sv-health-badge { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px; border: 1px solid rgba(148,163,184,.3); border-radius: 3px; color: var(--text-secondary, #cbd5e1); font-size: 10px; line-height: 16px; white-space: nowrap; }
+.sv-health-badge-failing { border-color: rgba(245,158,11,.45); color: #fcd34d; }
+.terminals-task-stuck { color: var(--text-muted, #94a3b8); font-size: 10px; }
+.sv-health-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sv-health-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 10px; border: 1px solid rgba(148,163,184,.18); border-radius: 6px; min-width: 0; }
+.sv-health-row-main { display: flex; flex-direction: column; flex: 1 1 220px; min-width: 0; }
+.sv-health-row-title { color: var(--text-primary, #e6edf3); overflow-wrap: anywhere; }
+.sv-health-row-sub { color: var(--text-muted, #94a3b8); font-size: 12px; overflow-wrap: anywhere; }
+.sv-health-open { padding: 3px 10px; border: 1px solid rgba(148,163,184,.3); border-radius: 4px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.sv-health-open:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 1px; }
+.sv-health-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.sv-health-group-title { margin: 14px 0 6px; font-size: 13px; color: var(--text-secondary, #cbd5e1); }
+[data-theme="light"] .terminals-steps-finding-title, [data-theme="light"] .trace-steps-finding-title, [data-theme="light"] .sv-health-row-title { color: var(--text-primary); }
+[data-theme="light"] .terminals-steps-findings, [data-theme="light"] .trace-steps-findings, [data-theme="light"] .sv-health-badge, [data-theme="light"] .sv-health-row, [data-theme="light"] .sv-health-open { border-color: var(--border-default); }
+[data-theme="light"] .sv-health-badge { color: var(--text-primary); }
+[data-theme="light"] .sv-health-badge-failing, [data-theme="light"] .terminals-steps-mark-failing, [data-theme="light"] .trace-steps-mark-failing, [data-theme="light"] .terminals-steps-finding-failing .terminals-steps-finding-icon, [data-theme="light"] .trace-steps-finding-failing .trace-steps-finding-icon { border-color: rgba(180,83,9,.45); color: #b45309; }
+/* A call that ran and errored: neutral, never red (blocked) or amber
+   (flagged). Muted text and a dashed border tell it apart from allowed. */
+.terminals-steps-chip-failed, .trace-steps-chip-failed { border-style: dashed; border-color: rgba(148,163,184,.45); color: var(--text-muted, #94a3b8); }
+.terminals-steps-detail-failed, .trace-steps-detail-failed { border-left-style: dashed; }
+[data-theme="light"] .terminals-steps-chip-failed, [data-theme="light"] .trace-steps-chip-failed { border-color: var(--border-default); color: var(--text-muted); }
+.sv-health-icon { display: inline-block; flex: 0 0 auto; vertical-align: -2px; }
+.sv-health-badge { gap: 4px; }
+.terminals-steps-mark, .trace-steps-mark, .terminals-steps-finding-icon, .trace-steps-finding-icon { display: inline-flex; align-items: center; justify-content: center; }

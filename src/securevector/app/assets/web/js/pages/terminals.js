@@ -812,6 +812,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // throws: the board is the page, the adopt panel is an offer.
         await this._maybeLoadAdoptable();
         if (gen !== this._gen) return;
+        await this._maybeLoadTaskHealth();
+        if (gen !== this._gen) return;
         // A stored layout is rebuilt once per mount, and only now: pruning it
         // needs the task list, and it has to settle before the reconcile below
         // decides whether the stored task id still wants attaching.
@@ -971,6 +973,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const spend = typeof t.spend_usd === 'number'
                     ? `<span class="terminals-task-spend" title="${this._esc(String(t.spend_requests || 0))} priced request(s) for this session">${this._esc(this._fmtSpend(t.spend_usd))}</span>`
                     : '';
+                // Run health from the task's newest run: neutral badges, a
+                // failing one may be amber. Stuck: working with no activity.
+                const health = this._taskHealthHtml(t);
+                const stuckMin = this._stuckMinutes(t);
+                const stuck = stuckMin != null
+                    ? `<span class="terminals-task-stuck" title="Working, with no new tool call or transcript write">no activity for ${this._esc(String(stuckMin))} min</span>`
+                    : '';
                 const branch = typeof t.branch === 'string' && t.branch
                     ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
                 html += `
@@ -980,7 +989,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
                       ${doing}
                       <span class="terminals-task-folder" title="${this._esc(t.workspace || 'This session never reported a working folder')}">${this._esc(this._knownWorkspace(t.workspace) ? this._shortPath(this._knownWorkspace(t.workspace)) : 'Folder not reported')}</span>
-                      <span class="terminals-task-meta"><span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>${unver}${spend}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
+                      <span class="terminals-task-meta"><span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>${unver}${health}${stuck}${spend}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
                     ${relaunch || removable ? `<div class="terminals-task-actions">${relaunch}${removable}</div>` : ''}
@@ -4727,6 +4736,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
                         let requestFailed = false;
                         try {
                             tr = await this._fetchTraceRuns({ window_days: 7, limit: 200 });
+                            // Kept whole so the task cards' health badges
+                            // come from this read, not a second fetch.
+                            this._allRunsCache = { at: Date.now(), runs: (tr && tr.runs) || [] };
                         } catch (e) {
                             requestFailed = true;
                         }
@@ -4782,7 +4794,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // waiting, so it repaints once the inbox is known.
             this._railApprovals = mine;
             if (this._stepsOpen && tEl) this._renderTraceList(tEl);
+            // Stuck: the attached task is working but nothing has happened
+            // for STUCK_SECONDS or more. Said here as well as on its card.
+            const stuckMin = this._stuckMinutes((this._tasks || []).find(t => t.id === id));
             const summaryParts = [
+                stuckMin != null ? `no activity for ${stuckMin} min` : null,
                 `${items.length} call${items.length === 1 ? '' : 's'} checked`,
                 fetchFailed ? null : `${traceRuns.length} trace${traceRuns.length === 1 ? '' : 's'}`,
                 mine.length ? `${mine.length} approval waiting` : 'no approvals waiting',
@@ -5241,6 +5257,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
     _stepsCache: null,        // trace id -> { data, at } | { error } | { pending }
     _stepsDetail: null,       // trace id -> open chip key ('' when shut by hand)
     _railApprovals: [],       // the rail's last pending approvals, this session
+    _healthOpen: null,        // trace id whose findings strip is expanded
+    _stepsFocus: null,        // { traceId, step } a "Jump to step N" asked for
+    _healthBySession: {},     // session id -> newest run's health counts, for the task cards
+    _healthAt: 0,             // when the cards' health was last read
+    _allRunsCache: null,      // { at, runs } the last whole runs list, shared by the rail and the cards
+    HEALTH_POLL_MS: 12000,    // the traces cadence
+    STUCK_SECONDS: 120,       // working with no activity this long reads as stuck
     _traceRender: null,       // { sessionId, runs, failed } last painted
     _tracesPaint: null,       // { el, html } so an unchanged list keeps focus
 
@@ -5275,6 +5298,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return this._traceStepsHtml(traceId, e.data, {
                 detailKey: (this._stepsDetail || {})[traceId],
                 approvals: this._railApprovals,
+                health: e.health || null,
+                findingsOpen: this._healthOpen === traceId,
+                focusStep: this._stepsFocus && this._stepsFocus.traceId === traceId ? this._stepsFocus.step : undefined,
             });
         }
         if (e && e.error) return '<span class="terminals-error">Steps unavailable.</span>';
@@ -5294,12 +5320,18 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const st = this._traceRender || {};
         const owner = { taskId: st.taskId, sessionId: st.sessionId };
         const token = {};
-        const had = e && e.data ? { data: e.data, at: e.at } : null;
+        const had = e && e.data ? { data: e.data, health: e.health || null, at: e.at } : null;
         cache[traceId] = Object.assign({}, had || {}, { pending: true, pendingAt: Date.now(), token });
         const current = () => cache[traceId] && cache[traceId].token === token;
+        // Run health rides the same fetch and the same 12 s cadence. A failed
+        // health read keeps the copy already had and never hides the steps.
+        const hadHealth = e && e.health ? e.health : null;
         Promise.resolve()
-            .then(() => API.request(`/api/traces/${encodeURIComponent(traceId)}`))
-            .then((data) => { if (current()) cache[traceId] = { data: data || {}, at: Date.now() }; })
+            .then(() => Promise.all([
+                API.request(`/api/traces/${encodeURIComponent(traceId)}`),
+                Promise.resolve().then(() => API.request(`/api/traces/${encodeURIComponent(traceId)}/health`)).catch(() => hadHealth),
+            ]))
+            .then(([data, health]) => { if (current()) cache[traceId] = { data: data || {}, health: health || null, at: Date.now() }; })
             .catch(() => {
                 // Keep a copy we already had; with none, say so until the
                 // run is closed and opened again, which retries.
@@ -5392,6 +5424,35 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const detail = this._stepsDetail || (this._stepsDetail = {});
                 detail[traceId] = b.getAttribute && b.getAttribute('aria-pressed') === 'true' ? '' : k;
                 this._renderTraceList(tEl);
+            };
+        });
+        tEl.querySelectorAll('button.terminals-steps-findings-toggle').forEach(b => {
+            b.onclick = () => {
+                const traceId = b.dataset.traceId;
+                this._healthOpen = this._healthOpen === traceId ? null : traceId;
+                this._renderTraceList(tEl);
+            };
+        });
+        tEl.querySelectorAll('button.terminals-steps-finding-jump').forEach(b => {
+            b.onclick = () => {
+                const traceId = b.dataset.traceId;
+                const step = Number(b.dataset.step);
+                this._stepsFocus = { traceId, step };
+                this._renderTraceList(tEl);
+                // One run is expanded at a time, so the step number is unique here.
+                const row = tEl.querySelector(`.terminals-steps-row[data-step="${step}"]`);
+                if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            };
+        });
+        tEl.querySelectorAll('button.terminals-steps-finding-copy').forEach(b => {
+            b.onclick = () => {
+                const e = (this._stepsCache || {})[b.dataset.traceId];
+                const f = window.TraceSteps && e ? window.TraceSteps.findingById(e.health, b.dataset.findingId) : null;
+                if (!f || !f.nudge) return;
+                const done = () => { b.textContent = 'Copied'; };
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(String(f.nudge)).then(done, () => {});
+                } catch (err) { /* nothing to copy into */ }
             };
         });
         tEl.querySelectorAll('button.terminals-steps-approve').forEach(b => {
@@ -5611,6 +5672,61 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (n < 60) return `${n} seconds ago`;
         const m = Math.round(n / 60);
         return m === 1 ? 'a minute ago' : `${m} minutes ago`;
+    },
+    /** Minutes a working task has gone with no new tool call or transcript
+     *  write, once that reaches STUCK_SECONDS; null otherwise. Reads the
+     *  task's own last_activity_at (and transcript age when known). */
+    _stuckMinutes(t, now = Date.now()) {
+        if (!t || t.status !== 'working') return null;
+        const last = window.TraceSteps ? window.TraceSteps.time(t.last_activity_at) : Date.parse(t.last_activity_at);
+        if (last == null || !Number.isFinite(last)) return null;
+        let idle = (now - last) / 1000;
+        const tr = t.transcript_age_seconds;
+        if (typeof tr === 'number' && Number.isFinite(tr) && tr >= 0) idle = Math.min(idle, tr);
+        return idle >= this.STUCK_SECONDS ? Math.floor(idle / 60) : null;
+    },
+    /** Loop / failing badge for a task, from its newest run: every card
+     *  whose run has findings, live ("looping", "failing") or finished
+     *  ("looped", "failed repeatedly"). */
+    _taskHealthHtml(t) {
+        if (!t || !t.session_id) return '';
+        const h = (this._healthBySession || {})[t.session_id];
+        if (!h || !window.TraceSteps) return '';
+        const ended = ['done', 'failed', 'interrupted'].includes(t.status);
+        const words = ended ? { loop: 'looped', failing: 'failed repeatedly' } : { loop: 'looping', failing: 'failing' };
+        return window.TraceSteps.badgesHtml({ loop: h.loop, failing: h.failing }, { words });
+    },
+    /** Health counts per session from the runs list (one cheap read, on the
+     *  traces cadence). Never throws: the board is the page. */
+    async _maybeLoadTaskHealth() {
+        const now = Date.now();
+        if (now - (this._healthAt || 0) < this.HEALTH_POLL_MS) return;
+        this._healthAt = now;
+        // Finished cards carry their run's findings too.
+        if (!(this._tasks || []).some(t => t.session_id)) return;
+        try {
+            // The rail's runs read (same cadence) when it is fresh; else one
+            // read of our own, which the rail can then reuse too.
+            const shared = this._allRunsCache;
+            let r;
+            if (shared && Date.now() - shared.at < this.HEALTH_POLL_MS) {
+                r = { runs: shared.runs };
+            } else {
+                r = await this._fetchTraceRuns({ window_days: 7, limit: 200 });
+                this._allRunsCache = { at: Date.now(), runs: (r && r.runs) || [] };
+            }
+            const by = {};
+            const newest = {};
+            (r.runs || []).forEach(run => {
+                const sid = run.session_id;
+                if (!sid) return;
+                const t = String(run.ended_at || '');
+                if (newest[sid] == null || t > newest[sid]) { newest[sid] = t; by[sid] = run.health || {}; }
+            });
+            this._healthBySession = by;
+        } catch (e) {
+            /* keep the last answer */
+        }
     },
     _ago(iso) {
         const s = Date.parse(iso);

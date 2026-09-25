@@ -270,7 +270,8 @@ test('Show steps toggle: one run open, lazy fetch cached per trace, errors not c
   tEl.querySelectorAll = (sel) => (sel === 'button.terminals-steps-toggle' ? buttons : []);
   const calls = [];
   let fail = true;
-  const api = { request: async (url) => { calls.push(url); if (fail) throw new Error('down'); return { spans: [gen('g1', 0, 1000)] }; } };
+  // Run health rides the same fetch (its own URL); these assertions count the steps fetches.
+  const api = { request: async (url) => { if (String(url).endsWith('/health')) return null; calls.push(url); if (fail) throw new Error('down'); return { spans: [gen('g1', 0, 1000)] }; } };
   const P = loadPage({ 'terminals-traces': tEl }, api);
   P._ago = () => '6m ago';
   P._traceRender = { sessionId: 's1', runs: [
@@ -386,7 +387,7 @@ test('a steps answer for a task the rail has left does not repaint', async () =>
 
 test('a steps fetch pending for more than 20s is retried', async () => {
   let n = 0;
-  const P = loadPage({}, { request: () => { n++; return new Promise(() => {}); } });
+  const P = loadPage({}, { request: (url) => { if (String(url).endsWith('/health')) return new Promise(() => {}); n++; return new Promise(() => {}); } });
   P._loadTraceSteps('r1');
   for (let i = 0; i < 5; i++) await Promise.resolve();
   P._loadTraceSteps('r1');
@@ -435,7 +436,7 @@ test('Traces never auto-open, and the toggle has no em dash in its copy', () => 
 
 test('refresh refetches an open run only once its copy is older than 12s', async () => {
   let n = 0;
-  const P = loadPage({}, { request: async () => { n++; return { spans: [] }; } });
+  const P = loadPage({}, { request: async (url) => { if (String(url).endsWith('/health')) return null; n++; return { spans: [] }; } });
   P._loadTraceSteps('r1');
   for (let i = 0; i < 10; i++) await Promise.resolve();
   P._loadTraceSteps('r1', true);

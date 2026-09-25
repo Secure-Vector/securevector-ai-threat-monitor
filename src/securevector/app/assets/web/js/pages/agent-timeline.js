@@ -41,7 +41,7 @@ const AgentTimelinePage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
-            Header.setPageInfo('Traces: Live feed', 'Every enforced tool call across all traces, newest first.');
+            Header.setPageInfo('Observability: Live feed', 'Every enforced tool call across all traces, newest first.');
         }
         this._injectStyle();
 

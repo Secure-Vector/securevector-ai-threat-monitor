@@ -155,6 +155,8 @@ const API = {
         const q = new URLSearchParams();
         if (params.window_days) q.set('window_days', params.window_days);
         if (params.limit) q.set('limit', params.limit);
+        // health: 'loop' | 'failing' | 'wasteful' filters; 0 skips health.
+        if (params.health != null) q.set('health', params.health);
         const qs = q.toString();
         return this.request(`/api/traces${qs ? '?' + qs : ''}`).catch(() => ({
             window_days: params.window_days || 7, runs: [],
@@ -163,6 +165,20 @@ const API = {
 
     async getTrace(traceId) {
         return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+    },
+
+    // Run health: one run's findings, and findings across runs in a window.
+    async getTraceHealth(traceId) {
+        return this.request(`/api/traces/${encodeURIComponent(traceId)}/health`).catch(() => null);
+    },
+
+    async getRunHealth(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        if (params.limit) q.set('limit', params.limit);
+        if (params.warm) q.set('warm', 'true');
+        const qs = q.toString();
+        return this.request(`/api/run-health${qs ? '?' + qs : ''}`).catch(() => null);
     },
 
     // conversion-ux — Instant Agent Audit. Opt-in retroactive scan of on-disk

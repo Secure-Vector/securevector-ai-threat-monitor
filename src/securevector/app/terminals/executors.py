@@ -102,10 +102,13 @@ RELAY_EVENTS = (
     "UserPromptSubmit",
     "PreToolUse",
     "PostToolUse",
+    # Fired instead of PostToolUse when the tool errors: a failed call is
+    # still activity, or a session retrying a failing step reads as stuck.
+    "PostToolUseFailure",
     "Notification",
     "Stop",
 )
-_MATCHED_EVENTS = {"PreToolUse", "PostToolUse"}
+_MATCHED_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
 
 # Child env allowlist. Exact names plus prefixes for the families the
 # harness documents (locale, Anthropic auth, cloud provider auth for

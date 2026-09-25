@@ -52,6 +52,10 @@ const AgentRunsPage = {
     _pendingGenRid: null,  // one-shot: after opening, jump to the generation with this request_id (Optimizer finding click-through)
     _timelineForce: null,  // trace id whose full timeline opens regardless of the saved choice (deep link, View in timeline)
     _stepsDetail: null,    // { traceId, key } the open chip in the step list (key '' = shut by hand)
+    _health: null,         // trace id -> { key, data } run health findings (GET /api/traces/{id}/health), fetched once per opened run
+    _healthOpen: null,     // trace id whose findings strip is expanded past its one-line summary
+    _stepsFocus: null,     // { traceId, step } the step a "Jump to step N" asked for
+    _pendingHealthOpen: false, // one-shot: a health link (Dashboard, Health view) opens the run with its findings shown
     _optReport: undefined, // Cost Optimizer report, fetched once per page life for per-turn annotations (null = fetched, none)
     toolFilter: null,      // filter spans to one tool_id (from a Map tool-node click)
     _pendingTool: null,    // one-shot tool_id handed off by a Map tool-node click
@@ -370,7 +374,7 @@ const AgentRunsPage = {
             this._pendingOutcome = null;
         }
         if (window.Header) {
-            Header.setPageInfo('Traces', 'Sessions contain traces; traces contain nested spans. Inspect every LLM and tool operation with its verdict, tokens and cost.');
+            Header.setPageInfo('Observability', 'Sessions contain traces; traces contain nested spans. Inspect every LLM and tool operation with its verdict, tokens and cost.');
         }
         this._injectStyle();
 
@@ -493,6 +497,12 @@ const AgentRunsPage = {
             .ar-row-caret { width:12px; height:12px; color:var(--text-muted,#7d8590); transition:transform .16s; }
             .ar-run.open .ar-row-caret { transform:rotate(90deg); color:var(--accent-primary,#5eadb8); }
             .ar-row-name { display:flex; align-items:center; gap:8px; min-width:0; }
+            /* The agent label keeps its place when health badges follow it:
+               it truncates with an ellipsis before it is ever pushed out. */
+            .ar-row-name .ar-run-rt { flex:0 1 auto; min-width:52px; }
+            .ar-row-health { display:inline-flex; align-items:center; gap:4px; flex:0 1 auto; min-width:0; overflow:hidden; }
+            .ar-layout.split .ar-row-health .sv-health-badge-text { display:none; }
+            .ar-layout.split .ar-row-health .sv-health-badge { padding:0 3px; }
             .ar-row-id { font-family:var(--font-mono,monospace); font-size:10.5px; color:var(--text-secondary,#8b949e); opacity:.65; letter-spacing:.02em; flex:0 0 auto; }
             .ar-row-c { text-align:right; font-size:11.5px; color:var(--text-secondary,#b1bac4); white-space:nowrap; }
             .ar-row-c .ar-dim0 { color:var(--text-muted,#7d8590); opacity:.5; }
@@ -1233,12 +1243,32 @@ const AgentRunsPage = {
         ], view.steps);
         return `<h2>Steps</h2><div class="sub">${this._esc(line)}</div>${table}`;
     },
+    /** The open run's findings as one line each: "Title (why. action)". */
+    _exportFindings(t) {
+        const h = t ? this._healthFor(t.trace_id) : null;
+        return window.TraceSteps ? TraceSteps.findingsRecords(h) : [];
+    },
+    /** A "Findings" section for the printable trace. */
+    _exportFindingsHTML(t) {
+        const list = this._exportFindings(t);
+        if (!list.length) return '';
+        return '<h2>Findings</h2>' + ObsTabs.tableHTML([
+            { label: 'category', get: f => f.category },
+            { label: 'severity', get: f => f.severity },
+            { label: 'finding', get: f => f.title },
+            { label: 'why', get: f => f.why },
+            { label: 'what to do', get: f => f.action },
+        ], list);
+    },
     /** Export the selected trace's tool-call spans as CSV. */
     _exportCSV() {
         const t = this._trace;
         const rows = this._auditSpans();
         if (!t || !rows.length) return;
-        const cols = this._exportCols().concat(this._exportStepCols(this._exportSteps(t)));
+        // Findings summary on the first row only, in its own column.
+        const findings = this._exportFindings(t).map(f => `[${f.category}] ${f.title}`).join('; ');
+        const cols = this._exportCols().concat(this._exportStepCols(this._exportSteps(t)))
+            .concat([{ label: 'findings', get: s => (s === rows[0] ? findings : '') }]);
         ObsTabs.download(`agent-trace-${String(t.trace_id).slice(0, 8)}.csv`,
             ObsTabs.toCSV(cols, rows), 'text/csv');
     },
@@ -1254,6 +1284,7 @@ const AgentRunsPage = {
         const cols = view ? [{ label: 'step', get: s => { const st = view.bySpan.get(s); return st ? st.index : ''; } }].concat(this._exportCols()) : this._exportCols();
         ObsTabs.printDoc('SecureVector: Agent Trace',
             `<h1>Agent Trace</h1><div class="sub">${sub}</div>` +
+            this._exportFindingsHTML(t) +
             this._exportStepsHTML(view) +
             (view ? '<h2>Tool calls</h2>' : '') +
             ObsTabs.tableHTML(cols, rows));
@@ -1279,8 +1310,10 @@ const AgentRunsPage = {
         this._wantFlagged = null;
         const flagged = flagKey ? shown.find(r => (r[flagKey] || 0) > 0) : null;
         if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
-            // A deep link ("See full run") asked for the whole run.
-            this._timelineForce = wantTrace;
+            // A deep link ("See full run") asked for the whole run. A health
+            // link asked for the steps and their findings instead.
+            if (this._pendingHealthOpen) { this._healthOpen = wantTrace; this._pendingHealthOpen = false; }
+            else this._timelineForce = wantTrace;
             this.selectRun(wantTrace);
         } else if (wantTrace) {
             // Deep-linked trace is older than the current window. Widen to the
@@ -1378,6 +1411,8 @@ const AgentRunsPage = {
         if (v === 'blocked') return (r.blocked || 0) > 0;
         if (v === 'detected') return (r.detections || 0) > 0;
         if (v === 'secret') return (r.secrets || 0) > 0;
+        // Run health (loop / failing / wasteful): counts from the runs list.
+        if (v === 'loop' || v === 'failing' || v === 'wasteful') return Number((r.health || {})[v]) > 0;
         return true;
     },
 
@@ -1571,6 +1606,10 @@ const AgentRunsPage = {
                 ['blocked', 'Blocked', base.filter(r => this._viewMatch(r, 'blocked')).length, '#ef4444'],
                 ['detected', 'Detected', base.filter(r => this._viewMatch(r, 'detected')).length, '#ef4444'],
                 ['secret', 'Secrets', base.filter(r => this._viewMatch(r, 'secret')).length, '#f59e0b'],
+                // Run health: neutral counts (not a security verdict); Failing may be amber.
+                ['loop', 'Loop', base.filter(r => this._viewMatch(r, 'loop')).length, ''],
+                ['failing', 'Failing', base.filter(r => this._viewMatch(r, 'failing')).length, '#f59e0b'],
+                ['wasteful', 'Wasteful', base.filter(r => this._viewMatch(r, 'wasteful')).length, ''],
             ];
             views.forEach(([key, label, n, color]) => {
                 // A zero-count view is noise unless it's the one active now
@@ -1580,9 +1619,12 @@ const AgentRunsPage = {
                 const c = document.createElement('button');
                 c.type = 'button';
                 c.className = 'ar-view-chip' + (this.listView === key ? ' active' : '');
-                c.innerHTML = `${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
+                const hIcon = (key === 'loop' || key === 'failing' || key === 'wasteful') && window.TraceSteps ? `${TraceSteps.healthIcon(key)} ` : '';
+                c.innerHTML = `${hIcon}${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
                 c.title = key === 'all' ? 'Every trace in this window'
                     : key === 'live' ? 'Only agents with activity in the last 2 minutes'
+                    : (key === 'loop' || key === 'failing' || key === 'wasteful')
+                        ? `Only runs with a ${key} health finding`
                     : `Only traces with ${key === 'flagged' ? 'any security flag' : key === 'secret' ? 'secret detections' : key + ' actions'}`;
                 c.addEventListener('click', () => {
                     this.listView = (this.listView === key ? 'all' : key);
@@ -1634,7 +1676,8 @@ const AgentRunsPage = {
             card.style.setProperty('--ar-accent', color);
             // Count-tick flash: when a live update raised this row's numbers,
             // pulse it once so the change is visible without reading.
-            const countKey = `${r.spans}|${r.blocked}|${r.detections}|${r.secrets}`;
+            const hk = r.health || {};
+            const countKey = `${r.spans}|${r.blocked}|${r.detections}|${r.secrets}|${hk.loop || 0}|${hk.failing || 0}|${hk.wasteful || 0}`;
             nextCounts[r.trace_id] = countKey;
             if (prevCounts[r.trace_id] && prevCounts[r.trace_id] !== countKey) card.classList.add('ar-card-tick');
             // One table row per agent run (custom name wins); numeric columns
@@ -1647,6 +1690,7 @@ const AgentRunsPage = {
                 `<span class="ar-row-name"><span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
                 `<span class="ar-row-id" title="session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id)}">${this._esc(String(r.session_id || r.trace_id).slice(0, 8))}</span>` +
                 (this._isLive(r.ended_at) ? this._liveBadge() : '') +
+                (window.TraceSteps && TraceSteps.badgesHtml(r.health) ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
                 `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${r.risk}"></span></span>` +
                 `<span class="ar-row-c col-tools"><span class="ar-num">${r.spans}</span></span>` +
                 `<span class="ar-row-c col-blk">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
@@ -1848,6 +1892,45 @@ const AgentRunsPage = {
         this._renderTimeline(trace, timeline);
         // After the timeline so each span carries its _seq for "View in timeline".
         this._renderSteps(trace);
+        this._loadHealth(trace);
+    },
+
+    /** The open run's health findings, or null until fetched. */
+    _healthFor(traceId) {
+        const e = this._health && this._health[traceId];
+        return e && e.data ? e.data : null;
+    },
+
+    /** Fetch a run's health once per opened run, and again only when the
+     *  run has grown (a live refresh). Repaints the step list on arrival. */
+    _loadHealth(trace) {
+        const id = trace && trace.trace_id;
+        if (!id) return;
+        const key = `${trace.ended_at || ''}|${trace.span_count || 0}`;
+        const cache = this._health || (this._health = {});
+        const e = cache[id];
+        if (e && e.key === key && (e.data || e.pending || e.failed)) return;
+        const had = e && e.data ? e.data : null;
+        cache[id] = { key, data: had, pending: true };
+        Promise.resolve()
+            .then(() => API.request(`/api/traces/${encodeURIComponent(id)}/health`))
+            .then((data) => { cache[id] = { key, data: data || null }; })
+            .catch(() => { cache[id] = { key, data: had, failed: true }; })
+            .then(() => {
+                if (this.selected === id && this._trace && this._trace.trace_id === id) this._renderSteps(this._trace);
+            });
+    },
+
+    /** Copy a finding's nudge; the button says so. */
+    _copyNudge(btn, text) {
+        const done = () => { btn.textContent = 'Copied'; if (window.Toast) Toast.success('Nudge copied, paste it into your session'); };
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(String(text)).then(done, () => { if (window.Toast) Toast.error('Could not copy'); });
+                return;
+            }
+        } catch (e) { /* fall through */ }
+        if (window.Toast) Toast.error('Could not copy');
     },
 
     // --- the step list and the full timeline toggle ------------------------
@@ -1901,6 +1984,30 @@ const AgentRunsPage = {
             moreLabel: 'see full timeline',
             modelLabel: trace.runtime_kind === 'claude-code' ? 'Claude thinking' : 'Model thinking',
             jumpLabel: 'View in timeline',
+            health: this._healthFor(traceId),
+            findingsOpen: this._healthOpen === traceId,
+            focusStep: this._stepsFocus && this._stepsFocus.traceId === traceId ? this._stepsFocus.step : undefined,
+        });
+        box.querySelectorAll('button.trace-steps-findings-toggle').forEach(b => {
+            b.addEventListener('click', () => {
+                this._healthOpen = this._healthOpen === traceId ? null : traceId;
+                this._renderSteps(trace);
+            });
+        });
+        box.querySelectorAll('button.trace-steps-finding-jump').forEach(b => {
+            b.addEventListener('click', () => {
+                const step = Number(b.dataset.step);
+                this._stepsFocus = { traceId, step };
+                this._renderSteps(trace);
+                const row = box.querySelector(`.trace-steps-row[data-step="${step}"]`);
+                if (row && row.scrollIntoView) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        });
+        box.querySelectorAll('button.trace-steps-finding-copy').forEach(b => {
+            b.addEventListener('click', () => {
+                const f = TraceSteps.findingById(this._healthFor(traceId), b.dataset.findingId);
+                if (f && f.nudge) this._copyNudge(b, f.nudge);
+            });
         });
         box.querySelectorAll('button.trace-steps-chip:not(.trace-steps-more)').forEach(b => {
             b.addEventListener('click', () => {

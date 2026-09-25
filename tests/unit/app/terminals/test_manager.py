@@ -999,3 +999,12 @@ async def test_an_unreadable_transcript_is_no_signal_not_an_error(tmp_path, monk
     items = await m.refresh_linked([dict(linked, origin="linked", archived_at=None)])
 
     assert items[0]["transcript_age_seconds"] is None
+
+
+
+def test_failed_tool_call_counts_as_activity():
+    status, activity = status_from_hook({"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+                                         "tool_input_preview": "pytest"})
+    assert (status, activity) == ("working", "Bash: pytest")
+    from securevector.app.terminals.executors import RELAY_EVENTS
+    assert "PostToolUseFailure" in RELAY_EVENTS

@@ -7,6 +7,9 @@ status + uninstall paths are idempotent.
 
 from __future__ import annotations
 
+import hashlib
+import os
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
@@ -38,6 +41,19 @@ def app(tmp_path, monkeypatch):
     """Wire the router into a fresh FastAPI app + isolate staging to tmp."""
     staging = tmp_path / "staging" / "claude-code-plugin"
     monkeypatch.setattr(hooks_claude_code, "STAGING_DIR", staging)
+    # Every home-derived path goes under tmp: these tests install and
+    # uninstall, and must never touch the real ~/.claude or ~/.securevector.
+    fake_home = tmp_path / "home"
+    plugins = fake_home / ".claude" / "plugins"
+    # Auto-install runs only where Claude Code's plugins dir exists: make
+    # one here, so the install path is exercised against tmp, not the real one.
+    plugins.mkdir(parents=True)
+    monkeypatch.setattr(hooks_claude_code, "SECUREVECTOR_DIR", fake_home / ".securevector")
+    monkeypatch.setattr(hooks_claude_code, "CLAUDE_PLUGINS_DIR", plugins)
+    monkeypatch.setattr(hooks_claude_code, "CLAUDE_INSTALLED_PLUGINS_JSON", plugins / "installed_plugins.json")
+    monkeypatch.setattr(hooks_claude_code, "CLAUDE_KNOWN_MARKETPLACES_JSON", plugins / "known_marketplaces.json")
+    monkeypatch.setattr(hooks_claude_code, "CLAUDE_PLUGIN_CACHE_ROOT", plugins / "cache")
+    monkeypatch.setattr(hooks_claude_code, "CLAUDE_SETTINGS_JSON", fake_home / ".claude" / "settings.json")
     instance = FastAPI()
     instance.include_router(hooks_claude_code.router, prefix="/api")
     # The install and uninstall routes now require a loopback Host and a
@@ -232,3 +248,30 @@ def test_aggregate_session_usage_skips_synthetic_model(tmp_path):
     assert (inp, out) == (10, 20)
     assert "<synthetic>" not in per_model
     assert set(per_model) == {"claude-fable-5"}
+
+
+def _real_home():
+    """The user's real home, whatever HOME and Path.home say in a test."""
+    import pwd
+
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def _fingerprint(path):
+    try:
+        st = path.stat()
+        return (st.st_mtime_ns, st.st_size, hashlib.sha256(path.read_bytes()).hexdigest())
+    except OSError:
+        return None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pwd lookup is POSIX only")
+def test_install_and_uninstall_never_touch_the_real_claude_dir(client):
+    real = _real_home() / ".claude"
+    watched = [real / "settings.json", real / "plugins" / "installed_plugins.json",
+               real / "plugins" / "known_marketplaces.json"]
+    before = [_fingerprint(p) for p in watched]
+    assert Path.home() != _real_home(), "tests must run with an isolated home"
+    client.post("/api/hooks/claude-code/install", headers=PAGE_HEADERS)
+    client.post("/api/hooks/claude-code/uninstall", headers=PAGE_HEADERS)
+    assert [_fingerprint(p) for p in watched] == before

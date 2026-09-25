@@ -632,3 +632,63 @@ test('GATE: context-facing tools (Grep) bypass the gate — scanned even with pl
     assert.ok(analyzePosts.find(p => p.direction === 'incoming'), 'Grep response must scan regardless of markers (IDPI surface)');
   } finally { restore(); }
 });
+
+
+test('PostToolUseFailure: a failed call still posts its audit row, marked "tool error"', async () => {
+  const captured = [];
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST') {
+      if (url.endsWith('/call-audit')) captured.push(JSON.parse(opts.body));
+      return new Response('{}', { status: 200 });
+    }
+    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+  });
+  try {
+    await audit({ hook_event_name: 'PostToolUseFailure', tool_name: 'Bash',
+      tool_input: { command: 'python3 check.py' }, tool_use_id: 'toolu_1', session_id: 's1' }, 'http://127.0.0.1:8741');
+    await audit({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, session_id: 's1' }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(captured.length, 2);
+    const [failed, ok] = captured;
+    assert.equal(failed.action, 'allow');
+    assert.equal(failed.reason, 'tool error');
+    assert.equal(failed.function_name, 'Bash');
+    assert.equal(failed.session_id, 's1');
+    assert.match(failed.args_preview, /check\.py/);
+    assert.equal(ok.reason, null);
+  } finally { restore(); }
+});
+
+
+test('PostToolUseFailure after a Guard deny writes no second row; the block is counted once', async () => {
+  const captured = [];
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST') {
+      if (url.endsWith('/call-audit')) captured.push(JSON.parse(opts.body));
+      return new Response('{}', { status: 200 });
+    }
+    // A synced deny rule for Bash.
+    return new Response(JSON.stringify({ synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'no shell' }], total: 1 }), { status: 200 });
+  });
+  try {
+    await audit({ hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_input: { command: 'rm -rf x' } }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(captured.length, 0, 'matched deny: skipped');
+  } finally { restore(); }
+  const restore2 = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST') {
+      if (url.endsWith('/call-audit')) captured.push(JSON.parse(opts.body));
+      return new Response('{}', { status: 200 });
+    }
+    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+  });
+  try {
+    await audit({ hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_input: { command: 'curl x' },
+      error: 'PreToolUse:Bash hook error: SecureVector Guard: destination not allowed' }, 'http://127.0.0.1:8741');
+    await audit({ hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_input: { command: 'pytest' },
+      error: 'FAILED test_x - expected "SecureVector Guard: x"' }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(captured.length, 1, 'deny marker skipped; a mid-text mention is a real failure');
+    assert.equal(captured[0].reason, 'tool error');
+  } finally { restore2(); }
+});

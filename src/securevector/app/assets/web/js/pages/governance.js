@@ -273,7 +273,7 @@ const GovernancePage = {
         // Evidence: what enforcement actually did in the last 7 days — the
         // live numbers that make posture concrete (and give the page a pulse).
         let traceRows = [];
-        try { const td = await API.getTraces({ window_days: 7 }); traceRows = (td && td.runs) || []; } catch (e) {}
+        try { const td = await API.getTraces({ window_days: 7, health: 0 }); traceRows = (td && td.runs) || []; } catch (e) {}
         const cloudOn = !!(cloud && cloud.cloud_mode_enabled && cloud.credentials_configured);
         const recentActivity = traceRows.length > 0;
         const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen, sessionCount, openclawActive, recentActivity };

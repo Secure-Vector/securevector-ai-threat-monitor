@@ -136,6 +136,7 @@
             if (leading) steps.unshift(leading);
             steps.forEach(step => { step.unchecked = this.unchecked(step); });
             this.matchEgress(steps, opts.egressBlocks);
+            this.markFailed(steps);
             // Where the model part of a step begins and ends. A measured
             // duration_ms starts at called_at. A transcript turn's duration is
             // estimated back from its record (duration_estimated), so there the
@@ -290,7 +291,54 @@
             const rules = Array.isArray(s.detection_rules) ? s.detection_rules.filter(Boolean) : [];
             if (s.risk === 'amber' || s.action === 'log_only' || s.action === 'warn'
                 || s.verdict === 'LOG' || rules.length || s.detection_source) return 'flagged';
+            // The tool ran and errored: not a security state, so neutral.
+            if (this.isFailed(s)) return 'failed';
             return 'allowed';
+        },
+
+        /** A call whose result was an error: matched from the transcript
+         *  (_failed, set in build) or an audit row PostToolUseFailure wrote. */
+        isFailed(span) {
+            const s = span || {};
+            return !!(s._failed || s.is_error || /^tool error\b/.test(String(s.reason || '')));
+        },
+
+        /** The first line of a failed call's error, when the transcript text
+         *  is stored; '' otherwise. */
+        failedText(span) {
+            const t = span && typeof span._error === 'string' ? span._error : '';
+            const line = t.split('\n').map(x => x.trim()).find(Boolean) || '';
+            return line.length > 80 ? `${line.slice(0, 80)}…` : line;
+        },
+
+        /** Mark the governed calls of each step whose transcript result was an
+         *  error: results pair with the step's calls of the same tool, in order. */
+        markFailed(steps) {
+            // Derived on every build, never carried over from an earlier one.
+            steps.forEach(step => step.tools.forEach(t => { if (t._failed || t._error) { delete t._failed; delete t._error; } }));
+            steps.forEach(step => {
+                const results = step.gen && Array.isArray(step.gen.tool_results) ? step.gen.tool_results : [];
+                if (!results.length) return;
+                const byName = new Map();
+                results.forEach(r => {
+                    const n = String((r && r.name) || '');
+                    if (!byName.has(n)) byName.set(n, []);
+                    byName.get(n).push(r);
+                });
+                const used = new Map();
+                step.tools.forEach(t => {
+                    if (t.egress) return;
+                    const name = [...byName.keys()].find(n => n && this.sameTool(n, t));
+                    if (!name) return;
+                    const k = used.get(name) || 0;
+                    const r = byName.get(name)[k];
+                    used.set(name, k + 1);
+                    if (r && r.is_error && !r.denied) {
+                        t._failed = true;
+                        if (typeof r.preview === 'string' && r.preview) t._error = r.preview;
+                    }
+                });
+            });
         },
 
         /** A pending approval for this blocked call: same tool, and the same
@@ -416,6 +464,140 @@
                 .join(', ');
         },
 
+        // --- run health (GET /api/traces/{id}/health) -------------------------
+        // Findings are neutral chips with a small icon: colour means security
+        // state only. A failing finding may use amber; nothing else is coloured.
+        HEALTH_ICON: { loop: '⟳', failing: '!', wasteful: '$', blocked: '✕' },
+        HEALTH_LABEL: { loop: 'Loop', failing: 'Failing', wasteful: 'Wasteful', blocked: 'Blocked' },
+        // Inline SVG glyphs (the app's icon pattern): the text glyphs above
+        // render as a dot in the UI font. Stroke is currentColor, so the
+        // colour comes from the neutral (or failing amber) class around it.
+        HEALTH_SVG: {
+            loop: '<path d="M20 11a8 8 0 0 0-14.9-3"/><path d="M4 13a8 8 0 0 0 14.9 3"/><path d="M4 4v4h4"/><path d="M20 20v-4h-4"/>',
+            failing: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/>',
+            wasteful: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.4 0-2.5.8-2.5 2s1.1 1.6 2.5 2 2.5.8 2.5 2-1.1 2-2.5 2c-1 0-2-.5-2.5-1.5"/><path d="M12 6.5V8"/><path d="M12 16v1.5"/>',
+            blocked: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+        },
+
+        /** A health category's icon as inline SVG ('' for an unknown one). */
+        healthIcon(cat, size = 12) {
+            const body = this.HEALTH_SVG[cat];
+            if (!body) return '';
+            return `<svg class="sv-health-icon sv-health-icon-${cat}" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+        },
+        FINDINGS_OPEN_MAX: 2,     // more findings than this collapse to one summary line
+
+        /** The findings the strip shows. Blocked calls already show as red
+         *  chips in the steps, so the strip leaves them out. */
+        stripFindings(health) {
+            const list = health && Array.isArray(health.findings) ? health.findings : [];
+            return list.filter(f => f && typeof f === 'object' && f.category !== 'blocked');
+        },
+
+        /** Index of the step a finding ref points at, or -1. A string ref is
+         *  a span_id (a tool call or a model turn); a number is a span's
+         *  turn_index in the trace detail. */
+        refStep(steps, spans, ref) {
+            if (ref == null || ref === '') return -1;
+            let target = null;
+            if (typeof ref === 'number') {
+                target = (Array.isArray(spans) ? spans : []).find(s => s && s.turn_index === ref) || null;
+                if (!target) return -1;
+            }
+            for (let i = 0; i < steps.length; i++) {
+                const st = steps[i];
+                if (target) {
+                    if (st.gen === target || st.tools.includes(target)) return i;
+                } else {
+                    const id = String(ref);
+                    if (st.gen && st.gen.span_id != null && String(st.gen.span_id) === id) return i;
+                    if (st.tools.some(t => t && t.span_id != null && String(t.span_id) === id)) return i;
+                }
+            }
+            return -1;
+        },
+
+        /** Sorted 0-based step indexes a finding refers to. */
+        findingSteps(steps, spans, finding) {
+            const out = new Set();
+            ((finding && finding.step_refs) || []).forEach(r => {
+                const i = this.refStep(steps, spans, r);
+                if (i >= 0) out.add(i);
+            });
+            return Array.from(out).sort((a, b) => a - b);
+        },
+
+        /** step index -> the category of the first finding that names it
+         *  (findings arrive most severe first). */
+        stepMarks(steps, spans, findings) {
+            const marks = new Map();
+            (findings || []).forEach(f => {
+                if (!this.HEALTH_ICON[f.category] || f.category === 'blocked') return;
+                this.findingSteps(steps, spans, f).forEach(i => { if (!marks.has(i)) marks.set(i, f.category); });
+            });
+            return marks;
+        },
+
+        /** "2 loop, 1 failing" for a counts object. */
+        countsText(counts) {
+            const c = counts || {};
+            return ['loop', 'failing', 'wasteful'].filter(k => Number(c[k]) > 0)
+                .map(k => `${Number(c[k])} ${k}`).join(', ');
+        },
+
+        /** Small neutral badges for a run's health counts ({loop, failing,
+         *  wasteful}). Failing may be amber; the rest stay neutral. */
+        badgesHtml(health, opts = {}) {
+            const h = health || {};
+            const cls = opts.className || 'sv-health-badge';
+            const words = opts.words || { loop: 'Loop', failing: 'Failing', wasteful: 'Wasteful' };
+            return ['loop', 'failing', 'wasteful'].filter(k => Number(h[k]) > 0).map(k =>
+                `<span class="${cls} ${cls}-${k}" title="${this.esc(`${Number(h[k])} ${k} finding${Number(h[k]) === 1 ? '' : 's'}`)}" aria-label="${this.esc(words[k])}">${this.healthIcon(k)}<span class="sv-health-badge-text">${this.esc(words[k])}</span></span>`).join('');
+        },
+
+        /** The findings strip above the steps. opts.prefix, opts.findingsOpen
+         *  (expanded when there are more than FINDINGS_OPEN_MAX). */
+        findingsHtml(traceId, health, steps, spans, opts = {}) {
+            const P = opts.prefix || 'terminals-steps';
+            const list = this.stripFindings(health);
+            if (!list.length) return '';
+            const esc = (v) => this.esc(v);
+            const tid = esc(traceId);
+            const counts = { loop: 0, failing: 0, wasteful: 0 };
+            list.forEach(f => { if (f.category in counts) counts[f.category]++; });
+            const many = list.length > this.FINDINGS_OPEN_MAX;
+            const open = !many || !!opts.findingsOpen;
+            const sumText = `${list.length} health finding${list.length === 1 ? '' : 's'}: ${this.countsText(counts)}`;
+            const sum = many ? `<div class="${P}-findings-sum"><span>${esc(sumText)}</span><button type="button" class="${P}-findings-toggle" data-trace-id="${tid}" data-fk="h:${tid}" aria-expanded="${open ? 'true' : 'false'}">${open ? 'Hide' : 'Show'}</button></div>` : '';
+            const rows = open ? list.map(f => {
+                const cat = this.HEALTH_ICON[f.category] ? f.category : 'loop';
+                const at = this.findingSteps(steps, spans, f);
+                const first = at.length ? at[0] + 1 : null;
+                const why = [f.why, f.action].filter(Boolean).join(' · ');
+                const jump = first ? `<button type="button" class="${P}-finding-jump" data-trace-id="${tid}" data-step="${first}" data-fk="j:${tid}:${esc(f.id)}">Jump to step ${first}</button>` : '';
+                const copy = f.nudge ? `<button type="button" class="${P}-finding-copy" data-trace-id="${tid}" data-finding-id="${esc(f.id)}" data-fk="n:${tid}:${esc(f.id)}">Copy nudge</button>` : '';
+                return `<li class="${P}-finding ${P}-finding-${cat}" data-finding-id="${esc(f.id)}">
+                  <span class="${P}-finding-icon" aria-hidden="true">${this.healthIcon(cat)}</span>
+                  <span class="${P}-finding-body"><span class="${P}-finding-title">${esc(f.title)}</span><span class="${P}-finding-why">${esc(why)}</span></span>
+                  ${jump || copy ? `<span class="${P}-finding-actions">${jump}${copy}</span>` : ''}
+                </li>`;
+            }).join('') : '';
+            return `<div class="${P}-findings" data-trace-id="${tid}">${sum}${rows ? `<ul class="${P}-findings-list">${rows}</ul>` : ''}</div>`;
+        },
+
+        /** The finding a strip button names, or null. */
+        findingById(health, id) {
+            const list = health && Array.isArray(health.findings) ? health.findings : [];
+            return list.find(f => f && String(f.id) === String(id)) || null;
+        },
+
+        /** Findings as plain lines for exports: title, then why and action. */
+        findingsRecords(health) {
+            return (health && Array.isArray(health.findings) ? health.findings : []).map(f => ({
+                category: f.category, severity: f.severity, title: f.title, why: f.why, action: f.action,
+            }));
+        },
+
         /** A run's step list as HTML.
          *  opts.prefix       class prefix ('terminals-steps' default, 'trace-steps')
          *  opts.stepsMax     rows before "+ N more steps" (STEPS_MAX)
@@ -427,7 +609,11 @@
          *  opts.moreLabel    aria text for "+N more" ('see full run')
          *  opts.modelLabel   legend label for model time ('Claude thinking')
          *  opts.jumpLabel    a button in the detail line that names the call
-         *                    by its key (e.g. 'View in timeline'); none when unset */
+         *                    by its key (e.g. 'View in timeline'); none when unset
+         *  opts.health       the run's /health payload: findings strip above
+         *                    the steps and a marker on each step a finding names
+         *  opts.findingsOpen show every finding when the strip is collapsed
+         *  opts.focusStep    1-based step to show and mark (Jump to step N) */
         html(traceId, detail, opts = {}) {
             const P = opts.prefix || 'terminals-steps';
             const stepsMax = opts.stepsMax > 0 ? opts.stepsMax : this.STEPS_MAX;
@@ -457,8 +643,11 @@
                 return `<div class="${P}-summary">${esc(summary)}</div><span class="${P === 'terminals-steps' ? 'terminals-empty' : `${P}-empty`}">No steps recorded.</span>
               <div class="${P}-foot">${fullBtn}</div>`;
             }
-            const shown = steps.slice(0, stepsMax);
+            const focusStep = Number(opts.focusStep) > 0 ? Number(opts.focusStep) : null;
+            const shown = steps.slice(0, Math.max(stepsMax, focusStep && focusStep <= steps.length ? focusStep : 0));
             const maxTotal = this.maxTotal(steps);
+            const marks = opts.health ? this.stepMarks(steps, d.spans, this.stripFindings(opts.health)) : new Map();
+            const strip = opts.health ? this.findingsHtml(traceId, opts.health, steps, d.spans, { prefix: P, findingsOpen: opts.findingsOpen }) : '';
             const anyBar = maxTotal > 0;
             const keys = this.chipKeys(steps);
             let key = opts.detailKey;
@@ -471,7 +660,7 @@
             }
             const used = { model: false, tool: false, step: false };
             steps.forEach(st => { const w = this.barWidths(st, maxTotal); for (const k of Object.keys(used)) if (w[k]) used[k] = true; });
-            const icon = { blocked: '✕', flagged: '!', allowed: '✓' };
+            const icon = { blocked: '✕', flagged: '!', failed: '✗', allowed: '✓' };
             const rows = shown.map((step, si) => {
                 const bw = this.barWidths(step, maxTotal);
                 const bar = `<span class="${P}-bar" aria-hidden="true">${bw.model ? `<span class="${P}-seg ${P}-seg-model" style="width:${bw.model}px"></span>` : ''}${bw.tool ? `<span class="${P}-seg ${P}-seg-tool" style="width:${bw.tool}px"></span>` : ''}${bw.step ? `<span class="${P}-seg ${P}-seg-step" style="width:${bw.step}px"></span>` : ''}</span>`;
@@ -510,9 +699,12 @@
                     const k = keys[si][ti];
                     const on = key === k;
                     if (on) {
-                        const label = state === 'blocked' ? 'Blocked' : (state === 'flagged' ? 'Flagged' : 'Allowed');
+                        const label = state === 'blocked' ? 'Blocked' : (state === 'flagged' ? 'Flagged' : (state === 'failed' ? 'Failed' : 'Allowed'));
                         const rules = (Array.isArray(t.detection_rules) ? t.detection_rules : []).filter(Boolean).map(String);
-                        const why = state === 'allowed' ? '' : (t.reason ? `: ${t.reason}` : ': no reason recorded');
+                        // Failed: the error's first line when text is stored, else just "Failed".
+                        const why = state === 'allowed' ? ''
+                            : state === 'failed' ? (this.failedText(t) ? `: ${this.failedText(t)}` : '')
+                                : (t.reason ? `: ${t.reason}` : ': no reason recorded');
                         const args = t.args_preview == null ? '' : String(t.args_preview);
                         const shortArgs = args.length > 80 ? `${args.slice(0, 80)}…` : args;
                         const approval = state === 'blocked' ? this.approvalFor(t, opts.approvals, traceId) : null;
@@ -522,11 +714,13 @@
                       ${shortArgs ? `<code class="${P}-args">${esc(shortArgs)}</code>` : ''}
                     </div>`;
                     }
-                    return `<button type="button" class="${P}-chip ${P}-chip-${state}" data-trace-id="${tid}" data-step-key="${esc(k)}" data-fk="c:${tid}:${esc(k)}" aria-pressed="${on ? 'true' : 'false'}" aria-label="${esc(`${name}, ${state}${count > 1 ? `, ${count} calls` : ''}`)}">${icon[state]} ${esc(name)}${count > 1 ? ` ×${count}` : ''}</button>`;
+                    return `<button type="button" class="${P}-chip ${P}-chip-${state}" data-trace-id="${tid}" data-step-key="${esc(k)}" data-fk="c:${tid}:${esc(k)}" aria-pressed="${on ? 'true' : 'false'}" aria-label="${esc(`${name}, ${state}${count > 1 ? `, ${count} calls` : ''}`)}">${icon[state]} ${esc(name)}${count > 1 ? ` ×${count}` : ''}${state === 'failed' ? ' · failed' : ''}</button>`;
                 }).join('') + uncheckedChips + (hiddenCalls ? `<button type="button" class="${P}-chip ${P}-more" data-trace-id="${tid}" aria-label="${esc(`${hiddenCalls} more calls, ${moreLabel}`)}">+${hiddenCalls} more</button>` : '');
-                return `<li class="${P}-row">
+                const mark = marks.get(si);
+                const markHtml = mark ? `<span class="${P}-mark ${P}-mark-${mark}" title="${esc(`${this.HEALTH_LABEL[mark]} finding`)}" aria-label="${esc(`${this.HEALTH_LABEL[mark]} finding`)}">${this.healthIcon(mark, 11)}</span>` : '';
+                return `<li class="${P}-row${focusStep === si + 1 ? ` ${P}-row-focus` : ''}" data-step="${si + 1}">
                 <div class="${P}-line">
-                  <span class="${P}-num">${si + 1}</span>
+                  <span class="${P}-num">${si + 1}</span>${markHtml}
                   ${bar}
                   <span class="${P}-dur">${esc(dur)}</span>
                   <span class="${P}-chips">${chips || `<span class="${P}-none">no tool calls</span>`}</span>
@@ -535,7 +729,7 @@
             }).join('');
             const more = steps.length - shown.length;
             const foot = `${more > 0 ? `<span>+ ${more} more step${more === 1 ? '' : 's'}${fullBtn ? ' · ' : ''}</span>` : ''}${fullBtn}`;
-            return `<div class="${P}-summary">${esc(summary)}</div>
+            return `<div class="${P}-summary">${esc(summary)}</div>${strip}
               ${anyBar ? `<div class="${P}-legend">${[
                   used.model ? `<span class="${P}-key ${P}-key-model" aria-hidden="true">■</span> ${esc(modelLabel)}` : '',
                   used.tool ? `<span class="${P}-key ${P}-key-tool" aria-hidden="true">■</span> Tools` : '',

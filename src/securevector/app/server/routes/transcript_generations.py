@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 from pathlib import Path
 from datetime import datetime
@@ -157,16 +158,24 @@ def _sha16(text: str) -> Optional[str]:
     return hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:16]
 
 
-def _args_hash(args) -> Optional[str]:
+# Shell tools whose ``description`` is narration beside the command.
+_SHELL_TOOL_NAMES = {"Bash", "bash", "shell", "exec", "exec_command", "local_shell",
+                     "run_shell_command", "container.exec", "run_terminal_cmd"}
+
+
+def _args_hash(args, tool: Optional[str] = None) -> Optional[str]:
     """Canonical hash of a tool_use ``input`` dict (sorted keys, volatile keys
     stripped) — the identity for "same tool called with the same arguments".
     Timestamp-ish keys are dropped so a retry that only differs in a client
-    timestamp still counts as identical."""
+    timestamp still counts as identical. For a shell tool (``tool`` in
+    _SHELL_TOOL_NAMES) ``description`` is dropped too: it is narration ("Run
+    check.py (run 3)"), not what ran. Other tools (MCP) keep it."""
     if not isinstance(args, dict):
         return None
     cleaned = {
         k: v for k, v in args.items()
         if k not in ("timestamp", "ts", "time", "request_id", "requestId")
+        and not (k == "description" and tool in _SHELL_TOOL_NAMES)
     }
     try:
         canon = json.dumps(cleaned, sort_keys=True, separators=(",", ":"), default=str)
@@ -175,17 +184,69 @@ def _args_hash(args) -> Optional[str]:
     return _sha16(canon)
 
 
+def _command_text(args) -> Optional[str]:
+    """The shell command a tool_use ran (Bash ``command``, exec ``cmd``)."""
+    if not isinstance(args, dict):
+        return None
+    cmd = args.get("command", args.get("cmd"))
+    if isinstance(cmd, list):
+        cmd = " ".join(str(c) for c in cmd)
+    return cmd if isinstance(cmd, str) and cmd.strip() else None
+
+
+def _cmd_kind(args) -> Optional[str]:
+    """'read' / 'write' / None for a shell call, from its command. A class,
+    never the text, so the analysis fields stay hashes and flags."""
+    cmd = _command_text(args)
+    if not cmd:
+        return None
+    from securevector.app.services.run_health import (  # lazy: avoids an import cycle
+        command_of, is_read_only_command, is_write_command,
+    )
+    cmd = command_of(json.dumps({"command": cmd})) or cmd
+    if is_write_command(cmd):
+        return "write"
+    if is_read_only_command(cmd):
+        return "read"
+    return None
+
+
+_SEARCH_WORDS = {"grep", "rg", "egrep", "fgrep", "ag"}
+
+
+def _search_use_ids(content) -> set:
+    """tool_use ids whose command is a search (grep / rg), or a Grep tool."""
+    out = set()
+    if isinstance(content, list):
+        for blk in content:
+            if not (isinstance(blk, dict) and blk.get("type") == "tool_use" and blk.get("id")):
+                continue
+            if blk.get("name") in ("Grep", "grep"):
+                out.add(blk["id"])
+                continue
+            cmd = _command_text(blk.get("input"))
+            if cmd:
+                words = cmd.replace("bash -lc", "").strip().strip("'\"").split()
+                if words and (words[0] in _SEARCH_WORDS or words[:2] == ["git", "grep"]):
+                    out.add(blk["id"])
+    return out
+
+
 def _tool_use_calls(content) -> list[dict]:
-    """``{"name", "args_hash"}`` per tool_use block — full args are hashed and
-    discarded, never retained. Only built when the caller asks for analysis
-    fields (the trace waterfall doesn't need them)."""
+    """``{"name", "args_hash", "cmd_kind"}`` per tool_use block — full args
+    are hashed and discarded, never retained. Only built when the caller
+    asks for analysis fields (the trace waterfall doesn't need them)."""
     out = []
     if isinstance(content, list):
         for blk in content:
             if isinstance(blk, dict) and blk.get("type") == "tool_use":
                 n = blk.get("name")
                 if isinstance(n, str) and n:
-                    out.append({"name": n, "args_hash": _args_hash(blk.get("input"))})
+                    call = {"name": n, "args_hash": _args_hash(blk.get("input"), n), "id": blk.get("id")}
+                    kind = _cmd_kind(blk.get("input"))
+                    if kind:
+                        call["cmd_kind"] = kind
+                    out.append(call)
     return out
 
 
@@ -207,6 +268,23 @@ def _tool_results_of(content) -> list[tuple]:
             )
         out.append((blk.get("tool_use_id"), c if isinstance(c, str) else "", bool(blk.get("is_error"))))
     return out
+
+
+_NO_MATCH_RE = re.compile(r"^\s*(?:Error:\s*)?Exit code 1\s*$")
+
+
+# The Guard's deny reason, as both plugins emit it (REASON_PREFIX in
+# plugins/{claude-code,codex}/hooks/pre-tool-use.js): "SecureVector Guard:
+# <reason>". The harness shows it as the tool result, on its own or behind
+# its hook banner ("PreToolUse:Bash hook error: ..."). Only the start of the
+# result counts, so a command whose output merely mentions the Guard is
+# still an ordinary failure.
+_DENY_RE = re.compile(r"^\s*(?:[^\n]{0,120}?PreToolUse[^\n]{0,80}?:\s*)?SecureVector Guard:")
+
+
+def _looks_denied(text: str) -> bool:
+    """A tool result that is the Guard's refusal rather than the tool failing."""
+    return bool(_DENY_RE.match((text or "")[:200]))
 
 
 # A gap longer than this between the record that fed a turn and the turn
@@ -299,6 +377,7 @@ def build_generations(
     cur_tools: list[str] = []  # tool names this round-trip asked to call
     cur_tool_ids: dict = {}    # tool_use_id -> name, to match returned results
     cur_tool_calls: list[dict] = []  # {name, args_hash} when with_analysis
+    search_ids: set = set()  # tool_use ids that ran a search command (grep / rg)
     # The just-flushed generation + its id->name map: the tool_result blocks in
     # the NEXT user turn belong to it (it made the calls).
     last_gen: Optional[dict] = None
@@ -402,7 +481,7 @@ def build_generations(
                     if results and last_gen is not None:
                         tr = []
                         for tid, text, is_err in results:
-                            entry = {"name": last_gen_ids.get(tid), "is_error": is_err}
+                            entry = {"name": last_gen_ids.get(tid), "is_error": is_err, "tool_use_id": tid}
                             if store_text:
                                 prev, trunc = _preview(text)
                                 entry["preview"] = prev
@@ -410,9 +489,32 @@ def build_generations(
                             if with_analysis:
                                 entry["result_hash"] = _sha16(text)
                                 entry["result_chars"] = len(text)
+                                # Run health: flags only, never the text. A
+                                # governed deny is policy, not a failure; an
+                                # exit 1 with no output is a search that
+                                # found nothing (grep / rg), not an error.
+                                if is_err:
+                                    entry["denied"] = _looks_denied(text)
+                                    # Only a search (grep / rg) exiting 1 with
+                                    # no output is "found nothing"; any other
+                                    # command exiting 1 is a real failure.
+                                    entry["no_match"] = bool(
+                                        tid in search_ids and _NO_MATCH_RE.match(text or ""))
                             tr.append(entry)
                         if tr:
-                            last_gen["tool_results"] = tr
+                            # Each result arrives in its own user record
+                            # when a turn made several calls: append, so a
+                            # turn keeps every result, not just the last.
+                            # A result seen twice (a re-read record) counts once.
+                            prior = list(last_gen.get("tool_results") or [])
+                            seen_ids = {r.get("tool_use_id") for r in prior if r.get("tool_use_id")}
+                            for r in tr:
+                                if r.get("tool_use_id") and r["tool_use_id"] in seen_ids:
+                                    continue
+                                if r.get("tool_use_id"):
+                                    seen_ids.add(r["tool_use_id"])
+                                prior.append(r)
+                            last_gen["tool_results"] = prior
                     txt = _text_of(content)
                     if txt:
                         last_user_text = txt
@@ -450,6 +552,7 @@ def build_generations(
                             cur_tool_ids[_i] = _n
                         if with_analysis:
                             cur_tool_calls.extend(_tool_use_calls(msg.get("content")))
+                            search_ids.update(_search_use_ids(msg.get("content")))
                         sr = msg.get("stop_reason")
                         if sr:
                             cur["gen"]["stop_reason"] = sr
@@ -492,6 +595,7 @@ def build_generations(
                     cur_tool_ids[_i] = _n
                 if with_analysis:
                     cur_tool_calls.extend(_tool_use_calls(msg.get("content")))
+                    search_ids.update(_search_use_ids(msg.get("content")))
                 sr = msg.get("stop_reason")
                 if sr:
                     cur["gen"]["stop_reason"] = sr

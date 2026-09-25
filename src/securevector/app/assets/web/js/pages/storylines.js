@@ -97,7 +97,7 @@ const StorylinesPage = {
     },
 
     async _load() {
-        const data = await API.getTraces({ window_days: this.windowDays, limit: 500 });
+        const data = await API.getTraces({ window_days: this.windowDays, limit: 500, health: 0 });
         // Oldest-first so what-changed chips read the window chronologically.
         this.runs = (data.runs || []).slice().sort((a, b) =>
             String(a.started_at).localeCompare(String(b.started_at)));

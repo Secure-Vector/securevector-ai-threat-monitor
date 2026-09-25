@@ -101,7 +101,7 @@ class ManagerSettings:
 def status_from_hook(event: Mapping) -> Tuple[Optional[str], Optional[str]]:
     """Map a relayed hook payload to (status, activity). None = no change."""
     name = event.get("hook_event_name")
-    if name in ("PreToolUse", "PostToolUse"):
+    if name in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
         tool = str(event.get("tool_name") or "tool")
         preview = str(event.get("tool_input_preview") or "").strip()
         activity = f"{tool}: {preview}" if preview else tool

@@ -11,6 +11,7 @@ Provides REST API endpoints for:
 """
 
 import asyncio
+import contextlib
 import hmac
 import logging
 import os
@@ -184,8 +185,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.terminal_manager = None
         app.state.codex_web_observer = None
 
+    # Run health warm-up: full findings for recently active runs every 60 s,
+    # off the event loop, so badges show without anyone opening the run.
+    try:
+        from securevector.app.server.routes import traces as _traces_routes
+        app.state.run_health_warmer = asyncio.create_task(_traces_routes.run_health_warmer())
+    except Exception as _e:  # noqa: BLE001
+        logger.warning(f"Could not start the run health warm-up: {_e}")
+        app.state.run_health_warmer = None
+
     yield
     logger.info("API server shutting down...")
+
+    _warmer = getattr(app.state, "run_health_warmer", None)
+    if _warmer is not None:
+        _warmer.cancel()
+        # Let a pass in flight unwind before the database closes below.
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await _warmer
 
     _observer = getattr(app.state, "codex_web_observer", None)
     if _observer is not None:

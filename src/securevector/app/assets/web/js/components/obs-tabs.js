@@ -187,7 +187,8 @@ const ObsTabs = {
     // competing noun; "Activity / Sessions / turns / steps / spans" are retired
     // from the UI. This is the whole fix for the Trace-vs-Run-vs-Session soup.
     _TABS: [
-        { label: 'Traces', page: 'agent-runs', icon: 'M4 6h16M4 12h16M4 18h10' },
+        { label: 'Runs', page: 'agent-runs', icon: 'M4 6h16M4 12h16M4 18h10' },
+        { label: 'Health', page: 'run-health', icon: 'M3 12h4l3-7 4 14 3-7h4' },
         { label: 'Map',    page: 'agent-map',  icon: 'M5 7h4v4H5zM15 13h4v4h-4zM9 9h6M17 11v2' },
     ],
 
@@ -258,7 +259,7 @@ const ObsTabs = {
         wrap.setAttribute('role', 'tablist');
         // 'storylines' (the retired Sessions page) maps to the Activity tab so
         // a deep link still highlights the merged view.
-        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs' }[active];
+        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs', health: 'run-health' }[active];
         this._TABS.forEach(t => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -300,7 +301,7 @@ const ObsTabs = {
         const wrap = document.createElement('div');
         wrap.className = 'sv-obs-viewtoggle';
         wrap.setAttribute('role', 'group');
-        wrap.setAttribute('aria-label', 'Traces view');
+        wrap.setAttribute('aria-label', 'Runs view');
         // "Waterfall" = one trace's runs in order (the default). "Live feed" =
         // a flat chronological stream of runs across every trace. (We're inside
         // the Traces tab, so the old "By trace" label was redundant.)

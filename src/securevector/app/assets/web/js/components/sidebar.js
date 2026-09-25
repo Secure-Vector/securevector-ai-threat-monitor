@@ -14,10 +14,11 @@ const Sidebar = {
         { id: 'terminals', label: 'Agent Sessions', icon: 'terminal',
           tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'],
+        { id: 'agent-runs', label: 'Observability', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'],
           tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
           views: [
             { id: 'agent-runs', label: 'Runs' },
+            { id: 'run-health', label: 'Health', tooltip: 'Loops, failing steps and waste across runs, each linked to the step' },
             { id: 'tool-activity', label: 'Tool Activity', aliases: ['bill-of-tools'] },
             { id: 'instant-audit', label: 'Instant Audit' },
           ] },

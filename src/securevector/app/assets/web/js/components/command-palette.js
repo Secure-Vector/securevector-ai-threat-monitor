@@ -32,7 +32,7 @@ const CommandPalette = {
             // 'blocked-ledger' and 'redactions' are facets of Threat Monitor now,
             // but stay searchable here: users look for them by name, and the
             // ids remain routable straight to the right facet.
-            if (['dashboard', 'terminals', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
+            if (['dashboard', 'terminals', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity', 'run-health',
                 'blocked-ledger', 'redactions', 'costs', 'egress'].includes(id)) return 'Visibility';
             if (['tool-permissions', 'rules', 'egress-policy', 'skill-scanner', 'guardian-ml',
                 'cost-settings', 'governance', 'mcp-policies', 'policies'].includes(id)) return 'Configure';
@@ -56,9 +56,10 @@ const CommandPalette = {
             });
         });
         // A few high-value aliases people will actually type.
-        push('agent-runs', 'Traces: trace + run waterfall');
-        push('agent-timeline', 'Traces: Live feed');
-        push('storylines', 'Traces: grouped by agent');
+        push('agent-runs', 'Observability: trace + run waterfall');
+        push('run-health', 'Observability: Health findings');
+        push('agent-timeline', 'Observability: Live feed');
+        push('storylines', 'Observability: grouped by agent');
         push('bill-of-tools', 'Tool Inventory (SBOM)');
         // Folded into Threat Monitor as facets — no longer nav entries, so the
         // loop above cannot emit them. People still search these by name, and

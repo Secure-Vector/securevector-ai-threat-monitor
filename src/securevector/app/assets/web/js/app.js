@@ -16,6 +16,8 @@ const App = {
         replay: ReplayPage,
         'agent-map': AgentMapPage,
         'agent-runs': AgentRunsPage,
+        // Observability > Health: run health findings across runs.
+        'run-health': RunHealthPage,
         'agent-timeline': AgentTimelinePage,
         'storylines': StorylinesPage,
         // Kept routable as an alias: opens Threat Monitor on the Blocked facet.

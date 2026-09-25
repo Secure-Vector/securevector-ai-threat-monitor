@@ -182,9 +182,9 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=179/);
-  assert.match(html, /styles\.css\?v=456/);
-  assert.match(html, /app\.js\?v=70/);
+  assert.match(html, /sidebar\.js\?v=180/);
+  assert.match(html, /styles\.css\?v=458/);
+  assert.match(html, /app\.js\?v=71/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -222,7 +222,7 @@ test('governance credits a control only on current evidence', () => {
   assert.match(gov, /no agent has run in the last 7 days/);
   // an absent setting is unknown, never a pass
   assert.match(gov, /has never been configured on this device, so it cannot be reported as enforced/);
-  assert.match(read('index.html'), /governance\.js\?v=23/);
+  assert.match(read('index.html'), /governance\.js\?v=24/);
 });
 
 test('posture is computed once, in governance, and the rail no longer reads it', () => {
@@ -251,7 +251,7 @@ test('picking a search result with the mouse actually navigates', () => {
   assert.match(p, /_syncSel\(\) \{/);
   assert.match(p, /row\.addEventListener\('mousedown'/);
   assert.match(p, /row\.addEventListener\('click', \(\) => this\._go\(item\)\);/);
-  assert.match(read('index.html'), /command-palette\.js\?v=17/);
+  assert.match(read('index.html'), /command-palette\.js\?v=18/);
 });
 
 test('the collapse button is reachable, not buried under the resize handle', () => {
@@ -279,7 +279,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=456/);
+  assert.match(read('index.html'), /styles\.css\?v=458/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -602,7 +602,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=179/);
+  assert.match(read('index.html'), /sidebar\.js\?v=180/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {

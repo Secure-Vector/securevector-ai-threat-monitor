@@ -95,7 +95,7 @@ def test_hook_settings_file_registers_every_relay_event(tmp_path):
         hook = entry["hooks"][0]
         assert hook["type"] == "command"
         assert hook["timeout"] == 5
-        assert ("matcher" in entry) == (event in {"PreToolUse", "PostToolUse"})
+        assert ("matcher" in entry) == (event in {"PreToolUse", "PostToolUse", "PostToolUseFailure"})
     cmd = data["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert cmd.startswith("/usr/bin/python3 -m securevector.app.terminals.hook_relay")
 
