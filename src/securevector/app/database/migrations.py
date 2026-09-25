@@ -193,6 +193,11 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         45: migrate_to_v45,
         46: migrate_to_v46,
         47: migrate_to_v47,
+        48: migrate_to_v48,
+        49: migrate_to_v49,
+        50: migrate_to_v50,
+        51: migrate_to_v51,
+        52: migrate_to_v52,
     }
 
     if version in migrations:
@@ -1088,6 +1093,10 @@ async def migrate_to_v25(db: DatabaseConnection) -> None:
     # if none and the CHECK is tight, the rebuild below handles the rest.
     cur = await conn.execute("PRAGMA table_info(external_forwarders)")
     cols = await cur.fetchall()
+    # Close before the rebuild: an open statement on this connection makes
+    # the DROP TABLE below fail with "database table is locked", and on
+    # older Pythons when the cursor is finalized depends on GC timing.
+    await cur.close()
     if not cols:
         # Table doesn't exist on this DB yet — nothing to do. A later
         # migrate_to_v22 run on an older install will create it with the
@@ -1878,7 +1887,7 @@ async def migrate_to_v44(db: DatabaseConnection) -> None:
             scheme        TEXT,
             operation     TEXT NOT NULL CHECK (operation IN ('read', 'write', 'unknown')),
             kind          TEXT NOT NULL,
-            action        TEXT NOT NULL CHECK (action IN ('allow', 'block', 'log_only')),
+            action        TEXT NOT NULL CHECK (action IN ('allow', 'block', 'log_only', 'observed')),
             rule_id       TEXT,
             severity      TEXT,
             confidence    TEXT NOT NULL,
@@ -2364,3 +2373,295 @@ async def migrate_to_v47(db: DatabaseConnection) -> None:
         "VALUES (47, CURRENT_TIMESTAMP, 'guardian_cleared_events audit log')"
     )
     logger.info("Applied migration v47: guardian_cleared_events table")
+
+
+MIGRATION_V48_SQL = """
+CREATE TABLE IF NOT EXISTS terminal_tasks (
+    id               TEXT PRIMARY KEY,
+    executor_id      TEXT NOT NULL,
+    workspace        TEXT NOT NULL,
+    title            TEXT,
+    status           TEXT NOT NULL DEFAULT 'starting'
+                     CHECK (status IN ('starting','working','blocked','idle','done','failed','interrupted')),
+    session_id       TEXT,
+    pid              INTEGER,
+    exit_code        INTEGER,
+    activity         TEXT,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at TIMESTAMP,
+    ended_at         TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_terminal_tasks_status ON terminal_tasks (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_terminal_tasks_session ON terminal_tasks (session_id);
+
+CREATE TABLE IF NOT EXISTS terminal_events (
+    seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    origin     TEXT NOT NULL,
+    detail     TEXT,
+    prev_hash  TEXT,
+    row_hash   TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_terminal_events_task ON terminal_events (task_id, seq);
+"""
+
+
+async def migrate_to_v48(db: DatabaseConnection) -> None:
+    """v47 -> v48: Agent Terminals tasks and hash-chained task events.
+
+    terminal_tasks is the board: one row per launched task, restored on
+    startup (running rows become 'interrupted'). terminal_events is the
+    audit trail for spawn, input, stop, hook and exit, chained like
+    tool_call_audit so tampering is detectable. Idempotent.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V48_SQL)
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (48, CURRENT_TIMESTAMP, 'Agent Terminals tasks and events')"
+    )
+    logger.info("Applied migration v48: terminal_tasks, terminal_events")
+
+
+async def migrate_to_v49(db: DatabaseConnection) -> None:
+    """v48 -> v49: allow completed Agent Tasks to leave the active board.
+
+    This is deliberately an archive marker, never a delete: the associated
+    hash-chained terminal_events and the task row remain available to audit.
+    """
+    conn = await db.connect()
+    columns = {row[1] for row in await (await conn.execute("PRAGMA table_info(terminal_tasks)")).fetchall()}
+    if "archived_at" not in columns:
+        await conn.execute("ALTER TABLE terminal_tasks ADD COLUMN archived_at TIMESTAMP")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_terminal_tasks_active ON terminal_tasks (archived_at, created_at)")
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (49, CURRENT_TIMESTAMP, 'Agent Task board archive marker')"
+    )
+    logger.info("Applied migration v49: terminal task archive marker")
+
+
+async def migrate_to_v50(db: DatabaseConnection) -> None:
+    """v49 -> v50: where an Agent Task came from.
+
+    ``origin`` is 'launch' for a task this app spawned and owns a PTY for,
+    and 'linked' for a harness session that was started outside the app and
+    is governed here by its session id alone. A linked row has no pid and no
+    process to stop, so liveness comes from its audit trail instead of a PTY
+    exit. Idempotent; existing rows keep the 'launch' default.
+    """
+    conn = await db.connect()
+    columns = {row[1] for row in await (await conn.execute("PRAGMA table_info(terminal_tasks)")).fetchall()}
+    if "origin" not in columns:
+        await conn.execute(
+            "ALTER TABLE terminal_tasks ADD COLUMN origin TEXT NOT NULL DEFAULT 'launch'"
+        )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_terminal_tasks_origin ON terminal_tasks (origin, archived_at)"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (50, CURRENT_TIMESTAMP, 'Agent Task origin: launched or linked')"
+    )
+    logger.info("Applied migration v50: terminal task origin")
+
+
+async def migrate_to_v51(db: DatabaseConnection) -> None:
+    """v50 -> v51: `observed` joins the egress_audit action vocabulary.
+
+    A hook fires for every governed tool call, but some harness-native network
+    tools never reach one. Their destinations are read back from the local
+    transcript afterwards and recorded as ``observed``: reached, and not
+    decided by any policy. Keeping them in the same table is what makes one
+    per-session list of destinations possible; keeping them under their own
+    action is what stops them being read as verdicts.
+
+    SQLite cannot widen a CHECK in place, so the table is rebuilt. Idempotent:
+    an install whose constraint already allows ``observed`` is left alone.
+
+    The rebuild is recovered before it is attempted. A crash between the drop
+    and the rename leaves the audit in a staging table and no `egress_audit` at
+    all, which every later query would fail on; a crash before the drop leaves
+    a staging table that is merely stale. Both states are repaired here, on the
+    next run, rather than being left for an operator to notice.
+    """
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    async def _create_indexes() -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_time ON egress_audit (timestamp DESC)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_host ON egress_audit (host, action)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_session ON egress_audit (session_id)"
+        )
+
+    leftover = await _table_sql("egress_audit_v51")
+    if leftover:
+        if await _table_sql("egress_audit"):
+            # The rebuild did not get as far as swapping. The staging copy is
+            # stale by definition; the live table is still the source of truth.
+            await conn.execute("DROP TABLE egress_audit_v51")
+        else:
+            # The swap was interrupted between the drop and the rename: the
+            # staging table *is* the audit history, and dropping it would
+            # delete it.
+            await conn.execute("ALTER TABLE egress_audit_v51 RENAME TO egress_audit")
+            await _create_indexes()
+        await conn.commit()
+
+    existing = await _table_sql("egress_audit")
+    if existing and "'observed'" not in existing:
+        await conn.executescript(
+            """
+            CREATE TABLE egress_audit_v51 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                host          TEXT,
+                port          INTEGER,
+                scheme        TEXT,
+                operation     TEXT NOT NULL CHECK (operation IN ('read', 'write', 'unknown')),
+                kind          TEXT NOT NULL,
+                action        TEXT NOT NULL CHECK (action IN ('allow', 'block', 'log_only', 'observed')),
+                rule_id       TEXT,
+                severity      TEXT,
+                confidence    TEXT NOT NULL,
+                detector      TEXT NOT NULL,
+                tool_name     TEXT,
+                runtime_kind  TEXT,
+                session_id    TEXT,
+                request_id    TEXT,
+                evidence      TEXT,
+                reason        TEXT,
+                promoted      INTEGER NOT NULL DEFAULT 0,
+                promoted_at   TIMESTAMP
+            );
+            INSERT INTO egress_audit_v51 (
+                id, timestamp, host, port, scheme, operation, kind, action,
+                rule_id, severity, confidence, detector, tool_name,
+                runtime_kind, session_id, request_id, evidence, reason,
+                promoted, promoted_at
+            )
+            SELECT id, timestamp, host, port, scheme, operation, kind, action,
+                   rule_id, severity, confidence, detector, tool_name,
+                   runtime_kind, session_id, request_id, evidence, reason,
+                   promoted, promoted_at
+            FROM egress_audit;
+            DROP TABLE egress_audit;
+            ALTER TABLE egress_audit_v51 RENAME TO egress_audit;
+            """
+        )
+        await _create_indexes()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (51, CURRENT_TIMESTAMP, 'Observed egress rows')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v51: observed egress action")
+
+
+async def migrate_to_v52(db: DatabaseConnection) -> None:
+    """v51 -> v52: `task_event` joins the forward-outbox kind vocabulary.
+
+    Agent Task lifecycle events (spawn, status change, exit, stop, archive
+    and a periodic heartbeat) travel to the fleet destination through the
+    same outbox as scans and tool audits. Their payload is the metadata-only
+    Live Runs shape: enums, keyed digests, integers and timestamps.
+
+    SQLite cannot widen a CHECK in place, so the table is rebuilt, the same
+    way v51 rebuilds egress_audit, inside one ``BEGIN IMMEDIATE``
+    transaction so a concurrent enqueue waits instead of writing into a
+    table that is about to be dropped. Idempotent: an install whose
+    constraint already allows ``task_event`` is left alone, a rebuild
+    interrupted on a previous run is repaired first, and the pending index
+    is (re)created on every run so a crash after the rename cannot leave the
+    queue without it.
+    """
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    async def _create_indexes() -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+            "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+            "WHERE delivered_at IS NULL"
+        )
+
+    leftover = await _table_sql("external_forward_outbox_v52")
+    if leftover:
+        if await _table_sql("external_forward_outbox"):
+            # The swap never happened; the live table is the source of truth.
+            await conn.execute("DROP TABLE external_forward_outbox_v52")
+        else:
+            # Interrupted between the drop and the rename: the staging table
+            # holds the queue, so keep it.
+            await conn.execute(
+                "ALTER TABLE external_forward_outbox_v52 RENAME TO external_forward_outbox"
+            )
+            await _create_indexes()
+        await conn.commit()
+
+    existing = await _table_sql("external_forward_outbox")
+    if existing and "'task_event'" not in existing:
+        try:
+            await conn.executescript(
+            """
+            BEGIN IMMEDIATE;
+            CREATE TABLE external_forward_outbox_v52 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+                kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit', 'task_event')),
+                payload_json  TEXT NOT NULL,
+                created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                delivered_at  TIMESTAMP,
+                last_error    TEXT
+            );
+            INSERT INTO external_forward_outbox_v52 (
+                id, forwarder_id, kind, payload_json, created_at,
+                attempts, delivered_at, last_error
+            )
+            SELECT id, forwarder_id, kind, payload_json, created_at,
+                   attempts, delivered_at, last_error
+            FROM external_forward_outbox;
+            DROP TABLE external_forward_outbox;
+            ALTER TABLE external_forward_outbox_v52 RENAME TO external_forward_outbox;
+            CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending
+                ON external_forward_outbox (forwarder_id, delivered_at, id)
+                WHERE delivered_at IS NULL;
+            COMMIT;
+            """
+            )
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    if await _table_sql("external_forward_outbox"):
+        await _create_indexes()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (52, CURRENT_TIMESTAMP, 'Agent Task events in the forward outbox')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v52: task_event outbox kind")

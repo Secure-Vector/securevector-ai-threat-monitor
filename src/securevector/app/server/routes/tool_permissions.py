@@ -292,6 +292,42 @@ OPENCODE_BUILTINS: list[tuple[str, str, str]] = [
     ("execute",     "admin", "Run generated code in code-mode (experimental)."),
 ]
 
+# Antigravity (Google's Gemini-lineage agent, CLI binary ``agy``) built-ins.
+# Names are lowercase snake_case, taken from the first-party built-in tool
+# reference at antigravity.google/docs/sdk/tools.
+#
+# The reference lists thirteen; ``finish`` is deliberately absent here. It
+# returns the agent's final output, so denying it cannot prevent anything that
+# has not already happened, and a user who blocked it would wedge every session
+# with no indication why. It is in IGNORED_TOOLS on the plugin side, which is
+# what keeps the two lists equal.
+#
+# KEEP IN LOCKSTEP with BUILTIN_TOOLS in
+# ``src/securevector/plugins/antigravity/lib/normalize.js``, enforced by
+# tests/unit/app/test_tool_permissions_builtins.py. That list is doubly
+# load-bearing there: Antigravity's MCP tool-name shape is undocumented, so
+# "not a built-in" is the only way the plugin can recognise an MCP tool.
+ANTIGRAVITY_BUILTINS: list[tuple[str, str, str]] = [
+    # Shell execution
+    ("run_command",      "admin", "Execute a shell command."),
+    # Filesystem reads
+    ("view_file",        "read",  "Read file contents."),
+    ("list_directory",   "read",  "List directory contents."),
+    ("search_directory", "read",  "Search within files."),
+    ("find_file",        "read",  "Find files by pattern."),
+    # Filesystem writes
+    ("create_file",      "write", "Create a new file."),
+    ("edit_file",        "write", "Edit an existing file."),
+    # Network
+    ("search_web",       "admin", "Perform a web search."),
+    ("read_url_content", "admin", "Fetch the contents of a URL."),
+    # Agents and generation
+    ("start_subagent",   "admin", "Invoke a child subagent."),
+    ("generate_image",   "admin", "Generate or edit an image."),
+    # User interaction
+    ("ask_question",     "read",  "Prompt the user for input."),
+]
+
 # Hermes (NousResearch hermes-agent) built-ins — the framework-shape sibling
 # of LangChain, governed via the securevector-sdk-hermes package rather than
 # a hook plugin. Names are Hermes's own snake_case registry names, extracted
@@ -622,6 +658,27 @@ async def list_essential_tools():
                 name, builtin_meta, overrides_map, synced_map, matches_last_resort,
             ))
 
+        # Antigravity built-ins. Lowercase snake_case, its own namespace
+        # (run_command, view_file, search_web, ...), surfaced under category
+        # "antigravity". Omitted only when the registry already claims the name.
+        for name, risk, description in ANTIGRAVITY_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "Antigravity",
+                "category": "antigravity",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
         # Hermes built-ins. Hermes's tool_id namespace is its own snake_case
         # registry naming, surfaced under category "hermes". The decision
         # oracle is the securevector-sdk-hermes package (framework shape, no
@@ -909,6 +966,7 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
         builtin_ids.update(name for name, _r, _d in CODEX_BUILTINS)
         builtin_ids.update(name for name, _r, _d in COPILOT_CLI_BUILTINS)
         builtin_ids.update(name for name, _r, _d in CURSOR_BUILTINS)
+        builtin_ids.update(name for name, _r, _d in ANTIGRAVITY_BUILTINS)
         builtin_ids.update(name for name, _r, _d in HERMES_BUILTINS)
         builtin_ids.update(name for name, _r, _d in OPENCODE_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
@@ -1385,6 +1443,10 @@ _RUNTIME_LABELS = {
     "claude-code":  "Claude Code",
     "claude_code":  "Claude Code",
     "codex":        "Codex",
+    "copilot-cli":  "Copilot CLI",
+    "cursor":       "Cursor",
+    "opencode":     "OpenCode",
+    "antigravity":  "Antigravity",
     "openclaw":     "OpenClaw",
     "langchain":    "LangChain",
     "langgraph":    "LangGraph",

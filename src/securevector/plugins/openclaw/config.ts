@@ -69,13 +69,54 @@ function readSvConfig(): { host: string; port: number } | null {
   }
 }
 
+/** Hosts that mean "this machine", in every spelling a URL can use. */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "0.0.0.0"]);
+
+let warnedEndpoint = false;
+
+/**
+ * Say out loud, once, when the engine is not on this machine.
+ *
+ * The sibling plugins resolve their endpoint through one `resolveBaseUrl()`
+ * that does this. OpenClaw resolves its own, because its config also honours
+ * a plugin-config value and a discovered host/port, so it kept an inline
+ * read and therefore kept the silence: `index.ts` posts raw prompt and tool
+ * text to whatever this returns, and an environment variable is reachable by
+ * anything that can write a dotfile in a repository the agent opens.
+ *
+ * Nothing is refused. Pointing at a self-host engine is supported; doing it
+ * without anyone noticing is not.
+ */
+function noteEndpoint(url: string): string {
+  if (warnedEndpoint) return url;
+  warnedEndpoint = true;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^\[|\]$/g, "");
+    if (LOOPBACK_HOSTS.has(host)) return url;
+    const clear = parsed.protocol !== "https:"
+      ? " The connection is plain HTTP, so they travel in the clear."
+      : "";
+    process.stderr.write(
+      `[securevector] prompts and tool calls are being sent to ${parsed.host}, which is not this machine.${clear}`
+      + " Unset SECUREVECTOR_ENGINE_ENDPOINT to keep everything local.\n",
+    );
+  } catch {
+    process.stderr.write(
+      `[securevector] the SecureVector endpoint "${url}" is not a URL. Falling back to the local app.\n`,
+    );
+    return "http://127.0.0.1:8741";
+  }
+  return url;
+}
+
 export function resolveConfig(pluginConfig: Record<string, any> = {}): PluginConfig {
   let defaultUrl = "http://127.0.0.1:8741";
   const sv = readSvConfig();
   if (sv) defaultUrl = `http://${sv.host}:${sv.port}`;
 
   return {
-    url:       pluginConfig.url       || process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SECUREVECTOR_URL || defaultUrl,
+    url:       noteEndpoint(pluginConfig.url || process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SECUREVECTOR_URL || defaultUrl),
     apiKey:    pluginConfig.apiKey    || process.env.SECUREVECTOR_API_KEY   || "",
     threshold: pluginConfig.threshold ?? parseInt(process.env.SECUREVECTOR_THRESHOLD || "50", 10),
   };

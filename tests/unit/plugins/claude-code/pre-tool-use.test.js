@@ -581,3 +581,13 @@ test('main flow: audit POST failure does NOT propagate (enforcement decision sta
     });
   } finally { restore(); }
 });
+
+test('claude-code: an egress deny is recorded once, in egress_audit, not again as a call-audit row', () => {
+  // /api/egress/evaluate writes the egress_audit row before it answers; the
+  // Traces step view reads it from there (trace.egress_blocks) and shows the
+  // call as blocked. A second call-audit row here would double count it.
+  const src = require('node:fs').readFileSync(require.resolve(
+    '../../../../src/securevector/plugins/claude-code/hooks/pre-tool-use.js'), 'utf8');
+  require('node:assert/strict').match(src, /decision\.decision === 'deny' && decision\.toolId && !decision\.egress/);
+  require('node:assert/strict').match(src, /tool_name: toolName,[\s\S]{0,120}session_id: sessionId/);
+});

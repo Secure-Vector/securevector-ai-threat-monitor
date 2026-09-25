@@ -1306,6 +1306,25 @@ class CustomToolsRepository:
                 bucket["secrets"] += 1
         return out
 
+    async def get_run_windows_for_sessions(self, session_ids) -> list[dict]:
+        """Each run's time bounds over its tool-call rows, for these sessions
+        (trace_id, session_id, runtime_kind, started_at, ended_at)."""
+        ids = [s for s in dict.fromkeys(session_ids or []) if s][:500]
+        if not ids:
+            return []
+        marks = ", ".join("?" for _ in ids)
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT trace_id, MAX(session_id) AS session_id, MAX(runtime_kind) AS runtime_kind,
+                   MIN(called_at) AS started_at, MAX(called_at) AS ended_at
+            FROM tool_call_audit
+            WHERE session_id IN ({marks}) AND trace_id IS NOT NULL
+            GROUP BY trace_id
+            """,
+            tuple(ids),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def get_trace_spans(self, trace_id: str) -> list[dict]:
         """Return the ordered spans (tool-call audit rows) for one run.
 
@@ -1330,6 +1349,64 @@ class CustomToolsRepository:
             (trace_id,),
         )
         return [dict(r) for r in rows] if rows else []
+
+    async def get_health_rows(self, trace_ids, prefix_chars: int = 512, per_trace: int = 300) -> dict:
+        """The last ``per_trace`` governed calls of each run, in order, for
+        the run-health list pass: one query, grouped here by trace_id. Only
+        the first ``prefix_chars`` of each args preview (and its length)
+        leave SQLite, so 200 runs stay cheap. Ordered by (trace_id,
+        turn_index), the idx_tool_call_audit_trace index, with seq breaking
+        ties. Returns ``{trace_id: [row, ...]}``."""
+        ids = [t for t in dict.fromkeys(trace_ids or []) if t][:500]
+        if not ids:
+            return {}
+        marks = ", ".join("?" for _ in ids)
+        n = max(1, int(prefix_chars))
+        cap = max(1, int(per_trace))
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT trace_id, span_id, function_name, tool_id, action, called_at,
+                   args_head, args_len
+            FROM (
+                SELECT trace_id, span_id, function_name, tool_id, action, called_at,
+                       turn_index, seq,
+                       substr(args_preview, 1, {n}) AS args_head,
+                       length(args_preview) AS args_len,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY trace_id ORDER BY turn_index DESC, seq DESC
+                       ) AS rn
+                FROM tool_call_audit
+                WHERE trace_id IN ({marks})
+            )
+            WHERE rn <= {cap}
+            ORDER BY trace_id, turn_index ASC, seq ASC
+            """,
+            tuple(ids),
+        )
+        out: dict = {}
+        for r in rows or []:
+            d = dict(r)
+            out.setdefault(d["trace_id"], []).append(d)
+        return out
+
+    async def get_runtime_call_medians(self, runtime_kind: str, window_days: int = 30) -> dict:
+        """Median governed calls per run for one runtime over the window,
+        and how many runs that median stands on."""
+        rows = await self.db.fetch_all(
+            """
+            SELECT COUNT(*) AS n FROM tool_call_audit
+            WHERE runtime_kind = ? AND trace_id IS NOT NULL
+              AND called_at >= datetime('now', ?)
+            GROUP BY trace_id
+            """,
+            (runtime_kind, f"-{max(1, min(int(window_days), 90))} days"),
+        )
+        counts = sorted(int(r["n"]) for r in rows or [])
+        if not counts:
+            return {"runs": 0, "median_calls": None}
+        mid = len(counts) // 2
+        med = counts[mid] if len(counts) % 2 else (counts[mid - 1] + counts[mid]) / 2
+        return {"runs": len(counts), "median_calls": med}
 
     async def get_detection_sources(self, request_ids) -> dict:
         """Map request_id → detection-source summary for a set of requests.

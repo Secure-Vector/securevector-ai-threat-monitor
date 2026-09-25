@@ -28,10 +28,9 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
-const { postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
 const { SECRET_PATTERNS, redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'claude-code';
 
@@ -258,6 +257,21 @@ function extractScanTextFromResponse(toolResponse) {
   return parts.join('\n');
 }
 
+// Hook events this handler serves that mean "the tool ran and failed".
+const TOOL_FAILURE_EVENTS = new Set(['PostToolUseFailure']);
+// The audit reason a failed call carries; the app reads it as an error.
+const TOOL_ERROR_REASON = 'tool error';
+// The Guard's deny reason prefix (REASON_PREFIX in pre-tool-use.js), at the
+// start of the failure text, alone or behind the host's hook banner.
+const GUARD_DENY_RE = /^\s*(?:[^\n]{0,120}?PreToolUse[^\n]{0,80}?:\s*)?SecureVector Guard:/;
+
+function isGuardDeny(event) {
+  const e = event || {};
+  const text = [e.error, e.tool_error, e.message, e.tool_response]
+    .find(v => typeof v === 'string' && v.length > 0);
+  return typeof text === 'string' && GUARD_DENY_RE.test(text.slice(0, 200));
+}
+
 function effectToAction(effect) {
   switch (effect) {
     case 'allow':  return 'allow';
@@ -291,7 +305,20 @@ async function audit(event, baseUrl) {
   const match = pickMatch(candidates, overrides);
 
   const toolId = match ? match.tool_id : candidates[0];
-  const reason = match && typeof match.reason === 'string' ? match.reason : null;
+  // PostToolUseFailure (same handler, registered in hooks.json): Claude
+  // Code fires it INSTEAD of PostToolUse when the tool errors, so without
+  // it a failed call left no audit row at all. Same row, marked as an
+  // error in the reason (no schema change), so the call is counted and
+  // run health can see the failure.
+  const failed = TOOL_FAILURE_EVENTS.has(String((event && (event.hook_event_name || event.hookEventName)) || ''));
+  // A call our own PreToolUse refused already has its block row (written by
+  // pre-tool-use.js before it denied). Claude Code documents
+  // PostToolUseFailure as firing only for a tool that ran and failed
+  // (denials go to PermissionDenied), but if a failure event ever arrives
+  // for a refused call, skip it so the block is counted once.
+  if (failed && (effectToAction(match && match.effect) === 'block' || isGuardDeny(event))) return;
+  const matchReason = match && typeof match.reason === 'string' && match.reason ? match.reason : null;
+  const reason = failed ? (matchReason ? `${TOOL_ERROR_REASON}; ${matchReason}` : TOOL_ERROR_REASON) : matchReason;
   const action = match ? effectToAction(match.effect) : 'allow';
 
   let argsPreview = '';
@@ -443,7 +470,7 @@ async function main() {
     // on stdout; the audit POST simply doesn't happen.
     return;
   }
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   try {
     await audit(event, baseUrl);
   } catch {
@@ -455,4 +482,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { redact, redactForScan, hasCredentialMarkers, extractScanText, extractScanTextFromResponse, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, THREAT_SCAN_RESPONSE_TOOLS, THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS, RUNTIME_KIND };
+module.exports = { TOOL_FAILURE_EVENTS, TOOL_ERROR_REASON, isGuardDeny, redact, redactForScan, hasCredentialMarkers, extractScanText, extractScanTextFromResponse, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, THREAT_SCAN_RESPONSE_TOOLS, THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS, RUNTIME_KIND };

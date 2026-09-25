@@ -21,6 +21,8 @@ const GuideConnectAgentsPage = {
     AGENTS: [
         { id: 'python', route: 'A', label: 'Python @guard', guide: 'guide-frameworks', integration: 'proxy-python', pkg: 'securevector-ai-monitor[app]',
             wire: 'from securevector import guard\n\n# Decorate the functions your agent calls. Arguments are scanned on the\n# way in, the return value on the way out; every call lands in Traces and\n# the audit chain. observe = log-only (default); mode="enforce" blocks.\n@guard\ndef search_web(query: str) -> str:\n    ...' },
+        { id: 'node', route: 'A', label: 'Node and TypeScript', guide: 'guide-frameworks', integration: 'proxy-node', pkg: '@securevector/sdk',
+            wire: "import { guard, session, generation } from '@securevector/sdk';\n\n// Wrap the functions your agent calls. Arguments are scanned on the way\n// in, the return value on the way out; every call lands in Traces and\n// the audit chain. observe = log-only (default); mode: 'enforce' blocks.\nconst searchWeb = guard(async (query) => { ... }, { toolId: 'search.web' });" },
         { id: 'langchain', route: 'A', label: 'LangChain', guide: 'guide-frameworks', integration: 'proxy-langchain', pkg: 'securevector-sdk-langchain',
             wire: 'from langchain.agents import create_agent\nfrom securevector_sdk_langchain import secure_middleware\n\n# requires langchain>=1.0 · observe = log-only (default); mode="enforce" blocks\nagent = create_agent(model, tools, middleware=[secure_middleware(mode="observe")])' },
         { id: 'langgraph', route: 'A', label: 'LangGraph', guide: 'guide-frameworks', integration: 'proxy-langgraph', pkg: 'securevector-sdk-langgraph',
@@ -34,6 +36,7 @@ const GuideConnectAgentsPage = {
         { id: 'copilot-cli', route: 'B', label: 'Copilot CLI', guide: 'guide-copilot-cli', integration: 'proxy-copilot-cli', slug: 'copilot-cli' },
         { id: 'cursor', route: 'B', label: 'Cursor', guide: 'guide-cursor', integration: 'proxy-cursor', slug: 'cursor' },
         { id: 'opencode', route: 'B', label: 'OpenCode', guide: 'guide-opencode', integration: 'proxy-opencode', slug: 'opencode' },
+        { id: 'antigravity', route: 'B', label: 'Antigravity', guide: 'guide-antigravity', integration: 'proxy-antigravity', slug: 'antigravity' },
         { id: 'openclaw', route: 'B', label: 'OpenClaw', guide: 'guide-openclaw', integration: 'proxy-openclaw', slug: 'openclaw' },
     ],
 
@@ -718,7 +721,7 @@ const GuideConnectAgentsPage = {
             const body = document.createElement('div'); body.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.6;';
             body.appendChild(document.createTextNode('SecureVector will check this device (' + osName + ') to show what’s running. It reads, locally:'));
             const ul = document.createElement('ul'); ul.style.cssText = 'margin: 8px 0; padding-left: 18px;';
-            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.config/opencode, ~/.openclaw): which are installed',
+            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.config/opencode, ~/.gemini, ~/.openclaw): which are installed',
              'Their session files: to count sessions and recent activity',
              'SecureVector’s own tool-call audit: to list active agents/frameworks'].forEach(li => { const l = document.createElement('li'); l.style.cssText = 'margin-bottom: 3px;'; l.textContent = li; ul.appendChild(l); });
             body.appendChild(ul);

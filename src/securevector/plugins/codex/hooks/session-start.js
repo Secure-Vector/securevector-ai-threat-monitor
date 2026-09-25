@@ -25,9 +25,9 @@
 
 'use strict';
 
-const { postJsonAndForget, getJson } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget, getJson } = require('../lib/client.js');
+const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'codex';
 
 async function readAllStdin() {
@@ -69,7 +69,7 @@ async function main() {
     event = raw ? JSON.parse(raw) : {};
   } catch { /* swallow — empty event is fine */ }
 
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
 
   // Reachability probe — fail-quiet to stderr. The probe runs with the
   // default 100ms client-side timeout in lib/client.js, so a slow / down
@@ -101,6 +101,11 @@ async function main() {
   try {
     postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionOpenBody(event));
   } catch { /* swallow */ }
+
+  // Agent Terminals supplies all three capability variables. The await keeps
+  // this short-lived hook alive long enough to establish the task/session
+  // link; ordinary Codex sessions have none of these variables and no-op.
+  await postTerminalEvent({ hook_event_name: 'SessionStart', session_id: event.session_id });
 
   // Empty hookSpecificOutput — Codex's implicit-allow contract on
   // SessionStart. We intentionally don't emit additionalContext (the

@@ -81,6 +81,28 @@ SECRET_PATTERNS = [
     # Real password leaks land via password-kv (which requires the literal
     # keyword prefix). If we want to catch passwords without the prefix we
     # need entropy-based detection, not regex shape-matching.
+    # Env-style secret assignments: NAME=value or NAME: value where NAME is
+    # an UPPER_SNAKE_CASE identifier containing KEY/SECRET/TOKEN/PASSWORD
+    # (e.g. AWS_SECRET_ACCESS_KEY=..., GITHUB_TOKEN: ...). Covers Agent
+    # Terminals activity previews, which surface raw shell/env text that the
+    # api_key/api_secret/password-kv patterns above miss (those require the
+    # literal words "api_key" / "api_secret" / "password"). The identifier
+    # is matched case-sensitively (`(?-i:...)`, overriding the IGNORECASE
+    # this whole list is compiled with) so an ordinary lowercase/mixed-case
+    # word merely containing the substring "key" — "keys", "monkey", the
+    # "KEY" inside a PEM "-----BEGIN ... PRIVATE KEY-----" envelope — never
+    # matches; only real env-var-shaped names do. The value must also be 8+
+    # chars, contain a letter, and not start with `"` or `[` — this keeps
+    # ordinary tool previews (`Bash: {"command": "pytest -q"}`), JSON keys
+    # with numeric values (`"token_count": 12`), and already-redacted output
+    # from earlier patterns in this list untouched.
+    (
+        r'(\b(?-i:(?=(?:(?:[A-Z0-9]+_)+(?:KEY|SECRET|TOKEN|PASSWORD)(?:_[A-Z0-9]+)*\b'
+        r'|(?:[A-Z0-9]+_)*(?:KEY|SECRET|TOKEN|PASSWORD)(?:_[A-Z0-9]+)+\b))[A-Z_][A-Z0-9_]*)\s*[:=]\s*)'
+        r'(?!["\[])(?=[^\s]*[A-Za-z])[^\s]{8,}',
+        r'\1****',
+        ('env-assignment', 'Environment-style secret assignment'),
+    ),
 ]
 
 

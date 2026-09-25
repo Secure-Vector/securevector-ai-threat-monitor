@@ -12,6 +12,7 @@ and return a signed, chained verdict.
 """
 
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -20,7 +21,11 @@ from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.egress import EgressRepository
-from securevector.app.services import egress_attestation, egress_scope
+from securevector.app.services import (
+    codex_web_observer,
+    egress_attestation,
+    egress_scope,
+)
 from securevector.app.services.containment_drift import diff_proofs
 from securevector.app.services.containment_proof import (
     preflight_manifest,
@@ -252,6 +257,39 @@ async def get_destinations(days: int = 30):
         "window_days": days,
         "distinct_hosts": len(rows),
         "write_capable": sum(1 for r in rows if (r.get("writes") or 0) > 0),
+        "destinations": rows,
+    }
+
+
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+@router.get("/egress/sessions/{session_id}/destinations")
+async def get_session_destinations(session_id: str, limit: int = 50):
+    """The hosts one session reached, blocked ones first.
+
+    Scoped to a single session so an attached terminal can show the reach of
+    the task in front of the operator instead of the whole machine's history.
+    The id is pattern-checked rather than passed straight through: it arrives
+    from a path segment and ends up in a query parameter.
+    """
+    if not _SESSION_ID_RE.match(session_id or ""):
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    repo = EgressRepository(get_database())
+    rows = await repo.session_destinations(session_id, limit=limit)
+    # `observed` rows were reached without passing the evaluator (a harness's
+    # own web tool fires no hook). They are counted separately, and the
+    # consent flag travels with them: with transcript reading off the list is
+    # not "nothing happened", it is "nothing was read".
+    return {
+        "session_id": session_id,
+        "distinct_hosts": len(rows),
+        "blocked_hosts": sum(1 for r in rows if (r.get("blocked") or 0) > 0),
+        # Refused calls, one per call however many hosts it named: the same
+        # count the traces list folds into a run's `blocked`.
+        "blocked_calls": await repo.session_blocked_call_count(session_id),
+        "observed_calls": sum((r.get("observed") or 0) for r in rows),
+        "transcript_consent": codex_web_observer.consent_granted(),
         "destinations": rows,
     }
 

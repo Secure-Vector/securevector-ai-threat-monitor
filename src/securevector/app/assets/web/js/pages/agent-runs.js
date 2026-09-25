@@ -17,9 +17,10 @@
 const RUNTIME_NEUTRAL = '#8b949e';
 const RUNTIME_COLOR = {
     'claude-code': RUNTIME_NEUTRAL, codex: RUNTIME_NEUTRAL, openclaw: RUNTIME_NEUTRAL,
-    cursor: RUNTIME_NEUTRAL,
+    cursor: RUNTIME_NEUTRAL, 'copilot-cli': RUNTIME_NEUTRAL, opencode: RUNTIME_NEUTRAL,
+    antigravity: RUNTIME_NEUTRAL,
     langchain: RUNTIME_NEUTRAL, langgraph: RUNTIME_NEUTRAL, crewai: RUNTIME_NEUTRAL,
-    hermes: RUNTIME_NEUTRAL, python: RUNTIME_NEUTRAL,
+    hermes: RUNTIME_NEUTRAL, python: RUNTIME_NEUTRAL, node: RUNTIME_NEUTRAL,
 };
 const OUTCOME = {
     blocked: { color: '#ef4444', label: 'BLOCKED' },
@@ -49,6 +50,12 @@ const AgentRunsPage = {
     _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
     _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
     _pendingGenRid: null,  // one-shot: after opening, jump to the generation with this request_id (Optimizer finding click-through)
+    _timelineForce: null,  // trace id whose full timeline opens regardless of the saved choice (deep link, View in timeline)
+    _stepsDetail: null,    // { traceId, key } the open chip in the step list (key '' = shut by hand)
+    _health: null,         // trace id -> { key, data } run health findings (GET /api/traces/{id}/health), fetched once per opened run
+    _healthOpen: null,     // trace id whose findings strip is expanded past its one-line summary
+    _stepsFocus: null,     // { traceId, step } the step a "Jump to step N" asked for
+    _pendingHealthOpen: false, // one-shot: a health link (Dashboard, Health view) opens the run with its findings shown
     _optReport: undefined, // Cost Optimizer report, fetched once per page life for per-turn annotations (null = fetched, none)
     toolFilter: null,      // filter spans to one tool_id (from a Map tool-node click)
     _pendingTool: null,    // one-shot tool_id handed off by a Map tool-node click
@@ -367,7 +374,7 @@ const AgentRunsPage = {
             this._pendingOutcome = null;
         }
         if (window.Header) {
-            Header.setPageInfo('Traces', 'One trace per agent session: every LLM and tool run with its verdict, tokens and cost.');
+            Header.setPageInfo('Observability', 'Sessions contain traces; traces contain nested spans. Inspect every LLM and tool operation with its verdict, tokens and cost.');
         }
         this._injectStyle();
 
@@ -490,6 +497,12 @@ const AgentRunsPage = {
             .ar-row-caret { width:12px; height:12px; color:var(--text-muted,#7d8590); transition:transform .16s; }
             .ar-run.open .ar-row-caret { transform:rotate(90deg); color:var(--accent-primary,#5eadb8); }
             .ar-row-name { display:flex; align-items:center; gap:8px; min-width:0; }
+            /* The agent label keeps its place when health badges follow it:
+               it truncates with an ellipsis before it is ever pushed out. */
+            .ar-row-name .ar-run-rt { flex:0 1 auto; min-width:52px; }
+            .ar-row-health { display:inline-flex; align-items:center; gap:4px; flex:0 1 auto; min-width:0; overflow:hidden; }
+            .ar-layout.split .ar-row-health .sv-health-badge-text { display:none; }
+            .ar-layout.split .ar-row-health .sv-health-badge { padding:0 3px; }
             .ar-row-id { font-family:var(--font-mono,monospace); font-size:10.5px; color:var(--text-secondary,#8b949e); opacity:.65; letter-spacing:.02em; flex:0 0 auto; }
             .ar-row-c { text-align:right; font-size:11.5px; color:var(--text-secondary,#b1bac4); white-space:nowrap; }
             .ar-row-c .ar-dim0 { color:var(--text-muted,#7d8590); opacity:.5; }
@@ -1119,7 +1132,7 @@ const AgentRunsPage = {
             [{ label: 'runtime', get: r => r[0] }, { label: 'sessions', get: r => r[1].sessions }, { label: 'enforced calls', get: r => r[1].steps }, { label: 'blocked', get: r => r[1].blocked }],
             Object.entries(byRt));
         const sessionTable = ObsTabs.tableHTML(
-            [{ label: 'runtime', get: r => r.runtime }, { label: 'session_id', get: r => r.session_id }, { label: 'trace_id', get: r => r.trace_id }, { label: 'steps', get: r => r.steps }, { label: 'blocked', get: r => r.blocked }, { label: 'risk', get: r => r.risk }, { label: 'started', get: r => r.started }, { label: 'ended', get: r => r.ended }],
+            [{ label: 'runtime', get: r => r.runtime }, { label: 'session_id', get: r => r.session_id }, { label: 'trace_id', get: r => r.trace_id }, { label: 'enforced calls', get: r => r.steps }, { label: 'blocked', get: r => r.blocked }, { label: 'risk', get: r => r.risk }, { label: 'started', get: r => r.started }, { label: 'ended', get: r => r.ended }],
             rows);
         let policyTable = '<p style="color:#666;font-size:12px;">No tool calls were blocked in this window.</p>';
         if (ledger && (ledger.by_reason || []).length) {
@@ -1178,13 +1191,86 @@ const AgentRunsPage = {
     _auditSpans() {
         return ((this._trace && this._trace.spans) || []).filter(s => s.span_kind !== 'generation');
     },
+    /** A trace's blocks: tool-call blocks plus egress denies, which are
+     *  recorded apart (egress_audit) and reported as egress_blocked. */
+    _blockedTotal(t) {
+        return (Number(t && t.blocked) || 0) + (Number(t && t.egress_blocked) || 0);
+    },
+    /** The open trace's step view for exports: the same grouping as the
+     *  step list (TraceSteps.records), plus which step each call landed in.
+     *  Carries tool names, rule ids and reasons only, never arguments. */
+    _exportSteps(t) {
+        if (!t || !window.TraceSteps) return null;
+        const rec = TraceSteps.records(t);
+        const bySpan = new Map();
+        TraceSteps.build(t.spans, { egressBlocks: t.egress_blocks }).forEach((st, i) => st.tools.forEach(sp => bySpan.set(sp, rec.steps[i])));
+        return Object.assign(rec, { bySpan });
+    },
+    /** Per-call step columns for the CSV: the call's step number, that
+     *  step's model / tool / step time in ms, and its merged tool list. */
+    _exportStepCols(view) {
+        const st = (s) => (view && view.bySpan.get(s)) || null;
+        const ms = (v) => (v == null ? '' : Math.round(v));
+        return [
+            { label: 'step', get: s => (st(s) ? st(s).index : '') },
+            { label: 'step_model_ms', get: s => (st(s) ? ms(st(s).model_ms) : '') },
+            { label: 'step_model_estimated', get: s => (st(s) ? st(s).model_estimated : '') },
+            { label: 'step_tool_ms', get: s => (st(s) ? ms(st(s).tool_ms) : '') },
+            { label: 'step_tool_capped', get: s => (st(s) ? st(s).tool_capped : '') },
+            { label: 'step_time_ms', get: s => (st(s) ? ms(st(s).step_ms) : '') },
+            { label: 'step_tools', get: s => (st(s) ? TraceSteps.toolsText(st(s).tools, st(s).unchecked) : '') },
+        ];
+    },
+    /** A "Steps" section for the printable trace: summary line + one row
+     *  per step. Everything goes through tableHTML, which escapes it. */
+    _exportStepsHTML(view) {
+        if (!view || !view.steps.length) return '';
+        const f = (v) => TraceSteps.fmtDur(v);
+        const sm = view.summary;
+        const line = [
+            sm.took_ms != null ? `Took ${f(sm.took_ms)}` : null,
+            `${sm.steps} step${sm.steps === 1 ? '' : 's'}`,
+            sm.blocked ? `${sm.blocked} blocked` : null,
+            sm.flagged ? `${sm.flagged} flagged` : null,
+            sm.cost > 0 ? `$${sm.cost < 0.01 ? sm.cost.toFixed(4) : sm.cost.toFixed(2)}` : null,
+        ].filter(Boolean).join(' · ');
+        const table = ObsTabs.tableHTML([
+            { label: 'step', get: r => r.index },
+            { label: 'model time', get: r => (r.model_ms != null ? `${f(r.model_ms)}${r.model_estimated ? ' (est.)' : ''}` : '') },
+            { label: 'tool time', get: r => (r.tool_ms != null ? `${r.tool_capped ? '≥' : ''}${f(r.tool_ms)}` : '') },
+            { label: 'step time', get: r => (r.step_ms != null ? `${r.tool_capped ? '≥' : ''}${f(r.step_ms)}` : '') },
+            { label: 'tool calls', get: r => TraceSteps.toolsText(r.tools, r.unchecked) },
+        ], view.steps);
+        return `<h2>Steps</h2><div class="sub">${this._esc(line)}</div>${table}`;
+    },
+    /** The open run's findings as one line each: "Title (why. action)". */
+    _exportFindings(t) {
+        const h = t ? this._healthFor(t.trace_id) : null;
+        return window.TraceSteps ? TraceSteps.findingsRecords(h) : [];
+    },
+    /** A "Findings" section for the printable trace. */
+    _exportFindingsHTML(t) {
+        const list = this._exportFindings(t);
+        if (!list.length) return '';
+        return '<h2>Findings</h2>' + ObsTabs.tableHTML([
+            { label: 'category', get: f => f.category },
+            { label: 'severity', get: f => f.severity },
+            { label: 'finding', get: f => f.title },
+            { label: 'why', get: f => f.why },
+            { label: 'what to do', get: f => f.action },
+        ], list);
+    },
     /** Export the selected trace's tool-call spans as CSV. */
     _exportCSV() {
         const t = this._trace;
         const rows = this._auditSpans();
         if (!t || !rows.length) return;
+        // Findings summary on the first row only, in its own column.
+        const findings = this._exportFindings(t).map(f => `[${f.category}] ${f.title}`).join('; ');
+        const cols = this._exportCols().concat(this._exportStepCols(this._exportSteps(t)))
+            .concat([{ label: 'findings', get: s => (s === rows[0] ? findings : '') }]);
         ObsTabs.download(`agent-trace-${String(t.trace_id).slice(0, 8)}.csv`,
-            ObsTabs.toCSV(this._exportCols(), rows), 'text/csv');
+            ObsTabs.toCSV(cols, rows), 'text/csv');
     },
     /** PDF = printable page with the trace header + the step table. */
     _exportPDF() {
@@ -1192,11 +1278,16 @@ const AgentRunsPage = {
         const rows = this._auditSpans();
         if (!t || !rows.length) return;
         const gens = t.generation_count || 0;
-        const sub = `${t.runtime_kind || 'unknown'} · ${rows.length} tool runs` +
-            (gens ? ` · ${gens} LLM runs` : '') + ` · ${t.blocked || 0} blocked · trace ${String(t.trace_id).slice(0, 12)}…`;
+        const sub = `${this._esc(t.runtime_kind || 'unknown')} · ${rows.length} tool runs` +
+            (gens ? ` · ${gens} LLM runs` : '') + ` · ${this._blockedTotal(t)} blocked · trace ${String(t.trace_id).slice(0, 12)}…`;
+        const view = this._exportSteps(t);
+        const cols = view ? [{ label: 'step', get: s => { const st = view.bySpan.get(s); return st ? st.index : ''; } }].concat(this._exportCols()) : this._exportCols();
         ObsTabs.printDoc('SecureVector: Agent Trace',
             `<h1>Agent Trace</h1><div class="sub">${sub}</div>` +
-            ObsTabs.tableHTML(this._exportCols(), rows));
+            this._exportFindingsHTML(t) +
+            this._exportStepsHTML(view) +
+            (view ? '<h2>Tool calls</h2>' : '') +
+            ObsTabs.tableHTML(cols, rows));
     },
 
     async loadData() {
@@ -1219,6 +1310,10 @@ const AgentRunsPage = {
         this._wantFlagged = null;
         const flagged = flagKey ? shown.find(r => (r[flagKey] || 0) > 0) : null;
         if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
+            // A deep link ("See full run") asked for the whole run. A health
+            // link asked for the steps and their findings instead.
+            if (this._pendingHealthOpen) { this._healthOpen = wantTrace; this._pendingHealthOpen = false; }
+            else this._timelineForce = wantTrace;
             this.selectRun(wantTrace);
         } else if (wantTrace) {
             // Deep-linked trace is older than the current window. Widen to the
@@ -1316,6 +1411,8 @@ const AgentRunsPage = {
         if (v === 'blocked') return (r.blocked || 0) > 0;
         if (v === 'detected') return (r.detections || 0) > 0;
         if (v === 'secret') return (r.secrets || 0) > 0;
+        // Run health (loop / failing / wasteful): counts from the runs list.
+        if (v === 'loop' || v === 'failing' || v === 'wasteful') return Number((r.health || {})[v]) > 0;
         return true;
     },
 
@@ -1509,6 +1606,10 @@ const AgentRunsPage = {
                 ['blocked', 'Blocked', base.filter(r => this._viewMatch(r, 'blocked')).length, '#ef4444'],
                 ['detected', 'Detected', base.filter(r => this._viewMatch(r, 'detected')).length, '#ef4444'],
                 ['secret', 'Secrets', base.filter(r => this._viewMatch(r, 'secret')).length, '#f59e0b'],
+                // Run health: neutral counts (not a security verdict); Failing may be amber.
+                ['loop', 'Loop', base.filter(r => this._viewMatch(r, 'loop')).length, ''],
+                ['failing', 'Failing', base.filter(r => this._viewMatch(r, 'failing')).length, '#f59e0b'],
+                ['wasteful', 'Wasteful', base.filter(r => this._viewMatch(r, 'wasteful')).length, ''],
             ];
             views.forEach(([key, label, n, color]) => {
                 // A zero-count view is noise unless it's the one active now
@@ -1518,9 +1619,12 @@ const AgentRunsPage = {
                 const c = document.createElement('button');
                 c.type = 'button';
                 c.className = 'ar-view-chip' + (this.listView === key ? ' active' : '');
-                c.innerHTML = `${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
+                const hIcon = (key === 'loop' || key === 'failing' || key === 'wasteful') && window.TraceSteps ? `${TraceSteps.healthIcon(key)} ` : '';
+                c.innerHTML = `${hIcon}${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
                 c.title = key === 'all' ? 'Every trace in this window'
                     : key === 'live' ? 'Only agents with activity in the last 2 minutes'
+                    : (key === 'loop' || key === 'failing' || key === 'wasteful')
+                        ? `Only runs with a ${key} health finding`
                     : `Only traces with ${key === 'flagged' ? 'any security flag' : key === 'secret' ? 'secret detections' : key + ' actions'}`;
                 c.addEventListener('click', () => {
                     this.listView = (this.listView === key ? 'all' : key);
@@ -1572,7 +1676,8 @@ const AgentRunsPage = {
             card.style.setProperty('--ar-accent', color);
             // Count-tick flash: when a live update raised this row's numbers,
             // pulse it once so the change is visible without reading.
-            const countKey = `${r.spans}|${r.blocked}|${r.detections}|${r.secrets}`;
+            const hk = r.health || {};
+            const countKey = `${r.spans}|${r.blocked}|${r.detections}|${r.secrets}|${hk.loop || 0}|${hk.failing || 0}|${hk.wasteful || 0}`;
             nextCounts[r.trace_id] = countKey;
             if (prevCounts[r.trace_id] && prevCounts[r.trace_id] !== countKey) card.classList.add('ar-card-tick');
             // One table row per agent run (custom name wins); numeric columns
@@ -1585,6 +1690,7 @@ const AgentRunsPage = {
                 `<span class="ar-row-name"><span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
                 `<span class="ar-row-id" title="session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id)}">${this._esc(String(r.session_id || r.trace_id).slice(0, 8))}</span>` +
                 (this._isLive(r.ended_at) ? this._liveBadge() : '') +
+                (window.TraceSteps && TraceSteps.badgesHtml(r.health) ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
                 `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${r.risk}"></span></span>` +
                 `<span class="ar-row-c col-tools"><span class="ar-num">${r.spans}</span></span>` +
                 `<span class="ar-row-c col-blk">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
@@ -1687,7 +1793,7 @@ const AgentRunsPage = {
         this._pendingGenRid = null;
         const hit = (trace.spans || []).find(
             s => s.span_kind === 'generation' && s.request_id === rid);
-        if (hit && hit._seq != null) this._jumpToSpan(hit._seq);
+        if (hit && hit._seq != null) { this._setTimeline(true); this._jumpToSpan(hit._seq); }
     },
 
     /** Per-turn Cost Optimizer annotations — the findings list is discovery,
@@ -1758,13 +1864,177 @@ const AgentRunsPage = {
             `<span class="ar-det-title">${this._esc(this._agentLabel(trace))}</span>` +
             `<span class="ar-run-sub">${this._esc(trace.runtime_kind)}</span>` +
             (this._isLive(trace.ended_at) ? this._liveBadge('This agent is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
-            `<span class="ar-det-eyebrow" title="One recorded agent execution. Every row below is a run inside this trace.">Trace</span>` +
+            `<span class="ar-det-eyebrow" title="Session › trace › spans. Nested rows show the causal parent-child span relationship.">Trace</span>` +
             `<button type="button" class="ar-det-x" title="Collapse this trace (or click the agent row again)">×</button>`;
         head.querySelector('.ar-det-x').addEventListener('click', () => this._showList());
         const pauseBtn = head.querySelector('.ar-live-pause');
         if (pauseBtn) pauseBtn.addEventListener('click', () => this._livePauseToggle(pauseBtn));
         detail.appendChild(head);
 
+        // The step list comes first; the full timeline (everything below,
+        // unchanged) sits behind "Show full timeline".
+        const stepsBox = document.createElement('div');
+        stepsBox.className = 'trace-steps';
+        stepsBox.id = 'ar-steps';
+        detail.appendChild(stepsBox);
+        const open = this._timelineIsOpen(trace.trace_id);
+        const tBtn = document.createElement('button');
+        tBtn.type = 'button';
+        tBtn.className = 'ar-timeline-toggle';
+        tBtn.setAttribute('aria-controls', 'ar-timeline');
+        tBtn.addEventListener('click', () => this._setTimeline(!this._timelineIsOpen(trace.trace_id), { persist: true }));
+        detail.appendChild(tBtn);
+        const timeline = document.createElement('div');
+        timeline.id = 'ar-timeline';
+        timeline.className = 'ar-timeline';
+        detail.appendChild(timeline);
+        this._timelineSync(open);
+        this._renderTimeline(trace, timeline);
+        // After the timeline so each span carries its _seq for "View in timeline".
+        this._renderSteps(trace);
+        this._loadHealth(trace);
+    },
+
+    /** The open run's health findings, or null until fetched. */
+    _healthFor(traceId) {
+        const e = this._health && this._health[traceId];
+        return e && e.data ? e.data : null;
+    },
+
+    /** Fetch a run's health once per opened run, and again only when the
+     *  run has grown (a live refresh). Repaints the step list on arrival. */
+    _loadHealth(trace) {
+        const id = trace && trace.trace_id;
+        if (!id) return;
+        const key = `${trace.ended_at || ''}|${trace.span_count || 0}`;
+        const cache = this._health || (this._health = {});
+        const e = cache[id];
+        if (e && e.key === key && (e.data || e.pending || e.failed)) return;
+        const had = e && e.data ? e.data : null;
+        cache[id] = { key, data: had, pending: true };
+        Promise.resolve()
+            .then(() => API.request(`/api/traces/${encodeURIComponent(id)}/health`))
+            .then((data) => { cache[id] = { key, data: data || null }; })
+            .catch(() => { cache[id] = { key, data: had, failed: true }; })
+            .then(() => {
+                if (this.selected === id && this._trace && this._trace.trace_id === id) this._renderSteps(this._trace);
+            });
+    },
+
+    /** Copy a finding's nudge; the button says so. */
+    _copyNudge(btn, text) {
+        const done = () => { btn.textContent = 'Copied'; if (window.Toast) Toast.success('Nudge copied, paste it into your session'); };
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(String(text)).then(done, () => { if (window.Toast) Toast.error('Could not copy'); });
+                return;
+            }
+        } catch (e) { /* fall through */ }
+        if (window.Toast) Toast.error('Could not copy');
+    },
+
+    // --- the step list and the full timeline toggle ------------------------
+
+    /** Saved choice: the full timeline starts collapsed unless the user
+     *  opened it last time, or a deep link asked for this trace. */
+    _timelineIsOpen(traceId) {
+        if (this._timelineForce && this._timelineForce === traceId) return true;
+        try { return localStorage.getItem('sv-ar-timeline') === 'open'; } catch (e) { return false; }
+    },
+
+    /** Show or hide the full timeline in place (no rebuild, so nothing below
+     *  loses its state). `persist` records the user's own choice. */
+    _setTimeline(open, opts = {}) {
+        const traceId = this._trace && this._trace.trace_id;
+        if (opts.persist) {
+            this._timelineForce = null;
+            try { localStorage.setItem('sv-ar-timeline', open ? 'open' : 'closed'); } catch (e) { /* private mode */ }
+        } else if (open) {
+            this._timelineForce = traceId || null;
+        }
+        this._timelineSync(open);
+        // Replay drives rows the user can no longer see: stop it.
+        if (!open && this._replay && this._replay.on && this._trace) this._replayExit();
+    },
+
+    _timelineSync(open) {
+        const tl = document.getElementById('ar-timeline');
+        const btn = document.querySelector('#ar-detail .ar-timeline-toggle');
+        if (tl) tl.hidden = !open;
+        if (btn) {
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            btn.textContent = open ? 'Hide full timeline ▴' : 'Show full timeline ▾';
+        }
+    },
+
+    /** Paint the step list from the trace already fetched (no extra fetch). */
+    _renderSteps(trace) {
+        const box = document.getElementById('ar-steps');
+        if (!box || !window.TraceSteps) return;
+        const traceId = trace.trace_id;
+        const sd = this._stepsDetail && this._stepsDetail.traceId === traceId ? this._stepsDetail : null;
+        const active = document.activeElement;
+        const focusKey = active && box.contains(active) && active.getAttribute ? active.getAttribute('data-fk') : null;
+        box.innerHTML = TraceSteps.html(traceId, trace, {
+            prefix: 'trace-steps',
+            stepsMax: 8,
+            chipsMax: 8,
+            detailKey: sd ? sd.key : undefined,
+            fullRunLabel: '',
+            moreLabel: 'see full timeline',
+            modelLabel: trace.runtime_kind === 'claude-code' ? 'Claude thinking' : 'Model thinking',
+            jumpLabel: 'View in timeline',
+            health: this._healthFor(traceId),
+            findingsOpen: this._healthOpen === traceId,
+            focusStep: this._stepsFocus && this._stepsFocus.traceId === traceId ? this._stepsFocus.step : undefined,
+        });
+        box.querySelectorAll('button.trace-steps-findings-toggle').forEach(b => {
+            b.addEventListener('click', () => {
+                this._healthOpen = this._healthOpen === traceId ? null : traceId;
+                this._renderSteps(trace);
+            });
+        });
+        box.querySelectorAll('button.trace-steps-finding-jump').forEach(b => {
+            b.addEventListener('click', () => {
+                const step = Number(b.dataset.step);
+                this._stepsFocus = { traceId, step };
+                this._renderSteps(trace);
+                const row = box.querySelector(`.trace-steps-row[data-step="${step}"]`);
+                if (row && row.scrollIntoView) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        });
+        box.querySelectorAll('button.trace-steps-finding-copy').forEach(b => {
+            b.addEventListener('click', () => {
+                const f = TraceSteps.findingById(this._healthFor(traceId), b.dataset.findingId);
+                if (f && f.nudge) this._copyNudge(b, f.nudge);
+            });
+        });
+        box.querySelectorAll('button.trace-steps-chip:not(.trace-steps-more)').forEach(b => {
+            b.addEventListener('click', () => {
+                const on = b.getAttribute('aria-pressed') === 'true';
+                this._stepsDetail = { traceId, key: on ? '' : b.dataset.stepKey };
+                this._renderSteps(trace);
+            });
+        });
+        box.querySelectorAll('button.trace-steps-more').forEach(b => {
+            b.addEventListener('click', () => this._setTimeline(true));
+        });
+        box.querySelectorAll('button.trace-steps-jump').forEach(b => {
+            b.addEventListener('click', () => {
+                const span = TraceSteps.spanForKey(TraceSteps.build(trace.spans, { egressBlocks: trace.egress_blocks }), b.dataset.stepKey);
+                this._setTimeline(true);
+                if (span && span._seq != null) this._jumpToSpan(span._seq);
+            });
+        });
+        if (focusKey) {
+            const again = Array.from(box.querySelectorAll('[data-fk]')).find(x => x.getAttribute('data-fk') === focusKey);
+            if (again && again.focus) again.focus();
+        }
+    },
+
+    /** The full timeline: masthead, filters, minimap, replay and the span
+     *  waterfall, exactly as the trace view has always drawn them. */
+    _renderTimeline(trace, detail) {
         const allSpans = trace.spans || [];
         // Honest per-run timing annotations (spans arrive oldest→newest by seq).
         // We have each run's START timestamp but not its latency, so we show
@@ -1840,8 +2110,8 @@ const AgentRunsPage = {
             (dur && dur !== '0s'
                 ? stat(dur, 'wall clock', '<span title="Time from the first to the last run: not per-run latency">first → last run</span>')
                 : '') +
-            (trace.blocked
-                ? stat(Number(trace.blocked).toLocaleString(), 'blocked', 'enforcement stopped these', 'danger')
+            (this._blockedTotal(trace)
+                ? stat(Number(this._blockedTotal(trace)).toLocaleString(), 'blocked', 'enforcement stopped these', 'danger')
                 : '');
         detail.appendChild(mast);
         // Provenance — which session produced this trace. One quiet line.
@@ -1926,13 +2196,13 @@ const AgentRunsPage = {
             if (this.toolFilter || this.outcomeFilter !== 'all') {
                 const what = [this.toolFilter ? this._esc(String(this.toolFilter).split(':').pop()) : '',
                 this.outcomeFilter !== 'all' ? this.outcomeFilter.replace('_', '-') : ''].filter(Boolean).join(' · ');
-                this._detailEmpty(`No ${what} calls in this trace.`, 'Clear the Tool/Outcome filter to see the full trace.');
+                this._detailEmpty(`No ${what} calls in this trace.`, 'Clear the Tool/Outcome filter to see the full trace.', detail);
                 return;
             }
             const msg = none ? 'No tool kind selected.'
                 : !this.kinds.builtin ? 'No external MCP calls in this trace.'
                     : 'No built-in tool calls in this trace.';
-            this._detailEmpty(msg, none ? 'Tick Built-in or External MCP to show steps.' : 'Tick the other Tool checkbox to see everything.');
+            this._detailEmpty(msg, none ? 'Tick Built-in or External MCP to show steps.' : 'Tick the other Tool checkbox to see everything.', detail);
             return;
         }
 
@@ -1941,7 +2211,7 @@ const AgentRunsPage = {
         const runsHead = document.createElement('div');
         runsHead.className = 'ar-runs-heading';
         const hb = document.createElement('b');
-        hb.textContent = 'Runs in this trace';
+        hb.textContent = 'Spans in this trace';
         runsHead.appendChild(hb);
         // In-trace search — filter the loaded runs by tool / model / reason.
         // Hidden during replay (replay owns row visibility). Typing toggles row
@@ -2575,7 +2845,7 @@ const AgentRunsPage = {
             `<span class="ar-gen-toklabel">tok</span></span>` +
             `<span class="ar-gen-cost" title="Estimated: token counts × API list price. Not metered billing: on a subscription plan this usage is included.">${cost}</span>${stop}` +
             (s.verdict && s.verdict.label ? `<span class="ar-gen-verdict ${s.verdict.color || 'grey'}" title="${this._esc(s.verdict.reason || 'scanned: nothing found')}">${this._esc(s.verdict.label)}</span>` : '') +
-            (s.duration_ms != null ? `<span class="ar-gen-dur" title="Model call duration">${this._fmtMs(s.duration_ms)}</span>` : '') +
+            (s.duration_ms != null ? `<span class="ar-gen-dur" title="${s.duration_estimated ? 'Model call duration, estimated from the transcript' : 'Model call duration'}">${this._fmtMs(s.duration_ms)}</span>` : '') +
             (this._trace && this._trace.expensive_turn && this._trace.expensive_turn.turn_index === s.turn_index && (this._trace.generation_count || 0) > 1
                 ? `<span class="ar-gen-top" title="The costliest model turn in this run">costliest</span>` : '') +
             `<span class="ar-time">${this._fmtTime(s.called_at)}</span>` +
@@ -2722,8 +2992,15 @@ const AgentRunsPage = {
     /** The collapsible per-step detail panel revealed when a span is clicked. */
     _spanDetail(s, external) {
         const kv = (k, v) => v ? `<dt>${k}</dt><dd>${this._esc(v)}</dd>` : '';
+        // Arguments are secret-redacted and capped at 8 KB on write. At the cap,
+        // say so: a command that stops mid-word otherwise reads as a bug in the
+        // trace rather than a limit on what was stored. Same note Storylines
+        // shows for the same data.
+        const argCap = (s.args_preview || '').length >= 8192
+            ? '<div class="ar-args-note">Showing the first 8 KB, secrets redacted. The rest of this command was not stored.</div>'
+            : '';
         const args = s.args_preview
-            ? `<div class="ar-args"><div class="ar-args-label">Arguments (secrets redacted)</div><pre>${this._esc(s.args_preview)}</pre></div>`
+            ? `<div class="ar-args"><div class="ar-args-label">Arguments (secrets redacted)</div><pre>${this._esc(s.args_preview)}</pre>${argCap}</div>`
             : '';
         // Detected-by row: raw HTML (badge), not escaped text — only when the
         // step is tied to a threat detection.
@@ -2793,8 +3070,10 @@ const AgentRunsPage = {
         });
     },
 
-    _detailEmpty(title, sub) {
-        const detail = document.getElementById('ar-detail');
+    /** `into`: the node to fill; the whole #ar-detail by default. A filter
+     *  with no matches passes #ar-timeline so the step list stays. */
+    _detailEmpty(title, sub, into) {
+        const detail = into || document.getElementById('ar-detail');
         if (!detail) return;
         // Inline under its row — the row click (or the ×) collapses it.
         detail.innerHTML = `<div class="ar-empty"><div style="font-size:15px;margin-bottom:6px;">${title}</div><div style="font-size:13px;">${sub}</div></div>`;
@@ -2846,9 +3125,18 @@ const AgentRunsPage = {
             const win = this._traceWin || 0;
             const durF = (s.duration_ms > 0 && win > 0) ? Math.min(1, s.duration_ms / win) : 0;
             if (durF > 0) {
-                const left = Math.max(0, Math.min(100, (s._pos || 0) * 100));
-                const width = Math.max(2.5, Math.min(100 - left, durF * 100));
-                pos = `<span class="ar-tl" title="Started ${Math.round(s._pos * 100)}% through the trace, ran ${this._fmtMs(s.duration_ms)}">` +
+                let left = Math.max(0, Math.min(100, (s._pos || 0) * 100));
+                let width = Math.max(2.5, Math.min(100 - left, durF * 100));
+                // A transcript turn is stamped when its reply was written and
+                // its duration estimated back from there, so the bar ends at
+                // called_at: it runs from called_at - duration_ms.
+                if (s.duration_estimated) {
+                    const end = left;
+                    left = Math.max(0, end - durF * 100);
+                    width = Math.max(2.5, end - left);
+                    if (left + width > 100) left = Math.max(0, 100 - width);
+                }
+                pos = `<span class="ar-tl" title="${s.duration_estimated ? `Ended ${Math.round(s._pos * 100)}% through the trace, ran about ${this._fmtMs(s.duration_ms)} (estimated)` : `Started ${Math.round(s._pos * 100)}% through the trace, ran ${this._fmtMs(s.duration_ms)}`}">` +
                     `<i class="ar-tl-bar" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%;background:${tickColor}"></i></span>`;
             } else {
                 pos = `<span class="ar-tl" title="When this run started within the trace (${Math.round(s._pos * 100)}% through)">` +

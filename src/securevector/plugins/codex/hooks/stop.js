@@ -23,9 +23,9 @@
 
 'use strict';
 
-const { postJsonAndForget } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget } = require('../lib/client.js');
+const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'codex';
 
 async function readAllStdin() {
@@ -70,11 +70,13 @@ async function main() {
     event = raw ? JSON.parse(raw) : {};
   } catch { /* swallow — empty event is fine */ }
 
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
 
   try {
     postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionEndBody(event));
   } catch { /* swallow */ }
+
+  await postTerminalEvent({ hook_event_name: 'Stop', session_id: event.session_id });
 
   process.stdout.write(JSON.stringify({}));
 }

@@ -12,10 +12,11 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from . import _hooks_common
+from ._plugin_guard import require_local_origin
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +399,7 @@ async def plugin_status():
     }
 
 
-@router.post("/install")
+@router.post("/install", dependencies=[Depends(require_local_origin)])
 async def install_plugin(request: Optional[InstallRequest] = None):
     """Install the SecureVector plugin via `openclaw plugins install --link`."""
     force = request.force if request else False
@@ -515,8 +516,9 @@ async def install_plugin(request: Optional[InstallRequest] = None):
         }
 
 
-@router.post("/uninstall")
+@router.post("/uninstall", dependencies=[Depends(require_local_origin)])
 async def uninstall_plugin():
+
     """Remove the SecureVector plugin — files + config entries."""
     import asyncio
 

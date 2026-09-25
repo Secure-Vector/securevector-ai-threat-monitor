@@ -9,6 +9,7 @@ Provides:
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator, Optional
@@ -18,6 +19,28 @@ import aiosqlite
 from securevector.app.utils.platform import get_database_path
 
 logger = logging.getLogger(__name__)
+
+
+def _restrict_to_owner(db_path: Path) -> None:
+    """0600 on the database and its WAL siblings, best effort.
+
+    POSIX only: on Windows `chmod` cannot express "this user only", and access
+    there relies on the parent directory's ACL, so attempting it would report
+    success without restricting anything.
+
+    Never raises. A database on a filesystem that cannot represent the mode
+    (a network share, a FAT volume) still has to open, and failing the whole
+    app over a permission bit would be the worse outcome; the warning is what
+    a security review reads.
+    """
+    if os.name != "posix":
+        return
+    for path in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+        try:
+            if path.exists():
+                os.chmod(path, 0o600)
+        except OSError as exc:  # noqa: PERF203 - one warning per sibling is the point
+            logger.warning("Could not restrict %s to its owner: %s", path, exc)
 
 
 class DatabaseConnection:
@@ -77,6 +100,14 @@ class DatabaseConnection:
                 # writes overlap, which surfaces as a dropped audit row — the
                 # one thing an enforcement log must never do.
                 await self._connection.execute("PRAGMA busy_timeout = 5000")
+                # The audit trail is a security record, so it is readable only
+                # by the OS user that installed the app (a 6.0.0 release-gate
+                # criterion, alongside the terminals token file). Done after
+                # the journal_mode pragma on purpose: that is what creates the
+                # -wal and -shm siblings, and they hold the same rows as the
+                # database itself, so restricting only the .db would leave
+                # recent writes world readable.
+                _restrict_to_owner(self.db_path)
                 # Row factory for dict-like access
                 self._connection.row_factory = aiosqlite.Row
                 logger.info("Database connection established")

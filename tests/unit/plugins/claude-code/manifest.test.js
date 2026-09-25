@@ -139,8 +139,17 @@ test('hooks.json: declares PreToolUse + PostToolUse + SessionStart + UserPromptS
   const h = readJson('hooks/hooks.json');
   const events = Object.keys(h.hooks);
   assert.deepEqual(events.sort(), [
-    'PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit',
+    'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionStart', 'UserPromptSubmit',
   ]);
+});
+
+test('hooks.json: PostToolUseFailure audits failed calls through the same handler, every tool', () => {
+  // Claude Code fires PostToolUseFailure INSTEAD of PostToolUse when a tool
+  // errors; without it a failed call leaves no audit row at all.
+  const h = readJson('hooks/hooks.json');
+  const entry = h.hooks.PostToolUseFailure[0];
+  assert.equal(entry.matcher, '.*');
+  assert.match(entry.hooks[0].command, /hooks\/post-tool-use\.js$/);
 });
 
 

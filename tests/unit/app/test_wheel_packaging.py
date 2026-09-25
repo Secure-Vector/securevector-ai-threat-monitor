@@ -119,6 +119,36 @@ def test_manifest_and_package_data_include_opencode_plugin():
     )
 
 
+def test_manifest_and_package_data_include_antigravity_plugin():
+    """The Antigravity plugin's non-Python assets must ship in the wheel.
+
+    Both its ``plugin.json`` marker and its ``hooks.json`` sit at the tree root
+    rather than in a dot-dir, so the recursive glob is enough here and no
+    explicit dot-dir line is needed. If packaging drops the tree, the install
+    route stages nothing and returns the "staging produced 0 files" 500.
+    """
+    manifest = (REPO / "MANIFEST.in").read_text()
+    assert re.search(r"recursive-include\s+src/securevector/plugins/antigravity\s+\*", manifest), (
+        "MANIFEST.in is missing: recursive-include src/securevector/plugins/antigravity *"
+    )
+    setup_py = (REPO / "setup.py").read_text()
+    assert "plugins/antigravity/**/*" in setup_py, (
+        'setup.py package_data is missing "plugins/antigravity/**/*"'
+    )
+
+
+def test_antigravity_plugin_tree_intact_on_disk():
+    """Every file the Antigravity install handler stages must exist in source."""
+    from securevector.app.server.routes.hooks_antigravity import PLUGIN_FILES as AG_FILES
+
+    tree = REPO / "src" / "securevector" / "plugins" / "antigravity"
+    for rel in AG_FILES:
+        assert (tree / rel).is_file(), f"missing Antigravity plugin file: {rel}"
+    # hooks.json is what makes the directory a hook-bearing plugin rather than
+    # an inert folder, so assert it explicitly against a future file-list edit.
+    assert "hooks.json" in AG_FILES
+
+
 def test_opencode_plugin_tree_intact_on_disk():
     """Every file the OpenCode install handler stages must exist in source."""
     from securevector.app.server.routes.hooks_opencode import PLUGIN_FILES as OC_FILES

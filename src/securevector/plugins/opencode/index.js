@@ -58,6 +58,7 @@ import {
 import { normalize, isMcpToolName } from './lib/normalize.js';
 import { fetchSyncedOverrides, getJson, postJsonAndForget } from './lib/client.js';
 import { hasCredentialMarkers } from './lib/redact.js';
+import { postTerminalEvent } from './lib/terminal-relay.js';
 
 const INACTIVE_NOTICE = (baseUrl) =>
   'SecureVector Guard is installed but INACTIVE: the local SecureVector app at '
@@ -84,6 +85,29 @@ function notifyBlocked(client, reason) {
     });
     if (p && typeof p.catch === 'function') p.catch(() => {});
   } catch { /* never let a cosmetic notice affect enforcement */ }
+}
+
+/**
+ * Short, redacted argument preview for the Agent Terminals activity line.
+ * Never throws; a missing preview is acceptable.
+ */
+function terminalPreview(args) {
+  try {
+    if (args === undefined || args === null) return null;
+    return redact(typeof args === 'string' ? args : JSON.stringify(args)).slice(0, 200);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Relay one hook event to the Agent Terminals task that launched this
+ * session. Fire-and-forget: a throw out of an OpenCode hook is a deny.
+ */
+function relay(event) {
+  try {
+    postTerminalEvent(event).catch(() => {});
+  } catch { /* swallow */ }
 }
 
 export const SecureVectorGuard = async ({ client }) => {
@@ -119,6 +143,15 @@ export const SecureVectorGuard = async ({ client }) => {
         const callId = (input && input.callID) || null;
         const args = (output && output.args) || null;
 
+        // Relayed BEFORE the decision: Agent Terminals must record the
+        // attempt even if decide() throws, and a task's activity line
+        // reflects what the agent is doing, not only what was blocked.
+        relay({
+          hook_event_name: 'PreToolUse',
+          session_id: sessionId,
+          tool_name: toolName,
+          tool_input_preview: terminalPreview(args),
+        });
         const decision = await decide(toolName, baseUrl, sessionId, args);
         if (!decision || decision.decision === 'allow') return;
 
@@ -174,6 +207,13 @@ export const SecureVectorGuard = async ({ client }) => {
      */
     'permission.ask': async (input, output) => {
       try {
+        const toolName = (input && (input.tool && input.tool.tool ? input.tool.tool : input.tool)) || '';
+        relay({
+          hook_event_name: 'Notification',
+          session_id: (input && (input.sessionID || (input.tool && input.tool.sessionID))) || null,
+          notification_type: 'permission',
+          message: 'Waiting for permission: ' + (typeof toolName === 'string' && toolName ? toolName : 'tool'),
+        });
         const callId = input && (input.callID || (input.tool && input.tool.callID));
         if (callId && denied.get(callId)) {
           denied.delete(callId);
@@ -189,6 +229,14 @@ export const SecureVectorGuard = async ({ client }) => {
     'tool.execute.after': async (input, output) => {
       try {
         const toolName = (input && input.tool) || '';
+        // Relayed ahead of the unknown-tool early return: a tool with no
+        // policy candidates still advances the task's activity line.
+        relay({
+          hook_event_name: 'PostToolUse',
+          session_id: (input && input.sessionID) || null,
+          tool_name: toolName,
+          tool_input_preview: terminalPreview((input && input.args) || null),
+        });
         const candidates = normalize(toolName);
         if (candidates.length === 0) return; // unknown tool — skip (fail-open)
 
@@ -294,9 +342,18 @@ export const SecureVectorGuard = async ({ client }) => {
      */
     event: async ({ event }) => {
       try {
-        if (!event || event.type !== 'session.created') return;
+        if (!event) return;
         const props = event.properties || {};
         const sessionId = props.info?.id ?? props.sessionID ?? props.id ?? null;
+        // session.idle marks a finished turn. It carries no security value,
+        // so it is relayed to the task only and never written to the audit
+        // log, which records tool calls and session boundaries.
+        if (event.type === 'session.idle') {
+          relay({ hook_event_name: 'Stop', session_id: sessionId });
+          return;
+        }
+        if (event.type !== 'session.created') return;
+        relay({ hook_event_name: 'SessionStart', session_id: sessionId });
         postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, {
           tool_id: '__session_start__',
           function_name: '__session_start__',

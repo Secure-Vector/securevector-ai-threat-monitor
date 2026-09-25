@@ -98,3 +98,24 @@ test('collapsing the group that holds the open trace closes the trace, so the co
   const src = read('js/pages/agent-runs.js');
   assert.match(src, /if \(closing && g\.runs\.some\(r => r\.trace_id === this\.selected\)\) this\._showList\(\);/);
 });
+
+test('an estimated model duration draws its bar ending at called_at', () => {
+  const vm = require('node:vm');
+  const sandbox = { window: {}, document: { getElementById: () => null }, console };
+  vm.runInNewContext(read('js/pages/agent-runs.js'), sandbox);
+  const P = sandbox.window.AgentRunsPage;
+  P._traceWin = 10000;
+  P._maxGap = 0;
+  const bar = (s) => {
+    const m = P._timingHtml(s, 'grey').match(/ar-tl-bar" style="left:([\d.]+)%;width:([\d.]+)%/);
+    assert.ok(m, 'a duration bar is drawn');
+    return { left: Number(m[1]), width: Number(m[2]) };
+  };
+  // Measured: starts at called_at (60%) and runs forward.
+  assert.deepEqual(bar({ _pos: 0.6, _gap: 1, duration_ms: 2000 }), { left: 60, width: 20 });
+  // Estimated: ends at called_at (60%), so it starts 20% earlier.
+  assert.deepEqual(bar({ _pos: 0.6, _gap: 1, duration_ms: 2000, duration_estimated: true }), { left: 40, width: 20 });
+  // Longer than the time before it: clamped at the left edge.
+  assert.deepEqual(bar({ _pos: 0.1, _gap: 1, duration_ms: 5000, duration_estimated: true }), { left: 0, width: 10 });
+  assert.match(P._timingHtml({ _pos: 0.6, _gap: 1, duration_ms: 2000, duration_estimated: true }, 'grey'), /Ended 60% through the trace/);
+});

@@ -10,12 +10,14 @@ Provides REST API endpoints for:
 - Static web UI files
 """
 
+import asyncio
+import contextlib
 import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +27,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from securevector.app import __version__
 
 logger = logging.getLogger(__name__)
+
+_CURRENT_APP: Optional[FastAPI] = None
+
+
+def get_current_app() -> Optional[FastAPI]:
+    """The most recently created app instance (one per process in practice)."""
+    return _CURRENT_APP
+
 
 # Path to web assets
 WEB_ASSETS_PATH = Path(__file__).parent.parent / "assets" / "web"
@@ -103,6 +113,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not start external_forwarder: {_e}")
 
+    # Agent Task lifecycle events -> fleet destination. Installed before the
+    # task board restores so startup "interrupted" transitions are queued
+    # too. Metadata only, and a no-op on a device that is not enrolled.
+    try:
+        from securevector.app.services import fleet_task_events
+        fleet_task_events.install()
+    except Exception as _e:
+        logger.warning(f"Could not install the fleet task-event sink: {_e}")
+
     # Register the pre-uninstall backstop (#112). Idempotent. Emits
     # device.lifecycle.uninstalling to enrollment-sourced destinations on a
     # hard process exit that bypasses the graceful lifespan shutdown below.
@@ -121,8 +140,73 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not start cloud_sync: {_e}")
 
+    # Agent Terminals: per-install UI token, PTY host and board restore.
+    # Failure here must not take the app down; the routes answer 503.
+    try:
+        from securevector.app.server.routes import hooks_claude_code as _hooks, hooks_codex as _codex_hooks
+        from securevector.app.server.routes import hooks_copilot_cli as _copilot_hooks
+        from securevector.app.server.routes import hooks_opencode as _opencode_hooks
+        from securevector.app.terminals.auth import TerminalAuth, load_or_create_token
+        from securevector.app.terminals.manager import ManagerSettings, TerminalManager
+        from securevector.app.terminals.pty_host import create_pty_host
+        from securevector.app.terminals.store import TerminalStore
+        from securevector.app.utils.platform import get_app_data_dir
+
+        _data_dir = get_app_data_dir()
+        _port = int(getattr(app.state, "port", 8741))
+        _auth = TerminalAuth(token=load_or_create_token(_data_dir), port=_port)
+        _manager = TerminalManager(
+            create_pty_host(),
+            TerminalStore(db),
+            ManagerSettings(
+                data_dir=_data_dir,
+                port=_port,
+                plugin_dir=_hooks._claude_install_path,
+                plugin_enabled=_hooks._is_enabled_in_claude_settings,
+                codex_plugin_enabled=_codex_hooks.terminal_guard_enabled,
+                copilot_cli_plugin_enabled=_copilot_hooks.terminal_guard_enabled,
+                opencode_plugin_enabled=_opencode_hooks.terminal_guard_enabled,
+            ),
+        )
+        await _manager.start(asyncio.get_running_loop())
+        app.state.terminal_auth = _auth
+        app.state.terminal_manager = _manager
+        # Codex's built-in web tool fires no hook, so its destinations are read
+        # back from the local transcript and recorded as observed. Gated on the
+        # transcript-reading consent inside the observer itself.
+        from securevector.app.database.repositories.egress import EgressRepository
+        from securevector.app.services import codex_web_observer
+        app.state.codex_web_observer = asyncio.create_task(
+            codex_web_observer.run_observer(_manager, EgressRepository(db))
+        )
+    except Exception as _e:
+        logger.warning(f"Could not initialise Agent Terminals: {_e}")
+        app.state.terminal_auth = None
+        app.state.terminal_manager = None
+        app.state.codex_web_observer = None
+
+    # Run health warm-up: full findings for recently active runs every 60 s,
+    # off the event loop, so badges show without anyone opening the run.
+    try:
+        from securevector.app.server.routes import traces as _traces_routes
+        app.state.run_health_warmer = asyncio.create_task(_traces_routes.run_health_warmer())
+    except Exception as _e:  # noqa: BLE001
+        logger.warning(f"Could not start the run health warm-up: {_e}")
+        app.state.run_health_warmer = None
+
     yield
     logger.info("API server shutting down...")
+
+    _warmer = getattr(app.state, "run_health_warmer", None)
+    if _warmer is not None:
+        _warmer.cancel()
+        # Let a pass in flight unwind before the database closes below.
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await _warmer
+
+    _observer = getattr(app.state, "codex_web_observer", None)
+    if _observer is not None:
+        _observer.cancel()
 
     # Pre-teardown lifecycle hook (#112): emit a device.lifecycle.uninstalling
     # OCSF event to any enrollment-sourced destinations BEFORE we stop the
@@ -142,6 +226,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not emit device.lifecycle.uninstalling cleanly: {_e}")
 
+    # Agent Terminals: stop every running task so `--web` mode and Ctrl+C
+    # also stop children, not just the desktop window's closing handler.
+    _terminal_manager = getattr(app.state, "terminal_manager", None)
+    if _terminal_manager is not None:
+        try:
+            await _terminal_manager.stop_heartbeat()
+        except Exception:
+            logger.debug("Stopping the task heartbeat failed", exc_info=True)
+        try:
+            await _terminal_manager.stop_all(origin="shutdown")
+        except Exception:
+            logger.debug("Stopping terminal tasks on shutdown failed", exc_info=True)
+
     try:
         from securevector.app.services.cloud_sync import stop_cloud_sync
         await stop_cloud_sync()
@@ -153,6 +250,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await stop_external_forwarder()
     except Exception as _e:
         logger.warning(f"Could not stop external_forwarder cleanly: {_e}")
+
+    try:
+        from securevector.app.services import fleet_task_events
+        from securevector.app.terminals import live_runs as _live_runs
+
+        # Let the stop and exit events scheduled above reach the outbox.
+        await _live_runs.drain_pending(timeout=2.0)
+        fleet_task_events.uninstall()
+    except Exception:
+        logger.debug("Removing the fleet task-event sink failed", exc_info=True)
 
 
 def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
@@ -177,6 +284,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
+    app.state.port = port
 
     # Build allowed origins based on configured host/port
     # Restrict to localhost only for security (prevents malicious websites from accessing API)
@@ -337,6 +445,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         hooks_copilot_cli,
         hooks_opencode,
         hooks_cursor,
+        hooks_antigravity,
         hooks_hermes,
         skill_scans,
         skill_permissions,
@@ -357,6 +466,11 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
     app.include_router(jit_access.router, prefix="/api", tags=["JIT Access"])
+
+    # Agent Terminals: launch and attach to governed harness tasks.
+    from securevector.app.terminals import routes as terminals_routes
+
+    app.include_router(terminals_routes.router, prefix="/api")
     app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
@@ -365,6 +479,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(hooks_copilot_cli.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_opencode.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_cursor.router, prefix="/api", tags=["Hooks"])
+    app.include_router(hooks_antigravity.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_hermes.router, prefix="/api", tags=["Hooks"])
     app.include_router(skill_scans.router, prefix="/api", tags=["Skill Scanner"])
     app.include_router(skill_permissions.router, prefix="/api", tags=["Skill Permissions"])
@@ -392,6 +507,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # conversion-ux — Instant Agent Audit (opt-in retroactive transcript scan).
     from securevector.app.server.routes import instant_audit
     app.include_router(instant_audit.router, prefix="/api", tags=["Instant Audit"])
+
+    from securevector.app.server.routes import governance
+    app.include_router(governance.router, prefix="/api", tags=["Governance"])
     # v5.2.0 #202 — Cost / Token Optimizer (opt-in transcript waste analysis).
     from securevector.app.server.routes import cost_optimizer
     app.include_router(cost_optimizer.router, prefix="/api", tags=["Cost Optimizer"])
@@ -455,4 +573,6 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         logger.info(f"Web UI mounted from {WEB_ASSETS_PATH}")
 
     logger.info("FastAPI application created")
+    global _CURRENT_APP
+    _CURRENT_APP = app
     return app

@@ -28,10 +28,9 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
-const { postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
 const { SECRET_PATTERNS, redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'codex';
 
@@ -442,7 +441,7 @@ async function main() {
     // on stdout; the audit POST simply doesn't happen.
     return;
   }
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   try {
     await audit(event, baseUrl);
   } catch {

@@ -19,7 +19,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from securevector.app.terminals.auth import TerminalAuth
+
 from securevector.app.server.routes import hooks_copilot_cli as mod
+
+# The install and uninstall routes now require a loopback Host and a MATCHING
+# Origin. They carried no check at all before 2026-09-21, so a page on any
+# origin could POST them and remove a Guard from under live sessions. These
+# tests therefore have to present what the app's own page presents. Reads
+# (status) are unchanged and still need nothing.
+PAGE_HEADERS = {"host": "127.0.0.1:8741", "origin": "http://127.0.0.1:8741"}
+
 
 
 EXPECTED_FILES = {
@@ -32,6 +42,7 @@ EXPECTED_FILES = {
     "lib/normalize.js",
     "lib/client.js",
     "lib/redact.js",
+    "lib/terminal-relay.js",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
@@ -70,6 +81,7 @@ def copilot_home(tmp_path, monkeypatch):
 def client(copilot_home):
     app = FastAPI()
     app.include_router(mod.router, prefix="/api")
+    app.state.terminal_auth = TerminalAuth(token="t" * 48, port=8741)
     return TestClient(app)
 
 
@@ -84,7 +96,7 @@ def test_status_not_installed_fresh(client):
 
 
 def test_install_auto_installs_and_enables(client, copilot_home):
-    r = client.post("/api/hooks/copilot-cli/install")
+    r = client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
@@ -116,7 +128,7 @@ def test_install_preserves_jsonc_header_and_siblings(client, copilot_home):
         '    {"name": "someone-else", "enabled": true}\n'
         '  ],\n  "firstLaunchAt": "2026-03-11T00:00:00.000Z"\n}\n'
     )
-    client.post("/api/hooks/copilot-cli/install")
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
 
     raw = cfg_path.read_text()
     # Comment header preserved.
@@ -130,25 +142,25 @@ def test_install_preserves_jsonc_header_and_siblings(client, copilot_home):
 def test_install_writes_one_shot_backup(client, copilot_home):
     cfg_path = copilot_home / "config.json"
     cfg_path.write_text('{\n  "installedPlugins": []\n}\n')
-    client.post("/api/hooks/copilot-cli/install")
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
     backup = cfg_path.with_suffix(".json.before-securevector")
     assert backup.exists()
     # One-shot: a reinstall must not clobber the pristine snapshot.
     first = backup.read_text()
-    client.post("/api/hooks/copilot-cli/install")
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
     assert backup.read_text() == first
 
 
 def test_install_is_idempotent_single_entry(client, copilot_home):
-    client.post("/api/hooks/copilot-cli/install")
-    client.post("/api/hooks/copilot-cli/install")
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
     cfg = _read_config(copilot_home / "config.json")
     entries = [p for p in cfg["installedPlugins"] if p["name"] == "securevector-guard"]
     assert len(entries) == 1  # upsert, not append
 
 
 def test_status_reflects_auto_installed_after_install(client):
-    client.post("/api/hooks/copilot-cli/install")
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
     body = client.get("/api/hooks/copilot-cli/status").json()
     assert body["auto_installed"] is True
     assert body["enabled"] is True
@@ -156,8 +168,8 @@ def test_status_reflects_auto_installed_after_install(client):
 
 
 def test_uninstall_deregisters_and_removes_store(client, copilot_home):
-    client.post("/api/hooks/copilot-cli/install")
-    r = client.post("/api/hooks/copilot-cli/uninstall")
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
+    r = client.post("/api/hooks/copilot-cli/uninstall", headers=PAGE_HEADERS)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -173,16 +185,16 @@ def test_uninstall_preserves_other_plugins(client, copilot_home):
         '{\n  "installedPlugins": [\n'
         '    {"name": "someone-else", "enabled": true}\n  ]\n}\n'
     )
-    client.post("/api/hooks/copilot-cli/install")
-    client.post("/api/hooks/copilot-cli/uninstall")
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
+    client.post("/api/hooks/copilot-cli/uninstall", headers=PAGE_HEADERS)
     cfg = _read_config(cfg_path)
     names = {p["name"] for p in cfg["installedPlugins"]}
     assert names == {"someone-else"}  # sibling survives our uninstall
 
 
 def test_uninstall_is_idempotent(client):
-    r1 = client.post("/api/hooks/copilot-cli/uninstall")
-    r2 = client.post("/api/hooks/copilot-cli/uninstall")
+    r1 = client.post("/api/hooks/copilot-cli/uninstall", headers=PAGE_HEADERS)
+    r2 = client.post("/api/hooks/copilot-cli/uninstall", headers=PAGE_HEADERS)
     assert r1.json()["ok"] is True
     assert r2.json()["ok"] is True
 
@@ -196,12 +208,44 @@ def test_install_fallback_when_copilot_absent(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "STAGING_DIR", staging)
     app = FastAPI()
     app.include_router(mod.router, prefix="/api")
+    app.state.terminal_auth = TerminalAuth(token="t" * 48, port=8741)
     c = TestClient(app)
 
-    body = c.post("/api/hooks/copilot-cli/install").json()
+    body = c.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS).json()
     assert body["ok"] is True
     assert body["auto_installed"] is False
     assert body["enabled"] is False
     assert len(body["commands"]) == 1
     assert body["commands"][0].startswith("copilot plugin install ")
     assert not missing_home.exists()  # we never created Copilot's home
+
+
+# --- Agent Terminals governance gate -----------------------------------------
+
+
+def test_terminal_guard_enabled_false_without_the_relay_module(client, copilot_home):
+    """An older installed Guard audits Copilot but cannot correlate a task."""
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
+    assert mod._is_registered_enabled() is True
+    relay = mod.COPILOT_CACHE_DIR / "lib" / "terminal-relay.js"
+    relay.unlink()
+    assert mod.terminal_guard_enabled() is False
+
+
+def test_terminal_guard_enabled_true_when_enabled_and_relay_installed(client, copilot_home):
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
+    assert (mod.COPILOT_CACHE_DIR / "lib" / "terminal-relay.js").is_file()
+    assert mod.terminal_guard_enabled() is True
+
+
+def test_terminal_guard_enabled_false_when_cache_path_points_elsewhere(client, copilot_home):
+    """An entry naming the Guard but pointing Copilot at another directory
+    would load hooks this app has never written, so it is not governed."""
+    client.post("/api/hooks/copilot-cli/install", headers=PAGE_HEADERS)
+    data = _read_config(mod.COPILOT_CONFIG_JSON)
+    for p in data["installedPlugins"]:
+        if p.get("name") == mod.PLUGIN_NAME:
+            p["cache_path"] = str(copilot_home / "somewhere-else")
+    mod.COPILOT_CONFIG_JSON.write_text(json.dumps(data, indent=2))
+    assert mod._is_registered_enabled() is False
+    assert mod.terminal_guard_enabled() is False

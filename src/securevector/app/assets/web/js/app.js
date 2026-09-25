@@ -4,7 +4,7 @@
  */
 
 const App = {
-    currentPage: 'dashboard',
+    currentPage: 'terminals',
 
     pages: {
         guide: GettingStartedPage,
@@ -12,9 +12,12 @@ const App = {
         threats: { render: (c) => { ThreatsPage.activeFacet = 'threats'; return ThreatsPage.render(c); } },
         // conversion-ux — retroactive scan of on-disk agent history (opt-in).
         'instant-audit': InstantAuditPage,
+        terminals: TerminalsPage,
         replay: ReplayPage,
         'agent-map': AgentMapPage,
         'agent-runs': AgentRunsPage,
+        // Observability > Health: run health findings across runs.
+        'run-health': RunHealthPage,
         'agent-timeline': AgentTimelinePage,
         'storylines': StorylinesPage,
         // Kept routable as an alias: opens Threat Monitor on the Blocked facet.
@@ -25,6 +28,7 @@ const App = {
         'proxy-crewai': { render: (c) => IntegrationPage.render(c, 'proxy-crewai') },
         'proxy-hermes': { render: (c) => IntegrationPage.render(c, 'proxy-hermes') },
         'proxy-python': { render: (c) => IntegrationPage.render(c, 'proxy-python') },
+        'proxy-node': { render: (c) => IntegrationPage.render(c, 'proxy-node') },
         'proxy-n8n': { render: (c) => IntegrationPage.render(c, 'proxy-n8n') },
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
@@ -33,6 +37,7 @@ const App = {
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
         'proxy-cursor': { render: (c) => IntegrationPage.render(c, 'proxy-cursor') },
         'proxy-opencode': { render: (c) => IntegrationPage.render(c, 'proxy-opencode') },
+        'proxy-antigravity': { render: (c) => IntegrationPage.render(c, 'proxy-antigravity') },
         // Connect Wizard (v5.0.0) — detect → protect → verify activation flow.
         // Auto-launched once on fresh installs (see maybeAutoLaunchWizard).
         'connect-wizard': { render: (c) => ConnectWizardPage.render(c) },
@@ -42,6 +47,7 @@ const App = {
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
         'guide-cursor': { render: (c) => GuideCursorPage.render(c) },
         'guide-opencode': { render: (c) => GuideOpenCodePage.render(c) },
+        'guide-antigravity': { render: (c) => GuideAntigravityPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         'guide-frameworks': { render: (c) => GuideFrameworksPage.render(c) },
         settings: SettingsPage,
@@ -120,7 +126,7 @@ const App = {
             this.loadPage(page, false);
         });
 
-        // Load initial page from URL or default to dashboard
+        // Load initial page from URL or default to the session-first task board.
         let initialPage = this.getPageFromURL();
         initialPage = await this.maybeAutoLaunchWizard(initialPage);
         await this.loadPage(initialPage);
@@ -133,14 +139,14 @@ const App = {
 
     /**
      * v5.0.0 Connect Wizard auto-launch — once, ever, and only when there is
-     * nothing protected yet. A fresh install landing on an empty dashboard is
+     * nothing protected yet. A fresh install landing on the task board is
      * the funnel's biggest silent drop-off; landing on the wizard instead
      * turns the first session into detect → protect → verify. Existing
      * installs (any connected runtime or audited framework) are never
      * redirected, and any explicit deep link wins.
      */
     async maybeAutoLaunchWizard(initialPage) {
-        if (initialPage !== 'dashboard') return initialPage;
+        if (initialPage !== 'terminals') return initialPage;
         if (localStorage.getItem('sv-wizard-autolaunched')) return initialPage;
         try {
             const ctrl = new AbortController();
@@ -206,7 +212,7 @@ const App = {
      */
     getPageFromURL() {
         const path = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
-        return this.pages[path] ? path : 'dashboard';
+        return this.pages[path] ? path : 'terminals';
     },
 
     /**

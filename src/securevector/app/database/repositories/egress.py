@@ -33,6 +33,16 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS_PER_CALL = 50
 MAX_EVIDENCE_CHARS = 200
 
+# A destination reached without passing the evaluator: a harness-native tool
+# that fires no hook, read back from a local transcript afterwards. It shares
+# the table so one session has one list of destinations, and its own action so
+# it is never counted as a verdict.
+OBSERVED_ACTION = "observed"
+# Searches have no host. They still left the machine, so they are recorded
+# against a fixed pseudo-host. It is not a destination anyone can allowlist,
+# probe or resolve, so every count *of hosts* excludes it.
+OBSERVED_PSEUDO_HOST = "web-search"
+
 
 class EgressRepository:
     """Repository for egress policy, per-destination audit, and proofs."""
@@ -180,6 +190,40 @@ class EgressRepository:
         await conn.commit()
         return written
 
+    async def record(self, *, host: str, port: Optional[int] = None,
+                     scheme: Optional[str] = None, operation: str = "read",
+                     kind: str = "web", action: str = "observed",
+                     rule_id: Optional[str] = None,
+                     severity: Optional[str] = None,
+                     confidence: str = "LOW",
+                     detector: str = "observer",
+                     tool_name: Optional[str] = None,
+                     runtime_kind: Optional[str] = None,
+                     session_id: Optional[str] = None,
+                     request_id: Optional[str] = None,
+                     evidence: Optional[str] = None,
+                     reason: Optional[str] = None) -> None:
+        """Write one row that no policy decided.
+
+        `log_attempts` persists verdicts; this persists a destination that was
+        reached without ever passing the evaluator, which is why it takes an
+        action rather than a verdict. The only such action today is `observed`.
+        """
+        conn = await self.db.connect()
+        await conn.execute(
+            """
+            INSERT INTO egress_audit (
+                host, port, scheme, operation, kind, action, rule_id,
+                severity, confidence, detector, tool_name, runtime_kind,
+                session_id, request_id, evidence, reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (host, port, scheme, operation, kind, action, rule_id, severity,
+             confidence, detector, tool_name, runtime_kind, session_id,
+             request_id, (evidence or "")[:MAX_EVIDENCE_CHARS] or None, reason),
+        )
+        await conn.commit()
+
     async def recent(self, limit: int = 100, action: Optional[str] = None) -> list:
         """Recent egress rows, newest first."""
         conn = await self.db.connect()
@@ -221,6 +265,7 @@ class EgressRepository:
             SELECT host,
                    COUNT(*)                                        AS calls,
                    SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked,
+                   SUM(CASE WHEN action = 'observed' THEN 1 ELSE 0 END) AS observed,
                    SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) AS writes,
                    MAX(CASE WHEN action = 'block'
                              AND rule_id IN ({placeholders})
@@ -229,18 +274,115 @@ class EgressRepository:
                    MAX(timestamp)                                  AS last_seen
             FROM egress_audit
             WHERE host IS NOT NULL
+              AND host != ?
               AND timestamp >= datetime('now', ?)
             GROUP BY host
             ORDER BY calls DESC
             """,
-            (*self.NON_PROMOTABLE_RULES, f"-{max(1, int(days))} days"),
+            (*self.NON_PROMOTABLE_RULES, OBSERVED_PSEUDO_HOST,
+             f"-{max(1, int(days))} days"),
         )
-        cols = ["host", "calls", "blocked", "writes", "hard_blocked",
-                "first_seen", "last_seen"]
+        cols = ["host", "calls", "blocked", "observed", "writes",
+                "hard_blocked", "first_seen", "last_seen"]
         rows = [dict(zip(cols, r)) for r in await cur.fetchall()]
         for row in rows:
             row["promotable"] = not row.pop("hard_blocked")
+            # A host only ever seen in a transcript was reached, but nothing
+            # decided it. The inventory keeps it, flagged, rather than either
+            # hiding real reach or implying a verdict nobody gave.
+            row["observed_only"] = (row["observed"] or 0) >= (row["calls"] or 0)
         return rows
+
+    async def session_destinations(self, session_id: str, limit: int = 50) -> list:
+        """Every external host one session reached, blocked ones first.
+
+        `destination_inventory` answers "where did this machine go"; the
+        attached-terminal panel needs "where did *this* task go", which is the
+        same grouping narrowed to one session so the operator reads the reach
+        of the agent in front of them rather than the machine's whole history.
+        """
+        conn = await self.db.connect()
+        placeholders = ", ".join("?" for _ in self.NON_PROMOTABLE_RULES)
+        cur = await conn.execute(
+            f"""
+            SELECT host,
+                   COUNT(*)                                        AS calls,
+                   SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked,
+                   SUM(CASE WHEN action = 'observed' THEN 1 ELSE 0 END) AS observed,
+                   SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) AS writes,
+                   MAX(CASE WHEN action = 'block'
+                             AND rule_id IN ({placeholders})
+                            THEN 1 ELSE 0 END)                     AS hard_blocked,
+                   MIN(timestamp)                                  AS first_seen,
+                   MAX(timestamp)                                  AS last_seen
+            FROM egress_audit
+            WHERE host IS NOT NULL
+              AND session_id = ?
+            GROUP BY host
+            ORDER BY blocked DESC, calls DESC
+            LIMIT ?
+            """,
+            (*self.NON_PROMOTABLE_RULES, session_id,
+             max(1, min(int(limit), 500))),
+        )
+        cols = ["host", "calls", "blocked", "observed", "writes",
+                "hard_blocked", "first_seen", "last_seen"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
+    # One refused call: rows written for the same evaluation share a
+    # request_id (one row per host); without one, the second and the tool.
+    _CALL_KEY_SQL = "COALESCE(request_id, timestamp || '|' || COALESCE(tool_name, ''))"
+
+    async def blocked_calls(self, session_ids, limit: int = 5000) -> list:
+        """Refused egress calls for these sessions, one row per call (deduped
+        and grouped in SQL), newest first so the row cap drops the oldest.
+        Each row: session_id, runtime_kind, called_at (the call's first
+        stamp), tool_name, hosts and rule_ids (comma lists), call_key."""
+        ids = [s for s in dict.fromkeys(session_ids or []) if s][:500]
+        if not ids:
+            return []
+        conn = await self.db.connect()
+        marks = ", ".join("?" for _ in ids)
+        cur = await conn.execute(
+            f"""
+            SELECT session_id,
+                   MAX(runtime_kind)          AS runtime_kind,
+                   MIN(timestamp)             AS called_at,
+                   MAX(tool_name)             AS tool_name,
+                   GROUP_CONCAT(DISTINCT host)    AS hosts,
+                   GROUP_CONCAT(DISTINCT rule_id) AS rule_ids,
+                   {self._CALL_KEY_SQL}       AS call_key
+            FROM egress_audit
+            WHERE session_id IN ({marks}) AND action = 'block' AND host IS NOT NULL
+            GROUP BY session_id, call_key
+            ORDER BY called_at DESC
+            LIMIT ?
+            """,
+            (*ids, max(1, min(int(limit), 50000))),
+        )
+        cols = ["session_id", "runtime_kind", "called_at", "tool_name", "hosts", "rule_ids", "call_key"]
+        out = []
+        for r in await cur.fetchall():
+            row = dict(zip(cols, r))
+            row["hosts"] = sorted(h for h in (row["hosts"] or "").split(",") if h)
+            row["rule_ids"] = sorted(x for x in (row["rule_ids"] or "").split(",") if x)
+            out.append(row)
+        return out
+
+    async def session_blocked_call_count(self, session_id: str) -> int:
+        """How many calls in one session egress refused (one per call, not
+        per host), keyed the same way as `blocked_calls`."""
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            f"""
+            SELECT COUNT(DISTINCT {self._CALL_KEY_SQL})
+            FROM egress_audit
+            WHERE session_id = ? AND action = 'block' AND host IS NOT NULL
+            """,
+            (session_id,),
+        )
+        row = await cur.fetchone()
+        return int(row[0] or 0) if row else 0
 
     async def session_scope(self, days: int = 7, limit: int = 50) -> list:
         """Per-session egress shape: how wide, how novel, how fast.
@@ -259,7 +401,9 @@ class EgressRepository:
                 -- second would each claim to have discovered the same host.
                 -- The id is monotonic and settles it.
                 SELECT host, MIN(id) AS first_id
-                FROM egress_audit WHERE host IS NOT NULL GROUP BY host
+                FROM egress_audit
+                WHERE host IS NOT NULL AND action != ?
+                GROUP BY host
             )
             SELECT a.session_id,
                    COUNT(DISTINCT a.host)                                   AS distinct_hosts,
@@ -274,12 +418,14 @@ class EgressRepository:
             JOIN firsts f ON f.host = a.host
             WHERE a.session_id IS NOT NULL
               AND a.host IS NOT NULL
+              AND a.action != ?
               AND a.timestamp >= datetime('now', ?)
             GROUP BY a.session_id
             ORDER BY novel_hosts DESC, distinct_hosts DESC
             LIMIT ?
             """,
-            (f"-{max(1, int(days))} days", max(1, min(int(limit), 500))),
+            (OBSERVED_ACTION, OBSERVED_ACTION,
+             f"-{max(1, int(days))} days", max(1, min(int(limit), 500))),
         )
         cols = ["session_id", "distinct_hosts", "novel_hosts", "calls",
                 "started_at", "ended_at", "span_minutes"]
@@ -291,6 +437,10 @@ class EgressRepository:
         `evidence` is not selected. Replay decides on destination facts alone,
         and pulling a display string it cannot use would move redacted command
         fragments through a code path that has no reason to see them.
+
+        `observed` rows are excluded. They were never evaluated by any policy,
+        so counting them would let replay report that a candidate preset
+        "would have blocked" a call no preset can reach.
         """
         conn = await self.db.connect()
         cur = await conn.execute(
@@ -299,6 +449,7 @@ class EgressRepository:
                    confidence, detector
             FROM egress_audit
             WHERE timestamp >= datetime('now', ?)
+              AND action != 'observed'
             ORDER BY timestamp DESC
             LIMIT ?
             """,
@@ -330,9 +481,10 @@ class EgressRepository:
               SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END)               AS blocked,
               COUNT(DISTINCT CASE WHEN kind = 'mcp' THEN host END)            AS mcp_hosts
             FROM egress_audit
-            WHERE host IS NOT NULL AND timestamp >= datetime('now', ?)
+            WHERE host IS NOT NULL AND host != ?
+              AND timestamp >= datetime('now', ?)
             """,
-            (f"-{max(1, int(days))} days",),
+            (OBSERVED_PSEUDO_HOST, f"-{max(1, int(days))} days"),
         )
         row = await cur.fetchone() or (0, 0, 0, 0, 0)
 
@@ -343,12 +495,12 @@ class EgressRepository:
             """
             SELECT COUNT(*) FROM (
                 SELECT host FROM egress_audit
-                WHERE host IS NOT NULL
+                WHERE host IS NOT NULL AND host != ?
                 GROUP BY host
                 HAVING MIN(timestamp) >= datetime('now', ?)
             )
             """,
-            (f"-{max(1, int(new_within_days))} days",),
+            (OBSERVED_PSEUDO_HOST, f"-{max(1, int(new_within_days))} days"),
         )
         new_row = await cur.fetchone()
 
@@ -373,7 +525,13 @@ class EgressRepository:
         """Every host seen before. Feeds hardened-preset first-seen detection."""
         conn = await self.db.connect()
         cur = await conn.execute(
-            "SELECT DISTINCT host FROM egress_audit WHERE host IS NOT NULL"
+            # Observed rows are excluded. First-seen detection asks "has the
+            # policy seen this host before"; a host that only ever appeared in
+            # a transcript has never been through the evaluator at all, and
+            # counting it would silently retire the first-seen check for it.
+            "SELECT DISTINCT host FROM egress_audit "
+            "WHERE host IS NOT NULL AND action != ?",
+            (OBSERVED_ACTION,),
         )
         return frozenset(r[0].lower() for r in await cur.fetchall() if r[0])
 
