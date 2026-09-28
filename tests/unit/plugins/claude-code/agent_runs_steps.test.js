@@ -104,17 +104,21 @@ test('full timeline: collapsed by default, remembered in sv-ar-timeline, storage
 test('toggle: aria-expanded, label, hidden, and the choice is saved', () => {
   const { P, els, toggle, storage } = loadPage();
   els['ar-timeline'] = { hidden: true };
-  P._trace = { trace_id: 'tr-1' };
+  els['ar-steps'] = makeBox();
+  P._trace = sampleTrace();
   P._setTimeline(true, { persist: true });
   assert.strictEqual(els['ar-timeline'].hidden, false);
   assert.strictEqual(toggle.attrs['aria-expanded'], 'true');
   assert.strictEqual(toggle.textContent, 'Hide full timeline ▴');
   assert.strictEqual(storage['sv-ar-timeline'], 'open');
+  P._stepsFocus = { traceId: 'tr-1', step: 2 };
   P._setTimeline(false, { persist: true });
   assert.strictEqual(els['ar-timeline'].hidden, true);
   assert.strictEqual(toggle.attrs['aria-expanded'], 'false');
   assert.strictEqual(toggle.textContent, 'Show full timeline ▾');
   assert.strictEqual(storage['sv-ar-timeline'], 'closed');
+  assert.strictEqual(P._stepsFocus, null, 'collapsing returns the list to its compact preview state');
+  assert.doesNotMatch(els['ar-steps'].innerHTML, /trace-steps-row-focus/);
 });
 
 test('a deep link opens the full timeline for that trace without changing the saved choice', () => {

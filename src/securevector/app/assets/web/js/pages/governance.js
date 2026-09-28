@@ -153,7 +153,7 @@ const GovernancePage = {
             '@keyframes sv-gov-flash{0%,100%{box-shadow:0 0 0 0 rgba(94,173,184,0);}50%{box-shadow:0 0 0 3px rgba(94,173,184,0.30);}}',
             '.sv-gov-flash{animation:sv-gov-flash 0.6s ease-in-out 3;}',
             '@keyframes gov-in{from{opacity:0;transform:translateY(7px);}to{opacity:1;transform:none;}}',
-            '.gov-wrap{max-width:920px;}',
+            '.gov-wrap{width:100%;max-width:1180px;margin-inline:auto;box-sizing:border-box;}',
             '.gov-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--elevate-1);}',
             // v5 posture hero — the signature card gets the deeper elevation
             // and a hairline accent so the score reads as the page centerpiece.
@@ -519,7 +519,7 @@ const GovernancePage = {
         const checklist = document.createElement('details');
         checklist.className = 'gov-checklist';
         const clSummary = document.createElement('summary');
-        clSummary.textContent = 'Setup checklist ' + (counts.on + counts.native) + '/' + rows.length;
+        clSummary.textContent = 'Initial setup checklist ' + (counts.on + counts.native) + '/' + rows.length;
         checklist.appendChild(clSummary);
         const clBody = document.createElement('div'); clBody.className = 'gov-checklist-body';
         checklist.appendChild(clBody);

@@ -646,8 +646,17 @@
                 return `<div class="${P}-summary">${esc(summary)}</div><span class="${P === 'terminals-steps' ? 'terminals-empty' : `${P}-empty`}">No steps recorded.</span>
               <div class="${P}-foot">${fullBtn}</div>`;
             }
-            const focusStep = Number(opts.focusStep) > 0 ? Number(opts.focusStep) : null;
-            const shown = steps.slice(0, Math.max(stepsMax, focusStep && focusStep <= steps.length ? focusStep : 0));
+            const requestedFocus = Number(opts.focusStep);
+            const focusStep = Number.isInteger(requestedFocus) && requestedFocus > 0 && requestedFocus <= steps.length
+                ? requestedFocus : null;
+            // A deep health finding must not grow the preview to every row
+            // before it. Keep a small window around the requested step while
+            // retaining each row's original index for keys, markers and labels.
+            const shownCount = Math.min(stepsMax, steps.length);
+            const shownStart = focusStep && focusStep > stepsMax
+                ? Math.min(Math.max(0, focusStep - 1 - Math.floor(stepsMax / 2)), steps.length - shownCount)
+                : 0;
+            const shown = steps.slice(shownStart, shownStart + shownCount);
             const maxTotal = this.maxTotal(steps);
             const marks = opts.health ? this.stepMarks(steps, d.spans, this.stripFindings(opts.health)) : new Map();
             const strip = opts.health ? this.findingsHtml(traceId, opts.health, steps, d.spans, { prefix: P, findingsOpen: opts.findingsOpen }) : '';
@@ -656,15 +665,16 @@
             let key = opts.detailKey;
             if (key === undefined) {
                 key = '';
-                shown.some((s, si) => s.tools.some((t, ti) => {
-                    if (this.chipState(t) === 'blocked') { key = keys[si][ti]; return true; }
+                shown.some((s, shownIndex) => s.tools.some((t, ti) => {
+                    if (this.chipState(t) === 'blocked') { key = keys[shownStart + shownIndex][ti]; return true; }
                     return false;
                 }));
             }
             const used = { model: false, tool: false, step: false };
             steps.forEach(st => { const w = this.barWidths(st, maxTotal); for (const k of Object.keys(used)) if (w[k]) used[k] = true; });
             const icon = { blocked: '✕', flagged: '!', failed: '✗', allowed: '✓' };
-            const rows = shown.map((step, si) => {
+            const rows = shown.map((step, shownIndex) => {
+                const si = shownStart + shownIndex;
                 const bw = this.barWidths(step, maxTotal);
                 const bar = `<span class="${P}-bar" aria-hidden="true">${bw.model ? `<span class="${P}-seg ${P}-seg-model" style="width:${bw.model}px"></span>` : ''}${bw.tool ? `<span class="${P}-seg ${P}-seg-tool" style="width:${bw.tool}px"></span>` : ''}${bw.step ? `<span class="${P}-seg ${P}-seg-step" style="width:${bw.step}px"></span>` : ''}</span>`;
                 const dur = this.durText(step);
@@ -730,8 +740,13 @@
                 </div>${openDetail}
               </li>`;
             }).join('');
-            const more = steps.length - shown.length;
-            const foot = `${more > 0 ? `<span>+ ${more} more step${more === 1 ? '' : 's'}${fullBtn ? ' · ' : ''}</span>` : ''}${fullBtn}`;
+            const earlier = shownStart;
+            const later = steps.length - shownStart - shown.length;
+            const omitted = [
+                earlier > 0 ? `+ ${earlier} earlier step${earlier === 1 ? '' : 's'}` : '',
+                later > 0 ? `+ ${later} more step${later === 1 ? '' : 's'}` : '',
+            ].filter(Boolean);
+            const foot = `${omitted.length ? `<span>${omitted.join(' · ')}${fullBtn ? ' · ' : ''}</span>` : ''}${fullBtn}`;
             return `<div class="${P}-summary">${esc(summary)}</div>${strip}
               ${anyBar ? `<div class="${P}-legend">${[
                   used.model ? `<span class="${P}-key ${P}-key-model" aria-hidden="true">■</span> ${esc(modelLabel)}` : '',

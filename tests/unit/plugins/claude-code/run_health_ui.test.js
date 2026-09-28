@@ -96,13 +96,18 @@ test('markers: the steps a finding names get the loop or failing SVG icon, other
   assert.ok(!/[⟳]/.test(html), 'no text glyph that renders as a dot');
 });
 
-test('focusStep shows a step past stepsMax and marks it', () => {
+test('focusStep shows a bounded window around a deep step with accurate omissions', () => {
   const TS = loadTS();
-  const d = traceWithSteps(10);
-  const plain = TS.html('t', d, { stepsMax: 3 });
-  assert.ok(!plain.includes('data-step="8"'));
-  const focused = TS.html('t', d, { stepsMax: 3, focusStep: 8 });
-  assert.match(focused, /class="terminals-steps-row terminals-steps-row-focus" data-step="8"/);
+  const d = traceWithSteps(1152);
+  const plain = TS.html('t', d, { stepsMax: 8 });
+  assert.ok(!plain.includes('data-step="1085"'));
+  assert.match(plain, /\+ 1144 more steps/);
+  const focused = TS.html('t', d, { stepsMax: 8, focusStep: 1085 });
+  assert.match(focused, /class="terminals-steps-row terminals-steps-row-focus" data-step="1085"/);
+  assert.ok(!focused.includes('data-step="1"'), 'a deep jump does not render preceding rows');
+  assert.strictEqual((focused.match(/class="terminals-steps-row/g) || []).length, 8);
+  assert.match(focused, /data-step-key="s:b1084"/, 'chip keys retain the original step identity');
+  assert.match(focused, /\+ 1080 earlier steps · \+ 64 more steps/);
 });
 
 test('escaping: server strings in text and attributes', () => {
@@ -355,7 +360,8 @@ test('Health view: empty state says what it watches for; Open run sets the deep 
   const html = H.html({ findings: [], partial_runs: 3 });
   assert.match(html, /No health findings in this window\./);
   assert.match(html, /same call repeated/);
-  assert.match(html, /3 runs were checked from tool calls only/);
+  assert.match(html, /3 runs have partial checks based on tool-call data\. This view includes those checks; open a run to add transcript-level checks for failures and waste\./);
+  assert.match(H.html({ findings: [], partial_runs: 1 }), /1 run has partial checks based on tool-call data\./);
   window.AgentRunsPage = {};
   let went = null;
   window.Sidebar = { navigate: (p) => { went = p; } };

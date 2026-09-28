@@ -1953,6 +1953,10 @@ const AgentRunsPage = {
             this._timelineForce = traceId || null;
         }
         this._timelineSync(open);
+        if (!open && this._stepsFocus && this._stepsFocus.traceId === traceId) {
+            this._stepsFocus = null;
+            if (this._trace) this._renderSteps(this._trace);
+        }
         // Replay drives rows the user can no longer see: stop it.
         if (!open && this._replay && this._replay.on && this._trace) this._replayExit();
     },

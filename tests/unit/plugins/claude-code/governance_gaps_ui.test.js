@@ -129,11 +129,11 @@ test('server strings are escaped', () => {
   assert.doesNotMatch(c, /<img/);
 });
 
-test('setup checklist: the 7 controls sit in a collapsed <details> with the score', () => {
+test('initial setup checklist: the 7 controls sit in a collapsed <details> with the score', () => {
   const src = read('js/pages/governance.js');
   const r = src.slice(src.indexOf('async render(container) {'));
   assert.match(r, /document\.createElement\('details'\)/);
-  assert.match(r, /clSummary\.textContent = 'Setup checklist ' \+ \(counts\.on \+ counts\.native\) \+ '\/' \+ rows\.length/);
+  assert.match(r, /clSummary\.textContent = 'Initial setup checklist ' \+ \(counts\.on \+ counts\.native\) \+ '\/' \+ rows\.length/);
   assert.doesNotMatch(r, /checklist\.open\s*=\s*true|setAttribute\('open'/);
   // coverage and gaps lead as skeletons before anything is awaited, the
   // checklist follows, the framework footer stays
@@ -151,6 +151,11 @@ test('setup checklist: the 7 controls sit in a collapsed <details> with the scor
   assert.match(r, /clBody\.appendChild\(list\)/);
   assert.match(r, /this\.FRAMEWORKS/);
   assert.match(read('index.html'), /governance\.js\?v=26/);
+});
+
+test('governance uses the available desktop width and remains bounded', () => {
+  const src = read('js/pages/governance.js');
+  assert.match(src, /\.gov-wrap\{width:100%;max-width:1180px;margin-inline:auto;box-sizing:border-box;\}/);
 });
 
 test('no em dashes in the governance UI copy', () => {

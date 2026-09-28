@@ -51,7 +51,7 @@ const RunHealthPage = {
         const top = `<div class="sv-health-counts">${this.GROUPS.map(g =>
             `<span class="sv-health-badge sv-health-badge-${g.key}">${icon[g.key]} ${this.esc(g.label)} ${counts[g.key]}</span>`).join('')}</div>`;
         const partial = Number(data.partial_runs) > 0
-            ? `<p class="sv-health-row-sub">${Number(data.partial_runs)} run${Number(data.partial_runs) === 1 ? ' was' : 's were'} checked from tool calls only. Open a run for the full check, including failures and waste.</p>`
+            ? `<p class="sv-health-row-sub">${Number(data.partial_runs)} run${Number(data.partial_runs) === 1 ? '' : 's'} ${Number(data.partial_runs) === 1 ? 'has' : 'have'} partial checks based on tool-call data. This view includes those checks; open a run to add transcript-level checks for failures and waste.</p>`
             : '';
         if (!all.length) {
             return `${top}<div class="ar-empty"><div style="font-size:15px;margin-bottom:6px;">No health findings in this window.</div>
