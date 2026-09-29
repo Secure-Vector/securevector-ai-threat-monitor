@@ -20,6 +20,7 @@ import threading
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
+from pathlib import PurePath
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -36,6 +37,7 @@ from securevector.app.server.routes.transcript_generations import (
     build_generations_codex,
 )
 from securevector.app.services import run_health
+from securevector.app.terminals.store import RUNTIME_TO_EXECUTOR
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -115,9 +117,54 @@ async def list_traces(
     limit), and ``health=0`` skips health for callers that do not show it.
     """
     if health == "0":
-        return {"window_days": window_days, "runs": await _collect_runs(window_days, limit)}
+        runs = await _collect_runs(window_days, limit)
+        await _add_terminal_tasks(get_database(), runs)
+        return {"window_days": window_days, "runs": runs}
     runs, _ = await _runs_with_health(window_days, limit, health)
+    await _add_terminal_tasks(get_database(), runs)
     return {"window_days": window_days, "runs": runs}
+
+
+async def _add_terminal_tasks(db, runs: list[dict]) -> None:
+    """Decorate listed sessions with an exact, compatible, non-archived board task.
+
+    A session id alone is not sufficient: unrelated harnesses can reuse one.
+    Read the final page in one query, and leave trace delivery intact when the
+    optional Terminal table is absent or temporarily unavailable.
+    """
+    sessions = list(dict.fromkeys(
+        r.get("session_id") for r in runs
+        if r.get("session_id") and r.get("runtime_kind") in RUNTIME_TO_EXECUTOR
+    ))
+    if not sessions:
+        return
+    try:
+        marks = ",".join("?" for _ in sessions)
+        rows = await db.fetch_all(
+            "SELECT id, title, workspace, origin, executor_id, session_id "
+            "FROM terminal_tasks WHERE archived_at IS NULL "
+            f"AND session_id IN ({marks}) "
+            "ORDER BY created_at DESC, rowid DESC",
+            tuple(sessions),
+        )
+    except Exception:  # noqa: BLE001 - optional board data cannot hide traces
+        logger.debug("Terminal task lookup unavailable for trace list", exc_info=True)
+        return
+    matched = {}
+    for raw in rows:
+        task = dict(raw)
+        matched.setdefault((task["session_id"], task["executor_id"]), task)
+    for run in runs:
+        task = matched.get((run.get("session_id"), RUNTIME_TO_EXECUTOR.get(run.get("runtime_kind"))))
+        if task:
+            ws = task.get("workspace")
+            run["terminal_task"] = {
+                "id": task.get("id"),
+                "title": task.get("title"),
+                # Folder name only — the full path never leaves this process.
+                "workspace_name": PurePath(ws).name if ws else None,
+                "origin": task.get("origin"),
+            }
 
 
 async def _collect_runs(window_days: int, limit: int) -> list:

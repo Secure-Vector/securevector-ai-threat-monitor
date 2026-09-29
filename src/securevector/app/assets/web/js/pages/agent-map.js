@@ -669,12 +669,12 @@ const AgentMapPage = {
             else if (this.topo === 'mesh') this._layoutMesh(model);
             else this._layoutRadial(model);
 
-            // Any layout can land two agents close enough that their external
-            // "agent #N" labels collide (tree row with many sessions, mesh
+            // Any layout can land two sessions close enough that their labels
+            // collide (tree row with many sessions, mesh
             // ring, adjacent radial wedges). Suppress the label on crowded
             // nodes — the in-node number and hover card still identify them.
             const sess = this._lnodes.filter(n => n.kind === 'session');
-            const MIN_LABEL_GAP = 54; // px — "agent #NN" at label size ≈ 48px wide
+            const MIN_LABEL_GAP = 70; // px for a shortened session label
             for (let i = 0; i < sess.length; i++) {
                 for (let j = i + 1; j < sess.length; j++) {
                     const ddx = sess[i].x - sess[j].x, ddy = sess[i].y - sess[j].y;
@@ -782,8 +782,8 @@ const AgentMapPage = {
             const lr = (h.gray ? 13 : 16) + 13;
             h._lbl = { dx: Math.cos(c) * lr, dy: Math.sin(c) * lr + 3, anchor: 'middle', reasonDy: 12 };
             const ss = sessionsOf(h), m = ss.length;
-            // In a dense wedge the external "agent #N" labels collide — the
-            // in-node number already identifies each agent, so suppress the
+            // In a dense wedge external labels collide. The stable short ID
+            // inside each node still identifies its session, so suppress the
             // redundant outer label past a density threshold (click still works).
             const denseLabel = m > 6;
             // Inset each wedge by an angular GAP so the boundary sessions of
@@ -1028,11 +1028,11 @@ const AgentMapPage = {
             if (n.detection_source && !n.gray) {
                 appendVirusMarker(g, 'translate(-13,-13) scale(0.62)');
             }
-            const num = document.createElementNS(SVG_NS, 'text');
-            num.setAttribute('text-anchor', 'middle'); num.setAttribute('y', 3);
-            num.setAttribute('font-size', 8); num.setAttribute('font-weight', 700);
-            num.setAttribute('fill', n.gray ? 'var(--text-muted,#7d8590)' : '#fff');
-            num.textContent = n.num != null ? n.num : ''; g.appendChild(num);
+            const shortId = document.createElementNS(SVG_NS, 'text');
+            shortId.setAttribute('text-anchor', 'middle'); shortId.setAttribute('y', 3);
+            shortId.setAttribute('font-size', 7); shortId.setAttribute('font-weight', 700);
+            shortId.setAttribute('fill', n.gray ? 'var(--text-muted,#7d8590)' : '#fff');
+            shortId.textContent = String(n.session_id || n.trace_id || '').slice(0, 4); g.appendChild(shortId);
             if (!n._denseLabel) {
                 const al = document.createElementNS(SVG_NS, 'text');
                 al.setAttribute('class', 'sv-node-label sv-agent-label'); al.setAttribute('text-anchor', 'middle'); al.setAttribute('y', 21);
@@ -1103,11 +1103,12 @@ const AgentMapPage = {
         return s.length > 22 ? s.slice(0, 21) + '…' : s;
     },
 
-    /** Display name for an agent/session: a user-given name (keyed by trace_id)
-     *  wins, else the backend label, else "agent #N". Single source of truth so
-     *  renames reflect in the node label, tooltip, card title, and exports. */
+    /** Stable session name shared by graph labels, cards, and exports. */
     _sessionLabel(n) {
-        return (n.trace_id && ObsTabs.agentName(n.trace_id)) || n.label || ('agent #' + (n.num != null ? n.num : '?'));
+        const custom = n.trace_id && ObsTabs.agentName(n.trace_id);
+        if (custom) return custom;
+        return n.session_id ? `Session ${String(n.session_id).slice(0, 8)}`
+            : `Trace ${String(n.trace_id || '?').slice(0, 8)}`;
     },
     /** Same, truncated for the small in-graph node label. */
     _sessionNodeLabel(n) {
@@ -1160,7 +1161,7 @@ const AgentMapPage = {
         const top = 46, bot = H - 40, availH = bot - top, barW = 13;
         const colX = { harness: 122, session: Math.round(W * 0.46), tool: W - 152 };
         const hIndex = {}; harnesses.forEach((h, i) => { hIndex[h.id] = i; });
-        sessions.sort((a, b) => (hIndex[a.harness_id] - hIndex[b.harness_id]) || ((a.num || 0) - (b.num || 0)));
+        sessions.sort((a, b) => (hIndex[a.harness_id] - hIndex[b.harness_id]) || (String(b.last_used || '').localeCompare(String(a.last_used || ''))));
         // order tools by mean Y of the sessions using them (barycenter → fewer crossings)
         // Reserve a MIN height per node so a low-volume harness/agent (one chatty
         // session can dwarf the rest) stays visible and its label doesn't collide;
@@ -1288,7 +1289,7 @@ const AgentMapPage = {
         if (n.kind === 'session') return `<b>${e(this._sessionLabel(n))} · ${e(n.harness)}</b><span>${n.active ? 'running' : (n.idle_days || 0) + 'd inactive'} · ${n.calls || 0} calls${blk(n.blocked)}</span>`;
         // tool — full (untruncated) name + kind + volume, the value hover adds
         // over the rotated/clipped tree labels
-        const owner = n.session_id_node ? (() => { const so = (this.data.nodes || []).find(x => x.id === n.session_id_node); return so ? ` · ${e(so.harness)} #${so.num}` : ''; })() : '';
+        const owner = n.session_id_node ? (() => { const so = (this.data.nodes || []).find(x => x.id === n.session_id_node); return so ? ` · ${e(this._sessionLabel(so))}` : ''; })() : '';
         const full = ObsTabs.isExternalTool(n.tool_id) ? String(n.tool_id).split(':').pop() : (n.label || '');
         return `<b>${e(full)}</b><span>${n.ext ? 'external MCP' : 'built-in'}${n.blocked ? ' · <span class="blk">blocked</span>' : ''} · ${n.calls || 0} calls${owner}</span>`;
     },
@@ -1364,7 +1365,7 @@ const AgentMapPage = {
                 + detRow(n)
                 + (n.secret ? kv('Secret access', '<span style="color:var(--warning,#f59e0b);font-weight:700">detected</span>') : '')
                 + (fullSid ? `<span>Session</span><span class="sv-sid"><code>${this._esc(fullSid)}</code><button class="sv-copy" data-copy="${this._esc(fullSid)}" title="Copy session id">copy</button></span>` : '');
-            openLbl = '▸ Open this agent’s trace'; openFn = () => this._openAgent(n);
+            openLbl = '▸ Open this session trace'; openFn = () => this._openAgent(n);
         } else { // tool
             // Per-node by design: in radial/tree a tool node is ONE agent's use
             // of the tool, so calls/last-call/last-blocked describe THAT node (in
@@ -1380,7 +1381,7 @@ const AgentMapPage = {
             // owning agent (radial/tree per-session nodes) so claude-code's Bash
             // is visibly distinct from codex's Bash
             let owner = '';
-            if (n.session_id_node) { const so = (this.data.nodes || []).find(x => x.id === n.session_id_node); if (so) owner = ` · ${this._esc(so.harness)} agent #${so.num}`; }
+            if (n.session_id_node) { const so = (this.data.nodes || []).find(x => x.id === n.session_id_node); if (so) owner = ` · ${this._esc(this._sessionLabel(so))}`; }
             const perm = n.blocked ? ['block', 'blocked'] : (n.ext ? ['log', 'log_only'] : ['allow', 'allow']);
             const src = n.blocked ? 'synced policy' : (n.ext ? 'essential default' : 'local override');
             title = this._esc(this._toolLabel(n)); typ = (n.ext ? 'External MCP tool' : 'Built-in tool') + (n.gray ? ' · inactive' : '') + owner;
@@ -1429,7 +1430,7 @@ const AgentMapPage = {
         const ch = card.querySelector('.ch');
         if (!ch) return;
         const current = (n.trace_id && ObsTabs.agentName(n.trace_id)) || '';
-        const placeholder = 'agent #' + (n.num != null ? n.num : '?');
+        const placeholder = this._sessionLabel(n);
 
         const row = document.createElement('div');
         row.className = 'sv-rename-row';

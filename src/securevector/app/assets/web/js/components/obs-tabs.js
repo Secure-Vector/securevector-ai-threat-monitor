@@ -15,7 +15,7 @@
  */
 const ObsTabs = {
     // --- shared agent naming (user-given names, keyed by trace_id) ----------
-    // The Map lets a user rename an agent (e.g. "agent #1" → "nightly-deploy").
+    // The Map lets a user rename a session (e.g. "Session a1b2c3d4" → "nightly-deploy").
     // The name is keyed by the run's trace_id and persisted locally so it
     // reflects everywhere the agent appears — Map, Runs, Timeline. Local-only
     // (localStorage); the audit log itself is never rewritten.
@@ -211,18 +211,19 @@ const ObsTabs = {
             .obs-header .filter-group { min-height:40px; justify-content:flex-end; }
             .obs-header .filter-group > .sv-check, .obs-header .filter-group > .ar-kind-checks,
             .obs-header .filter-group > .sv-kind-checks { min-height:34px; align-items:center; }
-            .sv-obs-tabs { display:inline-flex; gap:4px; padding:4px; border-radius:11px;
+            .sv-obs-tabs { display:inline-flex; gap:4px; padding:3px; border-radius:10px;
                 background:var(--bg-tertiary,#21262d); border:1px solid var(--border-default,#30363d);
                 margin-bottom:14px; box-shadow:var(--shadow-sm,0 1px 2px rgba(0,0,0,.2)) inset; }
-            .sv-obs-tab { display:inline-flex; align-items:center; gap:7px; border:1px solid transparent;
-                background:transparent; color:var(--text-secondary,#b1bac4);
+            .sv-obs-tab { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--border-default,#30363d);
+                background:var(--bg-card,#161b22); color:var(--text-secondary,#b1bac4);
                 font:700 13px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.2px;
-                padding:8px 18px; border-radius:8px; cursor:pointer;
+                padding:7px 13px; border-radius:7px; cursor:pointer;
                 transition:color .12s,background .12s,border-color .12s,box-shadow .12s; }
             .sv-obs-tab svg { width:16px; height:16px; flex:0 0 auto; }
-            .sv-obs-tab.on { background:var(--accent-primary,#5eadb8); color:#fff; border-color:var(--accent-primary,#5eadb8);
-                box-shadow:0 1px 3px rgba(0,0,0,.25); }
-            .sv-obs-tab.on svg { stroke:#fff; }
+            .sv-obs-tab.on { background:color-mix(in srgb, var(--accent-primary,#5eadb8) 15%, var(--bg-card,#161b22));
+                color:var(--text-primary,#e6edf3); border-color:var(--accent-primary,#5eadb8);
+                box-shadow:inset 0 -2px var(--accent-primary,#5eadb8); }
+            .sv-obs-tab.on svg { stroke:var(--accent-primary,#5eadb8); }
             .sv-obs-tab:not(.on) svg { stroke:var(--text-secondary,#b1bac4); }
             .sv-obs-tab:hover:not(.on) { color:var(--text-primary,#e6edf3); background:var(--bg-hover,#30363d); }
             .sv-obs-tab:hover:not(.on) svg { stroke:var(--text-primary,#e6edf3); }
@@ -257,21 +258,50 @@ const ObsTabs = {
         const wrap = document.createElement('div');
         wrap.className = 'sv-obs-tabs';
         wrap.setAttribute('role', 'tablist');
+        wrap.setAttribute('aria-label', 'Observability views');
         // 'storylines' (the retired Sessions page) maps to the Activity tab so
         // a deep link still highlights the merged view.
         const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs', health: 'run-health' }[active];
+        let activeBtn = null;
         this._TABS.forEach(t => {
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'sv-obs-tab' + (t.page === activePage ? ' on' : '');
             b.setAttribute('role', 'tab');
             b.setAttribute('aria-selected', t.page === activePage ? 'true' : 'false');
+            b.tabIndex = t.page === activePage ? 0 : -1;
+            b.title = `Open ${t.label}`;
             b.dataset.p = t.page;
             b.innerHTML = this._icon(t.icon) + `<span>${t.label}</span>`;
             b.addEventListener('click', () => window.App && App.loadPage(t.page));
+            if (t.page === activePage) activeBtn = b;
             wrap.appendChild(b);
         });
+        wrap.addEventListener('keydown', (event) => {
+            const tabs = [...wrap.querySelectorAll('[role="tab"]')];
+            const at = tabs.indexOf(document.activeElement);
+            if (at < 0) return;
+            let next;
+            if (event.key === 'ArrowRight') next = (at + 1) % tabs.length;
+            else if (event.key === 'ArrowLeft') next = (at - 1 + tabs.length) % tabs.length;
+            else if (event.key === 'Home') next = 0;
+            else if (event.key === 'End') next = tabs.length - 1;
+            else return;
+            event.preventDefault();
+            tabs.forEach((tab, index) => { tab.tabIndex = index === next ? 0 : -1; });
+            tabs[next].focus();
+            // Activating a tab reloads the page, which throws away this whole
+            // tablist and builds a new one — the node we just focused is gone
+            // and focus silently drops to <body>. Ask the render() that's
+            // about to run to put focus back on the (now active) tab.
+            ObsTabs._restoreTabFocus = true;
+            tabs[next].click();
+        });
         container.appendChild(wrap);
+        if (this._restoreTabFocus) {
+            this._restoreTabFocus = false;
+            if (activeBtn) activeBtn.focus();
+        }
         // The Traces tab has two views: the grouped trace list ("By trace")
         // and the flat chronological feed (the pre-v5 Timeline page, now
         // "Live feed"). Render the sub-toggle right next to the tabs on both.
@@ -306,7 +336,7 @@ const ObsTabs = {
         // a flat chronological stream of runs across every trace. (We're inside
         // the Traces tab, so the old "By trace" label was redundant.)
         [
-            { label: 'Waterfall', page: 'agent-runs',     on: active === 'runs' },
+            { label: 'Waterfall', page: 'agent-runs', on: active === 'runs' },
             { label: 'Live feed', page: 'agent-timeline', on: active === 'timeline' },
         ].forEach(v => {
             const b = document.createElement('button');

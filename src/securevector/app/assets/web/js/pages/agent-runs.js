@@ -374,7 +374,7 @@ const AgentRunsPage = {
             this._pendingOutcome = null;
         }
         if (window.Header) {
-            Header.setPageInfo('Observability', 'Sessions contain traces; traces contain nested spans. Inspect every LLM and tool operation with its verdict, tokens and cost.');
+            Header.setPageInfo('Observability', 'Each runtime session has one trace composed of model and tool spans. Inspect every operation with its verdict, tokens, and cost.');
         }
         this._injectStyle();
 
@@ -383,15 +383,19 @@ const AgentRunsPage = {
         ObsTabs.render(header, 'runs');
         // "How to read traces" — sits right after the tabs, before the filter
         // cluster (which is pushed right via margin-left:auto on .filters-bar).
-        const howto = ObsTabs.howToReadLink('How to read traces', 'section-read-runs', 'gs-read-runs');
+        const howto = ObsTabs.howToReadLink('How sessions and spans work', 'section-read-runs', 'gs-read-runs');
         howto.style.alignSelf = 'center';
-        howto.title = 'How to read traces';
+        howto.title = 'How sessions and spans work';
         header.appendChild(howto);
+        container.appendChild(header);
+        const command = document.createElement('div');
+        command.className = 'ar-command-strip';
+        command.innerHTML = '<div class="ar-triage" id="ar-triage" aria-label="Session quick views"></div>';
         const toolbar = document.createElement('div');
         toolbar.className = 'filters-bar';
         toolbar.id = 'agent-runs-toolbar';
-        header.appendChild(toolbar);
-        container.appendChild(header);
+        command.appendChild(toolbar);
+        container.appendChild(command);
         this._buildToolbar(toolbar);
 
         const away = document.createElement('div');
@@ -411,8 +415,8 @@ const AgentRunsPage = {
         layout.innerHTML = '<div class="ar-listview" id="ar-listview"><div class="ar-rail-head" id="ar-rail-head"></div>' +
             '<div class="ar-runlist" id="ar-runlist"></div></div>' +
             '<div class="ar-pane" id="ar-pane"><div class="ar-pane-empty" id="ar-pane-empty">' +
-            '<div class="ar-pane-empty-t">Select an agent</div>' +
-            '<div class="ar-pane-empty-s">Its trace opens here: every model turn and tool call on one timeline. The agent list stays on the left.</div></div>' +
+            '<div class="ar-pane-empty-t">Select a session</div>' +
+            '<div class="ar-pane-empty-s">The session trace opens here with model and tool spans in order.</div></div>' +
             '<div class="ar-detail" id="ar-detail" hidden></div></div>';
         container.appendChild(layout);
         this._splitSetup(layout);
@@ -436,7 +440,7 @@ const AgentRunsPage = {
             /* The page reserves room at the bottom for the Guardian; in split
                mode the panes scroll inside themselves, so a small gap is enough. */
             .page-content:has(.ar-layout.split), body.sv-ga-on #page-content:has(.ar-layout.split) { padding-bottom:40px; }
-            .ar-layout.split { display:grid; grid-template-columns:372px minmax(0,1fr); gap:14px; align-items:start; }
+            .ar-layout.split { display:grid; grid-template-columns:296px minmax(0,1fr); gap:12px; align-items:start; }
             .ar-layout.split .ar-listview { position:sticky; top:0; max-height:var(--ar-pane-h,72vh); overflow:auto;
                 overscroll-behavior:contain; padding-right:3px; }
             .ar-layout.split .ar-pane { position:sticky; top:0; max-height:var(--ar-pane-h,72vh); min-width:0;
@@ -452,10 +456,11 @@ const AgentRunsPage = {
                 color:var(--text-muted,#7d8590); }
             .ar-pane-empty-t { font:700 15px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-secondary,#b1bac4); }
             .ar-pane-empty-s { font-size:12.5px; max-width:380px; line-height:1.45; }
-            /* One command bar: the filters ride on the tab row and each control
-               carries its own label, so nothing stacks under the tabs. */
-            .obs-header { row-gap:8px; }
-            #agent-runs-toolbar.filters-bar { margin:0 0 0 auto; gap:8px; align-items:center; }
+            .obs-header { row-gap:8px; margin-bottom:6px; }
+            .ar-command-strip { display:flex; align-items:center; justify-content:space-between; gap:6px 12px;
+                flex-wrap:wrap; margin-bottom:10px; }
+            .ar-triage { display:flex; align-items:center; gap:4px; flex-wrap:wrap; min-width:0; }
+            #agent-runs-toolbar.filters-bar { margin:0 0 0 auto; gap:8px; align-items:center; min-height:30px; }
             #agent-runs-toolbar .filter-group { position:relative; flex-direction:row; align-items:center; gap:0; }
             #agent-runs-toolbar .filter-group > label { position:absolute; width:1px; height:1px; overflow:hidden;
                 clip:rect(0 0 0 0); white-space:nowrap; }
@@ -465,24 +470,27 @@ const AgentRunsPage = {
             #agent-runs-toolbar .filter-select { width:auto; min-width:0; }
             .obs-header .sv-howto-link span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
             .obs-header .sv-howto-link { padding:5px 9px; }
-            .ar-layout.split .ar-view-chip { padding:3px 8px; font-size:11.5px; }
-            .ar-layout.split .ar-group-head { flex-wrap:wrap; row-gap:2px; }
-            .ar-layout.split .ar-group-head .ar-group-flag:first-of-type { flex-basis:100%; margin-left:22px; }
+            .ar-command-strip .ar-view-chip { padding:4px 6px; }
+            .ar-command-strip .ar-view-chips { gap:4px; padding:0; }
+            .ar-command-strip .ar-more-views summary { padding:4px 7px; }
             /* Two equal panels sharing one top edge and one bottom edge. */
             .ar-layout.split .ar-listview, .ar-layout.split .ar-pane { height:var(--ar-pane-h,72vh); box-sizing:border-box; }
             .ar-layout.split .ar-listview { background:var(--bg-card,#161b22); border:1px solid var(--border-default,#30363d);
                 border-radius:14px; padding:12px 12px 8px; gap:6px; }
-            /* Chips wrap in the narrow list pane. A single scrolling line hid
-               the last chips (Secrets) behind an invisible scrollbar. */
-            .ar-layout.split .ar-view-chips { flex-wrap:wrap; row-gap:4px; }
             .ar-layout.split .ar-pane:not(.has-trace) .ar-pane-empty { flex:1 1 auto; border-style:solid;
                 background:var(--bg-card,#161b22); }
-            /* The rail keeps the columns that decide a click: name, blocked, cost. */
-            .ar-layout.split .ar-cols, .ar-layout.split .ar-run { grid-template-columns:14px 10px minmax(0,1fr) 56px 74px; gap:8px; }
-            .ar-layout.split .ar-cols { padding-left:32px; }
-            .ar-layout.split .col-tools, .ar-layout.split .col-det, .ar-layout.split .col-sec,
-            .ar-layout.split .col-time, .ar-layout.split .ar-row-id { display:none; }
-            .ar-layout.split .ar-group-body { padding-left:12px; }
+            .ar-layout.split .ar-cols { display:none; }
+            .ar-layout.split .ar-run { display:flex; flex-direction:column; align-items:stretch; justify-content:center;
+                gap:5px; min-height:58px; padding:7px 9px 7px 12px; }
+            .ar-layout.split .ar-run-primary, .ar-layout.split .ar-run-secondary { display:flex; align-items:center; gap:5px; min-width:0; }
+            .ar-layout.split .ar-run-primary .ar-row-name { flex:1 1 auto; }
+            .ar-layout.split .ar-run-primary .ar-run-rt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .ar-layout.split .ar-run-secondary { padding-left:17px; color:var(--text-muted,#7d8590); font-size:10.5px; }
+            .ar-layout.split .ar-run-secondary .ar-row-id { display:inline; opacity:1; }
+            .ar-layout.split .ar-run-secondary .ar-row-time { display:none; }
+            .ar-layout.split .ar-group-body { padding-left:5px; }
+            .ar-layout.split .ar-group-head { flex-wrap:wrap; row-gap:2px; }
+            .ar-layout.split .ar-group-flag { display:none; }
             .ar-layout.split .ar-tl { width:128px; }
             /* Trace TABLE (the Langfuse/LangSmith/Datadog pattern): one
                full-width row per agent with aligned columns; the shared grid
@@ -580,8 +588,27 @@ const AgentRunsPage = {
             .ar-away-x:hover { color:var(--text-primary,#e6edf3); background:var(--bg-hover,#21262d); }
             @media (prefers-reduced-motion: reduce) { .ar-away { animation:none; } }
             .ar-runlist { display:flex; flex-direction:column; gap:9px; padding:2px; }
+            .ar-run-primary, .ar-run-secondary { display:contents; }
+            .ar-compact-meta { display:none; }
+            .ar-layout.split .ar-run-secondary .ar-compact-meta { display:flex; align-items:center; gap:5px; min-width:0;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+            .ar-layout.split .ar-run-secondary > .ar-row-c { display:none; }
+            .ar-layout.split .ar-run-primary .ar-row-id { display:none; }
+            .ar-layout.split .ar-run-primary .ar-row-health { display:none; }
+            .ar-layout.split .ar-run-primary .ar-live { width:8px; height:8px; padding:0; border:0; font-size:0; letter-spacing:0; }
+            .ar-layout.split .ar-run-primary .ar-live::before { width:8px; height:8px; }
+            .ar-layout.split .ar-compact-meta .sv-health-badge-text { display:none; }
+            .ar-layout.split .ar-compact-meta .sv-health-badge { padding:0 2px; }
+            .ar-relative { display:none; }
+            .ar-layout.split .ar-relative { display:inline; margin-left:auto; flex:0 0 auto; color:var(--text-muted,#7d8590); font-size:10.5px; }
+            .ar-run:focus-visible, .ar-view-chip:focus-visible, .ar-filter-chip:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:2px; }
+            .ar-terminal-cue { color:var(--accent-primary,#5eadb8); font-weight:700; }
+            .ar-terminal-open { border:1px solid var(--border-default,#30363d); border-radius:6px; padding:4px 8px;
+                color:var(--accent-primary,#5eadb8); background:var(--bg-card,#161b22); font:600 11px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
+            .ar-terminal-open:hover { border-color:var(--accent-primary,#5eadb8); background:var(--bg-hover,#21262d); }
+            .ar-terminal-open:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:2px; }
             .ar-detail { min-width:0; border:1px solid var(--border-default,#30363d); border-radius:14px;
-                background:linear-gradient(180deg, var(--bg-card,#161b22), color-mix(in srgb, var(--bg-card,#161b22) 88%, #000)); padding:18px 20px; min-height:320px; }
+                background:var(--bg-card,#161b22); padding:18px 20px; min-height:320px; }
             /* Run cards: runtime-coloured left rail, lift on hover, accent when selected.
                flex:0 0 auto is load-bearing, the runlist is a flex column with max-height,
                so without it many runs flex-shrink every card to ~24px and crush the text. */
@@ -592,7 +619,11 @@ const AgentRunsPage = {
             .ar-run:hover { border-color:var(--accent-primary,#5eadb8); box-shadow:0 4px 14px rgba(0,0,0,.22); transform:translateY(-1px); }
             .ar-run:hover::before { opacity:.9; }
             .ar-run.sel { border-color:var(--accent-primary,#5eadb8); background:color-mix(in srgb, var(--accent-primary,#5eadb8) 9%, var(--bg-card,#161b22)); }
-            .ar-run.sel::before { opacity:1; width:4px; }
+            .ar-run.sel::before { opacity:1; width:4px; background:var(--accent-primary,#5eadb8); }
+            @media (prefers-reduced-motion: reduce) {
+                .ar-run, .ar-live, .ar-rail-live::before, .ar-card-tick { animation:none !important; transition:none !important; }
+                .ar-run:hover { transform:none; }
+            }
             .ar-run-top { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
             .ar-run-rt { font:700 13px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); letter-spacing:.2px;
                 min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -949,6 +980,18 @@ const AgentRunsPage = {
             .ar-view-chip.active { border-color:var(--accent-primary,#5eadb8);
                 background:color-mix(in srgb, var(--accent-primary,#5eadb8) 14%, var(--bg-card,#161b22));
                 color:var(--text-primary,#e6edf3); }
+            .ar-more-views { position:relative; }
+            .ar-more-views summary { list-style:none; cursor:pointer; border:1px solid var(--border-default,#30363d);
+                border-radius:999px; padding:4px 10px; color:var(--text-secondary,#b1bac4);
+                background:var(--bg-card,#161b22); font:600 11.5px 'Avenir Next',Avenir,system-ui,sans-serif; }
+            .ar-more-views summary::-webkit-details-marker { display:none; }
+            .ar-more-views summary::after { content:'⌄'; margin-left:6px; }
+            .ar-more-views summary:hover, .ar-more-views[open] summary { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#e6edf3); }
+            .ar-more-views summary:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:2px; }
+            .ar-more-menu { position:absolute; z-index:30; top:calc(100% + 4px); left:0; min-width:150px;
+                display:flex; flex-direction:column; gap:3px; padding:5px; border:1px solid var(--border-default,#30363d);
+                border-radius:8px; background:var(--bg-card,#161b22); box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.4)); }
+            .ar-more-menu .ar-view-chip { justify-content:space-between; border-radius:6px; }
             /* --- Session minimap (trace summary strip) --- */
             .ar-minimap { display:flex; align-items:center; gap:10px; margin:8px 0 2px;
                 padding:6px 10px; border:1px solid var(--border-default,#30363d); border-radius:10px;
@@ -1050,37 +1093,28 @@ const AgentRunsPage = {
         bar.appendChild(hgrp);
         this._harnessSel = hsel;
 
-        // Built-in vs external filter — checkboxes so each kind toggles
-        // independently (isolate external MCP calls, or hide them entirely).
+        // Keep both independent kind states in a compact four-state selector.
         const kgrp = document.createElement('div');
         kgrp.className = 'filter-group';
         const klbl = document.createElement('label');
         klbl.textContent = 'Tool';
         kgrp.appendChild(klbl);
-        const kwrap = document.createElement('div');
-        kwrap.className = 'ar-kind-checks';
-        [
-            { key: 'builtin', label: 'Built-in', color: '#64748b' },
-            { key: 'external', label: 'External MCP', color: 'var(--accent-primary,#5eadb8)' },
-        ].forEach(k => {
-            const lab = document.createElement('label');
-            lab.className = 'ar-check';
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.checked = !!this.kinds[k.key];
-            cb.addEventListener('change', () => {
-                this.kinds[k.key] = cb.checked;
-                if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
-            });
-            const dot = document.createElement('span');
-            dot.className = 'ar-check-dot';
-            dot.style.background = k.color;
-            const txt = document.createElement('span');
-            txt.textContent = k.label;
-            lab.appendChild(cb); lab.appendChild(dot); lab.appendChild(txt);
-            kwrap.appendChild(lab);
+        const ksel = document.createElement('select');
+        ksel.className = 'filter-select';
+        ksel.setAttribute('aria-label', 'Tool kind');
+        [['11', 'All tools'], ['10', 'Built-in'], ['01', 'External MCP'], ['00', 'No tools']].forEach(([value, label]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            ksel.appendChild(option);
         });
-        kgrp.appendChild(kwrap);
+        ksel.value = `${this.kinds.builtin ? '1' : '0'}${this.kinds.external ? '1' : '0'}`;
+        ksel.addEventListener('change', () => {
+            this.kinds.builtin = ksel.value[0] === '1';
+            this.kinds.external = ksel.value[1] === '1';
+            if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
+        });
+        kgrp.appendChild(ksel);
         bar.appendChild(kgrp);
 
         // Verdict filter — show only allowed / blocked / log-only / threat /
@@ -1292,11 +1326,10 @@ const AgentRunsPage = {
 
     async loadData() {
         const list = document.getElementById('ar-runlist');
-        if (list) list.innerHTML = '<div class="ar-empty">Loading traces…</div>';
+        if (list) list.innerHTML = '<div class="ar-empty">Loading sessions…</div>';
         const wantTrace = this._pendingTrace; this._pendingTrace = null;
         const data = await API.getTraces({ window_days: this.windowDays });
         this.runs = (data && data.runs) || [];
-        this._computeAgentNums();
         this._populateHarnessFilter();
         this._awayDigest(); // diff BEFORE the snapshot below overwrites it
         this._snapSave();
@@ -1338,11 +1371,6 @@ const AgentRunsPage = {
         }
     },
 
-    /** Assign each trace a GLOBAL "agent #N", newest-first — unique across
-     *  harnesses. (Per-harness numbering collided on this flat list: three
-     *  "agent #1"s, one per harness, told apart only by a small tag.) Mirrors
-     *  the Agent Map's global numbering so an "agent #N" clicked there is the
-     *  same "agent #N" here. */
     /** Cost cell for the run list: list-price estimate of the run's model
      *  spend, plus a quiet "costly turn" mark when one model turn is more
      *  than half of the whole run (the thing to look at first). */
@@ -1360,24 +1388,16 @@ const AgentRunsPage = {
         return `${gens} model turn${gens === 1 ? '' : 's'} · ${tok.toLocaleString()} tokens · list-price estimate`;
     },
 
-    _computeAgentNums() {
-        this._agentNum = {};
-        (this.runs || []).slice()
-            .sort((a, b) => String(b.ended_at || '').localeCompare(String(a.ended_at || '')))
-            .forEach((r, i) => { this._agentNum[r.trace_id] = i + 1; });
-    },
-
-    /** Display label for a run: custom name (set on the Map) → "agent #N" →
-     *  runtime kind. The runtime is still shown as a small sub-tag alongside. */
+    /** A stable name; a verified Terminal match can supply the task or workspace. */
     _agentLabel(r) {
-        // Unnamed traces read "agent #N" — numbering matches the Map. The rail
-        // groups them under their runtime, so the header carries the harness
-        // and each card is one agent run.
-        if (!r) return 'trace';
+        if (!r) return 'Session';
         const nm = ObsTabs.agentName(r.trace_id);
         if (nm) return nm;
-        const n = this._agentNum ? this._agentNum[r.trace_id] : null;
-        return n != null ? ('agent #' + n) : (r.runtime_kind || 'trace');
+        const task = r.terminal_task;
+        if (task && task.id && task.title && String(task.title).trim()) return String(task.title).trim();
+        if (task && task.id && task.workspace_name) return task.workspace_name;
+        return r.session_id ? `Session ${String(r.session_id).slice(0, 8)}`
+            : `Trace ${String(r.trace_id || '?').slice(0, 8)}`;
     },
 
     /** Fill the Harness dropdown with the distinct runtimes present in the
@@ -1552,14 +1572,16 @@ const AgentRunsPage = {
         const home = this._detailHome();
         if (det && home && det.parentElement !== home) home.appendChild(det);
         list.textContent = '';
+        const triage = document.getElementById('ar-triage');
+        if (triage) triage.textContent = '';
         // List header — names the level (agents) and carries the pulse:
         // how many, how many live right now, the window.
         const rh = document.getElementById('ar-rail-head');
         if (rh) {
             const all = this._filteredRuns();
             const nLive = all.filter(r => this._isLive(r.ended_at)).length;
-            rh.innerHTML = `<b>${all.length}</b>&nbsp;agent${all.length === 1 ? '' : 's'}` +
-                (nLive ? `<button type="button" class="ar-rail-live" title="Show only agents with activity in the last 2 minutes">${nLive} live</button>` : '') +
+            rh.innerHTML = `<b>${all.length}</b>&nbsp;session${all.length === 1 ? '' : 's'}` +
+                (nLive ? `<button type="button" class="ar-rail-live" title="Show only sessions with activity in the last 2 minutes">${nLive} live</button>` : '') +
                 `<span class="ar-rail-win">last ${this.windowDays === 1 ? '24h' : this.windowDays + 'd'}</span>`;
             const liveBtn = rh.querySelector('.ar-rail-live');
             if (liveBtn) liveBtn.addEventListener('click', () => {
@@ -1577,7 +1599,7 @@ const AgentRunsPage = {
             chip.innerHTML = `<span class="ar-chip-dot" style="background:${RUNTIME_COLOR[this.runtimeFilter] || '#64748b'}"></span>` +
                 `Only <b>${this._esc(this.runtimeFilter)}</b><span class="ar-chip-x">×</span>`;
             chip.addEventListener('click', () => this.clearRuntimeFilter());
-            list.appendChild(chip);
+            (triage || list).appendChild(chip);
         }
         if (this.toolFilter) {
             const chip = document.createElement('button');
@@ -1586,7 +1608,7 @@ const AgentRunsPage = {
             chip.title = 'Clear tool filter';
             chip.innerHTML = `Tool <b>${this._esc(String(this.toolFilter).split(':').pop())}</b><span class="ar-chip-x">×</span>`;
             chip.addEventListener('click', () => { this.toolFilter = null; this.renderRuns(); if (this._inDetail() && this._trace) this.renderWaterfall(this._trace); });
-            list.appendChild(chip);
+            (triage || list).appendChild(chip);
         }
         // Triage quick views (the Braintrust built-in-views pattern): one click
         // narrows the agent list to the rows an analyst actually works. Counts
@@ -1596,6 +1618,16 @@ const AgentRunsPage = {
         if (base.length) {
             const chips = document.createElement('div');
             chips.className = 'ar-view-chips';
+            chips.setAttribute('role', 'group');
+            chips.setAttribute('aria-label', 'Session quick views');
+            const more = document.createElement('details');
+            more.className = 'ar-more-views';
+            const moreLabel = document.createElement('summary');
+            moreLabel.textContent = 'More';
+            more.appendChild(moreLabel);
+            const moreMenu = document.createElement('div');
+            moreMenu.className = 'ar-more-menu';
+            more.appendChild(moreMenu);
             const views = [
                 ['all', 'All', base.length, ''],
                 // Live = activity in the last 2 minutes, the same rule as the
@@ -1619,34 +1651,36 @@ const AgentRunsPage = {
                 const c = document.createElement('button');
                 c.type = 'button';
                 c.className = 'ar-view-chip' + (this.listView === key ? ' active' : '');
+                c.setAttribute('aria-pressed', this.listView === key ? 'true' : 'false');
                 const hIcon = (key === 'loop' || key === 'failing' || key === 'wasteful') && window.TraceSteps ? `${TraceSteps.healthIcon(key)} ` : '';
                 c.innerHTML = `${hIcon}${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
-                c.title = key === 'all' ? 'Every trace in this window'
-                    : key === 'live' ? 'Only agents with activity in the last 2 minutes'
+                c.title = key === 'all' ? 'Every session in this window'
+                    : key === 'live' ? 'Only sessions with activity in the last 2 minutes'
                     : (key === 'loop' || key === 'failing' || key === 'wasteful')
-                        ? `Only runs with a ${key} health finding`
-                    : `Only traces with ${key === 'flagged' ? 'any security flag' : key === 'secret' ? 'secret detections' : key + ' actions'}`;
+                        ? `Only sessions with a ${key} health finding`
+                    : `Only sessions with ${key === 'flagged' ? 'any security flag' : key === 'secret' ? 'secret detections' : key + ' actions'}`;
                 c.addEventListener('click', () => {
                     this.listView = (this.listView === key ? 'all' : key);
                     // Keep an open drill-down only if its row survives the view.
                     if (this.selected && !this._filteredRuns().some(r => r.trace_id === this.selected)) this._showList();
                     else this.renderRuns();
                 });
-                chips.appendChild(c);
+                (['all', 'live', 'flagged', 'blocked'].includes(key) ? chips : moreMenu).appendChild(c);
             });
-            list.appendChild(chips);
+            chips.appendChild(more);
+            (triage || list).appendChild(chips);
         }
         const shown = this._filteredRuns();
         if (!shown.length) {
             const msg = document.createElement('div');
             msg.className = 'ar-empty';
             msg.innerHTML = this.listView === 'live'
-                ? `<div style="font-size:15px;margin-bottom:6px;">No agents active right now.</div><div style="font-size:13px;">Live means activity in the last 2 minutes. This view refreshes on its own; click Live again to see every agent.</div>`
+                ? `<div style="font-size:15px;margin-bottom:6px;">No sessions active right now.</div><div style="font-size:13px;">Live means activity in the last 2 minutes. This view refreshes on its own; click Live again to see every session.</div>`
                 : (this.listView && this.listView !== 'all')
-                ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.listView)} traces in this window.</div><div style="font-size:13px;">Good sign. Click the view again (or All) to see every trace.</div>`
+                ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.listView)} sessions in this window.</div><div style="font-size:13px;">Click the view again (or All) to see every session.</div>`
                 : this.runtimeFilter
-                    ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.runtimeFilter)} traces in this window.</div><div style="font-size:13px;">Clear the filter to see traces from other runtimes.</div>`
-                    : `<div style="font-size:15px;margin-bottom:6px;">No traces in this window.</div><div style="font-size:13px;">Install a Guard plugin and run an agent: each session becomes a trace here.</div>`;
+                    ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.runtimeFilter)} sessions in this window.</div><div style="font-size:13px;">Clear the filter to see sessions from other runtimes.</div>`
+                    : `<div style="font-size:15px;margin-bottom:6px;">No sessions in this window.</div><div style="font-size:13px;">Connect a Guard plugin and start a session to see its trace here.</div>`;
             list.appendChild(msg);
             return;
         }
@@ -1672,6 +1706,7 @@ const AgentRunsPage = {
             card.className = 'ar-run' + (r.trace_id === this.selected ? ' sel' + (detOpen ? ' open' : '') : '');
             card.type = 'button';
             card.dataset.trace = r.trace_id;
+            card.title = `${this._agentLabel(r)} · ${r.runtime_kind || 'unknown'} · session ${r.session_id || '?'} · trace ${r.trace_id || '?'}`;
             const color = RUNTIME_COLOR[r.runtime_kind] || '#64748b';
             card.style.setProperty('--ar-accent', color);
             // Count-tick flash: when a live update raised this row's numbers,
@@ -1684,20 +1719,29 @@ const AgentRunsPage = {
             // align under the header. Zero-count cells render a dim dash so
             // the eye catches the non-zero (colored) cells instantly.
             const dash = '<span class="ar-dim0">—</span>';
+            const signals = [r.spans ? `${Number(r.spans)} tool call${Number(r.spans) === 1 ? '' : 's'}` : '',
+                r.blocked ? `${Number(r.blocked)} blocked` : '',
+                Number(r.cost) > 0 ? this._costCell(r, '') : ''].filter(Boolean).join(' · ');
             card.innerHTML =
-                `<svg class="ar-row-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
+                `<span class="ar-run-primary"><svg class="ar-row-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
                 `<span class="ar-run-dot" style="background:${color}"></span>` +
                 `<span class="ar-row-name"><span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
                 `<span class="ar-row-id" title="session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id)}">${this._esc(String(r.session_id || r.trace_id).slice(0, 8))}</span>` +
                 (this._isLive(r.ended_at) ? this._liveBadge() : '') +
                 (window.TraceSteps && TraceSteps.badgesHtml(r.health) ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
-                `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${r.risk}"></span></span>` +
+                `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${this._esc(r.risk || 'green')}"></span></span>` +
+                `<span class="ar-relative" title="${this._esc(this._fmtTime(r.ended_at))}">${this._esc(this._relativeTime(r.ended_at))}</span></span>` +
+                `<span class="ar-run-secondary"><span class="ar-compact-meta"><span class="ar-row-id" title="Session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id || '?')}">${this._esc(String(r.session_id || r.trace_id || '?').slice(0, 8))}</span>` +
+                `<span>· ${this._esc(r.runtime_kind || 'unknown')}</span>` +
+                (r.terminal_task && r.terminal_task.id ? '<span class="ar-terminal-cue" title="Linked Terminal task">· Terminal ↗</span>' : '') +
+                (window.TraceSteps && TraceSteps.badgesHtml(r.health) ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
+                (signals ? `<span>· ${signals}</span>` : '') + `</span>` +
                 `<span class="ar-row-c col-tools"><span class="ar-num">${r.spans}</span></span>` +
                 `<span class="ar-row-c col-blk">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
                 `<span class="ar-row-c col-det" title="threats detected in this trace">${r.detections ? `${AR_VIRUS_SVG('#ef4444', 12)}<span class="ar-num" style="color:#ef4444"> ${r.detections}</span>` : dash}</span>` +
                 `<span class="ar-row-c col-sec" title="secret/credential detections in this trace">${r.secrets ? `${AR_LOCK_SVG('#f59e0b', 12)}<span class="ar-num" style="color:#f59e0b"> ${r.secrets}</span>` : dash}</span>` +
                 `<span class="ar-row-c col-cost" title="${this._costTitle(r)}">${this._costCell(r, dash)}</span>` +
-                `<span class="ar-row-time col-time">${this._fmtTime(r.ended_at)}</span>`;
+                `<span class="ar-row-time col-time">${this._fmtTime(r.ended_at)}</span></span>`;
             card.addEventListener('click', () => this.selectRun(r.trace_id));
             return card;
         };
@@ -1705,7 +1749,7 @@ const AgentRunsPage = {
         // between sections carry their own rolled-up numbers).
         const cols = document.createElement('div');
         cols.className = 'ar-cols';
-        cols.innerHTML = '<span></span><span></span><span class="col-name">Agent</span>' +
+        cols.innerHTML = '<span></span><span></span><span class="col-name">Session</span>' +
             '<span class="col-tools">Tool runs</span><span class="col-blk">Blocked</span><span class="col-det">Detected</span>' +
             '<span class="col-sec">Secrets</span><span class="col-cost" title="Model spend in this run, list-price estimate">Cost</span><span class="col-time">Last activity</span>';
         list.appendChild(cols);
@@ -1722,16 +1766,16 @@ const AgentRunsPage = {
             const head = document.createElement('button');
             head.type = 'button';
             head.className = 'ar-group-head' + (isClosed ? ' closed' : '');
-            head.title = (isClosed ? 'Expand' : 'Collapse') + ' the ' + g.rt + ' agents';
+            head.title = (isClosed ? 'Expand' : 'Collapse') + ' the ' + g.rt + ' sessions';
             head.innerHTML =
                 `<svg class="ar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
                 `<span class="ar-run-dot" style="background:${color}"></span>` +
                 `<span class="ar-group-rt">${this._esc(g.rt)}</span>` +
-                `<span class="ar-group-n">${g.runs.length} agent${g.runs.length === 1 ? '' : 's'}</span>` +
-                (blk ? `<span class="ar-group-flag" style="color:#ef4444" title="blocked actions across this runtime's agents">${blk} blocked</span>` : '') +
-                (det ? `<span class="ar-group-flag" style="color:#ef4444" title="threats detected across this runtime's agents">${det} detected</span>` : '') +
-                (sec ? `<span class="ar-group-flag" style="color:#f59e0b" title="secrets caught across this runtime's agents">${sec} secret</span>` : '') +
-                (live ? this._liveBadge(live + ' agent' + (live === 1 ? '' : 's') + ' active now') : '');
+                `<span class="ar-group-n">${g.runs.length} session${g.runs.length === 1 ? '' : 's'}</span>` +
+                (blk ? `<span class="ar-group-flag" style="color:#ef4444" title="blocked actions across this runtime's sessions">${blk} blocked</span>` : '') +
+                (det ? `<span class="ar-group-flag" style="color:#ef4444" title="threats detected across this runtime's sessions">${det} detected</span>` : '') +
+                (sec ? `<span class="ar-group-flag" style="color:#f59e0b" title="secrets caught across this runtime's sessions">${sec} secret</span>` : '') +
+                (live ? this._liveBadge(live + ' session' + (live === 1 ? '' : 's') + ' active now') : '');
             const body = document.createElement('div');
             body.className = 'ar-group-body';
             body.hidden = isClosed;
@@ -1857,16 +1901,27 @@ const AgentRunsPage = {
         if (!detail) return;
         detail.textContent = '';
         const color = RUNTIME_COLOR[trace.runtime_kind] || '#64748b';
+        const listed = (this.runs || []).find(r => r.trace_id === trace.trace_id);
+        const named = Object.assign({}, trace, { terminal_task: listed && listed.terminal_task });
+        const taskId = named.terminal_task && named.terminal_task.id;
 
         const head = document.createElement('div');
         head.className = 'ar-det-head';
         head.innerHTML = `<span class="ar-run-dot" style="background:${color}"></span>` +
-            `<span class="ar-det-title">${this._esc(this._agentLabel(trace))}</span>` +
+            `<span class="ar-det-title">${this._esc(this._agentLabel(named))}</span>` +
             `<span class="ar-run-sub">${this._esc(trace.runtime_kind)}</span>` +
-            (this._isLive(trace.ended_at) ? this._liveBadge('This agent is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
-            `<span class="ar-det-eyebrow" title="Session › trace › spans. Nested rows show the causal parent-child span relationship.">Trace</span>` +
-            `<button type="button" class="ar-det-x" title="Collapse this trace (or click the agent row again)">×</button>`;
+            (this._isLive(trace.ended_at) ? this._liveBadge('This session is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
+            `<span class="ar-det-eyebrow" title="One trace per runtime session, with model and tool spans.">SESSION TRACE</span>` +
+            (taskId ? '<button type="button" class="ar-terminal-open">Open Terminal task ↗</button>' : '') +
+            `<button type="button" class="ar-det-x" title="Close this session trace">×</button>`;
         head.querySelector('.ar-det-x').addEventListener('click', () => this._showList());
+        const terminalOpen = head.querySelector('.ar-terminal-open');
+        if (terminalOpen) terminalOpen.addEventListener('click', (event) => {
+            event.stopPropagation();
+            try { sessionStorage.setItem('sv-agent-task-id', taskId); } catch (_) { /* navigation still works */ }
+            if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');
+            else if (window.App) App.loadPage('terminals');
+        });
         const pauseBtn = head.querySelector('.ar-live-pause');
         if (pauseBtn) pauseBtn.addEventListener('click', () => this._livePauseToggle(pauseBtn));
         detail.appendChild(head);
@@ -3089,6 +3144,15 @@ const AgentRunsPage = {
         const d = new Date(t);
         if (isNaN(d)) return String(iso);
         return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    },
+
+    _relativeTime(iso) {
+        const elapsed = Math.max(0, Date.now() - this._ms(iso));
+        if (!iso || !Number.isFinite(elapsed)) return '';
+        if (elapsed < 60000) return 'now';
+        if (elapsed < 3600000) return `${Math.floor(elapsed / 60000)}m ago`;
+        if (elapsed < 86400000) return `${Math.floor(elapsed / 3600000)}h ago`;
+        return `${Math.floor(elapsed / 86400000)}d ago`;
     },
 
     /** "+2.3s" — wall clock between this run's start and the previous run's

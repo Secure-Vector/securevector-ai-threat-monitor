@@ -230,7 +230,7 @@ test('governance credits a control only on current evidence', () => {
   assert.match(gov, /no agent has run in the last 7 days/);
   // an absent setting is unknown, never a pass
   assert.match(gov, /has never been configured on this device, so it cannot be reported as enforced/);
-  assert.match(read('index.html'), /governance\.js\?v=27/);
+  assert.match(read('index.html'), /governance\.js\?v=30/);
 });
 
 test('posture is computed once, in governance, and the rail no longer reads it', () => {

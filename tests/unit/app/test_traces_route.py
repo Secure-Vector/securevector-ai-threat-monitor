@@ -7,7 +7,7 @@ import pytest
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.migrations import run_migrations
 from securevector.app.database.repositories.custom_tools import CustomToolsRepository
-from securevector.app.server.routes.traces import _VERDICT, _run_risk
+from securevector.app.server.routes.traces import _VERDICT, _add_terminal_tasks, _run_risk
 
 
 # ---------------- pure helpers ----------------
@@ -42,6 +42,47 @@ async def _seed_run(repo, runtime, session, calls):
             tool_id, tool_id.split(":")[-1], action,
             reason=reason, runtime_kind=runtime, session_id=session,
         )
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_decoration_exact_compatible_and_newest(tmp_path):
+    db = await _build_db(tmp_path)
+    tasks = [
+        ("old", "codex", "s1", "Older", "/work/old", None, "2026-01-01"),
+        ("new", "codex", "s1", "Newest", "/work/new", None, "2026-01-02"),
+        ("wrong-runtime", "claude-code", "s1", "Wrong", "/work/wrong", None, "2026-01-03"),
+        ("archived", "codex", "s1", "Archived", "/work/archived", "2026-01-04", "2026-01-04"),
+        ("other", "codex", "s2", "Other", "/work/other", None, "2026-01-02"),
+    ]
+    for task_id, executor, session, title, workspace, archived, created in tasks:
+        await db.execute(
+            "INSERT INTO terminal_tasks (id, executor_id, session_id, title, workspace, status, archived_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'done', ?, ?)",
+            (task_id, executor, session, title, workspace, archived, created),
+        )
+    runs = [
+        {"session_id": "s1", "runtime_kind": "codex", "spans": 2},
+        {"session_id": "s2", "runtime_kind": "codex", "spans": 0, "generations": 1},
+        {"session_id": "s1", "runtime_kind": "openclaw", "spans": 1},
+        {"session_id": "missing", "runtime_kind": "codex", "spans": 0},
+    ]
+    await _add_terminal_tasks(db, runs)
+    assert runs[0]["terminal_task"] == {"id": "new", "title": "Newest", "workspace_name": "new", "origin": "launch"}
+    assert "workspace" not in runs[0]["terminal_task"]
+    assert runs[1]["terminal_task"]["id"] == "other"
+    assert "terminal_task" not in runs[2]
+    assert "terminal_task" not in runs[3]
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_decoration_db_failure_keeps_runs():
+    class BrokenDB:
+        async def fetch_all(self, *_args):
+            raise RuntimeError("optional table unavailable")
+
+    runs = [{"session_id": "s1", "runtime_kind": "codex", "spans": 0}]
+    await _add_terminal_tasks(BrokenDB(), runs)
+    assert runs == [{"session_id": "s1", "runtime_kind": "codex", "spans": 0}]
 
 
 @pytest.mark.asyncio
