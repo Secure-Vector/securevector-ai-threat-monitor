@@ -155,8 +155,11 @@ const GovernancePage = {
             '@keyframes gov-in{from{opacity:0;transform:translateY(7px);}to{opacity:1;transform:none;}}',
             '.gov-wrap{width:100%;max-width:1180px;margin-inline:auto;box-sizing:border-box;}',
             '.gov-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--elevate-1);}',
-            '.gov-overview{display:grid;grid-template-columns:minmax(260px,.75fr) minmax(0,1.5fr);gap:16px;align-items:stretch;margin-bottom:16px;}',
+            '.gov-overview{display:grid;grid-template-areas:"coverage gaps" "action gaps";grid-template-columns:minmax(260px,.75fr) minmax(0,1.5fr);gap:16px;align-items:start;margin-bottom:16px;}',
             '.gov-overview>.gov-card{min-width:0;margin-bottom:0;}',
+            '.gov-cov-card{grid-area:coverage;}',
+            '.gov-gaps-card{grid-area:gaps;}',
+            '.gov-next{grid-area:action;}',
             // v5 posture hero — the signature card gets the deeper elevation
             // and a hairline accent so the score reads as the page centerpiece.
             '.gov-hero{padding:22px 24px;box-shadow:var(--elevate-2);}',
@@ -185,12 +188,12 @@ const GovernancePage = {
             '.gov-stat{font-size:11px;font-weight:600;color:var(--text-secondary);display:inline-flex;align-items:center;gap:6px;}',
             '.gov-stat i{width:8px;height:8px;border-radius:2px;display:inline-block;font-style:normal;}',
             // Next-action card — the page's to-do, not just a report.
-            '.gov-next{display:flex;align-items:center;gap:14px;border-left:3px solid var(--next-color,var(--accent-primary));}',
-            '.gov-next>div{flex:1;min-width:0;}',
+            '.gov-next{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-left:3px solid var(--next-color,var(--accent-primary));}',
+            '.gov-next>div{flex:1;min-width:min(100%,180px);overflow-wrap:anywhere;}',
             '.gov-next-eyebrow{font-family:var(--font-mono);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--next-color,var(--accent-primary));font-weight:700;}',
             '.gov-next-lab{font-family:var(--font-display);font-weight:650;font-size:14px;color:var(--text-primary);margin-top:2px;}',
             '.gov-next-note{font-size:12px;color:var(--text-secondary);margin-top:3px;line-height:1.5;}',
-            '.gov-next-btn{flex:none;margin-left:auto;border:1px solid var(--next-color,var(--accent-primary));border-radius:8px;padding:8px 16px;cursor:pointer;',
+            '.gov-next-btn{flex:none;max-width:100%;margin-left:auto;border:1px solid var(--next-color,var(--accent-primary));border-radius:8px;padding:8px 16px;cursor:pointer;white-space:normal;overflow-wrap:anywhere;',
             '  background:color-mix(in srgb, var(--next-color,var(--accent-primary)) 12%, transparent);color:var(--text-primary);font:600 12.5px var(--font-display,inherit);transition:background .15s;}',
             '.gov-next-btn:hover{background:color-mix(in srgb, var(--next-color,var(--accent-primary)) 22%, transparent);}',
             // Evidence tiles — live enforcement counts that click through to the
@@ -225,7 +228,7 @@ const GovernancePage = {
             '.gov-gap-fix{flex:none;align-self:center;border:1px solid var(--border-default);border-radius:8px;padding:6px 12px;cursor:pointer;background:transparent;color:var(--text-primary);font:600 12px var(--font-display,inherit);}',
             '.gov-gap-fix:hover,.gov-gap-fix:focus-visible{border-color:var(--accent-primary);}',
             '.gov-gap-hint{flex:none;align-self:center;max-width:220px;font-size:11.5px;color:var(--text-secondary);text-align:right;}',
-            '@media (max-width:900px){.gov-overview{grid-template-columns:minmax(0,1fr);}}',
+            '@media (max-width:900px){.gov-overview{grid-template-areas:"coverage" "gaps" "action";grid-template-columns:minmax(0,1fr);}}',
             '@media (max-width:600px){.gov-gap{flex-wrap:wrap;}.gov-gap-fix,.gov-gap-hint{margin-left:38px;max-width:calc(100% - 38px);text-align:left;}.gov-next{flex-wrap:wrap;}.gov-next-btn{margin-left:0;}}',
             '.gov-checklist>summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--text-primary);padding:14px 20px;list-style:revert;}',
             '.gov-checklist{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;margin-bottom:16px;}',
@@ -419,6 +422,57 @@ const GovernancePage = {
         return html;
     },
 
+    _nextAction(rows, band, gapsData) {
+        const activityGaps = gapsData && Array.isArray(gapsData.gaps) ? gapsData.gaps : null;
+        const activityGap = activityGaps && activityGaps[0];
+        if (activityGap) {
+            const fix = activityGap.fix || {};
+            return {
+                color: activityGap.severity === 'high' ? 'var(--warning, #f59e0b)' : 'var(--accent-primary)',
+                label: activityGap.title || 'Review an activity gap',
+                note: activityGap.detail || (fix.label && !fix.route && !fix.action ? fix.label : 'Review this gap in recent activity.'),
+                button: fix.route || fix.action ? (fix.label || 'Fix now') : '',
+                route: fix.route || null,
+                action: fix.action || null,
+            };
+        }
+        const firstSetupGap = rows.find(r => r.gap) || rows.find(r => r.required && r.state === 'partial');
+        if (firstSetupGap) {
+            return { color: this._mark(firstSetupGap).color, label: firstSetupGap.label, note: firstSetupGap.note,
+                button: 'Fix now →', route: firstSetupGap.nav };
+        }
+        if (band.unassessed) {
+            return { color: 'var(--accent-primary)', label: 'Connect an agent',
+                note: 'Nothing has reported through SV Guard / SDK yet, so there is nothing to govern. Connect a runtime to light this page up.',
+                button: 'Connect →', route: 'guide-connect-agents' };
+        }
+        const coverage = gapsData && gapsData.coverage;
+        if (!activityGaps || gapsData.partial || !coverage || !Number.isFinite(coverage.pct)) {
+            return { color: 'var(--accent-primary)', label: 'Review current enforcement',
+                note: 'Recent activity could not be fully checked. Review the activity gaps above and try again in a moment.',
+                button: 'Blocked Actions →', route: 'blocked-ledger' };
+        }
+        return { color: 'var(--success, #10b981)', label: 'No gaps: review what enforcement did',
+            note: 'Every required control is enforced for your connected integrations. Blocked Actions holds the receipts.',
+            button: 'Blocked Actions →', route: 'blocked-ledger' };
+    },
+
+    _renderNextAction(nextCard, rows, band, gapsData) {
+        const action = this._nextAction(rows, band, gapsData);
+        nextCard.textContent = '';
+        nextCard.style.setProperty('--next-color', action.color);
+        const body = document.createElement('div');
+        const eyebrow = document.createElement('div'); eyebrow.className = 'gov-next-eyebrow'; eyebrow.textContent = 'Next action'; body.appendChild(eyebrow);
+        const label = document.createElement('div'); label.className = 'gov-next-lab'; label.textContent = action.label; body.appendChild(label);
+        const note = document.createElement('div'); note.className = 'gov-next-note'; note.textContent = action.note; body.appendChild(note);
+        nextCard.appendChild(body);
+        if (action.button) {
+            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn'; btn.textContent = action.button;
+            btn.addEventListener('click', () => this._runFix(action.route, action.action, btn));
+            nextCard.appendChild(btn);
+        }
+    },
+
     async _runFix(route, action, btn) {
         if (route) return this._go(route);
         const m = /^install_plugin:([a-z0-9-]+)$/.exec(String(action || ''));
@@ -428,11 +482,14 @@ const GovernancePage = {
         let failed = false;
         try {
             await API.installGuard(m[1]);
-            const card = btn && btn.closest ? btn.closest('.gov-gaps-card') : null;
-            const covCard = document.querySelector('.gov-cov-card');
+            const overview = btn && btn.closest ? btn.closest('.gov-overview') : null;
+            const directCard = btn && btn.closest ? btn.closest('.gov-gaps-card') : null;
+            const card = directCard || (overview ? overview.querySelector('.gov-gaps-card') : null);
+            const covCard = overview ? overview.querySelector('.gov-cov-card') : document.querySelector('.gov-cov-card');
             const data = await API.getGovernanceGaps({ window_days: 7, refresh: true });
             if (card) this._fillGaps(card, data);
             if (covCard) covCard.innerHTML = this._coverageHtml(data);
+            if (this._nextActionRefresh) this._nextActionRefresh(data);
         } catch (err) {
             failed = true;
         } finally {
@@ -471,7 +528,8 @@ const GovernancePage = {
         wrap.appendChild(overview);
         container.appendChild(wrap);
         const gapsPromise = (window.API && API.getGovernanceGaps) ? API.getGovernanceGaps({ window_days: 7 }) : Promise.resolve(null);
-        gapsPromise.catch(() => null).then((gapsData) => {
+        const gapsDataPromise = Promise.resolve(gapsPromise).catch(() => null);
+        gapsDataPromise.then((gapsData) => {
             covCard.innerHTML = this._coverageHtml(gapsData);
             this._fillGaps(gapsCard, gapsData);
         });
@@ -623,50 +681,16 @@ const GovernancePage = {
         } catch (_) { /* history is a bonus, never break the page */ }
         clBody.appendChild(bandCard);
 
-        // --- Next action: the single highest-impact thing to do right now.
-        // Gaps are ranked by CONTROLS order (blocking first), so the first gap
-        // is the one to fix. No gaps → point at the evidence instead. This is
-        // what turns the page from a report into a to-do.
-        const firstGap = rows.find(r => r.gap) || rows.find(r => r.required && r.state === 'partial');
+        // --- Next action: prioritize activity gaps from the resolved response,
+        // then setup controls. The activity request started alongside _gather.
+        const gapsData = await gapsDataPromise;
         const nextCard = card();
         nextCard.classList.add('gov-next');
-        if (firstGap) {
-            const m2 = this._mark(firstGap);
-            nextCard.style.setProperty('--next-color', m2.color);
-            const body = document.createElement('div');
-            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
-                '<div class="gov-next-lab"></div><div class="gov-next-note"></div>';
-            body.querySelector('.gov-next-lab').textContent = firstGap.label;
-            body.querySelector('.gov-next-note').textContent = firstGap.note;
-            nextCard.appendChild(body);
-            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
-            btn.textContent = 'Fix now →';
-            btn.addEventListener('click', () => this._go(firstGap.nav));
-            nextCard.appendChild(btn);
-        } else if (band.unassessed) {
-            nextCard.style.setProperty('--next-color', 'var(--accent-primary)');
-            const body = document.createElement('div');
-            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
-                '<div class="gov-next-lab">Connect an agent</div>' +
-                '<div class="gov-next-note">Nothing has reported through SV Guard / SDK yet, so there is nothing to govern. Connect a runtime to light this page up.</div>';
-            nextCard.appendChild(body);
-            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
-            btn.textContent = 'Connect →';
-            btn.addEventListener('click', () => this._go('guide-connect-agents'));
-            nextCard.appendChild(btn);
-        } else {
-            nextCard.style.setProperty('--next-color', 'var(--success, #10b981)');
-            const body = document.createElement('div');
-            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
-                '<div class="gov-next-lab">No gaps: review what enforcement did</div>' +
-                '<div class="gov-next-note">Every required control is enforced for your connected integrations. Blocked Actions holds the receipts.</div>';
-            nextCard.appendChild(body);
-            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
-            btn.textContent = 'Blocked Actions →';
-            btn.addEventListener('click', () => this._go('blocked-ledger'));
-            nextCard.appendChild(btn);
-        }
-        wrap.appendChild(nextCard);
+        this._renderNextAction(nextCard, rows, band, gapsData);
+        overview.appendChild(nextCard);
+        this._nextActionRefresh = (data) => {
+            if (nextCard.isConnected) this._renderNextAction(nextCard, rows, band, data);
+        };
 
         // Evidence tiles were dropped in 6.0.0: the coverage card above
         // carries the live numbers.

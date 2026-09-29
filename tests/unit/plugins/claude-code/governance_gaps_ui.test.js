@@ -95,11 +95,14 @@ test('gaps list: install_plugin fix runs the existing install API, then refreshe
   G._fillGaps = () => {};
   const filled = [];
   G._fillGaps = (card, data) => filled.push(data);
+  const actionRefreshed = [];
+  G._nextActionRefresh = (data) => actionRefreshed.push(data);
   const card = {};
-  const btn = { disabled: false, textContent: 'Install', closest: () => card };
+  const btn = { disabled: false, textContent: 'Install', closest: (selector) => selector === '.gov-gaps-card' ? card : null };
   await G._runFix(null, 'install_plugin:claude-code', btn);
   assert.deepStrictEqual(calls, [['install', 'claude-code'], ['gaps', true]]);
   assert.strictEqual(filled.length, 1);
+  assert.strictEqual(actionRefreshed.length, 1);
   // anything else is ignored, never evaluated
   calls.length = 0;
   await G._runFix(null, 'install_plugin:../../x', btn);
@@ -107,11 +110,11 @@ test('gaps list: install_plugin fix runs the existing install API, then refreshe
   assert.deepStrictEqual(calls, []);
   // a failed refresh still resets the button
   api.getGovernanceGaps = async () => { throw new Error('down'); };
-  const btn2 = { disabled: false, textContent: 'Install', closest: () => ({}) };
+  const btn2 = { disabled: false, textContent: 'Install', closest: () => null };
   await G._runFix(null, 'install_plugin:codex', btn2);
   assert.strictEqual(btn2.disabled, false);
   assert.strictEqual(btn2.textContent, 'Install failed, retry');
-  const btn3 = { disabled: false, textContent: 'Install', closest: () => ({}) };
+  const btn3 = { disabled: false, textContent: 'Install', closest: () => null };
   api.getGovernanceGaps = async () => ({ gaps: [] });
   await G._runFix(null, 'install_plugin:codex', btn3);
   assert.strictEqual(btn3.disabled, false);
@@ -119,6 +122,29 @@ test('gaps list: install_plugin fix runs the existing install API, then refreshe
   const src = read('js/api.js');
   assert.match(src, /async getGovernanceGaps\(params = \{\}\)/);
   assert.match(src, /\/api\/governance\/gaps\?window_days=/);
+});
+
+test('install from the next-action button refreshes both overview cards', async () => {
+  const refreshed = { coverage: { pct: 100 }, gaps: [] };
+  const api = {
+    installGuard: async () => ({}),
+    getGovernanceGaps: async () => refreshed,
+  };
+  const G = loadGov({ window: { API: api }, API: api });
+  const gapsCard = {};
+  const covCard = { innerHTML: '' };
+  const overview = { querySelector: (selector) => selector === '.gov-gaps-card' ? gapsCard : covCard };
+  const btn = { disabled: false, textContent: 'Install', closest: (selector) => selector === '.gov-overview' ? overview : null };
+  const filled = [];
+  G._fillGaps = (card, data) => filled.push([card, data]);
+  const actions = [];
+  G._nextActionRefresh = (data) => actions.push(data);
+  await G._runFix(null, 'install_plugin:codex', btn);
+  assert.strictEqual(filled.length, 1);
+  assert.strictEqual(filled[0][0], gapsCard);
+  assert.strictEqual(filled[0][1], refreshed);
+  assert.match(covCard.innerHTML, /Governed coverage/);
+  assert.deepStrictEqual(actions, [refreshed]);
 });
 
 test('empty state: no gaps plus one line on what is watched', () => {
@@ -139,6 +165,29 @@ test('server strings are escaped', () => {
   assert.doesNotMatch(c, /<img/);
 });
 
+test('next action uses activity gaps and only claims no gaps for complete clean data', () => {
+  const G = loadGov();
+  const cleanBand = { unassessed: false };
+  const activity = { gaps: [{ severity: 'high', title: 'Unrecorded calls', detail: 'Four calls were missed', fix: { label: 'Connect Codex', route: 'guide-codex' } }] };
+  const top = G._nextAction([], cleanBand, activity);
+  assert.strictEqual(top.label, 'Unrecorded calls');
+  assert.strictEqual(top.note, 'Four calls were missed');
+  assert.strictEqual(top.button, 'Connect Codex');
+  assert.strictEqual(top.route, 'guide-codex');
+  assert.doesNotMatch(top.label, /No gaps/);
+  const unavailable = G._nextAction([], cleanBand, null);
+  assert.strictEqual(unavailable.label, 'Review current enforcement');
+  assert.doesNotMatch(unavailable.label, /No gaps/);
+  assert.doesNotMatch(G._nextAction([], cleanBand, { gaps: [], partial: true }).label, /No gaps/);
+  assert.strictEqual(G._nextAction([], cleanBand, { coverage: { pct: null }, gaps: [], partial: false }).label, 'Review current enforcement');
+  assert.strictEqual(G._nextAction([], cleanBand, { coverage: {}, gaps: [], partial: false }).label, 'Review current enforcement');
+  assert.strictEqual(G._nextAction([], cleanBand, { coverage: { pct: NaN }, gaps: [], partial: false }).label, 'Review current enforcement');
+  assert.strictEqual(G._nextAction([], cleanBand, { coverage: { pct: Infinity }, gaps: [], partial: false }).label, 'Review current enforcement');
+  assert.match(G._nextAction([], cleanBand, { coverage: { pct: 100 }, gaps: [] }).label, /^No gaps:/);
+  // A concrete activity gap takes priority over a setup control's gap.
+  assert.strictEqual(G._nextAction([{ gap: true, label: 'Setup gap', note: 'Enable it', nav: 'settings' }], cleanBand, activity).label, 'Unrecorded calls');
+});
+
 test('overview leads; next action stays visible; the 7 setup controls sit in collapsed details', () => {
   const src = read('js/pages/governance.js');
   const r = src.slice(src.indexOf('async render(container) {'));
@@ -146,7 +195,7 @@ test('overview leads; next action stays visible; the 7 setup controls sit in col
   assert.match(r, /clSummary\.textContent = 'Initial setup checklist ' \+ \(counts\.on \+ counts\.native\) \+ '\/' \+ rows\.length/);
   assert.doesNotMatch(r, /checklist\.open\s*=\s*true|setAttribute\('open'/);
   // Coverage and gaps share the initial overview skeleton before the gather
-  // request; the action follows it outside the collapsed checklist.
+  // request; the action joins them after both requests resolve.
   const iCov = r.indexOf("covCard.className = 'gov-card gov-cov-card'");
   const iGaps = r.indexOf("gapsCard.className = 'gov-card gov-gaps-card'");
   const iAwait = r.indexOf('await this._gather()');
@@ -156,8 +205,10 @@ test('overview leads; next action stays visible; the 7 setup controls sit in col
   assert.match(r, /wrap\.appendChild\(overview\)/);
   assert.match(r, /wrap\.insertBefore\(intro, overview\)/);
   assert.match(r, /covCard\.innerHTML = this\._coverageSkeletonHtml\(\)/);
-  assert.match(r, /gapsPromise\.catch\(\(\) => null\)\.then\(\(gapsData\) => \{/);
-  const iAction = r.indexOf('wrap.appendChild(nextCard)');
+  assert.match(r, /const gapsDataPromise = Promise\.resolve\(gapsPromise\)\.catch\(\(\) => null\)/);
+  assert.match(r, /gapsDataPromise\.then\(\(gapsData\) => \{/);
+  assert.match(r, /const gapsData = await gapsDataPromise/);
+  const iAction = r.indexOf('overview.appendChild(nextCard)');
   const iList = r.indexOf('wrap.appendChild(checklist)');
   const iMeta = r.indexOf('wrap.appendChild(meta)');
   assert.ok(iCov > 0 && iCov < iGaps && iGaps < iAction && iAction < iList && iList < iMeta);
@@ -165,15 +216,15 @@ test('overview leads; next action stays visible; the 7 setup controls sit in col
   assert.doesNotMatch(r, /clBody\.appendChild\(nextCard\)/);
   assert.match(r, /clBody\.appendChild\(list\)/);
   assert.match(r, /this\.FRAMEWORKS/);
-  assert.match(read('index.html'), /governance\.js\?v=28/);
+  assert.match(read('index.html'), /governance\.js\?v=29/);
 });
 
 test('governance uses available desktop width and collapses its overview on narrow screens', () => {
   const src = read('js/pages/governance.js');
   assert.match(src, /\.gov-wrap\{width:100%;max-width:1180px;margin-inline:auto;box-sizing:border-box;\}/);
-  assert.match(src, /\.gov-overview\{display:grid;grid-template-columns:minmax\(260px,\.75fr\) minmax\(0,1\.5fr\)/);
+  assert.match(src, /\.gov-overview\{display:grid;grid-template-areas:"coverage gaps" "action gaps";grid-template-columns:minmax\(260px,\.75fr\) minmax\(0,1\.5fr\)/);
   assert.match(src, /\.gov-overview>\.gov-card\{min-width:0;margin-bottom:0;\}/);
-  assert.match(src, /@media \(max-width:900px\)\{\.gov-overview\{grid-template-columns:minmax\(0,1fr\);\}\}/);
+  assert.match(src, /@media \(max-width:900px\)\{\.gov-overview\{grid-template-areas:"coverage" "gaps" "action";grid-template-columns:minmax\(0,1fr\);\}\}/);
   assert.match(src, /@media \(max-width:600px\)\{\.gov-gap\{flex-wrap:wrap;/);
 });
 
