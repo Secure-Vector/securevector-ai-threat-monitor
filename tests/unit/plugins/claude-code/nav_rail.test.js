@@ -192,7 +192,7 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(html, /pages\/policies\.js\?v=\d+/);
   assert.match(html, /sidebar\.js\?v=181/);
   assert.match(html, /styles\.css\?v=459/);
-  assert.match(html, /app\.js\?v=71/);
+  assert.match(html, /app\.js\?v=72/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -230,7 +230,7 @@ test('governance credits a control only on current evidence', () => {
   assert.match(gov, /no agent has run in the last 7 days/);
   // an absent setting is unknown, never a pass
   assert.match(gov, /has never been configured on this device, so it cannot be reported as enforced/);
-  assert.match(read('index.html'), /governance\.js\?v=26/);
+  assert.match(read('index.html'), /governance\.js\?v=27/);
 });
 
 test('posture is computed once, in governance, and the rail no longer reads it', () => {

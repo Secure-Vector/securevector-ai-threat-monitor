@@ -150,7 +150,7 @@ test('initial setup checklist: the 7 controls sit in a collapsed <details> with 
   assert.match(r, /clBody\.appendChild\(nextCard\)/);
   assert.match(r, /clBody\.appendChild\(list\)/);
   assert.match(r, /this\.FRAMEWORKS/);
-  assert.match(read('index.html'), /governance\.js\?v=26/);
+  assert.match(read('index.html'), /governance\.js\?v=27/);
 });
 
 test('governance uses the available desktop width and remains bounded', () => {
@@ -182,7 +182,7 @@ test('Claude coordination tools are not reported as unrecorded; Agent still is',
   for (const n of ['Agent', 'Task', 'Bash']) assert.ok(!TS.UNCHECKED_IGNORE.includes(n), n);
   const step = { gen: { tool_use_names: ['SendMessage', 'SendMessage', 'Agent'] }, tools: [] };
   assert.deepStrictEqual(JSON.parse(JSON.stringify(TS.unchecked(step))), [{ name: 'Agent', count: 1 }]);
-  assert.match(read('index.html'), /trace-steps\.js\?v=10/);
+  assert.match(read('index.html'), /trace-steps\.js\?v=11/);
 });
 
 test('Tool Permissions links to Tool Activity, and the palette files it under Policies', () => {
