@@ -231,6 +231,7 @@ const GovernancePage = {
             '@media (max-width:900px){.gov-overview{grid-template-areas:"coverage" "gaps" "action";grid-template-columns:minmax(0,1fr);}}',
             '@media (max-width:600px){.gov-gap{flex-wrap:wrap;}.gov-gap-fix,.gov-gap-hint{margin-left:38px;max-width:calc(100% - 38px);text-align:left;}.gov-next{flex-wrap:wrap;}.gov-next-btn{margin-left:0;}}',
             '.gov-checklist>summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--text-primary);padding:14px 20px;list-style:revert;}',
+            '.gov-checklist-help{display:block;margin-top:3px;font-size:11px;font-weight:400;line-height:1.4;color:var(--text-muted);}',
             '.gov-checklist{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;margin-bottom:16px;}',
             '.gov-checklist[open]>summary{border-bottom:1px solid var(--border-default);}',
             '.gov-checklist-body{padding:14px 14px 0;}',
@@ -588,7 +589,11 @@ const GovernancePage = {
         const checklist = document.createElement('details');
         checklist.className = 'gov-checklist';
         const clSummary = document.createElement('summary');
-        clSummary.textContent = 'Initial setup checklist ' + (counts.on + counts.native) + '/' + rows.length;
+        clSummary.textContent = 'Protection controls · ' + (counts.on + counts.native) + '/' + rows.length + ' active';
+        const clHelp = document.createElement('span');
+        clHelp.className = 'gov-checklist-help';
+        clHelp.textContent = 'Configuration status only. Recent enforcement coverage and missed calls are shown above.';
+        clSummary.appendChild(clHelp);
         checklist.appendChild(clSummary);
         const clBody = document.createElement('div'); clBody.className = 'gov-checklist-body';
         checklist.appendChild(clBody);

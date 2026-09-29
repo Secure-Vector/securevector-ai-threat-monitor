@@ -192,7 +192,11 @@ test('overview leads; next action stays visible; the 7 setup controls sit in col
   const src = read('js/pages/governance.js');
   const r = src.slice(src.indexOf('async render(container) {'));
   assert.match(r, /document\.createElement\('details'\)/);
-  assert.match(r, /clSummary\.textContent = 'Initial setup checklist ' \+ \(counts\.on \+ counts\.native\) \+ '\/' \+ rows\.length/);
+  assert.match(r, /clSummary\.textContent = 'Protection controls · ' \+ \(counts\.on \+ counts\.native\) \+ '\/' \+ rows\.length \+ ' active'/);
+  assert.match(r, /clHelp\.textContent = 'Configuration status only\. Recent enforcement coverage and missed calls are shown above\.'/);
+  assert.match(r, /clSummary\.appendChild\(clHelp\)/);
+  assert.match(src, /\.gov-checklist-help\{display:block/);
+  assert.doesNotMatch(src, /Initial setup checklist/);
   assert.doesNotMatch(r, /checklist\.open\s*=\s*true|setAttribute\('open'/);
   // Coverage and gaps share the initial overview skeleton before the gather
   // request; the action joins them after both requests resolve.
@@ -216,7 +220,7 @@ test('overview leads; next action stays visible; the 7 setup controls sit in col
   assert.doesNotMatch(r, /clBody\.appendChild\(nextCard\)/);
   assert.match(r, /clBody\.appendChild\(list\)/);
   assert.match(r, /this\.FRAMEWORKS/);
-  assert.match(read('index.html'), /governance\.js\?v=29/);
+  assert.match(read('index.html'), /governance\.js\?v=30/);
 });
 
 test('governance uses available desktop width and collapses its overview on narrow screens', () => {
