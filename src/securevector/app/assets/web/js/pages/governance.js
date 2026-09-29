@@ -155,6 +155,8 @@ const GovernancePage = {
             '@keyframes gov-in{from{opacity:0;transform:translateY(7px);}to{opacity:1;transform:none;}}',
             '.gov-wrap{width:100%;max-width:1180px;margin-inline:auto;box-sizing:border-box;}',
             '.gov-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--elevate-1);}',
+            '.gov-overview{display:grid;grid-template-columns:minmax(260px,.75fr) minmax(0,1.5fr);gap:16px;align-items:stretch;margin-bottom:16px;}',
+            '.gov-overview>.gov-card{min-width:0;margin-bottom:0;}',
             // v5 posture hero — the signature card gets the deeper elevation
             // and a hairline accent so the score reads as the page centerpiece.
             '.gov-hero{padding:22px 24px;box-shadow:var(--elevate-2);}',
@@ -184,6 +186,7 @@ const GovernancePage = {
             '.gov-stat i{width:8px;height:8px;border-radius:2px;display:inline-block;font-style:normal;}',
             // Next-action card — the page's to-do, not just a report.
             '.gov-next{display:flex;align-items:center;gap:14px;border-left:3px solid var(--next-color,var(--accent-primary));}',
+            '.gov-next>div{flex:1;min-width:0;}',
             '.gov-next-eyebrow{font-family:var(--font-mono);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--next-color,var(--accent-primary));font-weight:700;}',
             '.gov-next-lab{font-family:var(--font-display);font-weight:650;font-size:14px;color:var(--text-primary);margin-top:2px;}',
             '.gov-next-note{font-size:12px;color:var(--text-secondary);margin-top:3px;line-height:1.5;}',
@@ -208,6 +211,8 @@ const GovernancePage = {
             '.gov-cov-pct{font-family:var(--font-mono);font-weight:700;font-size:40px;line-height:1;letter-spacing:-0.03em;color:var(--text-primary);font-variant-numeric:tabular-nums;}',
             '.gov-cov-of{font-size:13px;color:var(--text-secondary);}',
             '.gov-cov-delta{font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);}',
+            '.gov-cov-track{height:8px;margin-top:18px;border-radius:999px;background:var(--border-default);overflow:hidden;}',
+            '.gov-cov-fill{display:block;height:100%;border-radius:inherit;background:var(--accent-primary);}',
             '.gov-cov-empty{font-family:var(--font-display);font-weight:650;font-size:18px;color:var(--text-primary);margin-top:8px;}',
             '.gov-cov-note{font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5;}',
             '.gov-gap{display:flex;align-items:flex-start;gap:12px;border-top:1px solid var(--border-default);padding:13px 4px;}',
@@ -220,6 +225,8 @@ const GovernancePage = {
             '.gov-gap-fix{flex:none;align-self:center;border:1px solid var(--border-default);border-radius:8px;padding:6px 12px;cursor:pointer;background:transparent;color:var(--text-primary);font:600 12px var(--font-display,inherit);}',
             '.gov-gap-fix:hover,.gov-gap-fix:focus-visible{border-color:var(--accent-primary);}',
             '.gov-gap-hint{flex:none;align-self:center;max-width:220px;font-size:11.5px;color:var(--text-secondary);text-align:right;}',
+            '@media (max-width:900px){.gov-overview{grid-template-columns:minmax(0,1fr);}}',
+            '@media (max-width:600px){.gov-gap{flex-wrap:wrap;}.gov-gap-fix,.gov-gap-hint{margin-left:38px;max-width:calc(100% - 38px);text-align:left;}.gov-next{flex-wrap:wrap;}.gov-next-btn{margin-left:0;}}',
             '.gov-checklist>summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--text-primary);padding:14px 20px;list-style:revert;}',
             '.gov-checklist{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;margin-bottom:16px;}',
             '.gov-checklist[open]>summary{border-bottom:1px solid var(--border-default);}',
@@ -356,7 +363,7 @@ const GovernancePage = {
             html += '<div class="gov-cov-note">' + e(why) + ' Coverage counts the tool calls Claude Code and Codex record in their own transcripts.</div>';
             return html;
         }
-        const pct = Number(cov.pct);
+        const pct = Math.max(0, Math.min(100, Number(cov.pct)));
         const n = Number(cov.governed_calls) || 0, m = Number(cov.total_calls) || 0;
         html += '<div class="gov-cov-row"><div class="gov-cov-pct">' + e(pct.toFixed(pct % 1 ? 1 : 0)) + '<span style="color:var(--text-muted);font-size:24px;">%</span></div>';
         html += '<div><div class="gov-cov-of">' + e(n.toLocaleString()) + ' of ' + e(m.toLocaleString()) + ' tool call' + (m === 1 ? ' was' : 's were') + ' checked</div>';
@@ -370,6 +377,8 @@ const GovernancePage = {
             html += '<div class="gov-cov-delta">' + (d === 0 ? 'No change' : e(arrow + ' ' + Math.abs(d) + ' pts')) + ' vs previous ' + e(days) + ' days' + (cov.prev_partial ? ' (partial)' : '') + '</div>';
         }
         html += '</div></div>';
+        html += '<div class="gov-cov-track" role="progressbar" aria-label="Governed coverage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + e(pct) + '">' +
+            '<span class="gov-cov-fill" style="width:' + e(pct) + '%"></span></div>';
         html += '<div class="gov-cov-note">Calls the agents made (from their transcripts) that a SecureVector Guard hook checked.</div>';
         if (data && data.partial) html += '<div class="gov-cov-partial gov-cov-note">Still checking older sessions. Reload in a moment for the full count.</div>';
         return html;
@@ -452,12 +461,14 @@ const GovernancePage = {
         // gaps call answers, so the page is never blank while it runs. The
         // 7-control setup checklist follows, collapsed.
         const wrap = document.createElement('div'); wrap.className = 'gov-wrap';
+        const overview = document.createElement('div'); overview.className = 'gov-overview';
         const covCard = document.createElement('div'); covCard.className = 'gov-card gov-cov-card';
         covCard.innerHTML = this._coverageSkeletonHtml();
-        wrap.appendChild(covCard);
+        overview.appendChild(covCard);
         const gapsCard = document.createElement('div'); gapsCard.className = 'gov-card gov-gaps-card';
         gapsCard.innerHTML = this._gapsSkeletonHtml();
-        wrap.appendChild(gapsCard);
+        overview.appendChild(gapsCard);
+        wrap.appendChild(overview);
         container.appendChild(wrap);
         const gapsPromise = (window.API && API.getGovernanceGaps) ? API.getGovernanceGaps({ window_days: 7 }) : Promise.resolve(null);
         gapsPromise.catch(() => null).then((gapsData) => {
@@ -509,7 +520,7 @@ const GovernancePage = {
         };
         applyIntro();
         inHead.addEventListener('click', () => { introOpen = !introOpen; try { localStorage.setItem(introKey, introOpen ? '1' : '0'); } catch (_) {} applyIntro(); });
-        wrap.insertBefore(intro, covCard);
+        wrap.insertBefore(intro, overview);
 
         // Band + segmented posture meter
         const C = { on: 'var(--success, #10b981)', native: 'var(--accent-primary, #5eadb8)', partial: 'var(--warning, #f59e0b)', gap: 'var(--danger, #ef4444)', off: 'var(--text-muted, #7d8590)' };
@@ -655,7 +666,7 @@ const GovernancePage = {
             btn.addEventListener('click', () => this._go('blocked-ledger'));
             nextCard.appendChild(btn);
         }
-        clBody.appendChild(nextCard);
+        wrap.appendChild(nextCard);
 
         // Evidence tiles were dropped in 6.0.0: the coverage card above
         // carries the live numbers.

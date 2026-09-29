@@ -51,6 +51,16 @@ test('coverage: null pct shows "Not enough data yet" with the reason, never 100%
   assert.match(G._coverageHtml(null), /Not enough data yet/);
 });
 
+test('coverage: accessible progress reflects a percentage clamped to 0..100', () => {
+  const G = loadGov();
+  for (const [input, expected] of [[75, 75], [150, 100], [-5, 0]]) {
+    const html = G._coverageHtml(cov({ pct: input }));
+    assert.match(html, new RegExp('role="progressbar" aria-label="Governed coverage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + expected + '"'));
+    assert.match(html, new RegExp('class="gov-cov-fill" style="width:' + expected + '%"'));
+  }
+  assert.doesNotMatch(G._coverageHtml(cov({ pct: null })), /role="progressbar"/);
+});
+
 test('gaps list: severity icon, title, detail and Fix buttons carrying route or action', () => {
   const G = loadGov();
   const data = { window_days: 7, coverage: {}, gaps: [
@@ -129,33 +139,42 @@ test('server strings are escaped', () => {
   assert.doesNotMatch(c, /<img/);
 });
 
-test('initial setup checklist: the 7 controls sit in a collapsed <details> with the score', () => {
+test('overview leads; next action stays visible; the 7 setup controls sit in collapsed details', () => {
   const src = read('js/pages/governance.js');
   const r = src.slice(src.indexOf('async render(container) {'));
   assert.match(r, /document\.createElement\('details'\)/);
   assert.match(r, /clSummary\.textContent = 'Initial setup checklist ' \+ \(counts\.on \+ counts\.native\) \+ '\/' \+ rows\.length/);
   assert.doesNotMatch(r, /checklist\.open\s*=\s*true|setAttribute\('open'/);
-  // coverage and gaps lead as skeletons before anything is awaited, the
-  // checklist follows, the framework footer stays
+  // Coverage and gaps share the initial overview skeleton before the gather
+  // request; the action follows it outside the collapsed checklist.
   const iCov = r.indexOf("covCard.className = 'gov-card gov-cov-card'");
   const iGaps = r.indexOf("gapsCard.className = 'gov-card gov-gaps-card'");
   const iAwait = r.indexOf('await this._gather()');
   assert.ok(iGaps < r.indexOf('container.appendChild(wrap)') && r.indexOf('container.appendChild(wrap)') < iAwait);
+  assert.match(r, /overview\.appendChild\(covCard\)/);
+  assert.match(r, /overview\.appendChild\(gapsCard\)/);
+  assert.match(r, /wrap\.appendChild\(overview\)/);
+  assert.match(r, /wrap\.insertBefore\(intro, overview\)/);
   assert.match(r, /covCard\.innerHTML = this\._coverageSkeletonHtml\(\)/);
   assert.match(r, /gapsPromise\.catch\(\(\) => null\)\.then\(\(gapsData\) => \{/);
+  const iAction = r.indexOf('wrap.appendChild(nextCard)');
   const iList = r.indexOf('wrap.appendChild(checklist)');
   const iMeta = r.indexOf('wrap.appendChild(meta)');
-  assert.ok(iCov > 0 && iCov < iGaps && iGaps < iList && iList < iMeta);
+  assert.ok(iCov > 0 && iCov < iGaps && iGaps < iAction && iAction < iList && iList < iMeta);
   assert.match(r, /clBody\.appendChild\(bandCard\)/);
-  assert.match(r, /clBody\.appendChild\(nextCard\)/);
+  assert.doesNotMatch(r, /clBody\.appendChild\(nextCard\)/);
   assert.match(r, /clBody\.appendChild\(list\)/);
   assert.match(r, /this\.FRAMEWORKS/);
-  assert.match(read('index.html'), /governance\.js\?v=27/);
+  assert.match(read('index.html'), /governance\.js\?v=28/);
 });
 
-test('governance uses the available desktop width and remains bounded', () => {
+test('governance uses available desktop width and collapses its overview on narrow screens', () => {
   const src = read('js/pages/governance.js');
   assert.match(src, /\.gov-wrap\{width:100%;max-width:1180px;margin-inline:auto;box-sizing:border-box;\}/);
+  assert.match(src, /\.gov-overview\{display:grid;grid-template-columns:minmax\(260px,\.75fr\) minmax\(0,1\.5fr\)/);
+  assert.match(src, /\.gov-overview>\.gov-card\{min-width:0;margin-bottom:0;\}/);
+  assert.match(src, /@media \(max-width:900px\)\{\.gov-overview\{grid-template-columns:minmax\(0,1fr\);\}\}/);
+  assert.match(src, /@media \(max-width:600px\)\{\.gov-gap\{flex-wrap:wrap;/);
 });
 
 test('no em dashes in the governance UI copy', () => {
