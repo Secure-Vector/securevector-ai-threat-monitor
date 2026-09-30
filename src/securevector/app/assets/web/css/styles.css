@@ -1188,6 +1188,24 @@ html.desktop-mac .sidebar-collapse-btn {
     display: none;
 }
 
+/* Rail-only (sidebar-context-empty): unlike a real collapse, the foot stays
+   visible here — just compacted so it fits the 72px rail. Theme drops to its
+   chevron-only trigger (name/current already hidden below); GitHub/Discord
+   stack vertically instead of sitting beside a theme row with no room left. */
+.sidebar.sidebar-context-empty .sidebar-foot {
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin: 6px auto 8px;
+}
+.sidebar.sidebar-context-empty .sidebar-foot .sidebar-theme-fixed {
+    width: 100%;
+    margin: 0;
+}
+.sidebar.sidebar-context-empty .sidebar-links {
+    flex-direction: column;
+}
+
 /* Milestone card: shown once, the first time the app has earned the
    question. Top right under the header, where it does not sit on the
    Guardian bot or the toast stack (both bottom right). Dismissed for good
@@ -1350,18 +1368,22 @@ html.desktop-mac .sidebar-collapse-btn {
 
 /* Icon-rail mode: swatch only, centred; the menu widens to fit its labels
    since the 64px rail cannot hold them. */
-.sidebar.collapsed .sidebar-theme-trigger {
+.sidebar.collapsed .sidebar-theme-trigger,
+.sidebar.sidebar-context-empty .sidebar-theme-trigger {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
 }
 
 .sidebar.collapsed .sidebar-theme-name,
-.sidebar.collapsed .sidebar-theme-current {
+.sidebar.collapsed .sidebar-theme-current,
+.sidebar.sidebar-context-empty .sidebar-theme-name,
+.sidebar.sidebar-context-empty .sidebar-theme-current {
     display: none;
 }
 
-.sidebar.collapsed .sv-theme-menu {
+.sidebar.collapsed .sv-theme-menu,
+.sidebar.sidebar-context-empty .sv-theme-menu {
     right: auto;
     min-width: 132px;
 }
@@ -1477,7 +1499,8 @@ html.desktop-mac .sidebar-collapse-btn {
    overrides need !important to win. The fold-toggle header hides entirely —
    an uppercase label can't fit a 64px rail (it visibly bled into the page);
    the dot chips themselves are the collapsed-state signal. */
-.sidebar.collapsed #sidebar-status-toggle {
+.sidebar.collapsed #sidebar-status-toggle,
+.sidebar.sidebar-context-empty #sidebar-status-toggle {
     display: none !important;
 }
 .sidebar.collapsed #cc-plugin-active-banner,
@@ -1485,7 +1508,13 @@ html.desktop-mac .sidebar-collapse-btn {
 .sidebar.collapsed #copilot-plugin-active-banner,
 .sidebar.collapsed #opencode-plugin-active-banner,
 .sidebar.collapsed #antigravity-plugin-active-banner,
-.sidebar.collapsed #siem-active-banner {
+.sidebar.collapsed #siem-active-banner,
+.sidebar.sidebar-context-empty #cc-plugin-active-banner,
+.sidebar.sidebar-context-empty #codex-plugin-active-banner,
+.sidebar.sidebar-context-empty #copilot-plugin-active-banner,
+.sidebar.sidebar-context-empty #opencode-plugin-active-banner,
+.sidebar.sidebar-context-empty #antigravity-plugin-active-banner,
+.sidebar.sidebar-context-empty #siem-active-banner {
     width: 36px !important;
     margin: 6px auto 0 !important;
     padding: 7px 0 !important;
@@ -1496,7 +1525,13 @@ html.desktop-mac .sidebar-collapse-btn {
 .sidebar.collapsed #copilot-plugin-active-banner > :not([aria-hidden]),
 .sidebar.collapsed #opencode-plugin-active-banner > :not([aria-hidden]),
 .sidebar.collapsed #antigravity-plugin-active-banner > :not([aria-hidden]),
-.sidebar.collapsed #siem-active-banner > :not([aria-hidden]) {
+.sidebar.collapsed #siem-active-banner > :not([aria-hidden]),
+.sidebar.sidebar-context-empty #cc-plugin-active-banner > :not([aria-hidden]),
+.sidebar.sidebar-context-empty #codex-plugin-active-banner > :not([aria-hidden]),
+.sidebar.sidebar-context-empty #copilot-plugin-active-banner > :not([aria-hidden]),
+.sidebar.sidebar-context-empty #opencode-plugin-active-banner > :not([aria-hidden]),
+.sidebar.sidebar-context-empty #antigravity-plugin-active-banner > :not([aria-hidden]),
+.sidebar.sidebar-context-empty #siem-active-banner > :not([aria-hidden]) {
     display: none;
 }
 .sidebar.collapsed #cc-plugin-banner-text,
@@ -1504,7 +1539,13 @@ html.desktop-mac .sidebar-collapse-btn {
 .sidebar.collapsed #copilot-plugin-banner-text,
 .sidebar.collapsed #opencode-plugin-banner-text,
 .sidebar.collapsed #antigravity-plugin-banner-text,
-.sidebar.collapsed #siem-banner-text {
+.sidebar.collapsed #siem-banner-text,
+.sidebar.sidebar-context-empty #cc-plugin-banner-text,
+.sidebar.sidebar-context-empty #codex-plugin-banner-text,
+.sidebar.sidebar-context-empty #copilot-plugin-banner-text,
+.sidebar.sidebar-context-empty #opencode-plugin-banner-text,
+.sidebar.sidebar-context-empty #antigravity-plugin-banner-text,
+.sidebar.sidebar-context-empty #siem-banner-text {
     display: none;
 }
 
@@ -8875,8 +8916,10 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-trace-session-path { margin-left: auto; opacity: .72; font-size: 9px; }
 .terminals-trace { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 12px; }
 .terminals-trace-main { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 2px; }
-.terminals-trace-id { color: var(--accent-primary, #2dd4bf); opacity: .9; }
-.terminals-trace-meta { opacity: .65; font-size: 11px; }
+.terminals-trace-id { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent-primary, #2dd4bf); opacity: .9; }
+.terminals-trace-meta { flex: 1 1 auto; min-width: 0; opacity: .65; font-size: 11px; }
+.terminals-trace-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 3px 8px; min-width: 0; }
+.terminals-trace-foot .terminals-steps-toggle { flex: 0 0 auto; }
 .terminals-traces-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .terminals-traces-head h3 { margin-bottom: 0; }
 .terminals-traces-all { font-size: 10px; font-weight: 400; text-transform: uppercase; text-decoration: none; opacity: .6; color: inherit; }

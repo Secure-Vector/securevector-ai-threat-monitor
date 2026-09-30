@@ -5383,9 +5383,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
                         <span class="terminals-dot sv-status-${risk}" role="img" aria-label="${this._esc(riskLabel)}"></span>
                         <span class="terminals-trace-main">
                           <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">Run ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span></span>
-                          <span class="terminals-trace-meta">${this._esc(metaParts.join(' · '))}</span>
+                          <span class="terminals-trace-foot">
+                            <span class="terminals-trace-meta">${this._esc(metaParts.join(' · '))}</span>
+                            <button type="button" class="terminals-trace-open terminals-steps-toggle" data-trace-id="${this._esc(r.trace_id)}" data-fk="t:${this._esc(r.trace_id)}" aria-expanded="${open ? 'true' : 'false'}"${open ? ` aria-controls="terminals-steps-${this._esc(r.trace_id)}"` : ''}>${open ? 'Hide steps ▴' : 'Show steps ▾'}</button>
+                          </span>
                         </span>
-                        <button type="button" class="terminals-trace-open terminals-steps-toggle" data-trace-id="${this._esc(r.trace_id)}" data-fk="t:${this._esc(r.trace_id)}" aria-expanded="${open ? 'true' : 'false'}"${open ? ` aria-controls="terminals-steps-${this._esc(r.trace_id)}"` : ''}>${open ? 'Hide steps ▴' : 'Show steps ▾'}</button>
                       </div>${open ? `<div class="terminals-steps" id="terminals-steps-${this._esc(r.trace_id)}">${this._stepsPanelHtml(r.trace_id)}</div>` : ''}`;
                     }).join('')}</div>` : '<span class="terminals-empty">No traces yet.</span>');
         const last = this._tracesPaint;
