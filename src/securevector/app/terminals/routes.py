@@ -100,7 +100,26 @@ async def _decorate(manager: TerminalManager, items):
     for item in items:
         item["governed_at_launch"] = not (item["id"] in ungoverned or item["id"] in audited)
     await _with_spend(manager, items)
+    await _with_counts(manager, items)
     return items
+
+
+async def _with_counts(manager: TerminalManager, items) -> None:
+    """Tool calls and blocked calls per session for the board's facts line.
+    One grouped read for the page; a failure leaves the fields off."""
+    ids = [i.get("session_id") for i in items if i.get("session_id")]
+    if not ids:
+        return
+    try:
+        counts = await manager.store.verdict_counts(ids)
+    except Exception:  # noqa: BLE001 - the board must render without counts
+        logger.debug("could not read verdict counts for the board", exc_info=True)
+        return
+    for item in items:
+        row = counts.get(item.get("session_id") or "")
+        if row:
+            item["tool_calls"] = row["calls"]
+            item["blocked_calls"] = row["blocked"]
 
 
 async def _with_spend(manager: TerminalManager, items) -> None:

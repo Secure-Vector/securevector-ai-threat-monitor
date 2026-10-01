@@ -546,3 +546,70 @@ test('clicking orphaned narrows the board through the search everyone can see', 
   assert.match(body, /this\._taskQuery = 'interrupted'/);
   assert.match(body, /this\._renderTaskList\(\)/);
 });
+
+// --- Agents list: folder groups and the facts line ---------------------------
+
+const mem = () => { const d = {}; return { getItem: (k) => (k in d ? d[k] : null), setItem: (k, v) => { d[k] = String(v); } }; };
+
+test('sessions group under the workspace folder name with a count, "Other" last', () => {
+  const els = boardEls();
+  const { Page } = loadPage(els);
+  Page._store = () => mem();
+  Page._tasks = [
+    boardTask({ id: 'a', workspace: '/Users/me/alpha' }),
+    boardTask({ id: 'b', workspace: '/Users/me/beta' }),
+    boardTask({ id: 'c', workspace: '/other/alpha' }),
+    boardTask({ id: 'd', workspace: '' }),
+  ];
+  const html = renderBoard(Page, els);
+  assert.match(html, /<span class="terminals-group-name">alpha<\/span>\s*<span class="terminals-group-count">2<\/span>/);
+  assert.match(html, /<span class="terminals-group-name">beta<\/span>\s*<span class="terminals-group-count">1<\/span>/);
+  assert.match(html, /<span class="terminals-group-name">Other<\/span>\s*<span class="terminals-group-count">1<\/span>/);
+  assert.ok(html.indexOf('>Other<') > html.indexOf('>beta<'), 'Other sorts last');
+  assert.match(html, /aria-expanded="true"/);
+});
+
+test('collapsed folders persist, and the selected session folder stays open', () => {
+  const els = boardEls();
+  const { Page } = loadPage(els);
+  const store = mem();
+  Page._store = () => store;
+  Page._saveCollapsedFolders(new Set(['alpha', 'beta']));
+  assert.deepStrictEqual([...Page._collapsedFolders()].sort(), ['alpha', 'beta']);
+  Page._tasks = [boardTask({ id: 'a', workspace: '/x/alpha' }), boardTask({ id: 'b', workspace: '/x/beta' })];
+  Page._attached = 'a';
+  const html = renderBoard(Page, els);
+  const alpha = html.match(/<section class="terminals-group" data-folder="alpha">[\s\S]*?<div class="terminals-group-cards"[^>]*>/)[0];
+  const beta = html.match(/<section class="terminals-group" data-folder="beta">[\s\S]*?<div class="terminals-group-cards"[^>]*>/)[0];
+  assert.doesNotMatch(alpha, /hidden>?$/, 'the selected session folder is open');
+  assert.match(alpha, /aria-expanded="true"/);
+  assert.match(beta, /aria-expanded="false"/);
+  assert.match(beta, /hidden>$/);
+  // Unreadable storage must not break the page.
+  Page._store = () => ({ getItem() { throw new Error('x'); }, setItem() { throw new Error('x'); } });
+  assert.strictEqual(Page._collapsedFolders().size, 0);
+  Page._saveCollapsedFolders(new Set(['a']));
+});
+
+test('the facts line shows cost, calls, blocked and age, and omits what is missing', () => {
+  const { Page } = loadPage(boardEls());
+  const t = boardTask({
+    spend_usd: 0.14, spend_requests: 3, tool_calls: 38, blocked_calls: 2,
+    created_at: new Date(Date.now() - 12 * 60000).toISOString(),
+  });
+  const text = Page._factsHtml(t).replace(/<[^>]+>/g, '');
+  assert.strictEqual(text, '$0.14 · 38 calls · 2 blocked · 12m');
+  const bare = Page._factsHtml(boardTask({ created_at: new Date(Date.now() - 3 * 3600000).toISOString() })).replace(/<[^>]+>/g, '');
+  assert.strictEqual(bare, '3h', 'no cost, calls or blocked data leaves only the age');
+  assert.match(Page._factsHtml(boardTask({ tool_calls: 1 })), /1 call</);
+  assert.strictEqual(Page._factsHtml({}), '');
+});
+
+test('only a blocked count above zero is coloured', () => {
+  const { Page } = loadPage(boardEls());
+  assert.match(Page._factsHtml(boardTask({ tool_calls: 5, blocked_calls: 2 })), /terminals-task-blocked is-danger/);
+  assert.doesNotMatch(Page._factsHtml(boardTask({ tool_calls: 5, blocked_calls: 0 })), /is-danger/);
+  const css = read('css/styles.css');
+  assert.match(css, /\.terminals-task-blocked\.is-danger \{ color: var\(--danger\); \}/);
+  assert.doesNotMatch(css, /\.terminals-task-(calls|age|facts)[^{]*\{[^}]*var\(--danger\)/);
+});

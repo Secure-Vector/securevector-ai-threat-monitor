@@ -107,6 +107,7 @@ const TerminalsPage = {
         this._adoptable = null;
         this._adoptAt = 0;
         this._adoptExpanded = false;
+        this._adoptReviewOpen = false;
         this._governingId = null;
         this._adoptError = null;
         this._container = container;
@@ -692,13 +693,24 @@ ${this.CLI_BIN} stop &lt;id&gt;
             ? `<div class="terminals-adopt-error">${this._esc(this._adoptError)}</div>`
             : '';
         el.hidden = false;
-        el.innerHTML = `
+        const reviewOpen = !!this._adoptReviewOpen;
+        const line = `<button type="button" class="terminals-adopt-line" aria-expanded="${reviewOpen ? 'true' : 'false'}" aria-controls="terminals-adopt-body">${this._esc(rows.length)} ${rows.length === 1 ? 'session' : 'sessions'} not governed · <span class="terminals-adopt-review">Review</span></button>`;
+        el.innerHTML = `${line}
+          <div class="terminals-adopt-body" id="terminals-adopt-body"${reviewOpen ? '' : ' hidden'}>
           <div class="terminals-adopt-head">
             <span class="terminals-adopt-title">Running outside SecureVector</span>
             <span class="terminals-adopt-count">${this._esc(rows.length)}</span>
           </div>
           <p class="terminals-adopt-note">These sessions are reporting in but are not on your board yet.</p>
-          ${body}${toggle}${error}`;
+          ${body}${toggle}${error}
+          </div>`;
+        const lineBtn = el.querySelector('.terminals-adopt-line');
+        if (lineBtn) lineBtn.onclick = () => {
+            this._adoptReviewOpen = !this._adoptReviewOpen;
+            this._renderAdoptable();
+            const again = el.querySelector('.terminals-adopt-line');
+            if (again && again.focus) again.focus();
+        };
         el.querySelectorAll('.terminals-adopt-govern').forEach(b => {
             b.onclick = () => {
                 // Looked up by id rather than carried on the element: the row
@@ -865,6 +877,62 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
     },
 
+    OTHER_FOLDER: 'Other',
+    FOLDERS_KEY: 'sv.terminals.collapsed_folders',
+
+    /** Basename of the task's known workspace, or "Other" when it has none. */
+    _folderName(t) {
+        const known = this._knownWorkspace(t && t.workspace);
+        if (!known) return this.OTHER_FOLDER;
+        const parts = String(known).split(/[\\/]/).filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : this.OTHER_FOLDER;
+    },
+
+    _collapsedFolders() {
+        try {
+            const store = this._store();
+            const raw = store ? store.getItem(this.FOLDERS_KEY) : null;
+            const arr = raw ? JSON.parse(raw) : [];
+            return new Set(Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []);
+        } catch (e) { return new Set(); }
+    },
+
+    _saveCollapsedFolders(set) {
+        try {
+            const store = this._store();
+            if (store) store.setItem(this.FOLDERS_KEY, JSON.stringify([...set]));
+        } catch (e) { /* a preference, not state worth failing over */ }
+    },
+
+    /** Compact age since the session started: 40s, 12m, 3h, 2d. */
+    _compactAge(iso) {
+        const start = Date.parse(iso);
+        if (!start) return '';
+        const sec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+        if (sec < 60) return `${sec}s`;
+        const m = Math.floor(sec / 60);
+        if (m < 60) return `${m}m`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h`;
+        return `${Math.floor(h / 24)}d`;
+    },
+
+    /** One facts line per row: cost, tool calls, blocked count, age. Parts
+     *  with no data are left out. Only a blocked count above zero is coloured. */
+    _factsHtml(t) {
+        const parts = [];
+        const cost = this._fmtSpend(t.spend_usd);
+        if (cost) parts.push(`<span class="terminals-task-spend" title="${this._esc(String(t.spend_requests || 0))} priced request(s) for this session">${this._esc(cost)}</span>`);
+        if (typeof t.tool_calls === 'number') parts.push(`<span class="terminals-task-calls">${this._esc(t.tool_calls)} ${t.tool_calls === 1 ? 'call' : 'calls'}</span>`);
+        if (typeof t.blocked_calls === 'number') {
+            parts.push(`<span class="terminals-task-blocked${t.blocked_calls > 0 ? ' is-danger' : ''}">${this._esc(t.blocked_calls)} blocked</span>`);
+        }
+        const age = this._compactAge(t.created_at);
+        if (age) parts.push(`<span class="terminals-task-age">${this._esc(age)}</span>`);
+        if (!parts.length) return '';
+        return `<span class="terminals-task-facts">${parts.join('<span class="terminals-task-facts-sep" aria-hidden="true"> · </span>')}</span>`;
+    },
+
     _renderTaskList() {
         const el = document.getElementById('terminals-task-list');
         if (!el) return;
@@ -890,26 +958,23 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return;
         }
         this._renderBoardSummary(shown);
-        // ONE grid for every card, not a band per folder.
-        //
-        // Grouping by folder gave each folder its own row, so a folder holding
-        // a single session occupied a full row with the rest of it empty. With
-        // most folders holding one session that is the common case, not the
-        // edge: five sessions landed as rows of 1, 1 and 3, two of them three
-        // quarters empty. Reducing the wasted space is not the same as
-        // removing it, and a grid that cannot reflow a one-card group keeps
-        // producing that result.
-        //
-        // The folder is not lost, it moves onto the card where it belongs to
-        // the session rather than to a band. Cards stay sorted by folder, so
-        // sessions from one folder still sit together, they just no longer
-        // reserve a row.
+        // Cards are grouped under collapsible folder headers (name and count).
+        // Within a folder they sort newest first; the folder also stays on
+        // each card, so a card read on its own still says where it runs.
         const byFolder = [...shown].sort((a, b) => {
             const fa = String(a.workspace || ''), fb = String(b.workspace || '');
             if (fa !== fb) return fa < fb ? -1 : 1;
             return String(b.created_at || '').localeCompare(String(a.created_at || ''));
         });
-        let html = '<div class="terminals-group"><div class="terminals-group-cards">';
+        // Cards are collected per folder name (basename of the workspace) and
+        // wrapped in a collapsible group below. A task with no known folder
+        // goes under "Other", which always sorts last.
+        const groups = new Map();
+        const cardsOf = (t) => {
+            const name = this._folderName(t);
+            if (!groups.has(name)) groups.set(name, { name, cards: [], attached: false });
+            return groups.get(name);
+        };
         {
             for (const t of byFolder) {
                 const active = t.id === this._attached ? ' is-attached' : '';
@@ -970,9 +1035,6 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const unver = t.verified === false
                     ? `<span class="terminals-task-unverified" title="${this._esc(t.verified_reason || '')}" aria-label="Unverified: ${this._esc(t.verified_reason || '')}">unverified</span>`
                     : '';
-                const spend = typeof t.spend_usd === 'number'
-                    ? `<span class="terminals-task-spend" title="${this._esc(String(t.spend_requests || 0))} priced request(s) for this session">${this._esc(this._fmtSpend(t.spend_usd))}</span>`
-                    : '';
                 // Run health from the task's newest run: neutral badges, a
                 // failing one may be amber. Stuck: working with no activity.
                 const health = this._taskHealthHtml(t);
@@ -980,24 +1042,61 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const stuck = stuckMin != null
                     ? `<span class="terminals-task-stuck" title="Working, with no new tool call or transcript write">no activity for ${this._esc(String(stuckMin))} min</span>`
                     : '';
+                const facts = this._factsHtml(t);
                 const branch = typeof t.branch === 'string' && t.branch
                     ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
-                html += `
+                const grp = cardsOf(t);
+                if (t.id === this._attached) grp.attached = true;
+                grp.cards.push(`
                   <article class="terminals-task${active}" data-id="${this._esc(t.id)}">
                     <button class="terminals-task-select" data-id="${this._esc(t.id)}" aria-label="Open ${this._esc(t.title || this._label(t.executor_id))}">
                       <span class="terminals-task-title-row">${window.TaskAvatar ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 44 }) : ''}<span class="terminals-task-title">${this._esc(t.title || this._label(t.executor_id))}</span>${t.origin === 'linked' ? '<span class="terminals-task-linked">linked</span>' : ''}</span>
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
                       ${doing}
                       <span class="terminals-task-folder" title="${this._esc(t.workspace || 'This session never reported a working folder')}">${this._esc(this._knownWorkspace(t.workspace) ? this._shortPath(this._knownWorkspace(t.workspace)) : 'Folder not reported')}</span>
-                      <span class="terminals-task-meta"><span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>${unver}${health}${stuck}${spend}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
+                      <span class="terminals-task-meta"><span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>${unver}${health}${stuck}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
+                      ${facts}
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
                     ${relaunch || removable ? `<div class="terminals-task-actions">${relaunch}${removable}</div>` : ''}
-                  </article>`;
+                  </article>`);
             }
         }
-        html += '</div></div>';
+        const collapsed = this._collapsedFolders();
+        const ordered = [...groups.values()].sort((a, b) => {
+            if (a.name === this.OTHER_FOLDER) return 1;
+            if (b.name === this.OTHER_FOLDER) return -1;
+            return 0;
+        });
+        let html = '';
+        ordered.forEach((g, i) => {
+            // The folder holding the open session never hides it.
+            const open = g.attached || !collapsed.has(g.name);
+            html += `
+              <section class="terminals-group" data-folder="${this._esc(g.name)}">
+                <h3 class="terminals-group-head">
+                  <button type="button" class="terminals-group-toggle" data-folder="${this._esc(g.name)}" aria-expanded="${open ? 'true' : 'false'}" aria-controls="terminals-group-${i}">
+                    <span class="terminals-group-caret" aria-hidden="true"></span>
+                    <span class="terminals-group-name">${this._esc(g.name)}</span>
+                    <span class="terminals-group-count">${this._esc(g.cards.length)}</span>
+                  </button>
+                </h3>
+                <div class="terminals-group-cards" id="terminals-group-${i}"${open ? '' : ' hidden'}>${g.cards.join('')}</div>
+              </section>`;
+        });
         el.innerHTML = html;
+        el.querySelectorAll('.terminals-group-toggle').forEach(b => {
+            b.onclick = () => {
+                const name = b.dataset.folder;
+                const grp = groups.get(name);
+                // The open session's folder cannot be folded away.
+                if (grp && grp.attached) return;
+                const now = this._collapsedFolders();
+                if (now.has(name)) now.delete(name); else now.add(name);
+                this._saveCollapsedFolders(now);
+                this._renderTaskList();
+            };
+        });
         el.querySelectorAll('.terminals-task-select').forEach(b => {
             b.onclick = () => {
                 // The click that ends a card drag belongs to the drag, not to
@@ -1276,7 +1375,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
     _govUserSet: false,   // true once the person has clicked the toggle
     _govSections: null,   // per-section open state, once anything is remembered
     _govApplied: null,    // the last value the page knows about, per section
-    _govStacked: false,   // measured workspace cannot hold panes + governance
+    _govStacked: false,   // phone viewport: the media query stacks the column
+    _govOverlay: false,   // workspace too narrow for panes + column: strip, opens as overlay
+    _govOverlayOpen: false, // overlay shown; never persisted
     _govDrag: null,       // one cancellable pointer gesture at a time
     _govResizeObserver: null,
     _govResizeHandler: null,
@@ -3230,7 +3331,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const ws = this._workspaceEl();
         const r = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
         if (!r || !(r.width > 0)) return 0;
-        if (this._govStacked && !this._govCollapsed) return r.width;
+        if (this._govStacked) return r.width;
+        // Overlay mode: the panes always sit beside the 34px strip, open or not.
+        if (this._govOverlay) return Math.max(0, r.width - this.GOV_STRIP_W - this.GOV_GUTTER_W);
         const gov = this._govCollapsed ? this.GOV_STRIP_W : (this._govWidth || this.GOV_DEFAULT_W);
         return Math.max(0, r.width - gov - this.GOV_GUTTER_W);
     },
@@ -3460,35 +3563,48 @@ ${this.CLI_BIN} stop &lt;id&gt;
     },
 
     _bindGovDock() {
-        const { gutter, toggle } = this._govEls();
+        const { dock, gutter, toggle } = this._govEls();
         if (toggle) toggle.onclick = () => this._toggleGovDock();
+        // The overlay strip itself opens it too.
+        if (dock) dock.onclick = () => { if (this._govOverlay && !this._govOverlayOpen) this._setGovOverlayOpen(true); };
         if (gutter) {
             gutter.onpointerdown = (ev) => this._startGovDrag(ev);
             gutter.ondblclick = () => { this._setGovWidth(this.GOV_DEFAULT_W); this._persistGov(); this._fitAll(); };
             gutter.onkeydown = (ev) => this._onGovKey(ev);
         }
+        this._govOverlayOpen = false;
+        this._unbindGovOverlayListeners();
         this._restoreGov();
         this._syncGovDock();
         this._bindGovLayoutObserver();
     },
 
-    /** Switch to the vertical arrangement from the space this workspace
-     *  actually owns, not the viewport. Sidebar and parent layout changes are
-     *  therefore handled the same way as a window resize. */
+    /** Pick overlay mode from the space this workspace actually owns, not the
+     *  viewport. Too narrow for panes + column: the column becomes the 34px
+     *  strip and opens over the panes. Phones keep the media-query stack. */
     _syncGovLayoutMode() {
         const ws = this._workspaceEl();
         const rect = ws && ws.getBoundingClientRect ? ws.getBoundingClientRect() : null;
         const width = rect && rect.width > 0 ? rect.width : 0;
-        const stacked = !this._govCollapsed && width > 0
+        let phone = false;
+        try {
+            phone = typeof window !== 'undefined' && !!window && typeof window.matchMedia === 'function'
+                && !!window.matchMedia('(max-width: 760px)').matches;
+        } catch (e) { phone = false; }
+        this._govStacked = phone;
+        const overlay = !phone && width > 0
             && width < this._paneAreaMinWidth() + this.GOV_GUTTER_W + this.GOV_MIN_W;
-        const changed = stacked !== !!this._govStacked;
-        if (changed && stacked) this._cancelGovDrag();
-        this._govStacked = stacked;
-        if (ws && ws.classList) ws.classList[stacked ? 'add' : 'remove']('is-gov-stacked');
-        const { gutter } = this._govEls();
-        if (gutter) gutter.hidden = !!this._govCollapsed || stacked;
-        if (changed && !stacked && !this._govCollapsed) {
-            this._setGovWidth(this._govWidth || this.GOV_DEFAULT_W);
+        const changed = overlay !== !!this._govOverlay;
+        if (changed) {
+            this._cancelGovDrag();
+            // Entering or leaving overlay mode always starts closed.
+            this._govOverlayOpen = false;
+            this._unbindGovOverlayListeners();
+        }
+        this._govOverlay = overlay;
+        if (ws && ws.classList) {
+            ws.classList[overlay ? 'add' : 'remove']('is-gov-overlay');
+            ws.classList[overlay && this._govOverlayOpen ? 'add' : 'remove']('is-gov-overlay-open');
         }
         return changed;
     },
@@ -3500,7 +3616,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const update = () => {
             if (this._destroyed) return;
             const changed = this._syncGovLayoutMode();
-            if (!this._govCollapsed && !this._govStacked) this._setGovWidth(this._govWidth || this.GOV_DEFAULT_W);
+            if (changed) this._syncGovDock();
+            else if (!this._govCollapsed && !this._govOverlay && !this._govStacked) this._setGovWidth(this._govWidth || this.GOV_DEFAULT_W);
             if (changed) this._fitAll();
         };
         this._govResizeHandler = update;
@@ -3517,6 +3634,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
     },
 
     _unbindGovLayoutObserver() {
+        this._unbindGovOverlayListeners();
         if (this._govResizeObserver && this._govResizeObserver.disconnect) {
             try { this._govResizeObserver.disconnect(); } catch (e) { /* already detached */ }
         }
@@ -3547,6 +3665,19 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     _setGovWidth(px) {
         if (this._govStacked) return;
+        if (this._govOverlay) {
+            // No clamp against the panes here: the overlay is capped by CSS and
+            // the persisted width is left alone.
+            const { dock } = this._govEls();
+            if (dock && dock.style && dock.style.setProperty) {
+                const w = Math.max(this.GOV_MIN_W, this._govWidth || this.GOV_DEFAULT_W) + 'px';
+                dock.style.setProperty('--gov-w', w);
+                // The edge toggle is a sibling, so it reads the width from the workspace.
+                const ws = this._workspaceEl();
+                if (ws && ws.style && ws.style.setProperty) ws.style.setProperty('--gov-w', w);
+            }
+            return;
+        }
         this._govWidth = this._clampGovWidth(px);
         const { dock } = this._govEls();
         if (dock && dock.style && dock.style.setProperty) {
@@ -3561,29 +3692,101 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  people never learn they have. Once the person clicks the toggle their
      *  choice wins in both directions, attached or not. */
     _syncGovDock() {
+        this._syncGovLayoutMode();
         const { dock, edge, gutter, toggle, body } = this._govEls();
         const collapsed = this._govUserSet ? !!this._govCollapsed : false;
         this._govCollapsed = collapsed;
         if (!this._govWidth) this._govWidth = this.GOV_DEFAULT_W;
+        // What is on screen: in overlay mode that is the strip unless the
+        // overlay is open; the persisted preference is untouched.
+        const shut = this._govOverlay ? !this._govOverlayOpen : collapsed;
         if (dock) {
-            if (dock.classList) dock.classList[collapsed ? 'add' : 'remove']('is-collapsed');
+            if (dock.classList) dock.classList[shut ? 'add' : 'remove']('is-collapsed');
         }
-        if (edge && edge.classList) edge.classList[collapsed ? 'add' : 'remove']('is-collapsed');
-        this._syncGovLayoutMode();
-        if (dock && !collapsed && !this._govStacked) this._setGovWidth(this._govWidth);
+        if (edge && edge.classList) edge.classList[shut ? 'add' : 'remove']('is-collapsed');
+        if (dock && (!shut || this._govOverlay)) this._setGovWidth(this._govWidth);
         // Hidden rather than merely unstyled: a collapsed column has no edge
         // to drag, and a focusable separator that resizes nothing is a trap.
         // The separate edge toggle stays reachable while the static strip
         // keeps the panel named.
-        if (gutter) gutter.hidden = collapsed || this._govStacked;
-        if (body) body.hidden = collapsed;
+        if (gutter) gutter.hidden = shut || this._govOverlay || this._govStacked;
+        if (body) body.hidden = shut;
         if (toggle && toggle.setAttribute) {
-            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-            toggle.setAttribute('aria-label', collapsed ? 'Expand governance activity' : 'Collapse governance activity');
+            toggle.setAttribute('aria-expanded', shut ? 'false' : 'true');
+            toggle.setAttribute('aria-label', shut ? 'Expand governance activity' : 'Collapse governance activity');
         }
     },
 
+    /** Open or close the overlay. Focus goes into it on open and back to the
+     *  toggle on close; Esc (from inside it) or a click on the panes closes. */
+    _setGovOverlayOpen(open, opts) {
+        open = !!open && !!this._govOverlay;
+        if (open === !!this._govOverlayOpen) return;
+        this._govOverlayOpen = open;
+        this._unbindGovOverlayListeners();
+        this._syncGovDock();
+        const { toggle, body } = this._govEls();
+        if (open) {
+            if (typeof document !== 'undefined' && document.addEventListener) {
+                this._govOverlayKey = (ev) => {
+                    if (!ev || ev.key !== 'Escape') return;
+                    const { dock: d, toggle: t } = this._govEls();
+                    const a = document.activeElement;
+                    if (a && !(d && d.contains && d.contains(a)) && a !== t) return;
+                    this._setGovOverlayOpen(false, { restoreFocus: true });
+                };
+                document.addEventListener('keydown', this._govOverlayKey);
+                const { dock: dk, toggle: tg } = this._govEls();
+                if (dk && dk.addEventListener) {
+                    this._govOverlayFocusEl = dk;
+                    this._govOverlayFocusOut = (ev) => {
+                        const next = ev && ev.relatedTarget;
+                        if (!next) return;   // window blur or no target: keep it open
+                        const { dock: d, toggle: t } = this._govEls();
+                        if ((d && d.contains && d.contains(next)) || next === t) return;
+                        this._setGovOverlayOpen(false);
+                    };
+                    dk.addEventListener('focusout', this._govOverlayFocusOut);
+                }
+                const centre = document.querySelector ? document.querySelector('.terminals-centre') : null;
+                if (centre && centre.addEventListener) {
+                    this._govOverlayAway = () => this._setGovOverlayOpen(false);
+                    this._govOverlayAwayEl = centre;
+                    centre.addEventListener('pointerdown', this._govOverlayAway, true);
+                }
+            }
+            if (body) {
+                if (body.setAttribute) body.setAttribute('tabindex', '-1');
+                if (body.focus) body.focus();
+            }
+        } else if (opts && opts.restoreFocus && toggle && toggle.focus) {
+            toggle.focus();
+        }
+    },
+
+    _unbindGovOverlayListeners() {
+        if (this._govOverlayKey && typeof document !== 'undefined' && document.removeEventListener) {
+            document.removeEventListener('keydown', this._govOverlayKey);
+        }
+        if (this._govOverlayAway && this._govOverlayAwayEl && this._govOverlayAwayEl.removeEventListener) {
+            this._govOverlayAwayEl.removeEventListener('pointerdown', this._govOverlayAway, true);
+        }
+        if (this._govOverlayFocusOut && this._govOverlayFocusEl && this._govOverlayFocusEl.removeEventListener) {
+            this._govOverlayFocusEl.removeEventListener('focusout', this._govOverlayFocusOut);
+        }
+        this._govOverlayFocusOut = null;
+        this._govOverlayFocusEl = null;
+        this._govOverlayKey = null;
+        this._govOverlayAway = null;
+        this._govOverlayAwayEl = null;
+    },
+
     _toggleGovDock() {
+        if (this._govOverlay) {
+            // A transient peek: no preference recorded, panes never refit.
+            this._setGovOverlayOpen(!this._govOverlayOpen, { restoreFocus: true });
+            return;
+        }
         this._govUserSet = true;
         this._govCollapsed = !this._govCollapsed;
         this._syncGovDock();
@@ -3595,6 +3798,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  button needs the inbox on screen, which is not the same as the person
      *  choosing to keep it open. */
     _expandGovDock() {
+        if (this._govOverlay) { this._setGovOverlayOpen(true); return; }
         if (!this._govCollapsed) return;
         this._govCollapsed = false;
         if (this._govUserSet) this._govUserSet = false;
@@ -3604,7 +3808,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     _startGovDrag(ev) {
         if (!ev || (ev.button !== undefined && ev.button !== 0)) return;
-        if (this._govCollapsed || this._govStacked) return;
+        if (this._govCollapsed || this._govStacked || this._govOverlay) return;
         this._cancelGovDrag();
         const gutter = ev.currentTarget;
         if (!gutter) return;
@@ -3665,7 +3869,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
     },
 
     _onGovKey(ev) {
-        if (!ev || this._govStacked) return;
+        if (!ev || this._govStacked || this._govOverlay) return;
         // Left widens because the edge being moved is the column's left one:
         // pushing it left gives governance more room.
         let step = 0;
@@ -5499,7 +5703,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const selectable = e.installed !== false;
             const suffix = ok ? '' : (e.installed === false ? ' (not installed)' : ' (Guard not enabled)');
             return `<option value="${this._esc(e.id)}"${selectable ? '' : ' disabled'}>${this._esc(e.label + suffix)}</option>`;
-        }).join('');
+        }).join('') + '<option value="" disabled>GovRun harness by SecureVector \u00b7 Coming soon</option>';
         // Prefer a fully governed executor by default; fall back to any
         // installed one so the form still opens on something the user can
         // launch (ungoverned) rather than nothing.

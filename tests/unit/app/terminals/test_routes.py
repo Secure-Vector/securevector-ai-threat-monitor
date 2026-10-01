@@ -338,6 +338,31 @@ def test_verdicts_come_from_tool_call_audit_by_session(env):
     assert len(items) == 1 and items[0]["action"] == "block" and items[0]["function_name"] == "Bash"
 
 
+def test_task_rows_carry_tool_call_and_blocked_counts(env):
+    client, manager, ws, db = env
+    task = client.post(
+        "/api/terminals/tasks", json={"executor_id": "claude-code", "workspace": ws}, headers=AUTH
+    ).json()
+    bare = TestClient(client.app, base_url=ORIGIN)
+    bare.post(
+        f"/api/terminals/tasks/{task['id']}/events",
+        json={"hook_event_name": "SessionStart", "session_id": "sess-9"},
+        headers={"X-SV-Terminal-Hook": manager.hook_token(task["id"])},
+    )
+    for action in ("allow", "allow", "block"):
+        asyncio.run(
+            db.execute(
+                "INSERT INTO tool_call_audit (tool_id, function_name, action, risk, reason, is_essential, "
+                "args_preview, runtime_kind, session_id) VALUES ('bash', 'Bash', ?, 'green', 'r', 0, "
+                "'x', 'claude-code', 'sess-9')",
+                (action,),
+            )
+        )
+    items = client.get("/api/terminals/tasks", headers=AUTH).json()["items"]
+    row = [t for t in items if t["id"] == task["id"]][0]
+    assert row["tool_calls"] == 3 and row["blocked_calls"] == 1
+
+
 def test_ui_input_cannot_approve_a_pending_jit_request(env):
     """The 'y cannot pass hard deny' guarantee: keystrokes only reach the PTY.
     A pending JIT request for the same session stays pending no matter what

@@ -8864,16 +8864,23 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-governance.is-collapsed .terminals-governance-name { padding: 0; letter-spacing: .04em; writing-mode: vertical-rl; }
 .terminals-gov-edge.is-collapsed .terminals-governance-caret { transform: rotate(180deg); }
 .terminals-governance.is-collapsed .terminals-governance-summary { display: none; }
-/* Container-responsive fallback: a wide viewport can still leave this page a
-   narrow workspace after the product rail/sidebar takes its share. */
-.terminals-workspace.is-gov-stacked { flex-direction: column; }
-.terminals-workspace.is-gov-stacked > .terminals-centre { width: 100%; min-width: 0; }
-.terminals-workspace.is-gov-stacked .terminals-gov-edge { flex: 0 0 0; width: auto; min-width: 0; height: 0; }
-.terminals-workspace.is-gov-stacked .terminals-gov-gutter { display: none; }
-.terminals-workspace.is-gov-stacked .terminals-governance-toggle { top: 6px; right: 12px; left: auto; width: 32px; height: 24px; transform: translateY(-50%); }
-.terminals-workspace.is-gov-stacked .terminals-governance-caret { transform: rotate(-90deg); }
-.terminals-workspace.is-gov-stacked .terminals-governance { width: auto; min-width: 0; max-height: 60vh; margin-top: 12px; }
-.terminals-workspace.is-gov-stacked .terminals-governance-name { writing-mode: horizontal-tb; }
+/* Narrow workspace (desktop): governance stays a right-hand column. When the
+   panes and the column cannot both fit, it shrinks to the 34px strip and
+   opening it lays the full column over the panes, anchored right, without
+   resizing them. The phone media query below still stacks. */
+@media (min-width: 761px) {
+  .terminals-workspace.is-gov-overlay { position: relative; --gov-ov-w: min(var(--gov-w, 320px), calc(100% - 48px)); }
+  .terminals-workspace.is-gov-overlay > .terminals-centre { min-width: 0; margin-right: 46px; }
+  .terminals-workspace.is-gov-overlay .terminals-gov-edge { position: absolute; top: 0; bottom: 0; right: 34px; z-index: 6; }
+  .terminals-workspace.is-gov-overlay .terminals-gov-gutter { display: none; }
+  .terminals-workspace.is-gov-overlay .terminals-governance { position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; }
+  .terminals-workspace.is-gov-overlay .terminals-governance:not(.is-collapsed) { width: var(--gov-ov-w); background: var(--bg-secondary, #0d1319); border-color: var(--border-default, #24303c); box-shadow: -8px 0 20px rgba(0, 0, 0, .35); }
+  .terminals-workspace.is-gov-overlay .terminals-gov-edge:not(.is-collapsed) { right: calc(var(--gov-ov-w) - 6px); }
+  .terminals-workspace.is-gov-overlay .terminals-governance:not(.is-collapsed) { display: flex; flex-direction: column; height: auto; box-sizing: border-box; }
+  .terminals-workspace.is-gov-overlay .terminals-governance-head { min-width: 0; }
+  .terminals-workspace.is-gov-overlay .terminals-governance-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.sv-ga-on .terminals-workspace.is-gov-overlay .terminals-governance-body { padding-bottom: 88px; scroll-padding-bottom: 88px; }
+}
 /* One column: the body is ~290px wide now, so an auto-fit track with a
    320px floor would overflow the panel it lives in. */
 .terminals-governance-body { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 13px 12px; border-top: 1px solid rgba(255,255,255,.06); }
@@ -10056,3 +10063,32 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .terminals-launch select { appearance: none; -webkit-appearance: none; padding-right: 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23eef2f7' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
 [data-theme="light"] .terminals-launch select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231f2328' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
 .terminals-launch option { background-color: var(--bg-tertiary); color: var(--text-primary); }
+
+/* Agents list: folder groups, one facts line per row, collapsed not-governed line */
+.terminals-page .terminals-group-head { margin: 0; font-size: inherit; font-weight: inherit; }
+.terminals-page .terminals-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 2px; border: 0; border-radius: 4px; background: none; color: var(--text-secondary); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+.terminals-page .terminals-group-toggle:hover { color: var(--text-primary); }
+.terminals-page .terminals-group-toggle:focus-visible, .terminals-page .terminals-adopt-line:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 1px; }
+.terminals-page .terminals-group-caret { flex: none; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .12s; }
+.terminals-page .terminals-group-toggle[aria-expanded="true"] .terminals-group-caret { transform: rotate(90deg); }
+.terminals-page .terminals-group-toggle .terminals-group-name { display: block; min-width: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0; }
+.terminals-page .terminals-group-count { flex: none; padding: 0 5px; border: 1px solid var(--border-default, #24303c); border-radius: 999px; color: var(--text-muted); font-size: 9.5px; line-height: 15px; font-variant-numeric: tabular-nums; }
+.terminals-page .terminals-group-cards[hidden], .terminals-page .terminals-adopt-body[hidden] { display: none; }
+.terminals-page .terminals-task-facts { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.terminals-page .terminals-task-blocked.is-danger { color: var(--danger); }
+.terminals-page .terminals-adopt-line { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: var(--text-secondary); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; }
+.terminals-page .terminals-adopt-line:hover { color: var(--text-primary); }
+.terminals-page .terminals-adopt-review { text-decoration: underline; }
+@media (max-width: 760px) { .terminals-page .terminals-group-toggle { padding: 8px 2px; } }
+.nav-tasks-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 0; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.nav-tasks-group-toggle::before { content: ""; flex: none; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .12s; }
+.nav-tasks-group-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.nav-tasks-group-toggle:hover { color: var(--text-primary); }
+.nav-tasks-group-toggle:focus-visible { outline: 2px solid var(--accent-primary, #2dd4bf); outline-offset: 1px; }
+.nav-tasks-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-tasks-group-count { flex: none; padding: 0 5px; border: 1px solid var(--border-default); border-radius: 999px; font-size: 9.5px; line-height: 14px; font-variant-numeric: tabular-nums; }
+.nav-item.nav-view[hidden] { display: none; }
+.nav-task-facts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.nav-task-facts .terminals-task-spend { font-size: inherit; }
+.nav-task-facts .terminals-task-blocked.is-danger { color: var(--danger); }
+.sidebar.collapsed .nav-task-facts { display: none; }

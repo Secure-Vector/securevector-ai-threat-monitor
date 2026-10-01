@@ -1319,18 +1319,59 @@ const Sidebar = {
         wrap.dataset.viewsFor = item.id;
         // One folder needs no headers; several do, or the rail reads as one
         // undifferentiated pile of tasks.
-        const groups = new Set(item.views.filter(v => v.taskId).map(v => v.group));
+        // Folder sections: name and count, collapsible, with "Other" last.
+        // The helpers live on the Agent Sessions page so the board and this
+        // rail share one definition; without it the rows stay ungrouped.
+        const TP = window.TerminalsPage;
+        const grouping = !!(TP && TP._collapsedFolders && item.id === 'terminals' && item.views.some(v => v.taskId));
+        let views = item.views;
+        const folderOf = (v) => v.folder || 'Other';
+        const counts = new Map();
+        const openFolders = new Set();
+        let collapsed = new Set();
+        if (grouping) {
+            const plain = views.filter(v => !v.taskId);
+            const tasks = views.filter(v => v.taskId);
+            const order = [];
+            tasks.forEach(v => { const f = folderOf(v); if (!counts.has(f)) { counts.set(f, 0); order.push(f); } counts.set(f, counts.get(f) + 1); if (this._viewActive(v)) openFolders.add(f); });
+            order.sort((a, b) => (a === 'Other') - (b === 'Other'));
+            views = [...plain, ...order.flatMap(f => tasks.filter(v => folderOf(v) === f))];
+            collapsed = TP._collapsedFolders();
+        }
         const headed = new Set();
-        item.views.forEach(view => {
-            if (view.taskId && groups.size > 1 && !headed.has(view.group)) {
-                headed.add(view.group);
+        views.forEach(view => {
+            const folder = folderOf(view);
+            const folderOpen = !grouping || !view.taskId || openFolders.has(folder) || !collapsed.has(folder);
+            if (grouping && view.taskId && !headed.has(folder)) {
+                headed.add(folder);
                 const head = document.createElement('div');
                 head.className = 'nav-tasks-group';
-                head.title = view.group || '';
-                head.textContent = this._shortFolder(view.group);
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'nav-tasks-group-toggle';
+                btn.setAttribute('aria-expanded', folderOpen ? 'true' : 'false');
+                const nm = document.createElement('span');
+                nm.className = 'nav-tasks-group-name';
+                nm.textContent = folder;
+                const ct = document.createElement('span');
+                ct.className = 'nav-tasks-group-count';
+                ct.textContent = String(counts.get(folder));
+                btn.appendChild(nm);
+                btn.appendChild(ct);
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // The open session's folder cannot be folded away.
+                    if (openFolders.has(folder)) return;
+                    const now = TP._collapsedFolders();
+                    if (now.has(folder)) now.delete(folder); else now.add(folder);
+                    TP._saveCollapsedFolders(now);
+                    this.render();
+                });
+                head.appendChild(btn);
                 wrap.appendChild(head);
             }
             const row = document.createElement('div');
+            if (!folderOpen) row.hidden = true;
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
             row.dataset.page = view.id;
             if (view.taskId) row.dataset.taskId = view.taskId;
@@ -1381,6 +1422,12 @@ const Sidebar = {
                 sub.textContent = view.sub || '';
                 text.appendChild(title);
                 text.appendChild(sub);
+                if (view.facts) {
+                    const facts = document.createElement('span');
+                    facts.className = 'nav-task-facts';
+                    facts.innerHTML = view.facts;
+                    text.appendChild(facts);
+                }
                 row.appendChild(text);
             } else {
                 const lbl = document.createElement('span');
@@ -1485,6 +1532,9 @@ const Sidebar = {
                             linked: task.origin === 'linked',
                             sub: this._taskSubtitle(task, state),
                             group: task.workspace || '',
+                            folder: window.TerminalsPage && TerminalsPage._folderName ? TerminalsPage._folderName(task) : '',
+                            facts: window.TerminalsPage && TerminalsPage._factsHtml ? TerminalsPage._factsHtml(task) : '',
+                            factsSig: [task.spend_usd, task.tool_calls, task.blocked_calls].join(','),
                             tooltip: `${task.executor_id} · ${task.workspace}`,
                         };
                     }),
@@ -1492,11 +1542,11 @@ const Sidebar = {
                 // Rows and states only: this signature does not include which
                 // row is selected, so it never forces a re-render on its own
                 // when only the attached/selected task changes.
-                const sig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.sub || '', v.group || ''].join(':')).join('|');
+                const sig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.sub || '', v.group || '', v.factsSig || ''].join(':')).join('|');
                 // Same rows, same states, same folders: only the subtitles can
                 // differ. Kept as its own signature rather than parsed back out
                 // of `sig`, whose fields may themselves contain a separator.
-                const rowSig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.group || ''].join(':')).join('|');
+                const rowSig = parent.views.map(v => [v.taskId, v.state || '', v.label, v.group || '', v.factsSig || ''].join(':')).join('|');
                 this._agentTaskViewsLoaded = true;
                 if (sig !== this._agentTaskSig) {
                     const sameRows = this._agentTaskRowSig === rowSig;
@@ -1538,6 +1588,12 @@ const Sidebar = {
             if (!rows.has(view.taskId)) return false;
         }
         for (const view of tasks) rows.get(view.taskId).textContent = view.sub || '';
+        // The age in the facts line ticks too; counts changing forces a full render.
+        root.querySelectorAll('.nav-item.nav-view[data-task-id]').forEach(row => {
+            const f = row.querySelector('.nav-task-facts');
+            const v = tasks.find(x => x.taskId === row.dataset.taskId);
+            if (f && v && v.facts) f.innerHTML = v.facts;
+        });
         return true;
     },
 

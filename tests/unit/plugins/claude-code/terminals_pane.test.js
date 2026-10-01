@@ -97,7 +97,14 @@ test('rail task rows group by folder and the signature notices subtitle or group
   const src = read('js/components/sidebar.js');
   assert.match(src, /nav-tasks-group/);
   assert.match(src, /_shortFolder\(/);
-  assert.match(src, /groups\.size > 1/, 'a single folder needs no group headers');
+  assert.match(src, /nav-tasks-group-toggle/, 'folder headers are collapsible buttons');
+  assert.match(src, /aria-expanded/);
+  assert.match(src, /nav-tasks-group-count/, 'each header carries a count');
+  assert.match(src, /\(a === 'Other'\) - \(b === 'Other'\)/, 'Other sorts last');
+  assert.match(src, /openFolders\.has\(folder\)/, 'the open session folder cannot be folded away');
+  assert.match(src, /_saveCollapsedFolders/, 'collapse state persists through the shared helper');
+  assert.match(src, /nav-task-facts/, 'each rail row carries the facts line');
+  assert.match(src, /factsSig/, 'count changes redraw the rail');
   const loader = src.slice(src.indexOf('_loadAgentTaskViews(force = false) {'), src.indexOf('_agentTaskState(task, waitingApproval'));
   assert.match(loader, /sub:/);
   assert.match(loader, /group:/);
@@ -132,9 +139,9 @@ test('the pane and rail styles are defined and survive the collapsed rail', () =
 
 test('index.html pins the versions this change ships', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=463/);
-  assert.match(html, /sidebar\.js\?v=181/);
-  assert.match(html, /terminals\.js\?v=87/);
+  assert.match(html, /styles\.css\?v=467/);
+  assert.match(html, /sidebar\.js\?v=182/);
+  assert.match(html, /terminals\.js\?v=91/);
 });
 
 // --- DOM stub for the behavioural pane tests ---------------------------

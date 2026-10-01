@@ -504,6 +504,25 @@ class TerminalStore:
         )
         return [dict(r) for r in rows]
 
+    async def verdict_counts(self, session_ids: list[str]) -> dict[str, dict[str, int]]:
+        """Tool calls and blocked calls per harness session, in one grouped
+        query per chunk, for the board's one-line facts."""
+        out: dict[str, dict[str, int]] = {}
+        ids = [i for i in session_ids if i]
+        chunk = 500
+        for start in range(0, len(ids), chunk):
+            batch = ids[start : start + chunk]
+            placeholders = ",".join("?" for _ in batch)
+            rows = await self.db.fetch_all(
+                "SELECT session_id, COUNT(*) AS calls, "
+                "SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked "
+                f"FROM tool_call_audit WHERE session_id IN ({placeholders}) GROUP BY session_id",
+                tuple(batch),
+            )
+            for r in rows:
+                out[r["session_id"]] = {"calls": int(r["calls"] or 0), "blocked": int(r["blocked"] or 0)}
+        return out
+
     async def tasks_with_event(self, kind: str, task_ids: list[str]) -> set[str]:
         """Which of these tasks have at least one event of this kind.
 

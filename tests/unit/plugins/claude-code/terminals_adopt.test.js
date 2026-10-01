@@ -434,3 +434,30 @@ test('a folder that is not a folder never reaches the board', () => {
   assert.equal(page._knownWorkspace('(unknown folder)'), null);
   assert.equal(page._knownWorkspace('/Users/y/repo'), '/Users/y/repo', 'a real one still passes');
 });
+
+// ------------------------------------------------- collapsed not-governed line
+
+test('the not-governed block is one collapsed line that expands in place', () => {
+  const { page, adopt } = loadPage();
+  page._adoptable = [row(1), row(2), row(3)];
+  page._renderAdoptable();
+  assert.match(adopt.innerHTML, /3 sessions not governed · <span class="terminals-adopt-review">Review<\/span>/);
+  assert.match(adopt.innerHTML, /aria-expanded="false"/);
+  assert.match(adopt.innerHTML, /id="terminals-adopt-body" hidden/, 'the list starts hidden');
+  adopt.querySelector('.terminals-adopt-line').onclick();
+  assert.match(adopt.innerHTML, /aria-expanded="true"/);
+  assert.doesNotMatch(adopt.innerHTML, /id="terminals-adopt-body" hidden/);
+  assert.ok(adopt.innerHTML.includes('terminals-adopt-govern'), 'Govern stays inside');
+  assert.ok(adopt.innerHTML.includes('terminals-adopt-dismiss'), 'Dismiss stays inside');
+});
+
+test('one session reads as singular and zero hides the block', () => {
+  const { page, adopt } = loadPage();
+  page._adoptable = [row(1)];
+  page._renderAdoptable();
+  assert.match(adopt.innerHTML, /1 session not governed/);
+  page._adoptable = [];
+  page._renderAdoptable();
+  assert.equal(adopt.hidden, true);
+  assert.equal(adopt.innerHTML, '');
+});

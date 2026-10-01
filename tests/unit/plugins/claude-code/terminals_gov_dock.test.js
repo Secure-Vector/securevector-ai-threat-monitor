@@ -190,13 +190,166 @@ test('the narrow layout still stacks into one usable column', () => {
   assert.match(block, /\.terminals-centre \{ min-height: 460px; \}/);
 });
 
-test('measured-workspace stacking uses the same zero-width boundary treatment', () => {
+test('narrow desktop layout is an overlay over a right-hand strip, not a stack', () => {
   const css = read('css/styles.css');
-  assert.match(css, /\.terminals-workspace\.is-gov-stacked \{ flex-direction: column; \}/);
-  assert.match(css, /\.terminals-workspace\.is-gov-stacked > \.terminals-centre \{ width: 100%; min-width: 0; \}/);
-  assert.match(css, /\.terminals-workspace\.is-gov-stacked \.terminals-gov-edge \{ flex: 0 0 0; width: auto; min-width: 0; height: 0; \}/);
-  assert.match(css, /\.terminals-workspace\.is-gov-stacked \.terminals-gov-gutter \{ display: none; \}/);
-  assert.match(css, /\.terminals-workspace\.is-gov-stacked \.terminals-governance \{ width: auto; min-width: 0;/);
+  assert.ok(!/is-gov-stacked/.test(css), 'the width-based stacked mode is gone');
+  assert.ok(!/is-gov-stacked/.test(read('js/pages/terminals.js')));
+  const start = css.indexOf('@media (min-width: 761px) {\n  .terminals-workspace.is-gov-overlay');
+  assert.ok(start > -1, 'overlay rules apply on desktop only, so the phone media query still stacks');
+  const block = css.slice(start, css.indexOf('\n}\n', start));
+  assert.match(block, /\.terminals-governance \{ position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; \}/);
+  assert.match(block, /\.terminals-governance:not\(\.is-collapsed\) \{[^}]*background: var\(--bg-secondary[^}]*box-shadow/);
+  assert.match(block, /calc\(100% - 48px\)/);
+});
+
+function overlayHarness(initialWidth) {
+  let width = initialWidth;
+  const ws = workspaceEl();
+  ws.getBoundingClientRect = () => ({ left: 0, right: width, width, height: 800 });
+  let observer;
+  class MockResizeObserver {
+    constructor(cb) { this.cb = cb; observer = this; }
+    observe() {}
+    disconnect() { this.disconnected = true; }
+  }
+  const els = dockEls();
+  const docListeners = {};
+  const centre = makeEl();
+  const document = {
+    activeElement: null,
+    getElementById: (id) => els[id] || (els[id] = makeEl()),
+    querySelector: (sel) => (sel === '.terminals-workspace' ? ws : sel === '.terminals-centre' ? centre : null),
+    addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { docListeners[t] = (docListeners[t] || []).filter((f) => f !== fn); },
+  };
+  const Page = loadPage(els, { workspace: ws, ResizeObserver: MockResizeObserver, document });
+  const L = Page._lay();
+  let tree = L.create('t1');
+  tree = L.split(tree, tree.id, 'row', 't2');
+  Page._layout = tree;
+  Page._panes = new Map(L.panes(tree).map((pane) => [pane.id, { id: pane.id, taskId: pane.taskId }]));
+  Page._focused = tree.a.id;
+  let fits = 0;
+  Page._fitAll = () => { fits += 1; };
+  Page._bindGovDock();
+  return {
+    Page, els, ws, centre, document, docListeners,
+    resize: (w) => { width = w; observer.cb(); },
+    fits: () => fits,
+    observer: () => observer,
+  };
+}
+
+test('wide workspace keeps governance as a side column', () => {
+  const h = overlayHarness(1200);
+  assert.strictEqual(h.Page._govOverlay, false);
+  assert.ok(!h.ws.classList.contains('is-gov-overlay'));
+  assert.ok(!h.els['terminals-governance'].classList.contains('is-collapsed'));
+  assert.strictEqual(h.els['terminals-gov-gutter'].hidden, false);
+  assert.strictEqual(h.Page._availablePaneWidth(), 1200 - h.Page._govWidth - 12);
+});
+
+test('narrow workspace shows the strip; opening overlays without refitting the panes', () => {
+  const h = overlayHarness(900);
+  const { Page, els, ws } = h;
+  const dock = els['terminals-governance'];
+  const toggle = els['terminals-governance-toggle'];
+  assert.ok(ws.classList.contains('is-gov-overlay'));
+  assert.strictEqual(Page._govOverlay, true);
+  assert.ok(dock.classList.contains('is-collapsed'), 'closed overlay mode is the 34px strip');
+  assert.strictEqual(toggle.attrs['aria-expanded'], 'false');
+  assert.strictEqual(els['terminals-gov-gutter'].hidden, true, 'no drag-resize in overlay mode');
+  const panes = Page._availablePaneWidth();
+  assert.strictEqual(panes, 900 - Page.GOV_STRIP_W - Page.GOV_GUTTER_W);
+
+  let focused = null;
+  els['terminals-governance-body'].focus = () => { focused = 'body'; };
+  toggle.focus = () => { focused = 'toggle'; };
+  const fitsBefore = h.fits();
+  Page._toggleGovDock();
+  assert.ok(!dock.classList.contains('is-collapsed'), 'overlay open shows the full column');
+  assert.ok(ws.classList.contains('is-gov-overlay-open'));
+  assert.strictEqual(toggle.attrs['aria-expanded'], 'true');
+  assert.strictEqual(els['terminals-governance-body'].hidden, false);
+  assert.strictEqual(focused, 'body', 'focus moves into the overlay');
+  assert.strictEqual(Page._availablePaneWidth(), panes, 'panes keep their width while it is open');
+  assert.strictEqual(h.fits(), fitsBefore, 'no terminal refit on open');
+  assert.strictEqual(Page._govUserSet, false, 'a peek is not a persisted preference');
+
+  // Esc from inside the overlay closes and returns focus to the toggle.
+  h.document.activeElement = els['terminals-governance-body'];
+  dock.contains = (n) => n === els['terminals-governance-body'];
+  h.docListeners.keydown.forEach((fn) => fn({ key: 'Escape' }));
+  assert.ok(dock.classList.contains('is-collapsed'));
+  assert.strictEqual(focused, 'toggle');
+  assert.strictEqual(toggle.attrs['aria-expanded'], 'false');
+  assert.strictEqual((h.docListeners.keydown || []).length, 0, 'listener removed on close');
+  assert.strictEqual(h.fits(), fitsBefore, 'no refit on close either');
+
+  // Clicking the strip opens it; clicking the panes closes it.
+  dock.onclick();
+  assert.ok(!dock.classList.contains('is-collapsed'));
+  h.centre.dispatch('pointerdown', {});
+  assert.ok(dock.classList.contains('is-collapsed'));
+
+  // Toggle button closes too.
+  Page._toggleGovDock();
+  Page._toggleGovDock();
+  assert.ok(dock.classList.contains('is-collapsed'));
+  assert.strictEqual(h.fits(), fitsBefore);
+});
+
+test('focus leaving the overlay closes it; focus on the toggle or inside does not', () => {
+  const h = overlayHarness(900);
+  const dock = h.els['terminals-governance'];
+  const toggle = h.els['terminals-governance-toggle'];
+  const inner = makeEl();
+  dock.contains = (n) => n === inner;
+  h.Page._toggleGovDock();
+  dock.dispatch('focusout', { relatedTarget: inner });
+  assert.strictEqual(h.Page._govOverlayOpen, true);
+  dock.dispatch('focusout', { relatedTarget: toggle });
+  assert.strictEqual(h.Page._govOverlayOpen, true);
+  dock.dispatch('focusout', { relatedTarget: makeEl() });
+  assert.strictEqual(h.Page._govOverlayOpen, false);
+  assert.strictEqual((dock._listeners.focusout || []).length, 0, 'listener unbound on close');
+});
+
+test('drag and arrow keys do nothing in overlay mode', () => {
+  const h = overlayHarness(900);
+  const before = h.Page._govWidth;
+  h.Page._startGovDrag({ button: 0, currentTarget: h.els['terminals-gov-gutter'] });
+  assert.strictEqual(h.Page._govDrag, null);
+  h.Page._onGovKey({ key: 'ArrowLeft', preventDefault() {} });
+  assert.strictEqual(h.Page._govWidth, before);
+});
+
+test('widening restores the side column with the persisted state; overlay open is not kept', () => {
+  const h = overlayHarness(900);
+  const { Page, els, ws } = h;
+  Page._toggleGovDock();                       // open the overlay
+  assert.ok(ws.classList.contains('is-gov-overlay-open'));
+  const fitsBefore = h.fits();
+  h.resize(1000);
+  assert.ok(!ws.classList.contains('is-gov-overlay'));
+  assert.ok(!ws.classList.contains('is-gov-overlay-open'));
+  assert.strictEqual(Page._govOverlayOpen, false);
+  assert.ok(!els['terminals-governance'].classList.contains('is-collapsed'), 'persisted default is expanded');
+  assert.strictEqual(els['terminals-gov-gutter'].hidden, false);
+  assert.strictEqual(Page._availablePaneWidth(), 1000 - Page._govWidth - 12);
+  assert.ok(h.fits() > fitsBefore, 'a real layout change refits once');
+
+  // A persisted collapse survives the round trip.
+  Page._toggleGovDock();
+  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'));
+  h.resize(800);
+  assert.ok(ws.classList.contains('is-gov-overlay'));
+  h.resize(1000);
+  assert.ok(els['terminals-governance'].classList.contains('is-collapsed'), 'collapsed preference restored');
+  assert.strictEqual(els['terminals-governance-toggle'].attrs['aria-expanded'], 'false');
+
+  Page.destroy();
+  assert.strictEqual(h.observer().disconnected, true, 'destroy disconnects the workspace observer');
 });
 
 // ------------------------------------------------------------ four-way state
@@ -303,44 +456,6 @@ test('the governance clamp reserves the full recursive pane tree', () => {
   assert.strictEqual(Page._treeMinWidth(tree), treeFloor);
   assert.strictEqual(Page._govWidth, 1200 - treeFloor - Page.GOV_GUTTER_W,
     'governance leaves enough room for both horizontal leaves, not just the legacy 420px floor');
-});
-
-test('actual workspace width stacks governance and restores the row when space returns', () => {
-  let width = 900;
-  const ws = workspaceEl();
-  ws.getBoundingClientRect = () => ({ left: 0, right: width, width, height: 800 });
-  let observer;
-  class MockResizeObserver {
-    constructor(cb) { this.cb = cb; observer = this; }
-    observe(el) { this.observed = el; }
-    disconnect() { this.disconnected = true; }
-  }
-  const els = dockEls();
-  const Page = loadPage(els, { workspace: ws, ResizeObserver: MockResizeObserver });
-  const L = Page._lay();
-  let tree = L.create('t1');
-  tree = L.split(tree, tree.id, 'row', 't2');
-  Page._layout = tree;
-  Page._panes = new Map(L.panes(tree).map((pane) => [pane.id, { id: pane.id, taskId: pane.taskId }]));
-  Page._focused = tree.a.id;
-  Page._bindGovDock();
-
-  assert.ok(ws.classList.contains('is-gov-stacked'), '900px cannot hold 686px panes + edge + governance');
-  assert.strictEqual(Page._govStacked, true);
-  assert.strictEqual(Page._availablePaneWidth(), 900, 'stacked panes receive the full workspace width');
-  assert.strictEqual(els['terminals-gov-gutter'].hidden, true);
-  const preferred = Page._govWidth;
-
-  width = 1000;
-  observer.cb();
-  assert.ok(!ws.classList.contains('is-gov-stacked'), 'the row returns after the container grows');
-  assert.strictEqual(Page._govStacked, false);
-  assert.strictEqual(els['terminals-gov-gutter'].hidden, false);
-  assert.ok(Page._govWidth <= preferred, 'the restored row clamps only after it has enough room');
-  assert.strictEqual(Page._availablePaneWidth(), 686, 'the recovered row still reserves the full tree minimum');
-
-  Page.destroy();
-  assert.strictEqual(observer.disconnected, true, 'destroy disconnects the workspace observer');
 });
 
 test('governance drag cancellation and lost capture remove every listener without persisting', () => {

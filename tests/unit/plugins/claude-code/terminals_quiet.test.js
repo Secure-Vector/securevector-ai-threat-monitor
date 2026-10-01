@@ -40,21 +40,15 @@ test('task rows are compact one-line entries with a sub label and elapsed time',
     'the attached row state marker stays');
 });
 
-test('the board is one grid, with the folder on the card', () => {
-  // Superseded 2026-09-21. Grouping by folder gave each folder its own row, so
-  // a folder holding one session took a full row with the rest empty. With
-  // most folders holding one session that is the common case: five sessions
-  // landed as rows of 1, 1 and 3, two of them three quarters empty. There is
-  // no per-group heading to hide any more because there are no per-group
-  // bands; the folder rides on the card it belongs to.
-  assert.doesNotMatch(page, /isSingleGroup/,
-    'no per-folder band means nothing to mark as a lone group');
-  assert.match(page, /class="terminals-task-folder"/,
-    'the folder is not lost, it moves onto the card');
-  assert.match(page, /const byFolder = \[\.\.\.shown\]\.sort/,
-    'cards stay sorted by folder so one folder sessions still sit together');
+test('the board groups cards by folder, with the folder also on the card', () => {
+  // Folder sections were dropped on 2026-09-21 for wasting rows, then brought
+  // back as collapsible headers with counts. The cards still carry their folder.
+  assert.doesNotMatch(page, /isSingleGroup/);
+  assert.match(page, /class="terminals-task-folder"/);
+  assert.match(page, /const byFolder = \[\.\.\.shown\]\.sort/);
+  assert.match(page, /class="terminals-group-toggle"/, 'each folder has a collapsible header');
   assert.strictEqual((page.match(/class="terminals-group-cards"/g) || []).length, 1,
-    'exactly one grid, so cards reflow across the whole board');
+    'one grid template, rendered once per folder section');
 });
 
 test('the empty stage keeps the heading and blurb without the SV mark tile', () => {
@@ -77,8 +71,8 @@ test('styles carry the quiet-workspace frame and rail tightening rules', () => {
 });
 
 test('pins are bumped for the touched assets', () => {
-  assert.match(html, /terminals\.js\?v=87/);
-  assert.match(html, /styles\.css\?v=463/);
+  assert.match(html, /terminals\.js\?v=91/);
+  assert.match(html, /styles\.css\?v=467/);
 });
 
 test('with nothing attached the board is the whole page', () => {
