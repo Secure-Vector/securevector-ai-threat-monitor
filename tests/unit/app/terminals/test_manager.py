@@ -405,6 +405,46 @@ async def test_stop_all_and_restore_on_startup(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_restore_on_startup_resumes_after_add_event_fails_midway(tmp_path):
+    m, ws = await _manager(tmp_path)
+    for tid in ("ghost-a", "ghost-b", "ghost-c"):
+        await m.store.create_task(
+            tid, executor_id="claude-code", workspace=str(ws), title=None, pid=None
+        )
+    real_add = m.store.add_event
+    calls = {"n": 0}
+
+    async def flaky_add(task_id, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("disk hiccup")
+        return await real_add(task_id, **kw)
+
+    m2 = TerminalManager(FakeHost(), m.store, m.settings)
+    reaped: list = []
+    m2._reap = lambda task: reaped.append(task["id"])
+    m.store.add_event = flaky_add
+    with pytest.raises(RuntimeError):
+        await m2.start(asyncio.get_running_loop())
+    m.store.add_event = real_add
+    assert len(reaped) == 1
+    for tid in ("ghost-a", "ghost-b", "ghost-c"):
+        assert (await m.store.get_task(tid))["status"] == "interrupted"
+
+    m3 = TerminalManager(FakeHost(), m.store, m.settings)
+    m3._reap = lambda task: reaped.append(task["id"])
+    await m3.start(asyncio.get_running_loop())
+    assert sorted(reaped) == ["ghost-a", "ghost-b", "ghost-c"]
+    for tid in ("ghost-a", "ghost-b", "ghost-c"):
+        assert [e["kind"] for e in await m.store.list_events(tid)] == ["interrupted"]
+    # A further start has nothing left to do.
+    m4 = TerminalManager(FakeHost(), m.store, m.settings)
+    m4._reap = lambda task: reaped.append(task["id"])
+    await m4.start(asyncio.get_running_loop())
+    assert len(reaped) == 3
+
+
+@pytest.mark.asyncio
 async def test_input_is_audited_per_line_without_content(tmp_path):
     m, ws = await _manager(tmp_path)
     t = await m.spawn("claude-code", str(ws), title=None, origin="ui")

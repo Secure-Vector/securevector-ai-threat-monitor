@@ -685,8 +685,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=6/);
-  assert.match(html, /terminals\.js\?v=86/);
-  assert.match(html, /styles\.css\?v=462/);
+  assert.match(html, /terminals\.js\?v=87/);
+  assert.match(html, /styles\.css\?v=463/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -3088,8 +3088,38 @@ test('a task that never reported an exit code says so rather than showing null',
   deliverExit(sockets[0], null);
 
   const html = stageHtml(Page, paneId);
-  assert.match(html, /Stopped before it reported an exit code/);
+  assert.match(html, /Task ended before it reported an exit code\./);
   assert.doesNotMatch(html, /Exit code/, 'there is no code to name');
+  assert.doesNotMatch(html, /null/);
+  assert.strictEqual(html.match(/before it reported an exit code/g).length, 1, 'said once');
+  const banner = Page._panes.get(paneId).bannerEl;
+  assert.ok(banner.hidden, 'the banner does not repeat the panel\'s exit line');
+  assert.doesNotMatch(banner.textContent || '', /null/);
+});
+
+test('an exit banner never reads "exit code null"', async () => {
+  const { Page, sockets } = loadPage();
+  Page._tasks = [ended('t1', { status: 'interrupted', exit_code: null })];
+  await Page._attach('t1');
+  const paneId = paneIds(Page)[0];
+
+  deliverExit(sockets[0], null, 'some output the host still holds');
+
+  const banner = Page._panes.get(paneId).bannerEl;
+  assert.strictEqual(banner.textContent, 'Task ended before it reported an exit code.');
+  assert.strictEqual(Page._exitText(undefined), 'Task ended before it reported an exit code.');
+  assert.strictEqual(Page._exitText(0), 'Task finished.');
+  assert.strictEqual(Page._exitText(2), 'Task ended with exit code 2.');
+});
+
+test('the ended panel fills its stage and scrolls instead of spilling over the pane', () => {
+  const css = require('fs').readFileSync(
+    require('path').join(__dirname, '../../../../src/securevector/app/assets/web/css/styles.css'), 'utf8');
+  const rule = css.match(/\.terminals-ended-stage \{([^}]*)\}/)[1];
+  assert.match(rule, /position: absolute; inset: 0/);
+  assert.match(rule, /overflow-y: auto/);
+  assert.doesNotMatch(rule, /min-height/, 'a min-height taller than the pane is what overflowed');
+  assert.doesNotMatch(rule, /justify-content: center/, 'centred overflow spills above the stage');
 });
 
 // --- the linked stage's offer of a governed terminal ------------------------

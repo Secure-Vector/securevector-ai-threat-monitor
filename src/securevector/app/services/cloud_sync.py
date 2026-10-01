@@ -62,6 +62,11 @@ LONG_POLL_TIMEOUT_SECONDS = 25.0
 TRANSIENT_BACKOFF_BASE = 5.0
 TRANSIENT_BACKOFF_MAX = 300.0
 
+# /policy/applied answering 4xx means the payload itself is refused, so
+# resending it every poll only fills the log. Back off exponentially from the
+# sync interval up to this cap, and warn once per window.
+APPLIED_BACKOFF_MAX = 600.0
+
 # Drift thresholds for the MCP Policies page health snapshot. Match the
 # tiered alerting design captured in the local-visibility plan.
 DEGRADED_MISMATCH_STREAK = 3            # ≥3 consecutive verify failures → degraded
@@ -71,6 +76,13 @@ ERROR_FRESHNESS_HOURS = 24              # >24h since last apply → error (enfor
 
 # Module-level task handle so lifespan stop can cancel it.
 _sync_task: Optional[asyncio.Task] = None
+
+
+# State of the last /policy/applied acknowledgement. `ok` False after a
+# failed ack keeps the loop at the normal cadence instead of the quick
+# re-poll that follows a good apply; `until` is the monotonic time before
+# which a 4xx-refused ack is not resent.
+_APPLIED_ACK: dict = {"ok": True, "delay": 0.0, "until": 0.0}
 
 
 # In-memory health snapshot. Mutated by _sync_once on every iteration; read by
@@ -264,8 +276,12 @@ async def _sync_loop(db: DatabaseConnection) -> None:
             await _verify_envelope_or_quarantine(db, repo, envelope_repo)
             applied = await _sync_once(db, repo, envelope_repo)
             backoff = TRANSIENT_BACKOFF_BASE  # reset on success
-            # 304 / no-change applied returns False; still wait normal cadence
-            await asyncio.sleep(SYNC_INTERVAL_SECONDS if not applied else 1.0)
+            # 304 / no-change applied returns False; still wait normal cadence.
+            # The quick re-poll after an apply is only for an acknowledged
+            # one: an apply the cloud refused to record would otherwise come
+            # straight back and loop every few seconds.
+            quick = applied and _APPLIED_ACK["ok"]
+            await asyncio.sleep(1.0 if quick else SYNC_INTERVAL_SECONDS)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — top-level resilience
@@ -403,6 +419,7 @@ async def _sync_once(
         version=verified.version,
         status="ok",
         error=None,
+        org_id=verified.org_id,
     )
     return True
 
@@ -481,8 +498,21 @@ async def _post_applied(
     version: int,
     status: str,
     error: Optional[str],
-) -> None:
-    """Best-effort POST /policy/applied. Log on failure but never raise."""
+    org_id: Optional[str] = None,
+) -> bool:
+    """Best-effort POST /policy/applied. Log on failure but never raise.
+
+    ``org_id`` is the org named by the verified bundle; a rejected bundle has
+    no verified org, so it is omitted and the cloud resolves it.
+
+    Returns True when the cloud acknowledged the report. After a 4xx the
+    endpoint is not called again until the backoff window ends.
+    """
+    loop_now = asyncio.get_running_loop().time()
+    if loop_now < _APPLIED_ACK["until"]:
+        _APPLIED_ACK["ok"] = False
+        logger.debug("Cloud Sync: /policy/applied in backoff, not resent")
+        return False
     base = get_lse_url().rstrip("/")
     url = f"{base}/policy/applied"
     payload = {
@@ -490,11 +520,16 @@ async def _post_applied(
         "policy_id": policy_id,
         "version": version,
         "device_id": get_device_id(),
-        "org_id": creds.org_id,
         "applied_at": _now_iso(),
         "status": status,
         "error": error,
     }
+    # The org comes from the verified bundle, not the stored credentials,
+    # which can lag an org move. A device enrolled to a personal account has
+    # no org; the cloud takes it from the token, and an explicit null is
+    # refused (422), so an empty org is omitted.
+    if org_id:
+        payload["org_id"] = org_id
     headers = {
         **_build_sync_auth_headers(creds),
         "X-SecureVector-Device-Id": get_device_id(),
@@ -502,14 +537,33 @@ async def _post_applied(
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(url, json=payload, headers=headers)
-        if response.status_code >= 400:
+        if 400 <= response.status_code < 500:
+            delay = min(
+                APPLIED_BACKOFF_MAX,
+                _APPLIED_ACK["delay"] * 2 if _APPLIED_ACK["delay"] else SYNC_INTERVAL_SECONDS,
+            )
+            _APPLIED_ACK.update(ok=False, delay=delay, until=loop_now + delay)
+            logger.warning(
+                "Cloud Sync: /policy/applied returned %d body=%s; not resending for %ds",
+                response.status_code,
+                response.text[:200],
+                int(delay),
+            )
+            return False
+        if response.status_code >= 500:
+            _APPLIED_ACK["ok"] = False
             logger.warning(
                 "Cloud Sync: /policy/applied returned %d body=%s",
                 response.status_code,
                 response.text[:200],
             )
+            return False
     except Exception as exc:  # noqa: BLE001
+        _APPLIED_ACK["ok"] = False
         logger.warning("Cloud Sync: /policy/applied POST failed: %s", exc)
+        return False
+    _APPLIED_ACK.update(ok=True, delay=0.0, until=0.0)
+    return True
 
 
 async def _refresh_supabase_jwt(creds: EnrolledCredentials) -> bool:

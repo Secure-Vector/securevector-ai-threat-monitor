@@ -156,12 +156,11 @@ def _row(r: Optional[sqlite3.Row]) -> Optional[dict[str, Any]]:
 class TerminalStore:
     def __init__(self, db: DatabaseConnection) -> None:
         self.db = db
-        # DatabaseConnection.transaction() takes no lock of its own and
-        # every caller shares one aiosqlite connection, so two concurrent
-        # add_event calls can interleave a BEGIN inside another BEGIN
-        # ("cannot start a transaction within a transaction"), aborting one
-        # of them. Serialise the whole read-prev-then-insert body here so
-        # the hash chain never loses or misorders an event.
+        # DatabaseConnection.transaction() now serialises its own callers,
+        # so two add_event calls can no longer nest a BEGIN. This lock still
+        # keeps the read-prev-then-insert body of the hash chain in one
+        # store-level critical section, so events are never lost or
+        # misordered whatever the connection layer does.
         #
         # Lazy-initialised for the same reason as DatabaseConnection._lock
         # (see database/connection.py): on Python 3.9 `asyncio.Lock()`
@@ -442,6 +441,23 @@ class TerminalStore:
             ids,
         )
         return [dict(r) for r in updated]
+
+    async def interrupted_without_event(self) -> list[dict[str, Any]]:
+        """Interrupted tasks whose startup bookkeeping never finished.
+
+        Startup marks every running task interrupted, then adds its
+        `interrupted` event and reaps it one task at a time. A failure part
+        way leaves later tasks marked but without the event (and unreaped);
+        selecting by status plus the missing event lets a retry finish them.
+        """
+        rows = await self.db.fetch_all(
+            "SELECT * FROM terminal_tasks t WHERE t.status = 'interrupted' "
+            "AND t.origin != 'linked' AND NOT EXISTS ("
+            "SELECT 1 FROM terminal_events e "
+            "WHERE e.task_id = t.id AND e.kind = 'interrupted') "
+            "ORDER BY t.created_at DESC, t.rowid DESC"
+        )
+        return [dict(r) for r in rows]
 
     # -- events (hash chained) --------------------------------------------
 

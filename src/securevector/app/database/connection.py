@@ -71,6 +71,11 @@ class DatabaseConnection:
         # model makes the check + assign race-free without a sync
         # primitive.
         self._lock: Optional[asyncio.Lock] = None
+        # Serialises transaction() callers. Every caller shares the one
+        # connection, so two overlapping BEGIN ... COMMIT bodies would nest
+        # (and one side's ROLLBACK would discard the other's work).
+        # Lazy-initialised for the same reason as _lock.
+        self._tx_lock: Optional[asyncio.Lock] = None
 
     async def connect(self) -> aiosqlite.Connection:
         """
@@ -142,13 +147,35 @@ class DatabaseConnection:
             Active database connection within transaction.
         """
         conn = await self.connect()
-        try:
-            await conn.execute("BEGIN")
-            yield conn
-            await conn.execute("COMMIT")
-        except Exception:
-            await conn.execute("ROLLBACK")
-            raise
+        if self._tx_lock is None:
+            self._tx_lock = asyncio.Lock()
+        async with self._tx_lock:
+            # IMMEDIATE takes the write lock up front, so busy_timeout covers
+            # a competing writer (another process finishing its shutdown, for
+            # one). A deferred BEGIN that reads first and writes later gets
+            # "database is locked" at the upgrade without waiting at all.
+            # A failed BEGIN opened nothing, so there is nothing to roll back.
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+                # Another coroutine on this shared connection may already
+                # have committed (repositories call conn.commit() directly);
+                # the statements are durable then, and a bare COMMIT would
+                # fail with "no transaction is active".
+                if conn.in_transaction:
+                    await conn.execute("COMMIT")
+            except BaseException:
+                # Roll back only what is still open: SQLite rolls a
+                # transaction back by itself on some errors (SQLITE_BUSY,
+                # SQLITE_FULL), and a ROLLBACK then raises "cannot rollback -
+                # no transaction is active", which used to replace the real
+                # error. The original exception always propagates.
+                if conn.in_transaction:
+                    try:
+                        await conn.execute("ROLLBACK")
+                    except Exception as rollback_exc:  # noqa: BLE001
+                        logger.warning("Rollback after a failed transaction failed: %s", rollback_exc)
+                raise
 
     async def execute(
         self, sql: str, parameters: tuple = ()

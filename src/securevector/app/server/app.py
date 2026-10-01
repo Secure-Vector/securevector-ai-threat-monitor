@@ -40,6 +40,100 @@ def get_current_app() -> Optional[FastAPI]:
 WEB_ASSETS_PATH = Path(__file__).parent.parent / "assets" / "web"
 
 
+# Background retry schedule for a failed Agent Terminals start, in seconds.
+TERMINALS_RETRY_DELAYS = (2.0, 5.0, 10.0, 30.0, 60.0)
+# A terminals request retries a failed start at most this often.
+TERMINALS_LAZY_RETRY_SECONDS = 2.0
+
+
+async def init_agent_terminals(app: FastAPI, db) -> bool:
+    """Start Agent Terminals and publish them on app.state. True on success.
+
+    Never raises: on failure the state stays None (routes answer 503) and
+    the caller decides whether to retry.
+    """
+    if getattr(app.state, "terminal_manager", None) is not None:
+        return True
+    app.state.terminal_auth = None
+    app.state.terminal_manager = None
+    app.state.codex_web_observer = None
+    try:
+        from securevector.app.server.routes import hooks_claude_code as _hooks, hooks_codex as _codex_hooks
+        from securevector.app.server.routes import hooks_copilot_cli as _copilot_hooks
+        from securevector.app.server.routes import hooks_opencode as _opencode_hooks
+        from securevector.app.terminals.auth import TerminalAuth, load_or_create_token
+        from securevector.app.terminals.manager import ManagerSettings, TerminalManager
+        from securevector.app.terminals.pty_host import create_pty_host
+        from securevector.app.terminals.store import TerminalStore
+        from securevector.app.utils.platform import get_app_data_dir
+
+        _data_dir = get_app_data_dir()
+        _port = int(getattr(app.state, "port", 8741))
+        _auth = TerminalAuth(token=load_or_create_token(_data_dir), port=_port)
+        _manager = TerminalManager(
+            create_pty_host(),
+            TerminalStore(db),
+            ManagerSettings(
+                data_dir=_data_dir,
+                port=_port,
+                plugin_dir=_hooks._claude_install_path,
+                plugin_enabled=_hooks._is_enabled_in_claude_settings,
+                codex_plugin_enabled=_codex_hooks.terminal_guard_enabled,
+                copilot_cli_plugin_enabled=_copilot_hooks.terminal_guard_enabled,
+                opencode_plugin_enabled=_opencode_hooks.terminal_guard_enabled,
+            ),
+        )
+        await _manager.start(asyncio.get_running_loop())
+        app.state.terminal_auth = _auth
+        app.state.terminal_manager = _manager
+        # Codex's built-in web tool fires no hook, so its destinations are read
+        # back from the local transcript and recorded as observed. Gated on the
+        # transcript-reading consent inside the observer itself.
+        from securevector.app.database.repositories.egress import EgressRepository
+        from securevector.app.services import codex_web_observer
+        app.state.codex_web_observer = asyncio.create_task(
+            codex_web_observer.run_observer(_manager, EgressRepository(db))
+        )
+    except Exception as _e:
+        logger.warning(f"Could not initialise Agent Terminals: {_e!r}")
+        app.state.terminal_auth = None
+        app.state.terminal_manager = None
+        app.state.codex_web_observer = None
+        return False
+    logger.info("Agent Terminals initialised")
+    return True
+
+
+async def ensure_agent_terminals(app: FastAPI, db) -> bool:
+    """Lazy retry used by the terminals routes when the start had failed.
+
+    Serialised so concurrent requests run one attempt, and throttled so a
+    persistent failure does not turn every request into a full start.
+    """
+    if getattr(app.state, "terminal_manager", None) is not None:
+        return True
+    lock = getattr(app.state, "terminals_init_lock", None)
+    if lock is None:
+        lock = app.state.terminals_init_lock = asyncio.Lock()
+    async with lock:
+        if getattr(app.state, "terminal_manager", None) is not None:
+            return True
+        loop = asyncio.get_running_loop()
+        last = getattr(app.state, "terminals_last_attempt", None)
+        if last is not None and loop.time() - last < TERMINALS_LAZY_RETRY_SECONDS:
+            return False
+        app.state.terminals_last_attempt = loop.time()
+        return await init_agent_terminals(app, db)
+
+
+async def _retry_agent_terminals(app: FastAPI, db) -> None:
+    """Retry a failed start on a short schedule; stop at the first success."""
+    for delay in TERMINALS_RETRY_DELAYS:
+        await asyncio.sleep(delay)
+        if await ensure_agent_terminals(app, db):
+            return
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
@@ -141,49 +235,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning(f"Could not start cloud_sync: {_e}")
 
     # Agent Terminals: per-install UI token, PTY host and board restore.
-    # Failure here must not take the app down; the routes answer 503.
-    try:
-        from securevector.app.server.routes import hooks_claude_code as _hooks, hooks_codex as _codex_hooks
-        from securevector.app.server.routes import hooks_copilot_cli as _copilot_hooks
-        from securevector.app.server.routes import hooks_opencode as _opencode_hooks
-        from securevector.app.terminals.auth import TerminalAuth, load_or_create_token
-        from securevector.app.terminals.manager import ManagerSettings, TerminalManager
-        from securevector.app.terminals.pty_host import create_pty_host
-        from securevector.app.terminals.store import TerminalStore
-        from securevector.app.utils.platform import get_app_data_dir
-
-        _data_dir = get_app_data_dir()
-        _port = int(getattr(app.state, "port", 8741))
-        _auth = TerminalAuth(token=load_or_create_token(_data_dir), port=_port)
-        _manager = TerminalManager(
-            create_pty_host(),
-            TerminalStore(db),
-            ManagerSettings(
-                data_dir=_data_dir,
-                port=_port,
-                plugin_dir=_hooks._claude_install_path,
-                plugin_enabled=_hooks._is_enabled_in_claude_settings,
-                codex_plugin_enabled=_codex_hooks.terminal_guard_enabled,
-                copilot_cli_plugin_enabled=_copilot_hooks.terminal_guard_enabled,
-                opencode_plugin_enabled=_opencode_hooks.terminal_guard_enabled,
-            ),
-        )
-        await _manager.start(asyncio.get_running_loop())
-        app.state.terminal_auth = _auth
-        app.state.terminal_manager = _manager
-        # Codex's built-in web tool fires no hook, so its destinations are read
-        # back from the local transcript and recorded as observed. Gated on the
-        # transcript-reading consent inside the observer itself.
-        from securevector.app.database.repositories.egress import EgressRepository
-        from securevector.app.services import codex_web_observer
-        app.state.codex_web_observer = asyncio.create_task(
-            codex_web_observer.run_observer(_manager, EgressRepository(db))
-        )
-    except Exception as _e:
-        logger.warning(f"Could not initialise Agent Terminals: {_e}")
-        app.state.terminal_auth = None
-        app.state.terminal_manager = None
-        app.state.codex_web_observer = None
+    # Failure here must not take the app down. A failed start (a database
+    # still locked by the previous process, say) is retried in the
+    # background and again on the next terminals request, so the page does
+    # not answer 503 until the app is restarted.
+    app.state.terminals_reinit = lambda: ensure_agent_terminals(app, db)
+    app.state.terminals_retry = None
+    if not await init_agent_terminals(app, db):
+        app.state.terminals_retry = asyncio.create_task(_retry_agent_terminals(app, db))
 
     # Run health warm-up: full findings for recently active runs every 60 s,
     # off the event loop, so badges show without anyone opening the run.
@@ -207,6 +266,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _observer = getattr(app.state, "codex_web_observer", None)
     if _observer is not None:
         _observer.cancel()
+
+    _terminals_retry = getattr(app.state, "terminals_retry", None)
+    if _terminals_retry is not None:
+        _terminals_retry.cancel()
 
     # Pre-teardown lifecycle hook (#112): emit a device.lifecycle.uninstalling
     # OCSF event to any enrollment-sourced destinations BEFORE we stop the
