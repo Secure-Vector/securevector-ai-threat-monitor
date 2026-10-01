@@ -198,6 +198,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         50: migrate_to_v50,
         51: migrate_to_v51,
         52: migrate_to_v52,
+        53: migrate_to_v53,
     }
 
     if version in migrations:
@@ -2665,3 +2666,105 @@ async def migrate_to_v52(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v52: task_event outbox kind")
+
+
+async def migrate_to_v53(db: DatabaseConnection) -> None:
+    """v52 -> v53: model generation rows for the fleet destination.
+
+    Two additive changes:
+      - `generation` joins the forward-outbox kind vocabulary (one metadata
+        row per model turn of a governed run). The CHECK is widened by the
+        same staged rebuild v52 uses, inside one ``BEGIN IMMEDIATE``.
+      - `fleet_generation_sent` records which generation span ids were
+        already queued, so a transcript re-read never queues a turn twice.
+        Keyed by span id; old markers are pruned by the sender.
+
+    Idempotent: a widened constraint is left alone, an interrupted rebuild is
+    repaired first, and the index and marker table use IF NOT EXISTS.
+    """
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    async def _create_indexes() -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+            "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+            "WHERE delivered_at IS NULL"
+        )
+
+    leftover = await _table_sql("external_forward_outbox_v53")
+    if leftover:
+        if await _table_sql("external_forward_outbox"):
+            await conn.execute("DROP TABLE external_forward_outbox_v53")
+        else:
+            await conn.execute(
+                "ALTER TABLE external_forward_outbox_v53 RENAME TO external_forward_outbox"
+            )
+            await _create_indexes()
+        await conn.commit()
+
+    existing = await _table_sql("external_forward_outbox")
+    if existing and "'generation'" not in existing:
+        try:
+            await conn.executescript(
+            """
+            BEGIN IMMEDIATE;
+            CREATE TABLE external_forward_outbox_v53 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+                kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit', 'task_event', 'generation')),
+                payload_json  TEXT NOT NULL,
+                created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                delivered_at  TIMESTAMP,
+                last_error    TEXT
+            );
+            INSERT INTO external_forward_outbox_v53 (
+                id, forwarder_id, kind, payload_json, created_at,
+                attempts, delivered_at, last_error
+            )
+            SELECT id, forwarder_id, kind, payload_json, created_at,
+                   attempts, delivered_at, last_error
+            FROM external_forward_outbox;
+            DROP TABLE external_forward_outbox;
+            ALTER TABLE external_forward_outbox_v53 RENAME TO external_forward_outbox;
+            CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending
+                ON external_forward_outbox (forwarder_id, delivered_at, id)
+                WHERE delivered_at IS NULL;
+            COMMIT;
+            """
+            )
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    if await _table_sql("external_forward_outbox"):
+        await _create_indexes()
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fleet_generation_sent (
+            span_id   TEXT PRIMARY KEY,
+            trace_id  TEXT,
+            sent_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fleet_generation_sent_at "
+        "ON fleet_generation_sent (sent_at)"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (53, CURRENT_TIMESTAMP, 'Model generation rows in the forward outbox')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v53: generation outbox kind")

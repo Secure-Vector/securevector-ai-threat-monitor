@@ -452,8 +452,8 @@ def encode_batch(batch: list[dict[str, Any]], *, redaction: str = "standard") ->
             out.append(encode_scan_event(payload, redaction=redaction))
         elif kind == "tool_audit":
             out.append(encode_tool_audit_event(payload, redaction=redaction))
-        # `task_event` rows are fleet-only (Agent Task lifecycle metadata);
-        # they are never encoded for a SIEM, so they fall through here too.
+        # `task_event` and `generation` rows are fleet-only metadata; they
+        # are never encoded for a SIEM, so they fall through here too.
         # Unknown kinds are silently dropped — the outbox CHECK constraint
         # should prevent this, so this is pure belt-and-suspenders.
     return out
@@ -504,6 +504,9 @@ def _fleet_tool_activity_row(p: dict[str, Any]) -> dict[str, Any]:
         "decision": p.get("action"),
         "risk": p.get("risk"),
         "is_essential": bool(p.get("is_essential") or False),
+        # step outcome: the call failed / the step reads as flagged locally.
+        "is_error": bool(p.get("is_error") or False),
+        "flagged": bool(p.get("flagged") or False),
         # run-correlation identity (#141/#144).
         "trace_id": p.get("trace_id"),
         "session_id": p.get("session_id"),
@@ -606,6 +609,38 @@ def _fleet_task_event_row(p: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+# Model generation row (outbox kind `generation`): one per model turn of a
+# governed run. The payload is already flat and metadata-only; it is projected
+# on this fixed key list so nothing outside it can ride along.
+_FLEET_GENERATION_FIELDS = (
+    "timestamp",
+    "device_id",
+    "harness",
+    "agent",
+    "trace_id",
+    "session_id",
+    "span_id",
+    "duration_ms",
+    "duration_estimated",
+    "turn_start",
+    "model_id",
+    "tokens_in",
+    "tokens_out",
+    "tokens_cache_read",
+    "tokens_cache_write",
+    "cost_usd",
+    "tool_use_count",
+)
+
+
+def _fleet_generation_row(p: dict[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = {"ocsf_version": "1.3.0", "category": "model_generation"}
+    for key in _FLEET_GENERATION_FIELDS:
+        row[key] = p.get(key)
+    row["duration_estimated"] = bool(row.get("duration_estimated") or False)
+    return row
+
+
 def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
     """Encode outbox rows as newline-delimited flat fleet metadata (NDJSON).
 
@@ -615,7 +650,8 @@ def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
     are skipped: the engine counts every scan-verdict row as a detection, so
     forwarding clean scans would inflate the detected figure. task_event rows
     (Agent Task lifecycle metadata) pass through flat with row_type
-    "task_event". Returns UTF-8
+    "task_event", and generation rows (one per model turn) with category
+    "model_generation". Returns UTF-8
     NDJSON bytes ready to POST to the cloud /ocsf/ingest endpoint.
     """
     lines: list[str] = []
@@ -629,6 +665,8 @@ def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
                 lines.append(json.dumps(_fleet_scan_verdict_row(payload), separators=(",", ":")))
         elif kind == "task_event":
             lines.append(json.dumps(_fleet_task_event_row(payload), separators=(",", ":")))
+        elif kind == "generation":
+            lines.append(json.dumps(_fleet_generation_row(payload), separators=(",", ":")))
     return ("\n".join(lines)).encode("utf-8")
 
 

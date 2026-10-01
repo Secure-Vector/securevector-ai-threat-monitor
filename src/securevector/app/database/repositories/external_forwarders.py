@@ -55,7 +55,7 @@ def _sanitize_for_log(value: Any, cap: int = 80) -> str:
     return s[:cap]
 
 
-OutboxKind = Literal["scan", "output_scan", "tool_audit", "task_event"]
+OutboxKind = Literal["scan", "output_scan", "tool_audit", "task_event", "generation"]
 # `file` = local NDJSON append, indie-friendly destination with zero
 # infra. URL column is reinterpreted as a filesystem path for this kind.
 ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http", "file"]
@@ -178,6 +178,10 @@ _TOOL_AUDIT_STANDARD = _TOOL_AUDIT_MINIMAL | frozenset({
     "turn_index",
     "parent_span_id",
     "runtime_kind",
+    # Step outcome booleans for the cloud step timeline: the call failed
+    # (PostToolUseFailure row) / the step reads as flagged locally.
+    "is_error",
+    "flagged",
 })
 
 _TOOL_AUDIT_FULL = _TOOL_AUDIT_STANDARD | frozenset({
@@ -224,6 +228,32 @@ _TASK_EVENT_ALLOWED = frozenset({
     "archived_at",
 })
 TASK_EVENT_ROW_TYPE = "task_event"
+
+# Model generation rows (v53): one per model turn of a governed run, derived
+# from the harness transcript. Exactly the flat wire keys, nothing else:
+# ids, a digest, small integers, a sanitised model id, a cost and an ISO
+# timestamp. Never prompt or output text, previews, tool results, tool names
+# or arguments: the turn's tool calls travel only as a count. Fleet-only,
+# like task_event, and fixed-shape, so there are no redaction tiers.
+_GENERATION_ALLOWED = frozenset({
+    "timestamp",
+    "device_id",
+    "harness",
+    "agent",
+    "trace_id",
+    "session_id",
+    "span_id",
+    "duration_ms",
+    "duration_estimated",
+    "turn_start",
+    "model_id",
+    "tokens_in",
+    "tokens_out",
+    "tokens_cache_read",
+    "tokens_cache_write",
+    "cost_usd",
+    "tool_use_count",
+})
 
 
 # v26 — Full-tier payload size cap. Even when a user enables raw-data
@@ -292,6 +322,8 @@ def _redact_for_destination(
         # A flat, fixed-shape row: keep null fields so every line carries
         # the same keys. The allow-list still applies.
         return {k: v for k, v in payload.items() if k in _TASK_EVENT_ALLOWED}
+    if kind == "generation":
+        return {k: v for k, v in payload.items() if k in _GENERATION_ALLOWED}
     if kind in ("scan", "output_scan"):
         allowed = _SCAN_FIELDS_BY_LEVEL.get(redaction_level, _SCAN_STANDARD)
     else:
@@ -397,6 +429,24 @@ def build_task_event_payload(live_run: Mapping[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def build_generation_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Check a model generation row against its allow-list.
+
+    A key that is not on it is a hard reject, not a silent strip, and values
+    must be scalars so a nested structure cannot carry text past the key
+    check.
+    """
+    payload = dict(row)
+    _assert_metadata_only(payload, _GENERATION_ALLOWED, kind="generation")
+    for key, value in payload.items():
+        if value is not None and not isinstance(value, (str, int, float, bool)):
+            raise ValueError(
+                f"external_forwarders: refusing to enqueue generation with a "
+                f"non-scalar value in field {key!r}."
+            )
+    return payload
+
+
 def build_tool_audit_payload(
     *,
     audit_id: int,
@@ -424,6 +474,9 @@ def build_tool_audit_payload(
     turn_index: Optional[int] = None,
     parent_span_id: Optional[str] = None,
     runtime_kind: Optional[str] = None,
+    # Step outcome booleans (metadata; standard tier).
+    is_error: bool = False,
+    flagged: bool = False,
 ) -> dict[str, Any]:
     # Same 8KB cap as scans — tool-call args can be chatty too (a vector
     # with 20k embedded values, a base64 blob pasted into a tool payload).
@@ -455,6 +508,8 @@ def build_tool_audit_payload(
         "turn_index": turn_index,
         "parent_span_id": parent_span_id,
         "runtime_kind": runtime_kind,
+        "is_error": bool(is_error),
+        "flagged": bool(flagged),
     }
     _assert_metadata_only(payload, _TOOL_AUDIT_ALLOWED, kind="tool_audit")
     return payload
@@ -945,6 +1000,8 @@ class ExternalForwardOutboxRepository:
             _assert_metadata_only(payload, _TOOL_AUDIT_ALLOWED, kind=kind)
         elif kind == "task_event":
             _assert_metadata_only(payload, _TASK_EVENT_ALLOWED, kind=kind)
+        elif kind == "generation":
+            _assert_metadata_only(payload, _GENERATION_ALLOWED, kind=kind)
         else:
             raise ValueError(f"unknown outbox kind: {kind!r}")
 
@@ -1168,9 +1225,10 @@ def _passes_filter(fwd: dict[str, Any], kind: str, payload: dict[str, Any]) -> b
       2. Severity threshold — scan events must meet min_severity.
          Added in v26; default 'review' drops WARN-tier noise.
     """
-    if kind == "task_event":
-        # Agent Task lifecycle rows belong to the fleet destination only.
-        # A SIEM destination never receives them, whatever its filters say.
+    if kind in ("task_event", "generation"):
+        # Agent Task lifecycle rows and model generation rows belong to the
+        # fleet destination only. A SIEM destination never receives them,
+        # whatever its filters say.
         return str(fwd.get("source") or "") == "enrollment"
 
     event_filter = fwd.get("event_filter", "threats_only")

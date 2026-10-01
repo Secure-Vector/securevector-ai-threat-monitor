@@ -8,6 +8,7 @@ and control permissions through the same block/allow system as essential tools.
 import asyncio
 import hashlib
 import logging
+import re
 from typing import Optional
 
 from securevector.app.utils.trace_text import sanitize_trace_text
@@ -49,6 +50,10 @@ async def _siem_enqueue_tool_audit(
     turn_index: Optional[int] = None,
     parent_span_id: Optional[str] = None,
     runtime_kind: Optional[str] = None,
+    # Step outcome inputs: the stored (redacted) reason marks a failed call,
+    # request_id joins the call to any detection it raised.
+    reason: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> None:
     """Fan a new audit row out to every enabled SIEM forwarder.
 
@@ -93,6 +98,18 @@ async def _siem_enqueue_tool_audit(
     except Exception:
         pass  # best-effort finding_group_id derivation; falls through to None
 
+    # The detection lookup only feeds the fleet step chip, so it runs only
+    # when an active enrollment destination takes tool audits (fwds is
+    # already loaded above, so this check costs nothing).
+    fleet_audits = any(
+        str(f.get("source") or "") == "enrollment" and f.get("include_tool_audits")
+        for f in fwds
+    )
+    is_error, flagged = await _tool_step_flags(
+        db, action=action, risk=risk, reason=reason, request_id=request_id,
+        lookup_detections=fleet_audits,
+    )
+
     # audit_id isn't known at this call site (we only have seq + row_hash),
     # so pass 0 — consumers keying on row_hash are unaffected, and the OCSF
     # encoder surfaces audit_id in `unmapped` for completeness.
@@ -121,12 +138,50 @@ async def _siem_enqueue_tool_audit(
         turn_index=turn_index,
         parent_span_id=parent_span_id,
         runtime_kind=runtime_kind,
+        is_error=is_error,
+        flagged=flagged,
     )
 
     outbox = ExternalForwardOutboxRepository(db)
     written = await outbox.enqueue_fanout("tool_audit", payload, forwarders=fwds)
     if written:
         logger.debug(f"siem: enqueued tool_audit seq={seq} → {written} forwarder(s)")
+
+
+# PostToolUseFailure rows carry a reason starting "tool error" (the same test
+# the run health checks and the step list use).
+_TOOL_ERROR_REASON = re.compile(r"^tool error\b")
+
+
+async def _tool_step_flags(
+    db: DatabaseConnection,
+    *,
+    action: Optional[str],
+    risk: Optional[str],
+    reason: Optional[str],
+    request_id: Optional[str],
+    lookup_detections: bool = True,
+) -> tuple[bool, bool]:
+    """(is_error, flagged) for one audit row, matching the local step list.
+
+    flagged mirrors the step chip rule: not blocked, and either only logged
+    (log_only / warn), an amber risk, or a detection tied to the call by its
+    request_id. The detection lookup is best-effort: a call whose scan has
+    not been written yet reads as not flagged. It is skipped when
+    ``lookup_detections`` is False (no fleet destination takes tool audits).
+    """
+    is_error = bool(_TOOL_ERROR_REASON.match(str(reason or "")))
+    act = str(action or "").lower()
+    if act == "block":
+        return is_error, False
+    flagged = act in ("log_only", "warn") or str(risk or "").lower() == "amber"
+    if not flagged and request_id and lookup_detections:
+        try:
+            detections = await CustomToolsRepository(db).get_detection_sources([request_id])
+            flagged = bool(detections.get(request_id))
+        except Exception:  # noqa: BLE001 - a lookup failure leaves it unflagged
+            flagged = False
+    return is_error, flagged
 
 
 def _compute_audit_row_hash(
@@ -559,6 +614,8 @@ class CustomToolsRepository:
                 turn_index=turn_index,
                 parent_span_id=parent_span_id,
                 runtime_kind=runtime_kind,
+                reason=reason,
+                request_id=request_id,
             )
         except Exception as _sie:
             logger.debug(f"siem enqueue (tool_audit) skipped: {_sie}")

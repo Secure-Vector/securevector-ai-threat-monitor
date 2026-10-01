@@ -688,6 +688,16 @@ async def run_health_warmer(interval: float = run_health.WARM_INTERVAL_SECONDS,
             raise
         except Exception:  # noqa: BLE001
             logger.debug("run health warm-up pass failed", exc_info=True)
+        # Same cadence, after the warm-up so its transcript parses are cached:
+        # queue model generation rows for an enrolled fleet destination
+        # (no-op when not enrolled or forwarding is off).
+        try:
+            from securevector.app.services import fleet_generations
+            await fleet_generations.forward_generations_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("fleet generation pass failed", exc_info=True)
 
 
 @router.get("/run-health")
