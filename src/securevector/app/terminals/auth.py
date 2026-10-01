@@ -13,10 +13,11 @@ set custom headers or an Origin -- can qualify.
 from __future__ import annotations
 
 import errno
+import logging
 import os
 import secrets
 from pathlib import Path
-from typing import Dict, Mapping, NoReturn, Optional
+from typing import Any, Dict, Mapping, NoReturn, Optional
 
 from fastapi import HTTPException, Request, Response, WebSocket
 
@@ -172,8 +173,27 @@ class TerminalAuth:
         )
 
 
-def get_auth(request: Request) -> TerminalAuth:
+async def retry_terminals_init(app: Any) -> None:
+    """Retry a failed Agent Terminals start, if the app registered a retry.
+
+    A start that failed on a transient error (a database the previous
+    process still held) would otherwise leave every terminals route
+    answering 503 until the app restarts. The retry is throttled inside.
+    """
+    reinit = getattr(app.state, "terminals_reinit", None)
+    if reinit is None or getattr(app.state, "terminal_manager", None) is not None:
+        return
+    try:
+        await reinit()
+    except Exception as exc:  # noqa: BLE001 - the 503 below reports it
+        logging.getLogger(__name__).warning("Agent Terminals retry failed: %s", exc)
+
+
+async def get_auth(request: Request) -> TerminalAuth:
     auth: Optional[TerminalAuth] = getattr(request.app.state, "terminal_auth", None)
+    if auth is None:
+        await retry_terminals_init(request.app)
+        auth = getattr(request.app.state, "terminal_auth", None)
     if auth is None:
         raise HTTPException(status_code=503, detail="Terminals are not initialised")
     return auth

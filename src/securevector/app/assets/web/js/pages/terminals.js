@@ -2188,12 +2188,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             else if (f.t === 'ping') ws.send(JSON.stringify({ t: 'pong' }));
             else if (f.t === 'dropped') this._banner(`Output fell behind, ${f.n} chunks skipped. Reattach to replay.`, paneId);
             else if (f.t === 'exit') {
-                this._banner(f.code === 0 ? 'Task finished.' : `Task ended with exit code ${f.code}.`, paneId);
                 // Output that did arrive is the session's record and worth
                 // keeping on screen. With none, the pane is a black rectangle
                 // that names nothing, so replace it with something that says
                 // which session this was and offers to start it again here.
+                // That panel carries the exit line itself, so the banner is
+                // left out rather than saying the same thing twice.
                 if (!rec.sawOutput) this._showEndedStage(paneId, task, f.code);
+                else this._banner(this._exitText(f.code), paneId);
             }
         };
         ws.onclose = (ev) => {
@@ -2517,8 +2519,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // harness name is the one thing every row is guaranteed to carry.
         const name = task.title || this._label(task.executor_id);
         const exitLine = code === null
-            ? 'Stopped before it reported an exit code'
+            ? 'Task ended before it reported an exit code.'
             : `Exit code ${code}`;
+        if (rec.bannerEl) rec.bannerEl.hidden = true;
         rec.stageEl.innerHTML = `
           <div class="terminals-ended-stage">
             <div class="terminals-ended-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
@@ -4054,6 +4057,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // Nothing attached, so the column goes back to its vertical strip and
         // reserves no body width.
         this._syncGovDock();
+    },
+
+    /** Banner copy for an exit frame. The code is null when the process
+     *  ended before reporting one, which must never read "exit code null". */
+    _exitText(code) {
+        if (code === 0) return 'Task finished.';
+        if (typeof code !== 'number') return 'Task ended before it reported an exit code.';
+        return `Task ended with exit code ${code}.`;
     },
 
     _banner(text, paneId) {

@@ -166,7 +166,12 @@ class TerminalManager:
         """Bind the event loop, then restore the board: anything still marked
         running belonged to a previous process and is now interrupted."""
         self._loop = loop
-        interrupted = await self.store.mark_running_interrupted()
+        await self.store.mark_running_interrupted()
+        # Select the work by state, not by what this call just marked: if an
+        # earlier start failed part way (add_event raised), its remaining
+        # tasks are already interrupted but have no event and were not
+        # reaped, and this retry finishes them.
+        interrupted = await self.store.interrupted_without_event()
         for task in interrupted:
             await self.store.add_event(
                 task["id"],

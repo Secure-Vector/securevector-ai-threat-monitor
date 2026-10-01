@@ -27,7 +27,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
-from securevector.app.terminals.auth import TerminalAuth, get_auth
+from securevector.app.terminals.auth import TerminalAuth, get_auth, retry_terminals_init
 from securevector.app.terminals.executors import ExecutorUnavailable, UnknownExecutor
 from securevector.app.terminals.gitinfo import workspace_branch
 from securevector.app.terminals.manager import (
@@ -45,8 +45,11 @@ HEARTBEAT_SECONDS = 15
 CLIENT_TIMEOUT_SECONDS = 45
 
 
-def get_manager(request: Request) -> TerminalManager:
+async def get_manager(request: Request) -> TerminalManager:
     manager: Optional[TerminalManager] = getattr(request.app.state, "terminal_manager", None)
+    if manager is None:
+        await retry_terminals_init(request.app)
+        manager = getattr(request.app.state, "terminal_manager", None)
     if manager is None:
         raise HTTPException(status_code=503, detail="Terminals are not initialised")
     return manager
@@ -344,6 +347,7 @@ def _b64(data: bytes) -> str:
 
 @router.websocket("/tasks/{task_id}/ws")
 async def task_socket(websocket: WebSocket, task_id: str):
+    await retry_terminals_init(websocket.app)
     auth: Optional[TerminalAuth] = getattr(websocket.app.state, "terminal_auth", None)
     manager: Optional[TerminalManager] = getattr(websocket.app.state, "terminal_manager", None)
     if auth is None or manager is None or not auth.check_ws(websocket):
