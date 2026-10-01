@@ -41,7 +41,7 @@ const AR_LOCK_SVG = (c = '#f59e0b', s = 12) => `<svg viewBox="0 0 24 24" width="
 const AR_ROBOT_SVG = (c = '#5eadb8', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="4" y="8" width="16" height="11" rx="2.5"/><path d="M12 8V4M9 4h6"/><circle cx="9" cy="13" r="1.3" fill="${c}" stroke="none"/><circle cx="15" cy="13" r="1.3" fill="${c}" stroke="none"/></svg>`;
 
 const AgentRunsPage = {
-    windowDays: 7,
+    windowDays: 1,
     kinds: { builtin: true, external: true }, // checkbox filter for the waterfall steps
     runs: [],
     selected: null,

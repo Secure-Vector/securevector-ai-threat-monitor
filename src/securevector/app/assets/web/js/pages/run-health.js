@@ -11,7 +11,7 @@
  * be amber. Every server string is escaped, attributes included.
  */
 const RunHealthPage = {
-    windowDays: 7,
+    windowDays: 1,
     data: null,
     GROUPS: [
         { key: 'loop', label: 'Loop' },

@@ -10036,3 +10036,15 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .sv-health-icon { display: inline-block; flex: 0 0 auto; vertical-align: -2px; }
 .sv-health-badge { gap: 4px; }
 .terminals-steps-mark, .trace-steps-mark, .terminals-steps-finding-icon, .trace-steps-finding-icon { display: inline-flex; align-items: center; justify-content: center; }
+
+/* Launch dialog fields: themed like .form-input / .form-select */
+.terminals-launch { color-scheme: dark; }
+[data-theme="light"] .terminals-launch { color-scheme: light; }
+.terminals-launch input, .terminals-launch select { background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md, 6px); transition: border-color var(--transition-fast, .15s); }
+.terminals-launch input::placeholder { color: var(--text-muted); opacity: 1; }
+.terminals-launch input:focus-visible, .terminals-launch select:focus-visible { outline: none; border-color: var(--accent-primary); }
+.terminals-launch input:disabled, .terminals-launch select:disabled { opacity: .5; cursor: not-allowed; }
+.terminals-launch input:-webkit-autofill, .terminals-launch input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 1000px var(--bg-tertiary) inset; -webkit-text-fill-color: var(--text-primary); caret-color: var(--text-primary); }
+.terminals-launch select { appearance: none; -webkit-appearance: none; padding-right: 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23eef2f7' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+[data-theme="light"] .terminals-launch select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231f2328' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E"); }
+.terminals-launch option { background-color: var(--bg-tertiary); color: var(--text-primary); }

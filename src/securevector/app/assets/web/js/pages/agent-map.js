@@ -105,7 +105,7 @@ const TOPOLOGIES = [
 ];
 
 const AgentMapPage = {
-    windowDays: 7,
+    windowDays: 1,
     topo: 'tree',
     showInactive: false,
     outcomeFilter: 'all', // all | allow | blocked | log_only | threat

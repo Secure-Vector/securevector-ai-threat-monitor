@@ -132,7 +132,7 @@ test('the pane and rail styles are defined and survive the collapsed rail', () =
 
 test('index.html pins the versions this change ships', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=461/);
+  assert.match(html, /styles\.css\?v=462/);
   assert.match(html, /sidebar\.js\?v=181/);
   assert.match(html, /terminals\.js\?v=86/);
 });
