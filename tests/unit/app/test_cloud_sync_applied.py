@@ -143,3 +143,41 @@ async def test_loop_keeps_normal_cadence_when_the_ack_failed(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await cloud_sync._sync_loop(db=None)
     assert sleeps == [cloud_sync.SYNC_INTERVAL_SECONDS, cloud_sync.SYNC_INTERVAL_SECONDS]
+
+
+# --- If-None-Match hint for a bundle with no rules -------------------------
+
+class _NoRows:
+    async def list_all(self):
+        return []
+
+
+class _Envelope:
+    def __init__(self, bundle_id, tampered_at=None):
+        self.bundle_id = bundle_id
+        self.tampered_at = tampered_at
+
+
+class _EnvRepo:
+    def __init__(self, envelope):
+        self._envelope = envelope
+
+    async def load_latest(self):
+        return self._envelope
+
+
+def test_hint_falls_back_to_envelope_when_bundle_has_no_rules():
+    import asyncio
+    from securevector.app.services import cloud_sync
+
+    hint = asyncio.run(cloud_sync._get_last_bundle_id(_NoRows(), _EnvRepo(_Envelope("bnd_empty"))))
+    assert hint == "bnd_empty"
+
+
+def test_no_hint_from_a_tampered_envelope():
+    import asyncio
+    from securevector.app.services import cloud_sync
+
+    tampered = _Envelope("bnd_x", tampered_at="2026-10-01T00:00:00Z")
+    assert asyncio.run(cloud_sync._get_last_bundle_id(_NoRows(), _EnvRepo(tampered))) is None
+    assert asyncio.run(cloud_sync._get_last_bundle_id(_NoRows(), None)) is None

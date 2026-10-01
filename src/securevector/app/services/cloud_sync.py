@@ -321,7 +321,7 @@ async def _sync_once(
         return False
 
     last_applied = await _get_last_applied_version(repo)
-    bundle_id_hint = await _get_last_bundle_id(repo)
+    bundle_id_hint = await _get_last_bundle_id(repo, envelope_repo)
 
     response = await _fetch_bundle(creds, bundle_id_hint)
     if response is None:
@@ -607,13 +607,27 @@ async def _get_last_applied_version(repo: SyncedRulesRepository) -> Optional[int
     return max(r.policy_version for r in rows)
 
 
-async def _get_last_bundle_id(repo: SyncedRulesRepository) -> Optional[str]:
-    """The most recently applied bundle_id, used as the If-None-Match hint."""
+async def _get_last_bundle_id(
+    repo: SyncedRulesRepository,
+    envelope_repo: Optional[SyncedBundleEnvelopeRepository] = None,
+) -> Optional[str]:
+    """The most recently applied bundle_id, used as the If-None-Match hint.
+
+    A bundle with no rules stores no rule rows, so fall back to the saved
+    envelope; without a hint the cloud re-sends the same bundle every poll.
+    """
     rows = await repo.list_all()
-    if not rows:
-        return None
-    rows.sort(key=lambda r: r.applied_at, reverse=True)
-    return rows[0].bundle_id
+    if rows:
+        rows.sort(key=lambda r: r.applied_at, reverse=True)
+        return rows[0].bundle_id
+    if envelope_repo is not None:
+        try:
+            envelope = await envelope_repo.load_latest()
+        except Exception:  # noqa: BLE001 - a missing hint only costs a re-send
+            return None
+        if envelope is not None and envelope.tampered_at is None:
+            return envelope.bundle_id
+    return None
 
 
 def _now_iso() -> str:
