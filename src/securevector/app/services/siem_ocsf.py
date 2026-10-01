@@ -587,6 +587,8 @@ _FLEET_TASK_EVENT_FIELDS = (
     "status",
     "task_origin",
     "workspace_digest",
+    "workspace_name",
+    "title",
     "has_session",
     "session_digest",
     "exit_code",

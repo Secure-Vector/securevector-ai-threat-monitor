@@ -265,7 +265,7 @@ def test_builder_tags_row_type_and_keeps_every_value():
     assert {k: v for k, v in row.items() if k != "row_type"} == live
 
 
-@pytest.mark.parametrize("extra", ["title", "workspace", "activity"])
+@pytest.mark.parametrize("extra", ["workspace", "activity", "session_id"])
 def test_builder_rejects_a_field_off_the_allow_list(extra):
     live = _live_payload()
     live[extra] = "anything"
@@ -286,7 +286,7 @@ async def test_enqueue_fanout_rejects_an_extra_field(tmp_path):
     try:
         dest = await _add_destination(db, source="enrollment", name="fleet")
         payload = build_task_event_payload(_live_payload())
-        payload["title"] = TITLE
+        payload["workspace"] = WORKSPACE
         with pytest.raises(ValueError):
             await ExternalForwardOutboxRepository(db).enqueue_fanout(
                 "task_event", payload, forwarders=[dest]
@@ -433,12 +433,15 @@ async def test_no_raw_path_title_or_activity_in_the_enqueued_payload(tmp_path):
         rows = await _outbox_rows(db)
         assert len(rows) == 3
         blob = "\n".join(r["payload_json"] for r in rows)
-        for secret in (WORKSPACE, "acme", TITLE, ACTIVITY, "model.py", SESSION, "40321"):
+        for secret in (WORKSPACE, "acme-corp", "/Users", ACTIVITY, "model.py", SESSION, "40321"):
             assert secret not in blob
         for r in rows:
             payload = json.loads(r["payload_json"])
             assert set(payload) == fwd_repo_module._TASK_EVENT_ALLOWED
             assert payload["row_type"] == "task_event"
+            # Owner-approved labels: sanitised title and folder basename only.
+            assert payload["title"] == TITLE
+            assert payload["workspace_name"] == "pricing-model"
     finally:
         await close_database()
 
@@ -460,11 +463,26 @@ def test_encode_fleet_jsonl_emits_a_flat_task_event_line():
 
 def test_encode_fleet_jsonl_drops_keys_outside_the_contract():
     payload = build_task_event_payload(_live_payload())
-    tampered = dict(payload, title=TITLE, row_type="tool_activity")
+    tampered = dict(payload, workspace=WORKSPACE, row_type="tool_activity")
     line = json.loads(
         siem_ocsf.encode_fleet_jsonl([{"id": 1, "kind": "task_event", "payload": tampered}])
     )
-    assert "title" not in line and line["row_type"] == "task_event"
+    assert "workspace" not in line and line["row_type"] == "task_event"
+    assert WORKSPACE not in json.dumps(line)
+
+
+def test_encode_fleet_jsonl_carries_title_and_folder_name_never_the_path():
+    payload = build_task_event_payload(
+        _live_payload(title="Ship\x07 it\n  today", workspace="/Users/alice/work/acme-weather/")
+    )
+    line = json.loads(
+        siem_ocsf.encode_fleet_jsonl([{"id": 1, "kind": "task_event", "payload": payload}])
+    )
+    assert line["title"] == "Ship it today"
+    assert line["workspace_name"] == "acme-weather"
+    blob = json.dumps(line)
+    assert "/Users/alice" not in blob and "work/acme-weather" not in blob
+    assert "/" not in line["workspace_name"] and "\\" not in line["workspace_name"]
 
 
 def test_siem_encoders_skip_task_event_rows():

@@ -4,11 +4,14 @@ Story The cloud half of Agent Terminals: task lifecycle events feed a cloud
 Live Runs view so an admin sees every run live, METADATA ONLY.
 
 "Metadata only" is a privacy boundary, not a size budget. The cloud may
-learn that a run exists and what shape it has. It may never learn what the
-run is about. Nothing that a human typed and nothing that names anything on
-this machine leaves here: no prompts, no tool arguments, no file paths, no
-folder names, no command lines, no titles, no transcripts, no free text of
-any kind.
+learn that a run exists and what shape it has. Two short labels also leave,
+owner-approved so an admin can tell runs apart: the task `title` the user
+typed (sanitised, at most 80 characters) and `workspace_name`, the final
+component of the workspace folder (sanitised, at most 64 characters, never
+a path). Nothing else that a human typed and nothing else that names
+anything on this machine leaves here: no prompts, no tool arguments, no
+file paths, no parent folders, no command lines, no terminal output, no
+transcripts, no `detail` text.
 
 Three rules hold that line, in this order:
 
@@ -17,7 +20,8 @@ Three rules hold that line, in this order:
    dropped by default; someone has to come here and argue for it. A
    denylist would export every future column until someone noticed.
 2. **Closed vocabularies.** Every field that leaves is an enum value, a
-   timestamp, a small integer, or a keyed digest. A field carrying an
+   timestamp, a small integer, or a keyed digest, except the two
+   sanitised labels above (`_clean_label`, `workspace_name`). A field carrying an
    unexpected value is emitted as None rather than passed through, so a
    column that quietly changes meaning cannot smuggle text out.
 3. **No `detail`.** `TerminalStore.add_event` takes a `detail` string that
@@ -41,6 +45,7 @@ import inspect
 import logging
 import os
 import secrets
+import unicodedata
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -64,6 +69,10 @@ SCHEMA = "securevector.live_run/1"
 #   status           closed set from the table's own CHECK constraint.
 #   origin           'launch' or 'linked'; says how the run reached the board.
 #   exit_code        a small integer from the OS, no content.
+#   title            user-typed label, owner-approved (2026-09-30) so the
+#                    Live Runs view can name a run. Sent only through
+#                    _clean_label: control characters removed, whitespace
+#                    collapsed, at most TITLE_MAX_CHARS.
 #   created_at,      timestamps; shape, not content.
 #   last_activity_at
 #   ended_at
@@ -71,11 +80,11 @@ SCHEMA = "securevector.live_run/1"
 #
 # Deliberately NOT here:
 #
-#   workspace        a FILE PATH. Folder names leak client names, project
-#                    codenames, and the user's account name. Exported only
-#                    as a keyed digest (see workspace_digest).
-#   title            user-typed. The single most likely place for the thing
-#                    the user is actually working on to appear.
+#   workspace        a FILE PATH. Parent folders leak client names and the
+#                    user's account name. Exported only as a keyed digest
+#                    (see workspace_digest) plus the final folder name
+#                    (see workspace_name, owner-approved 2026-09-30), never
+#                    the path.
 #   activity         derived from harness tool traffic; free text.
 #   pid              an OS identifier for a process on the user's machine.
 #                    Not content, but a Live Runs view cannot act on it and
@@ -87,6 +96,7 @@ TASK_FIELD_ALLOWLIST = frozenset(
         "executor_id",
         "status",
         "origin",
+        "title",
         "exit_code",
         "created_at",
         "last_activity_at",
@@ -94,6 +104,10 @@ TASK_FIELD_ALLOWLIST = frozenset(
         "archived_at",
     }
 )
+
+# Caps on the two sanitised labels that leave (title, workspace folder name).
+TITLE_MAX_CHARS = 80
+WORKSPACE_NAME_MAX_CHARS = 64
 
 # SESSION_ID: a judgement call, decided as "digest, never raw".
 #
@@ -324,6 +338,85 @@ def _timestamp(value: Any) -> Optional[str]:
     return parsed.astimezone(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def _clean_label(value: Any, limit: int) -> Optional[str]:
+    """Sanitise a short user-visible label, or None.
+
+    Strings only. Whitespace of any kind becomes a space, every other
+    Unicode control/format/unassigned character (category C*) is dropped,
+    runs of spaces collapse to one, then the result is stripped and cut to
+    `limit` characters. Empty after all that means None.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        chars = []
+        for ch in unicodedata.normalize("NFC", value):
+            if ch.isspace():
+                chars.append(" ")
+            elif unicodedata.category(ch).startswith("C"):
+                continue
+            else:
+                chars.append(ch)
+        text = " ".join("".join(chars).split())
+        text = text[:limit].rstrip()
+    except Exception:
+        return None
+    return text or None
+
+
+def workspace_name(workspace: Any) -> Optional[str]:
+    """The workspace folder's own name, never the path, or None.
+
+    "/Users/alice/work/acme-weather/" becomes "acme-weather". None for:
+    anything not a string; root, "~", "~user" and the home directory
+    itself; a folder sitting directly under a users/home root (it would be
+    an account name: /Users/<x>, /home/<x>, C:/Users/<x>); a bare UNC host;
+    a bare drive; and anything that cleans down to "", "~", "." or "..".
+    Pure: splits the string, never touches disk. The result never contains
+    "/" or "\\".
+    """
+    if not isinstance(workspace, str):
+        return None
+    try:
+        if not workspace.strip():
+            return None
+        # Only separators are stripped below, never whitespace, so a
+        # whitespace-only last component cleans to None instead of falling
+        # back to its parent folder.
+        text = workspace.replace("\\", "/")
+        if text.startswith("//?/"):
+            text = text[4:]
+        if text.startswith("~"):
+            if text.split("/", 1)[0] != "~":
+                return None  # "~alice", "~nobody": another user's home
+            text = os.path.expanduser(text)
+            if text.startswith("~"):
+                return None
+        unc = text.startswith("//")
+        stripped = text.rstrip("/")
+        parts = [p for p in stripped.split("/") if p]
+        if not parts or (unc and len(parts) < 2):
+            return None
+        home = os.path.normcase(os.path.expanduser("~")).replace("\\", "/").rstrip("/")
+        here = os.path.normcase(stripped)
+        if home and home != "~" and here.casefold() == home.casefold():
+            return None
+        parents = [p.casefold() for p in parts[:-1]]
+        if parents in (["users"], ["home"]) or (
+            len(parents) == 2 and parents[0].endswith(":") and parents[1] == "users"
+        ):
+            return None
+        base = parts[-1]
+        if base.endswith(":"):
+            return None
+        name = _clean_label(base, WORKSPACE_NAME_MAX_CHARS)
+    except Exception:
+        return None
+    if name is None or name in ("~", ".", "..") or "/" in name or "\\" in name:
+        return None
+    return name
+
+
 def _int(value: Any) -> Optional[int]:
     if isinstance(value, bool) or value is None:
         return None
@@ -345,7 +438,8 @@ def build_payload(
 
     Pure, and never raises: a malformed row yields a payload full of None
     rather than an exception on the spawn path. Note the absent parameter:
-    there is no `detail`, by design (see the module docstring).
+    there is no `detail`, by design (see the module docstring). `title` and
+    `workspace_name` are sanitised labels; the workspace path never leaves.
     """
     row: Mapping[str, Any] = task if isinstance(task, Mapping) else {}
     stamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -360,6 +454,8 @@ def build_payload(
         "status": _enum(row.get("status"), STATUSES),
         "task_origin": _enum(row.get("origin"), TASK_ORIGINS),
         "workspace_digest": workspace_digest(row.get("workspace"), key=key),
+        "workspace_name": workspace_name(row.get("workspace")),
+        "title": _clean_label(row.get("title"), TITLE_MAX_CHARS),
         "has_session": bool(str(session or "").strip()),
         "session_digest": _digest(session, domain="session", key=key),
         "exit_code": _int(row.get("exit_code")),

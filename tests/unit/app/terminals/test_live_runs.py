@@ -55,7 +55,6 @@ def test_no_unallowlisted_field_reaches_the_payload():
     secrets_by_field = {}
     for column in [
         "workspace",
-        "title",
         "session_id",
         "pid",
         "activity",
@@ -90,6 +89,8 @@ def test_payload_keys_are_exactly_the_published_shape():
         "status",
         "task_origin",
         "workspace_digest",
+        "workspace_name",
+        "title",
         "has_session",
         "session_digest",
         "exit_code",
@@ -120,13 +121,14 @@ def test_allowlist_matches_the_published_shape():
         "executor_id",
         "status",
         "origin",
+        "title",
         "exit_code",
         "created_at",
         "last_activity_at",
         "ended_at",
         "archived_at",
     }
-    for forbidden in ("workspace", "title", "activity", "pid", "session_id"):
+    for forbidden in ("workspace", "activity", "pid", "session_id"):
         assert forbidden not in live_runs.TASK_FIELD_ALLOWLIST
 
 
@@ -184,12 +186,128 @@ def test_salt_is_persisted_and_reused(tmp_path):
 # -- the title -------------------------------------------------------------
 
 
-def test_title_never_appears():
+def test_title_is_sent_sanitised():
     payload = live_runs.build_payload(allowlisted_row(), "linked", origin="ui", key=KEY)
+    assert payload["title"] == TITLE
+
+
+def test_title_control_chars_removed_and_whitespace_collapsed():
+    row = allowlisted_row()
+    row["title"] = "  Fix\x00 the\x1b[31m bug\n\n\tnow\u200b please\x7f  "
+    payload = live_runs.build_payload(row, "spawn", origin="ui", key=KEY)
+    assert payload["title"] == "Fix the[31m bug now please"
+    assert not any(ord(c) < 32 or ord(c) == 127 for c in payload["title"])
+
+
+def test_title_truncated_to_80_chars():
+    row = allowlisted_row()
+    row["title"] = "x" * 200
+    payload = live_runs.build_payload(row, "spawn", origin="ui", key=KEY)
+    assert payload["title"] == "x" * 80
+    assert len(payload["title"]) == live_runs.TITLE_MAX_CHARS == 80
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", "\x00\x01\n", 42, b"bytes", ["a"]])
+def test_title_none_for_empty_or_non_string(value):
+    row = allowlisted_row()
+    row["title"] = value
+    payload = live_runs.build_payload(row, "spawn", origin="ui", key=KEY)
+    assert payload["title"] is None
+
+
+# -- the workspace folder name ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path, expected",
+    [
+        ("/Users/alice/work/acme-weather/", "acme-weather"),
+        ("/Users/alice/work/acme-weather", "acme-weather"),
+        ("/Users/alice/work/acme-weather///", "acme-weather"),
+        ("C:\\Users\\alice\\proj\\", "proj"),
+        ("relative/dir", "dir"),
+        ("solo", "solo"),
+        ("/tmp/a\tb\x00c", "a bc"),
+    ],
+)
+def test_workspace_name_is_basename_only(path, expected):
+    name = live_runs.workspace_name(path)
+    assert name == expected
+    assert "/" not in name and "\\" not in name
+
+
+@pytest.mark.parametrize("path", [None, "", "  ", "/", "///", "~", "~/", ".", "..", "C:\\", 7])
+def test_workspace_name_none_cases(path):
+    assert live_runs.workspace_name(path) is None
+
+
+def test_workspace_name_none_for_home_dir(monkeypatch):
+    monkeypatch.setenv("HOME", "/Users/alice")
+    assert live_runs.workspace_name("/Users/alice") is None
+    assert live_runs.workspace_name("/Users/alice/") is None
+    assert live_runs.workspace_name("/Users/alice/proj") == "proj"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/a/b/ .",
+        "/a/b/\u200b..",
+        "/a/b/\u200b~",
+        "\\\\?\\C:\\Users\\alice",
+        "~alice",
+        "~alice/proj",
+        "~nobody",
+        "/a/\xa0",
+        "\\\\server",
+        "//server/",
+        "/Users/bob",
+        "/home/bob/",
+        "C:\\Users\\bob",
+        "c:/users/bob",
+    ],
+)
+def test_workspace_name_review_none_cases(path):
+    assert live_runs.workspace_name(path) is None
+
+
+def test_workspace_name_home_compare_is_case_insensitive(monkeypatch):
+    monkeypatch.setenv("HOME", "/Users/yashs")
+    assert live_runs.workspace_name("/Users/YASHS") is None
+    assert live_runs.workspace_name("/Users/x/work/acme-weather") == "acme-weather"
+
+
+def test_workspace_name_long_path_prefix_keeps_a_project_folder():
+    assert live_runs.workspace_name("\\\\?\\C:\\Users\\alice\\proj") == "proj"
+    assert live_runs.workspace_name("\\\\server\\share") == "share"
+
+
+def test_title_is_nfc_normalised_before_truncation():
+    row = allowlisted_row()
+    row["title"] = "e\u0301" * 100  # decomposed e-acute
+    title = live_runs.build_payload(row, "spawn", origin="ui", key=KEY)["title"]
+    assert title == "\u00e9" * 80
+
+
+def test_workspace_name_truncated_to_64_chars():
+    name = live_runs.workspace_name("/Users/alice/" + "d" * 100)
+    assert name == "d" * 64
+
+
+def test_payload_carries_folder_name_but_never_the_path():
+    payload = live_runs.build_payload(allowlisted_row(), "spawn", origin="ui", key=KEY)
     blob = dumped(payload)
-    assert TITLE not in blob
-    assert "Acme" not in blob
-    assert "title" not in payload
+    assert payload["workspace_name"] == "pricing-model"
+    assert WORKSPACE not in blob
+    assert "acme-corp" not in blob
+    assert "/Users" not in blob
+    assert "/" not in payload["workspace_name"]
+
+
+def test_malformed_row_does_not_raise():
+    payload = live_runs.build_payload({"title": object(), "workspace": object()}, "spawn")
+    assert payload["title"] is None and payload["workspace_name"] is None
+    assert live_runs.build_payload(None, "spawn")["title"] is None
 
 
 # -- session id ------------------------------------------------------------
@@ -326,7 +444,8 @@ async def test_emit_sends_when_connected(monkeypatch):
     assert await live_runs.emit(allowlisted_row(), "spawn", origin="ui") is True
     assert len(sent) == 1
     assert WORKSPACE not in dumped(sent[0])
-    assert TITLE not in dumped(sent[0])
+    assert sent[0]["title"] == TITLE
+    assert sent[0]["workspace_name"] == "pricing-model"
 
 
 @pytest.mark.asyncio

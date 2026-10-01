@@ -196,8 +196,10 @@ _TOOL_AUDIT_ALLOWED = _TOOL_AUDIT_FULL
 
 # Agent Task lifecycle rows (v52). Exactly the keys the Live Runs payload
 # builder emits, plus `row_type`. Every value is a closed enum, a keyed
-# digest, a boolean, a small integer or an ISO timestamp: no title, no
-# workspace path, no activity text, no terminal output. There are no
+# digest, a boolean, a small integer or an ISO timestamp, plus two sanitised
+# labels (owner-approved 2026-09-30): `title` (max 80 chars) and
+# `workspace_name` (folder basename, max 64 chars). No workspace path, no
+# activity text, no terminal output. There are no
 # redaction tiers because there is nothing to redact, and the kind only
 # ever goes to the fleet (enrollment) destination, never to a SIEM.
 _TASK_EVENT_ALLOWED = frozenset({
@@ -211,6 +213,8 @@ _TASK_EVENT_ALLOWED = frozenset({
     "status",
     "task_origin",
     "workspace_digest",
+    "workspace_name",
+    "title",
     "has_session",
     "session_digest",
     "exit_code",
@@ -377,7 +381,7 @@ def build_task_event_payload(live_run: Mapping[str, Any]) -> dict[str, Any]:
 
     The input is the output of the Live Runs payload builder. It is copied,
     tagged with `row_type`, and checked against the allow-list: a key that
-    is not on it (a title, a workspace, activity text) is a hard reject,
+    is not on it (a raw workspace path, activity text) is a hard reject,
     not a silent strip. Values must be scalars, so a nested structure
     cannot smuggle anything past the key check.
     """
