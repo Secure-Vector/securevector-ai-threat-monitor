@@ -196,6 +196,22 @@ def is_loopback(host: Optional[str]) -> bool:
     return bool(host) and host in _LOOPBACK_HOSTS
 
 
+def close_policy(*, running: int, quitting: bool, confirmed: bool) -> str:
+    """What the window's closing event should do.
+
+    "exit"          no tasks: the process ends as before.
+    "hide"          window close with tasks running: keep serving, hide the
+                    window; a relaunch or the tray brings it back.
+    "confirm"       explicit Quit with tasks running: ask first.
+    "stop_and_exit" the user confirmed: stop every task, then exit.
+    """
+    if running <= 0:
+        return "exit"
+    if not quitting:
+        return "hide"
+    return "stop_and_exit" if confirmed else "confirm"
+
+
 def install_activation_route(app: Any, activate: Callable[[], None]) -> None:
     """Register ``POST /api/desktop/activate`` (loopback only) on a FastAPI app."""
     from fastapi import Request
@@ -411,15 +427,26 @@ def open_path_in_file_manager(path: Path) -> None:
 class DesktopMenu:
     """Builds the ``webview.menu`` tree for the main window."""
 
-    def __init__(self, window: Any, app_url: str, version: str, debug: bool = False):
+    def __init__(
+        self,
+        window: Any,
+        app_url: str,
+        version: str,
+        debug: bool = False,
+        on_quit: Optional[Callable[[], None]] = None,
+    ):
         self.window = window
         self.app_url = app_url
         self.version = version
         self.debug = debug
+        self._on_quit = on_quit
         self._zoom_index = ZOOM_STEPS.index(1.0)
 
     # --- actions ---
     def quit(self) -> None:
+        if self._on_quit is not None:
+            self._on_quit()
+            return
         self.window.destroy()
 
     def _exec(self, command: str) -> None:
@@ -570,8 +597,14 @@ def mail_url(version: str) -> str:
     return f"mailto:{CONTACT_EMAIL}?subject={quote(f'SecureVector feedback (v{version}, {os_name})')}"
 
 
-def build_menu(window: Any, app_url: str, version: str, debug: bool = False) -> list:
-    return DesktopMenu(window, app_url, version, debug).build()
+def build_menu(
+    window: Any,
+    app_url: str,
+    version: str,
+    debug: bool = False,
+    on_quit: Optional[Callable[[], None]] = None,
+) -> list:
+    return DesktopMenu(window, app_url, version, debug, on_quit=on_quit).build()
 
 
 # ---------------------------------------------------------------------------

@@ -155,6 +155,8 @@ const API = {
         const q = new URLSearchParams();
         if (params.window_days) q.set('window_days', params.window_days);
         if (params.limit) q.set('limit', params.limit);
+        // health: 'loop' | 'failing' | 'wasteful' filters; 0 skips health.
+        if (params.health != null) q.set('health', params.health);
         const qs = q.toString();
         return this.request(`/api/traces${qs ? '?' + qs : ''}`).catch(() => ({
             window_days: params.window_days || 7, runs: [],
@@ -163,6 +165,28 @@ const API = {
 
     async getTrace(traceId) {
         return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+    },
+
+    // Run health: one run's findings, and findings across runs in a window.
+    async getTraceHealth(traceId) {
+        return this.request(`/api/traces/${encodeURIComponent(traceId)}/health`).catch(() => null);
+    },
+
+    async getRunHealth(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        if (params.limit) q.set('limit', params.limit);
+        if (params.warm) q.set('warm', 'true');
+        const qs = q.toString();
+        return this.request(`/api/run-health${qs ? '?' + qs : ''}`).catch(() => null);
+    },
+
+    // Agent Governance: coverage of model-issued tool calls plus the gaps to
+    // close, from real activity in the window. Null on failure.
+    async getGovernanceGaps(params = {}) {
+        const days = Number(params.window_days) || 7;
+        const fresh = params.refresh ? '&refresh=true' : '';
+        return this.request(`/api/governance/gaps?window_days=${encodeURIComponent(days)}${fresh}`).catch(() => null);
     },
 
     // conversion-ux — Instant Agent Audit. Opt-in retroactive scan of on-disk
@@ -963,6 +987,9 @@ const API = {
         return this.request(`/api/egress/destinations?days=${days}`)
             .catch(() => ({ destinations: [], distinct_hosts: 0 }));
     },
+    async getEgressSessionDestinations(sessionId) {
+        return this.request(`/api/egress/sessions/${encodeURIComponent(sessionId)}/destinations`);
+    },
     async getEgressScope(days = 7) {
         return this.request(`/api/egress/scope?days=${days}`).catch(() => null);
     },
@@ -994,6 +1021,107 @@ const API = {
     async getContainmentProofHistory(limit = 20) {
         return this.request(`/api/egress/proof/history?limit=${limit}`)
             .catch(() => ({ proofs: [] }));
+    },
+
+    // --- Agent Terminals ---------------------------------------------------
+    // Auth is a cookie issued by /session plus the X-SV-Terminals header on
+    // every other call, reads included. request() replaces the whole headers
+    // object when options.headers is set, so Content-Type is restated on
+    // every write.
+    _terminalsReady: false,
+    _terminalsSessionPromise: null,
+    async terminalsSession() {
+        if (this._terminalsReady) return;
+        if (!this._terminalsSessionPromise) {
+            this._terminalsSessionPromise = this.request('/api/terminals/session').then(() => {
+                this._terminalsReady = true;
+            }).finally(() => {
+                this._terminalsSessionPromise = null;
+            });
+        }
+        return this._terminalsSessionPromise;
+    },
+    // request() throws a plain Error and doesn't attach the HTTP status, so
+    // an auth failure is identified by message: the terminals auth layer
+    // always denies with this exact detail, with "HTTP 401"/"HTTP 403" as
+    // the fallback shape if a body-less denial ever reaches us instead.
+    _terminalsIsAuthError(err) {
+        const message = (err && err.message) || '';
+        return message === 'Terminals: request not authorised' || /^HTTP 40[13]$/.test(message);
+    },
+    async _terminalsCall(endpoint, options) {
+        await this.terminalsSession();
+        try {
+            return await this.request(endpoint, options);
+        } catch (err) {
+            if (!this._terminalsIsAuthError(err)) throw err;
+            // One-shot recovery: the cookie may have been cleared or never
+            // set; re-issue the session and retry exactly once.
+            this._terminalsReady = false;
+            await this.terminalsSession();
+            return this.request(endpoint, options);
+        }
+    },
+    async _terminalsRead(endpoint) {
+        return this._terminalsCall(endpoint, { headers: { 'X-SV-Terminals': '1' } });
+    },
+    async _terminalsWrite(endpoint, body) {
+        return this._terminalsCall(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1' },
+            body: JSON.stringify(body || {}),
+        });
+    },
+    async terminalsExecutors() {
+        return this._terminalsRead('/api/terminals/executors');
+    },
+    async installGuard(executorId) {
+        const res = await fetch(`/api/hooks/${encodeURIComponent(executorId)}/install`, { method: 'POST', credentials: 'same-origin' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || body.message || `Guard install failed (${res.status})`);
+        return body;
+    },
+    async terminalsArchive(taskId) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(taskId)}/archive`, {});
+    },
+    async terminalsTasks() {
+        return this._terminalsRead('/api/terminals/tasks');
+    },
+    async terminalsTask(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}`);
+    },
+    // `resumeSessionId` reopens an existing harness session instead of starting
+    // a fresh one. Optional, and omitted by every existing call site: the host
+    // refuses it for a harness that cannot reopen a session by id.
+    async terminalsLaunch(executorId, workspace, title, resumeSessionId) {
+        return this._terminalsWrite('/api/terminals/tasks', { executor_id: executorId, workspace, title: title || null, resume_session_id: resumeSessionId || null });
+    },
+    async terminalsLink(executorId, sessionId, workspace, title) {
+        return this._terminalsWrite('/api/terminals/tasks/link', {
+            executor_id: executorId,
+            session_id: sessionId,
+            workspace: workspace || null,
+            title: title || null,
+        });
+    },
+    async terminalsUnlinkedSessions() {
+        return this._terminalsRead('/api/terminals/sessions/unlinked');
+    },
+    async terminalsStop(id) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`);
+    },
+    async terminalsStopAll() {
+        return this._terminalsWrite('/api/terminals/stop-all');
+    },
+    async terminalsVerdicts(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/verdicts`);
+    },
+    async terminalsEvents(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);
+    },
+    terminalsSocketUrl(id) {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${proto}//${location.host}/api/terminals/tasks/${encodeURIComponent(id)}/ws`;
     },
 };
 

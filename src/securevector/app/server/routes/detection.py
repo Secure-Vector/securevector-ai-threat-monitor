@@ -45,6 +45,7 @@ _SESSION_SCAN_CAP = 5000
 # frameworks in the agent graph. 'copilot' and 'copilot-cli' are the same host.
 _HARNESS_RUNTIME_KINDS = {
     "claude-code", "codex", "copilot", "copilot-cli", "cursor", "opencode", "openclaw",
+    "antigravity",
 }
 # Frameworks we explicitly recognise (runtime_kind -> display label); anything
 # else with activity that isn't a harness is still reported as an "agent".
@@ -109,6 +110,16 @@ _HARNESSES = [
         ),
         "session_root": None,  # sessions live in opencode.db, not on-disk files
         "session_glob": None, "session_unit": None, "recursive": False,
+    },
+    {
+        # Antigravity shares one per-user home across its 2.0, CLI and IDE
+        # surfaces, so ~/.gemini is the presence signal. Session transcripts
+        # are NOT counted: hook payloads carry a `transcriptPath`, but neither
+        # its location nor its format is documented, and counting files under
+        # a guessed glob would report a confident wrong number.
+        "slug": "antigravity", "label": "Antigravity",
+        "home": lambda: _harness_dir("GEMINI_HOME", ".gemini"),
+        "session_root": None, "session_glob": None, "session_unit": None, "recursive": False,
     },
     {
         "slug": "openclaw", "label": "OpenClaw / ClawdBot",

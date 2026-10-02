@@ -22,6 +22,7 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
+const { resolveBaseUrl } = require('../lib/client.js');
 const { hasCredentialMarkers } = require('../lib/redact.js');
 const { postCallAudit, scanOutgoing } = require('../lib/audit.js');
 const { sessionIdFrom, readAllStdin, DEFAULT_BASE_URL } = require('../lib/decide.js');
@@ -46,7 +47,7 @@ async function main() {
   } catch {
     return; // malformed stdin — nothing to audit
   }
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   try {
     const sessionId = sessionIdFrom(event);
     const filePath = (event && typeof event.file_path === 'string') ? event.file_path : '';

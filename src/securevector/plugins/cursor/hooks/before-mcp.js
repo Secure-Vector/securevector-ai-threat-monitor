@@ -20,6 +20,7 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
+const { resolveBaseUrl } = require('../lib/client.js');
 const {
   decideForCandidates, decideEgress, maybeFileJitRequest, toCursorOutput, auditDecision,
   sessionIdFrom, readAllStdin, DEFAULT_BASE_URL,
@@ -69,7 +70,7 @@ async function main() {
       return;
     }
     const toolName = (event && (event.tool_name || event.toolName)) || '';
-    const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+    const baseUrl = resolveBaseUrl();
     const sessionId = sessionIdFrom(event);
     let decision = { decision: 'allow' };
     try {

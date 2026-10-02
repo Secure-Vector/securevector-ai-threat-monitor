@@ -21,9 +21,9 @@
 
 'use strict';
 
-const { postJsonAndForget } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget } = require('../lib/client.js');
+const { postTerminalEvent } = require('../lib/terminal-relay.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'copilot-cli';
 const SOURCE = 'copilot-cli-plugin';
 const SCAN_TEXT_LIMIT = 8000;
@@ -58,7 +58,7 @@ async function main() {
   const text = prompt.length > SCAN_TEXT_LIMIT ? prompt.slice(0, SCAN_TEXT_LIMIT) : prompt;
   if (text.length === 0) return;
 
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   postJsonAndForget(`${baseUrl}/analyze`, {
     text,
     source: SOURCE,
@@ -69,6 +69,14 @@ async function main() {
       session_id: safeSessionId(event.sessionId || event.session_id),
     },
   });
+
+  // Agent Terminals: a submitted prompt means the task is working again.
+  try {
+    await postTerminalEvent({
+      hook_event_name: 'UserPromptSubmit',
+      session_id: safeSessionId(event.sessionId || event.session_id) || null,
+    });
+  } catch { /* swallow — the relay must never affect the prompt */ }
   // No stdout control on this event — nothing to emit.
 }
 

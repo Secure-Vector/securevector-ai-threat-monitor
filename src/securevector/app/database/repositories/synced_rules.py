@@ -87,10 +87,11 @@ class SyncedRulesRepository:
         reason (optional). Missing fields are tolerated where reasonable.
         """
         applied_at = datetime.now(timezone.utc).isoformat()
-        conn = await self.db.connect()
-        async with conn.execute("BEGIN"):
-            pass
-        try:
+        # Through db.transaction(), not a bare BEGIN: the connection is
+        # shared, and a bare BEGIN here nested inside (or rolled back) a
+        # transaction another coroutine had open, such as the Agent
+        # Terminals audit chain at startup.
+        async with self.db.transaction() as conn:
             # v1 strategy: wipe-and-rewrite the entire table on each apply.
             # If/when multi-policy stacking lands, narrow the wipe by policy_id.
             await conn.execute("DELETE FROM synced_tool_rules")
@@ -134,7 +135,6 @@ class SyncedRulesRepository:
                     ),
                 )
                 count += 1
-            await conn.commit()
             logger.info(
                 "Replaced synced rules: bundle=%s policy=%s v=%d count=%d",
                 bundle_id,
@@ -142,10 +142,7 @@ class SyncedRulesRepository:
                 policy_version,
                 count,
             )
-            return count
-        except Exception:
-            await conn.rollback()
-            raise
+        return count
 
     async def get_last_applied_version(self, policy_id: str) -> Optional[int]:
         """

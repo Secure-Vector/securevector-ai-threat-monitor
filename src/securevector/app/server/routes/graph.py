@@ -111,8 +111,8 @@ async def get_agent_session_graph(
     Same enforcement-coloured semantics as ``/graph/agent-tool`` but with the
     session tier added so each agent *run* is its own node. Powers the
     multi-layer Agent Map (radial / tree / mesh topologies). Node kinds:
-    ``harness`` (runtime), ``session`` (one agent run; carries ``num`` →
-    "agent #N", ``active``, ``idle_days``), and ``tool`` (per-session).
+    ``harness`` (runtime), ``session`` (one runtime session with stable label,
+    ``active``, ``idle_days``), and ``tool`` (per-session).
     """
     db = get_database()
     repo = CustomToolsRepository(db)
@@ -423,20 +423,16 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
             harnesses[harness_id]["last_used"], last_used
         )
 
-    # Finalise sessions: idle/active + a GLOBAL "agent #N" numbering. Numbering
-    # is global (not per-harness) so every session has a UNIQUE label: on the
-    # flat Traces list, per-harness numbering produced three "agent #1"s (one
-    # per harness) that were indistinguishable. Global, recency-ordered numbers
-    # (newest run = agent #1) stay unique and let the Map and the Traces list
-    # cross-reference the same "agent #N".
+    # Stable labels are derived from the actual runtime session. Recency can
+    # change on every refresh, so it must not become the session's identity.
     all_sessions = sorted(
         sessions.values(), key=lambda s: (s["last_used"] or ""), reverse=True
     )
-    for idx, s in enumerate(all_sessions, start=1):
+    for s in all_sessions:
         dt = _parse_dt(s["last_used"])
         idle_days = int((now - dt).total_seconds() // 86400) if dt else None
-        s["num"] = idx
-        s["label"] = f"agent #{idx}"
+        stable_id = s.get("session_id") or s.get("trace_id")
+        s["label"] = f"{'Session' if s.get('session_id') else 'Trace'} {str(stable_id or '?')[:8]}"
         s["idle_days"] = idle_days
         s["active"] = idle_days is not None and idle_days < _ACTIVE_WITHIN_DAYS
 

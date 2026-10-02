@@ -10,9 +10,10 @@
  *   marks activity (visor, scan beam). Amber/red are reserved for real
  *   security states and are deliberately not part of this component's
  *   default states.
- * - Motion is ambient, slow and small (a 4s bob, a blink every few seconds,
- *   a visor sweep while scanning). Under prefers-reduced-motion every
- *   animation stops; states still read via static shapes.
+ * - Motion is ambient, slow and small (a 4s bob, a slow sway, a visor sweep
+ *   while scanning). The eyes are static: they never blink and never wander.
+ *   Under prefers-reduced-motion every animation stops; states still read
+ *   via static shapes.
  * - Decorative placement is rationed: the bot appears where the app is
  *   DOING something (scanning, empty states inviting a first action,
  *   one-time modals) — never as a standing dashboard ornament.
@@ -199,9 +200,6 @@ const GuardianBot = {
   .sv-gbot svg { animation: gb-sway 9s ease-in-out infinite; }
   .sv-gbot .gb-body { animation: gb-bob 4s ease-in-out infinite; transform-origin: 32px 28px; }
   .sv-gbot .gb-shadow { animation: gb-shade 4s ease-in-out infinite; transform-origin: 32px 48.5px; }
-  .sv-gbot-idle .gb-eye, .sv-gbot-scan .gb-eye { animation: gb-blink 5.2s infinite; transform-origin: center; transform-box: fill-box; }
-  .sv-gbot .gb-look { animation: gb-wander 7s ease-in-out infinite; }
-  .sv-gbot .gb-eye-r .gb-look { animation-delay: 0.06s; }
   .sv-gbot-scan .gb-beam { animation: gb-sweep 1.6s ease-in-out infinite; }
   .sv-gbot-ok .gb-body { animation: gb-bob 4s ease-in-out infinite, gb-nod 0.9s ease-in-out 1; }
   /* The posture states bake the tilt/lean into their own bob, because a
@@ -212,14 +210,6 @@ const GuardianBot = {
 @keyframes gb-sway { 0%, 100% { transform: rotateY(-7deg); } 50% { transform: rotateY(7deg); } }
 @keyframes gb-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.5px); } }
 @keyframes gb-shade { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(0.86); opacity: 0.7; } }
-@keyframes gb-blink { 0%, 91%, 100% { transform: scaleY(1); } 94% { transform: scaleY(0.12); } 97% { transform: scaleY(1); } }
-/* the pupils look around: right, hold, left, up, back to center */
-@keyframes gb-wander {
-  0%, 18%, 100% { transform: translate(0, 0); }
-  24%, 38% { transform: translate(0.9px, 0.15px); }
-  46%, 60% { transform: translate(-0.9px, 0.2px); }
-  70%, 80% { transform: translate(0.15px, -0.7px); }
-}
 @keyframes gb-sweep { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(20px); } }
 @keyframes gb-nod { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-5px); } 70% { transform: translateY(-1px); } }
 @keyframes gb-bob-tilt {

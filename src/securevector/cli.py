@@ -8,6 +8,7 @@ Licensed under the Apache License, Version 2.0
 import argparse
 import json
 import os
+from securevector import __version__
 import sys
 from typing import Any, Dict, Optional
 
@@ -46,7 +47,13 @@ For more information, visit: https://securevector.io
 
         # Global options
         parser.add_argument(
-            "--version", action="version", version="SecureVector AI Threat Monitor 1.0.0"
+            # Read from __version__, never a literal. This said 1.0.0 while the
+            # package was 5.3.0, because a hardcoded string has no reason to
+            # move when the release does. Anything that prints a version has to
+            # derive it from the one place that declares it.
+            "--version",
+            action="version",
+            version=f"SecureVector AI Threat Monitor {__version__}",
         )
 
         parser.add_argument(
@@ -188,6 +195,24 @@ For more information, visit: https://securevector.io
             "--mode-comparison", action="store_true", help="Compare performance across all modes"
         )
 
+        # Agent Sessions command. REMAINDER rather than nested subparsers: the
+        # session CLI owns its own flags (--json, --title, --resume), and
+        # threading them through this parser would collide with -v/-q and with
+        # any flag either side adds later.
+        session_parser = subparsers.add_parser(
+            "session",
+            help="Launch, link and stop governed agent sessions",
+            description=(
+                "Talk to the running app's Agent Sessions board. "
+                "Run `sv-monitor session` with no action for the full list."
+            ),
+        )
+        session_parser.add_argument(
+            "session_args",
+            nargs=argparse.REMAINDER,
+            help="list | harnesses | unlinked | launch | link | stop",
+        )
+
         # Info command
         _  = subparsers.add_parser(
             "info",
@@ -200,6 +225,14 @@ For more information, visit: https://securevector.io
     def handle_command(self, args: argparse.Namespace) -> int:
         """Handle the parsed command arguments"""
         try:
+            # Before _create_config: the session board is the local app's own
+            # loopback API and needs no analysis client, no API key and no
+            # config file, so building one would only invent failure modes.
+            if args.command == "session":
+                from securevector.app.terminals.cli import main as session_main
+
+                return session_main(args.session_args)
+
             # Create client configuration
             config = self._create_config(args)
 

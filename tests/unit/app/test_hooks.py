@@ -5,6 +5,14 @@ from unittest.mock import patch
 
 import pytest
 
+# The install and uninstall routes now require a loopback Host and a MATCHING
+# Origin. They carried no check at all before 2026-09-21, so a page on any
+# origin could POST them and remove a Guard the product had installed. These
+# tests therefore present what the app's own page presents. Reads are
+# unchanged and still need nothing.
+PAGE_HEADERS = {"host": "127.0.0.1:8741", "origin": "http://127.0.0.1:8741"}
+
+
 try:
     from securevector.app.server.routes.hooks import (
         _register_plugin_in_config,

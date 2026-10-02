@@ -1,0 +1,208 @@
+# Publishes the npm launcher (@securevector/cli) when a release reaches master.
+#
+# The launcher lives in npm/ and is a thin wrapper: it finds a Python, installs
+# the matching PyPI release into a managed virtual environment on first run, and
+# execs the real entry point. Its version is the SAME number as the Python
+# package.
+#
+# ─── SETUP: THE SAME PATH n8n-nodes-securevector USES ─────────────────────────
+#
+# That package publishes with OIDC Trusted Publishing and no secret at all.
+# Checked on the registry rather than assumed: its published version records
+#   _npmUser: GitHub Actions <npm-oidc-no-reply@github.com>
+# which is what npm writes when a publish came through an OIDC exchange, and
+# `gh secret list` on that repo returns nothing. This workflow matches it.
+#
+# On npmjs.com, @securevector/cli settings, Publish access, Trusted Publishers:
+#        Repository owner: Secure-Vector
+#        Repository name:  securevector-ai-threat-monitor
+#        Workflow name:    publish-npm.yml
+#        Environment:      production-npm        (must match the job below)
+#
+# OIDC only, which is how the n8n package actually publishes (no NPM_TOKEN
+# secret exists there either). Unlike the n8n workflow, the publish step here
+# reads no token at all, so a stray NPM_TOKEN secret can never become a second,
+# unreviewed way to publish. Match n8n's Publishing access setting too:
+# "Require two-factor authentication and disallow tokens".
+#
+# THE FIRST PUBLISH is the one exception. A package that does not exist yet has
+# no settings page to add a trusted publisher to, so version one has to be
+# bootstrapped another way: check whether npm now offers pre-registration for an
+# unpublished scoped name, and if not, publish once with a token, revoke it, and
+# never set the secret here.
+#
+# ─── WHY THE APPROVAL GATE ────────────────────────────────────────────────────
+#
+# Same reasoning as the n8n package: trusted publishing already constrains
+# publishes to this repo and this workflow file, and the environment gate adds a
+# human to the loop so a hijacked workflow run cannot silently ship a release of
+# a security product. Configure it at
+#   Settings, Environments, New environment, name: production-npm,
+#   Required reviewers, add the repo owners.
+#   Deployment branches and tags: selected, branch "master" and tag "v*".
+#
+# ─── MASTER ONLY ──────────────────────────────────────────────────────────────
+#
+# Three layers, each enough on its own to stop a publish from anywhere else:
+#   1. The environment accepts only the master branch and v* tags, so a run
+#      anywhere else never gets the OIDC token npm trusts.
+#   2. The workflow triggers only on master, a published release, or a
+#      dispatch, and refuses any ref that is not master or a v* tag.
+#   3. The commit must already be on master. A tag on a feature or release
+#      branch fails here, before anything is published.
+# Tags themselves are protected by the protect-release-tags ruleset.
+
+name: Publish npm launcher
+
+# Merging a release to master is what publishes, the same way the n8n package
+# publishes from its own release flow, with one ordering rule the n8n package
+# does not need: the launcher installs the SAME version from PyPI on first run,
+# so npm must never be ahead of PyPI. Publishing npm first would make every
+# `npx @securevector/cli` fail until the PyPI release caught up.
+#
+#   Merge to master, version not on npm, already on PyPI  -> approval, publish.
+#   Merge to master, version not on PyPI yet               -> skip, no approval
+#     asked. Publishing the GitHub Release ships PyPI (release.yml) and runs
+#     this workflow again, which then publishes.
+#   Any other push to master (version already on npm)      -> skip, no approval.
+on:
+  push:
+    branches: [master]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # No environment here, so an ordinary push to master never asks for approval.
+  # It only decides whether there is anything to publish.
+  check:
+    name: Is there a version to publish
+    if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      # Actions are pinned to commit SHAs: a moved tag on a third-party action
+      # must not be able to run inside a workflow that can mint a publish token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # The npm version and the Python version are the same product. If they
+      # drift, `npm i @securevector/cli@X` and
+      # `pip install securevector-ai-monitor==X` stop meaning the same thing,
+      # and the launcher would pin a PyPI version that does not exist.
+      - name: Check the npm version matches the Python package
+        run: |
+          PY=$(grep -oE '__version__ *= *"[^"]+"' src/securevector/__init__.py | head -1 | cut -d'"' -f2)
+          NPM=$(node -p "require('./npm/package.json').version")
+          echo "python=$PY npm=$NPM"
+          if [ "$PY" != "$NPM" ]; then
+            echo "::error::npm/package.json is $NPM but src/securevector/__init__.py is $PY. Bump both together."
+            exit 1
+          fi
+
+      # On a release, the tag must be the version being published, or a
+      # mistyped tag would publish something nobody asked for.
+      - name: Check the release tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          NPM=$(node -p "require('./npm/package.json').version")
+          echo "tag=$TAG npm=$NPM"
+          if [ "$TAG" != "$NPM" ]; then
+            echo "::error::release tag $GITHUB_REF_NAME does not match npm version $NPM."
+            exit 1
+          fi
+
+      - name: Decide
+        id: decide
+        run: |
+          VERSION=$(node -p "require('./npm/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "@securevector/cli@$VERSION" version > /dev/null 2>&1; then
+            echo "@securevector/cli@$VERSION is already on npm. Nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/securevector-ai-monitor/$VERSION/json")
+          if [ "$CODE" != "200" ]; then
+            echo "::notice::securevector-ai-monitor $VERSION is not on PyPI yet, so the launcher would have nothing to install. Publish the GitHub Release for v$VERSION; that ships PyPI and runs this workflow again."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Publishing @securevector/cli@$VERSION (PyPI has it, npm does not)."
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish @securevector/cli
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    # Required reviewers: the run waits here for your approval.
+    environment: production-npm
+
+    permissions:
+      # Mint an OIDC token for trusted publishing and the provenance attestation.
+      id-token: write
+      # Least privilege: this job only reads the repo.
+      contents: read
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history so the master check below can see the branch.
+          fetch-depth: 0
+          # Nothing after checkout needs to push, so leave no token on disk.
+          persist-credentials: false
+
+      - name: Refuse anything that is not on master
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on master. Publish only from a release merged to master."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          # Node 24 ships npm 11, the first major that can publish through
+          # trusted publishing (11.5.1 and later).
+          node-version: '24'
+          # Provenance only signs when the publish target is set explicitly
+          # through setup-node.
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Install dependencies
+        working-directory: npm
+        # No lifecycle scripts from anything in the tree run in this job.
+        run: npm ci --ignore-scripts
+
+      - name: Run the launcher's tests
+        working-directory: npm
+        run: npm test
+
+      # The approval may come long after the check job ran; publish the version
+      # the check approved, not whatever the file says now.
+      - name: Confirm the version is still the one checked
+        working-directory: npm
+        run: |
+          NOW=$(node -p "require('./package.json').version")
+          if [ "$NOW" != "$CHECKED" ]; then
+            echo "::error::checked $CHECKED but package.json now says $NOW."
+            exit 1
+          fi
+        env:
+          CHECKED: ${{ needs.check.outputs.version }}
+
+      - name: Publish
+        # OIDC only: no token is read, so trusted publishing is the one way in.
+        # --provenance attaches an attestation signed by GitHub's OIDC issuer.
+        working-directory: npm
+        run: |
+          npm --version
+          npm publish --provenance --access public

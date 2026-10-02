@@ -28,9 +28,8 @@
 'use strict';
 
 const { redactForScan } = require('../lib/redact.js');
-const { postJsonAndForget } = require('../lib/client.js');
+const { resolveBaseUrl, postJsonAndForget } = require('../lib/client.js');
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'codex';
 const SCAN_TEXT_LIMIT = 8000; // bytes, matches PostToolUse cap
 const SESSION_ID_MAX = 128;
@@ -76,7 +75,7 @@ async function main() {
   const text = prompt.length > SCAN_TEXT_LIMIT ? prompt.slice(0, SCAN_TEXT_LIMIT) : prompt;
   if (text.length === 0) return;
 
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   postJsonAndForget(`${baseUrl}/analyze`, {
     text,
     source: 'codex-plugin',

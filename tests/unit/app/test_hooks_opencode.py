@@ -23,7 +23,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from securevector.app.terminals.auth import TerminalAuth
+
 from securevector.app.server.routes import hooks_opencode as mod
+
+# The install and uninstall routes now require a loopback Host and a MATCHING
+# Origin. They carried no check at all before 2026-09-21, so a page on any
+# origin could POST them and remove a Guard from under live sessions. These
+# tests therefore have to present what the app's own page presents. Reads
+# (status) are unchanged and still need nothing.
+PAGE_HEADERS = {"host": "127.0.0.1:8741", "origin": "http://127.0.0.1:8741"}
+
 
 
 EXPECTED_FILES = {
@@ -33,6 +43,7 @@ EXPECTED_FILES = {
     "lib/decide.js",
     "lib/client.js",
     "lib/redact.js",
+    "lib/terminal-relay.js",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
@@ -70,11 +81,12 @@ def opencode_home(tmp_path, monkeypatch):
 def client(opencode_home):
     app = FastAPI()
     app.include_router(mod.router, prefix="/api")
+    app.state.terminal_auth = TerminalAuth(token="t" * 48, port=8741)
     return TestClient(app)
 
 
 def test_install_stages_every_plugin_file(client, opencode_home):
-    r = client.post("/api/hooks/opencode/install")
+    r = client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True
@@ -84,14 +96,14 @@ def test_install_stages_every_plugin_file(client, opencode_home):
 
 
 def test_install_registers_plugin_path_in_config(client, opencode_home):
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     cfg = _read_config(opencode_home / "opencode.json")
     assert cfg["plugin"] == [str(mod.STAGING_DIR)]
 
 
 def test_install_is_idempotent_no_duplicate_entry(client, opencode_home):
-    client.post("/api/hooks/opencode/install")
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     cfg = _read_config(opencode_home / "opencode.json")
     assert cfg["plugin"] == [str(mod.STAGING_DIR)], "reinstall duplicated the entry"
 
@@ -104,7 +116,7 @@ def test_install_preserves_unrelated_config_and_sibling_plugins(client, opencode
         "provider": {"anthropic": {"name": "Anthropic"}},
         "plugin": ["some-other-plugin"],
     }, indent=2))
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     cfg = _read_config(opencode_home / "opencode.json")
     assert cfg["$schema"] == "https://opencode.ai/config.json"
     assert cfg["model"] == "anthropic/claude-sonnet-5"
@@ -116,7 +128,7 @@ def test_install_preserves_unrelated_config_and_sibling_plugins(client, opencode
 def test_install_preserves_jsonc_comment_header(client, opencode_home):
     cfg_path = opencode_home / "opencode.json"
     cfg_path.write_text('// hand-written config\n// keep me\n{\n  "model": "x"\n}\n')
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     raw = cfg_path.read_text()
     assert raw.startswith("// hand-written config\n// keep me\n"), raw[:80]
     assert _read_config(cfg_path)["model"] == "x"
@@ -126,12 +138,12 @@ def test_install_backs_up_pristine_config_once(client, opencode_home):
     cfg_path = opencode_home / "opencode.json"
     cfg_path.write_text('{"model": "original"}')
     backup = cfg_path.with_suffix(cfg_path.suffix + ".before-securevector")
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     assert backup.is_file()
     first = backup.read_text()
     assert json.loads(first)["model"] == "original"
     # A reinstall must NOT clobber the pristine snapshot.
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     assert backup.read_text() == first
 
 
@@ -140,7 +152,7 @@ def test_status_reports_installed_and_enabled(client, opencode_home):
     assert before["installed"] is False
     assert before["enabled"] is False
 
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     after = client.get("/api/hooks/opencode/status").json()
     assert after["installed"] is True
     assert after["auto_installed"] is True
@@ -150,10 +162,10 @@ def test_status_reports_installed_and_enabled(client, opencode_home):
 
 
 def test_uninstall_deregisters_and_removes_tree(client, opencode_home):
-    client.post("/api/hooks/opencode/install")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     assert mod.STAGING_DIR.is_dir()
 
-    r = client.post("/api/hooks/opencode/uninstall")
+    r = client.post("/api/hooks/opencode/uninstall", headers=PAGE_HEADERS)
     assert r.status_code == 200 and r.json()["ok"] is True
     assert not mod.STAGING_DIR.exists(), "staged tree (the install) was left behind"
     cfg = _read_config(opencode_home / "opencode.json")
@@ -164,22 +176,22 @@ def test_uninstall_preserves_sibling_plugins(client, opencode_home):
     (opencode_home / "opencode.json").write_text(
         json.dumps({"plugin": ["some-other-plugin"]})
     )
-    client.post("/api/hooks/opencode/install")
-    client.post("/api/hooks/opencode/uninstall")
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
+    client.post("/api/hooks/opencode/uninstall", headers=PAGE_HEADERS)
     cfg = _read_config(opencode_home / "opencode.json")
     assert cfg["plugin"] == ["some-other-plugin"]
 
 
 def test_uninstall_is_idempotent(client, opencode_home):
-    assert client.post("/api/hooks/opencode/uninstall").json()["ok"] is True
-    assert client.post("/api/hooks/opencode/uninstall").json()["ok"] is True
+    assert client.post("/api/hooks/opencode/uninstall", headers=PAGE_HEADERS).json()["ok"] is True
+    assert client.post("/api/hooks/opencode/uninstall", headers=PAGE_HEADERS).json()["ok"] is True
 
 
 def test_not_detected_falls_back_to_staging_only(client, opencode_home, monkeypatch):
     """With OpenCode absent we still stage, but hand back the manual command
     instead of writing a config for a host that isn't installed."""
     monkeypatch.setattr(mod, "_opencode_detected", lambda: False)
-    body = client.post("/api/hooks/opencode/install").json()
+    body = client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS).json()
     assert body["ok"] is True
     assert body["auto_installed"] is False
     assert body["enabled"] is False
@@ -193,7 +205,7 @@ def test_malformed_config_is_refused_not_overwritten(client, opencode_home):
     clobbered — the user's file is not ours to destroy."""
     cfg_path = opencode_home / "opencode.json"
     cfg_path.write_text("{ this is not json ")
-    r = client.post("/api/hooks/opencode/install")
+    r = client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
     assert r.status_code == 500
     assert cfg_path.read_text() == "{ this is not json "
 
@@ -219,3 +231,20 @@ def test_atomic_write_refuses_path_outside_allowed_roots(tmp_path, monkeypatch):
     outside.parent.mkdir(parents=True)
     with pytest.raises(PermissionError):
         mod._atomic_write_config(outside, {"x": 1}, [])
+
+
+# --- Agent Terminals governance gate -----------------------------------------
+
+
+def test_terminal_guard_enabled_false_without_the_relay_module(client, opencode_home):
+    """An older staged Guard audits OpenCode but cannot correlate a task."""
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
+    assert mod._is_registered() is True
+    (mod.STAGING_DIR / "lib" / "terminal-relay.js").unlink()
+    assert mod.terminal_guard_enabled() is False
+
+
+def test_terminal_guard_enabled_true_when_registered_and_relay_staged(client, opencode_home):
+    client.post("/api/hooks/opencode/install", headers=PAGE_HEADERS)
+    assert (mod.STAGING_DIR / "lib" / "terminal-relay.js").is_file()
+    assert mod.terminal_guard_enabled() is True

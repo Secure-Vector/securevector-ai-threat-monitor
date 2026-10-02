@@ -23,6 +23,14 @@ from fastapi.testclient import TestClient
 
 from securevector.app.server.routes import hooks_cursor as mod
 
+# The install and uninstall routes now require a loopback Host and a MATCHING
+# Origin. They carried no check at all before 2026-09-21, so a page on any
+# origin could POST them and remove a Guard the product had installed. These
+# tests therefore present what the app's own page presents. Reads are
+# unchanged and still need nothing.
+PAGE_HEADERS = {"host": "127.0.0.1:8741", "origin": "http://127.0.0.1:8741"}
+
+
 
 EXPECTED_FILES = set(mod.PLUGIN_FILES)
 
@@ -62,6 +70,7 @@ def cursor_home(tmp_path, monkeypatch):
 def client(cursor_home):
     app = FastAPI()
     app.include_router(mod.router, prefix="/api")
+    app.state.port = 8741
     return TestClient(app)
 
 
@@ -81,7 +90,7 @@ def test_status_not_installed_fresh(client):
 
 
 def test_install_creates_local_plugin_with_bundled_hooks(client, cursor_home):
-    r = client.post("/api/hooks/cursor/install")
+    r = client.post("/api/hooks/cursor/install", headers=PAGE_HEADERS)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True
@@ -138,7 +147,7 @@ def test_install_migrates_off_legacy_global_hooks(client, cursor_home):
     }
     (cursor_home / "hooks.json").write_text(json.dumps(pristine))
 
-    assert client.post("/api/hooks/cursor/install").status_code == 200
+    assert client.post("/api/hooks/cursor/install", headers=PAGE_HEADERS).status_code == 200
 
     # Legacy versioned dir gone.
     assert not (cursor_home / mod.PLUGIN_NAME).exists()
@@ -158,8 +167,8 @@ def test_install_migrates_off_legacy_global_hooks(client, cursor_home):
 
 def test_reinstall_is_idempotent(client, cursor_home):
     """Two installs leave a single clean plugin dir (replaced in place)."""
-    assert client.post("/api/hooks/cursor/install").status_code == 200
-    assert client.post("/api/hooks/cursor/install").status_code == 200
+    assert client.post("/api/hooks/cursor/install", headers=PAGE_HEADERS).status_code == 200
+    assert client.post("/api/hooks/cursor/install", headers=PAGE_HEADERS).status_code == 200
     plugin_dir = cursor_home / "plugins" / "local" / mod.PLUGIN_NAME
     assert plugin_dir.is_dir()
     # No leftover .tmp staging dir beside it.
@@ -182,8 +191,8 @@ def test_uninstall_removes_plugin_and_legacy_and_is_idempotent(client, cursor_ho
             ],
         },
     }))
-    assert client.post("/api/hooks/cursor/install").status_code == 200
-    assert client.post("/api/hooks/cursor/uninstall").json()["ok"] is True
+    assert client.post("/api/hooks/cursor/install", headers=PAGE_HEADERS).status_code == 200
+    assert client.post("/api/hooks/cursor/uninstall", headers=PAGE_HEADERS).json()["ok"] is True
 
     # Plugin dir gone.
     assert not (cursor_home / "plugins" / "local" / mod.PLUGIN_NAME).exists()
@@ -196,7 +205,7 @@ def test_uninstall_removes_plugin_and_legacy_and_is_idempotent(client, cursor_ho
     assert s["enabled"] is False
 
     # Second uninstall is a no-op, not an error.
-    assert client.post("/api/hooks/cursor/uninstall").json()["ok"] is True
+    assert client.post("/api/hooks/cursor/uninstall", headers=PAGE_HEADERS).json()["ok"] is True
 
 
 def test_install_without_cursor_stages_only(tmp_path, monkeypatch):
@@ -214,9 +223,10 @@ def test_install_without_cursor_stages_only(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "STAGING_DIR", staging)
     app = FastAPI()
     app.include_router(mod.router, prefix="/api")
+    app.state.port = 8741
     client = TestClient(app)
 
-    r = client.post("/api/hooks/cursor/install")
+    r = client.post("/api/hooks/cursor/install", headers=PAGE_HEADERS)
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
@@ -231,6 +241,6 @@ def test_staged_files_carry_substituted_url(client, cursor_home):
     """stage_files rewrites the default loopback URL in every staged file (here
     the resolved URL IS the default, so the default survives staging — the
     substitution plumbing itself is covered by test_hooks_common.py)."""
-    assert client.post("/api/hooks/cursor/install").status_code == 200
+    assert client.post("/api/hooks/cursor/install", headers=PAGE_HEADERS).status_code == 200
     staged = (mod.STAGING_DIR / "lib" / "client.js").read_text()
     assert "http://127.0.0.1:" in staged
