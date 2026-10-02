@@ -7,25 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-10-03
+
 ### Added
-- **Agent Terminals** *(Terminals)*: run Claude Code where every tool call is governed. Launch a task in a folder from the app and watch it in an attached terminal; each call carries a Guard verdict, an audit row, and an approval path. Tasks show their state from the harness's own hook events (working, blocked on a permission, idle), and done or failed when the process exits, with the session's Guard verdicts and pending approvals beside the terminal. A task with a pending approval is explicitly labelled **Waiting approval** in the task rail. Scrollback is kept in memory only. The attached terminal is a pane with a tab per running task and a status line showing folder, branch, harness, state, elapsed time, and governed and blocked call counts; rail task rows carry a harness and activity subtitle and group by folder. The launch form installs a harness's Guard plugin in place when it is missing, instead of sending the user to Integrations; a task can launch before its Guard is installed; the session shows a banner until the Guard reports in and offers the install in place, and the launch is recorded as an ungoverned event in the audit trail. The governance panel shows the attached task's context fill and token waste from the Cost Optimizer, with a Compact now button that types /compact into the terminal through the audited input path; and the external hosts the task reached, with blocked ones first. A Guard installed after the session started can be loaded with a Restart harness button on the banner, removing a task from the board confirms inline instead of in a native dialog, and a running task carries a live marker on the rail and its pane tab. A session with no governance data yet shows one empty state naming what lands where, instead of five placeholder sections. a harness session started outside the app can be linked by its session id and governed on the board without a terminal; the page is a quiet single surface: slim toolbar, compact task rows, hairline frames; Codex web search and page visits are listed in Egress after the fact from the local transcript, marked observed because no hook governs them; several tasks can be attached at once in split panes with draggable gutters and keyboard shortcuts; panes can be dragged onto another pane's edge or moved with the keyboard, and each pane carries its own Guard banner, status line, and governance counts;
-- **Task avatars and focused terminal** *(Terminals)*: every task carries a compact avatar that is the Guardian figure itself (head, pods, visor, two eyes) with a stable per-task colour on its side pods, in both themes; its ring, eyes, and badge show the state (active, waiting for approval, blocked, completed, interrupted, failed) in the rail, on the task card, and beside the attached terminal. Eyes are static; the Guardian bot no longer blinks either. The Agent Tasks entry sits below the Connect group with its task rows highlighted full width, and the entry itself is the all-tasks view. Attaching a task hides the task list so the terminal fills the page; "All tasks" brings the list back. The Governance activity panel splits into Recent verdicts, Traces, and Approval inbox sections that expand and collapse on their own, each with a count badge, and verdict and trace rows show their action or risk as a chip.
-- **Traces beside the terminal** *(Terminals)*: the verdict rail of an attached task now lists the session's recent traces (span count, blocked and flagged calls) under the Guard activity, with an "All traces" link into the Agent Runs page. The Terminals page uses a monospace, terminal-style look: dark panels, square corners, and a blinking cursor on active tasks (respects reduced motion).
-- **Launch tasks with more harnesses** *(Terminals)*: the launch form now offers Claude Code, Codex, GitHub Copilot CLI, and OpenCode. Each harness is listed only when its binary is on PATH and its Guard plugin is installed and enabled, so every task launched from the app is governed. Harness credentials (GitHub and OpenAI tokens) reach only the harness that needs them. The Copilot CLI and OpenCode plugins now relay session and tool events to the terminal task rail, like the Claude Code and Codex plugins already did.
-- **Archive completed tasks** *(Terminals)*: completed tasks can be archived off the active list. Schema v49 adds an archive marker; the task row and its hash-chained terminal events are kept for audit.
-- **Window close keeps tasks running** *(desktop)*: closing the window while a task runs hides it instead of quitting; relaunching the app brings the window back. Quit asks before stopping running tasks.
-- **Adopt outside sessions** *(Agents)*: a harness started in your own terminal appears under Running outside SecureVector once its Guard reports a call. Govern puts it on the board with its calls, traces, egress and context; it can then be continued on an app terminal, restarted in the same folder, or unlinked (the audit trail is kept).
-- **Unverified sessions** *(Agents)*: a session still writing its transcript but no longer sending governed calls is marked unverified, distinct from a session that has gone quiet. `sv-monitor session list` shows the same in a WATCHED column.
-- **Session commands** *(CLI)*: `sv-monitor session list | harnesses | unlinked | launch | link | stop`, each with `--json`, as a thin client over the local Terminals API. Actions are recorded as `cli` on the session trail.
-- **SecureVector Guard for Antigravity** *(Connect Agents, Integrations, Setup guides)*: bundled hooks govern Antigravity tool calls through the same policy rails as the other harnesses; a `prompt` effect maps to Antigravity's ask. Status reports a Guard as governing only when its hooks are present and runnable, and shows "Installed but not governing" otherwise.
-- **npm launcher** *(`@securevector/cli`)*: `npx @securevector/cli` installs the matching PyPI release into a managed virtual environment on first run and hands over. No install script; `securevector doctor` reports what is missing.
-- **One endpoint reader per Guard plugin**: every plugin resolves the engine URL from `SECUREVECTOR_ENGINE_ENDPOINT`, then `SV_BASE_URL`, then `SECUREVECTOR_URL`, and warns once when the host is not loopback.
 
-### Security
-- **Governed launch**: tasks start only through an allowlisted executor; the app builds the command and an allowlisted environment, injects the hook relay itself, and refuses to launch when the Claude Code Guard plugin is not installed. The terminal control surface requires a per-install token in an HttpOnly cookie, a matching Host, and a custom header on every request, plus a matching Origin on every state change. Keystrokes are audited by line length only, never content; task events are hash-chained.
+**Agent Sessions**
+- Launch Claude Code, Codex, GitHub Copilot CLI or OpenCode from the app and watch each tool call in an attached terminal. Every call carries a Guard verdict, an audit row and an approval path. A harness is listed only when its binary is on PATH and its Guard plugin is installed and enabled.
+- Task state comes from the harness's own hook events (working, waiting approval, idle) and shows as done or failed when the process exits. Each task has a Guardian avatar with a stable colour, and a status line shows folder, branch, harness, state, elapsed time, and governed and blocked call counts.
+- Several tasks can be attached in split panes with draggable gutters, keyboard shortcuts, and drag-to-move. Scrollback is kept in memory only.
+- Sessions are grouped by folder with a facts line (cost, calls, blocked, age). "Running outside SecureVector" collapses to one line.
+- The governance column stays on the right and becomes a strip that opens as an overlay on narrow windows. It shows recent verdicts, traces, approvals, context fill and token waste with a Compact now button, and the external hosts the task reached, blocked ones first.
+- Tool approvals can be answered from the governance column: allow for 15 minutes, 1 hour or the rest of the session, or deny.
+- A session summary appears when a session ends, with a Summary toggle while it runs and a JSON export.
+- The Launch form installs a missing Guard in place, and shows a disabled "GovRun harness by SecureVector · Coming soon" option.
+- A session started in your own terminal appears under Running outside SecureVector once its Guard reports a call. You can add it to the board, continue it in the app, restart it in the same folder, or unlink it. A session that still writes its transcript but sends no governed calls is marked unverified.
+- Completed tasks can be archived off the active list. The task row and its hash-chained events are kept for audit.
+- Closing the window while a task runs hides it instead of quitting. Quit asks before stopping running tasks.
+- `sv-monitor session list | harnesses | unlinked | launch | link | stop`, each with `--json`.
 
-### Notes
-- Schema v48: `terminal_tasks`, `terminal_events`.
+**Observability**
+- The Traces nav is now Observability. Sessions keep stable names and task titles, and the page defaults to the last 24 hours.
+- Each run shows a step list with model time versus tool time, and a "Show full timeline" toggle. CSV and PDF exports include steps.
+- Agent Health findings (loops, failing steps, waste, blocked calls) are informational only.
+
+**Governance**
+- Coverage of recorded versus unrecorded tool calls, with a list of gaps to close. This replaces the always-7/7 view.
+
+**Cloud Connect**
+- Live Runs: live sessions upload their task title and folder name (never the path), model-turn timing, and failed or flagged flags. Metadata only, so the cloud shows the same step list.
+
+**Guard**
+- Failed tool calls are recorded (Claude Code).
+- SecureVector Guard for Antigravity, installable from Connect Agents. A Guard shows as governing only when its hooks are present and runnable, and shows "Installed but not governing" otherwise.
+- Every plugin reads the engine URL from `SECUREVECTOR_ENGINE_ENDPOINT`, then `SV_BASE_URL`, then `SECUREVECTOR_URL`, and warns once when the host is not loopback.
+
+**Install**
+- `npx @securevector/cli` installs the matching PyPI release into a managed virtual environment on first run. `securevector doctor` reports what is missing.
+
+### Changed
+- Governed launch: tasks start only through an allowlisted executor with an allowlisted environment, and the app refuses to launch when the Claude Code Guard plugin is missing. The terminal control surface needs a per-install token in an HttpOnly cookie, a matching Host, and a custom header on every request, plus a matching Origin on state changes. Keystrokes are audited by length only, never content.
+- Codex sessions launched from the app are governed, and a shared background process issue is fixed.
+- A session you stop shows as Stopped.
+- Schema v48 and v49 add the task tables and the archive marker.
+
+### Fixed
+- Resetting the device ID now creates a new ID.
+- Policy sync no longer loops on a policy with no rules, and no longer retries rejected acknowledgements every few seconds.
+- Agent Sessions recovers if the database is busy at start.
+- The ended-session panel no longer overlaps text or says "exit code null".
 
 ## [5.2.0] - 2026-08-19
 
