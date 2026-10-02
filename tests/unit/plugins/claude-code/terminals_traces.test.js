@@ -103,8 +103,8 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=468/);
-  assert.match(html, /terminals\.js\?v=93/);
+  assert.match(html, /styles\.css\?v=469/);
+  assert.match(html, /terminals\.js\?v=96/);
   assert.match(html, /agent-runs\.js\?v=375/);
 });
 

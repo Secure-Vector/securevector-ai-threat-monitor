@@ -5,6 +5,8 @@ Status semantics (from the harness's own hooks, never guessed from output):
   working  = tool activity since the last idle
   idle     = Stop event (turn finished, waiting for input)
   done / failed = process exit (code 0 / non-zero)
+  stopped = the app signalled the process (user Stop) and it died of that
+            signal (SIGTERM/SIGINT/SIGHUP/SIGKILL, 143/130/129/137 or -N)
   interrupted = the app restarted while the task was running
 """
 
@@ -39,6 +41,20 @@ from securevector.app.terminals.store import (
 from securevector.app.utils.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
+
+# Exit codes a process reports when it dies of (or exits on) a stop signal:
+# shell-style 128+N from a harness that traps it, or -N from the PTY host when
+# the signal killed it. SIGHUP covers the PTY closing, SIGKILL the host's
+# escalation after its grace period.
+def _stop_signal_exits(sig_module=signal) -> frozenset:
+    # getattr: Windows has no SIGHUP or SIGKILL, and importing must not fail there.
+    sigs = (getattr(sig_module, n, None) for n in ("SIGHUP", "SIGINT", "SIGKILL", "SIGTERM"))
+    return frozenset(
+        code for sig in sigs if sig is not None for code in (128 + int(sig), -int(sig))
+    )
+
+
+_STOP_SIGNAL_EXITS = _stop_signal_exits()
 
 # Session ids come from the user's clipboard, so they are validated as a
 # shape rather than trusted: a Claude Code uuid, a Codex rollout id, and the
@@ -139,6 +155,9 @@ class TerminalManager:
         self._input_bytes: dict = {}
         self._retain_finished = retain_finished
         self._finished: "collections.deque" = collections.deque()
+        # Tasks the app itself asked to stop. Only these may read a signal
+        # exit as "stopped"; any other signal death stays "failed".
+        self._stop_requested: set[str] = set()
         # Task ids launched while their Guard plugin was not relaying hooks.
         # In-memory only; routes fall back to the guard_missing audit event so
         # a restart does not turn an ungoverned task into a governed-looking one.
@@ -407,7 +426,9 @@ class TerminalManager:
         # unchanged — the routes layer maps them to HTTP statuses. Only
         # UnknownExecutor is raised by the manager itself, before
         # build_launch ever runs.
-        launch = build_launch(
+        # In an executor: build_launch may probe the harness binary
+        # (`--help`, cached per build), which must not stall the event loop.
+        launch = await asyncio.get_running_loop().run_in_executor(None, lambda: build_launch(
             executor_id,
             workspace=Path(workspace),
             task_dir=task_dir,
@@ -417,7 +438,7 @@ class TerminalManager:
             parent_env=self.settings.parent_env,
             plugin_dir=inject,
             resume_session_id=resume_session_id,
-        )
+        ))
         self._hook_tokens[task_id] = hook_token
         # The store row is created BEFORE host.spawn() runs, with pid=None.
         # InProcessPtyHost's reader thread can call on_exit almost as soon as
@@ -845,7 +866,11 @@ class TerminalManager:
         self._input_bytes.pop(task_id, None)
         # The audit trail is authoritative for finished tasks; the set is a cache.
         self._ungoverned.discard(task_id)
-        await self.store.set_exit(task_id, code)
+        stop_requested = task_id in self._stop_requested
+        self._stop_requested.discard(task_id)
+        await self.store.set_exit(
+            task_id, code, stopped=stop_requested and code in _STOP_SIGNAL_EXITS
+        )
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
@@ -888,6 +913,9 @@ class TerminalManager:
         # run_coroutine_threadsafe against this coroutine's own next await.
         # Writing "stop" first keeps it ordered before "exit" regardless of
         # which of the two callbacks the loop happens to run first.
+        # Marked before any await, so an exit that races the audit write
+        # below still reads as the user's stop.
+        self._stop_requested.add(task_id)
         await self.store.add_event(task_id, kind="stop", origin=origin)
         # Before host.stop(), matching the ordering above: the stop is recorded
         # while the row still reads as running, so an exit cannot race it.
@@ -898,7 +926,11 @@ class TerminalManager:
         # listening (see the spawn-path comment for why that matters).
         if live_runs.has_sink():
             live_runs.emit_nowait(task, "stop", origin=origin)
-        await asyncio.get_running_loop().run_in_executor(None, self.host.stop, task_id)
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, self.host.stop, task_id)
+        except BaseException:
+            self._stop_requested.discard(task_id)
+            raise
 
     async def stop_all(self, *, origin: str) -> None:
         for task_id in list(self._running):

@@ -760,7 +760,7 @@ test('attention is wired to the two states that actually block or refuse', () =>
   const src = read('js/pages/terminals.js');
   assert.match(src, /if \(this\._govCounts\.blocked\) this\._forceGovSection\('terminals-gov-verdicts'\);/,
     'a blocked call opens the call list');
-  assert.match(src, /if \(mine\.length\) this\._forceGovSection\('terminals-gov-approvals'\);/,
+  assert.match(src, /if \(waiting\.length\) this\._forceGovSection\('terminals-gov-approvals'\);/,
     'a pending approval opens the inbox: the session is paused until it is answered');
 });
 

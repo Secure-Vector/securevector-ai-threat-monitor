@@ -182,14 +182,34 @@ def test_build_launch_workspace_symlink_resolves_to_target(tmp_path, monkeypatch
 
 def test_codex_launch_has_no_claude_only_flags_and_pins_the_engine_endpoint(tmp_path, monkeypatch):
     monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/codex")
+    monkeypatch.setattr(executors, "supports_flag", lambda b, f, e: True)
     ws = tmp_path / "proj"
     ws.mkdir()
     launch = build_launch(
         "codex", workspace=ws, task_dir=tmp_path / "task", port=8899,
         task_id="t", hook_token="k", parent_env={"PATH": "/bin"}, plugin_dir=None,
     )
-    assert launch.argv == ["/usr/local/bin/codex"]
+    assert launch.argv == ["/usr/local/bin/codex", "--no-daemon"]
     assert launch.env["SECUREVECTOR_ENGINE_ENDPOINT"] == "http://127.0.0.1:8899"
+
+
+def test_codex_launch_never_attaches_to_the_shared_app_server_daemon(tmp_path, monkeypatch):
+    """Regression: Codex's TUI defaults to a shared background daemon whose
+    hooks inherit the env of whichever process started it. The first task's
+    SV_TERMINAL_* capability got pinned there, so later tasks relayed a stale
+    task id, were refused (403), and never linked their session (0 governed).
+    Both a fresh launch and a resume must opt out of the daemon."""
+    monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/codex")
+    monkeypatch.setattr(executors, "supports_flag", lambda b, f, e: True)
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    fresh = build_launch(
+        "codex", workspace=ws, task_dir=tmp_path / "task", port=8741,
+        task_id="t", hook_token="k", parent_env={"PATH": "/bin"}, plugin_dir=None,
+    )
+    resumed = _resume_launch("codex", tmp_path)
+    assert "--no-daemon" in fresh.argv
+    assert "--no-daemon" in resumed.argv
 
 
 def test_copilot_cli_and_opencode_launch_have_no_claude_only_flags_and_pin_the_engine_endpoint(
@@ -450,10 +470,25 @@ def test_claude_code_resume_flag_follows_the_governance_flags(tmp_path, monkeypa
 
 def test_codex_resume_is_a_subcommand_and_comes_first(tmp_path, monkeypatch):
     monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/codex")
+    monkeypatch.setattr(executors, "supports_flag", lambda b, f, e: True)
     launch = _resume_launch("codex", tmp_path)
     # `codex resume <id>`: a subcommand, so anything in front of it would be
     # parsed as a flag of the root command instead.
-    assert launch.argv == ["/usr/local/bin/codex", "resume", _RESUME_ID]
+    assert launch.argv == ["/usr/local/bin/codex", "resume", _RESUME_ID, "--no-daemon"]
+
+
+def test_subcommand_resume_with_root_only_extra_args_is_still_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/x")
+    from securevector.app.terminals.executors import Executor
+
+    monkeypatch.setattr(
+        executors,
+        "EXECUTORS",
+        {"x": Executor(id="x", label="X", binary="x", extra_args=("--foo",),
+                       resume_argv=("resume", "{session_id}"))},
+    )
+    with pytest.raises(ResumeUnsupported):
+        _resume_launch("x", tmp_path)
 
 
 def test_copilot_cli_resume_is_a_flag(tmp_path, monkeypatch):
@@ -473,11 +508,55 @@ def test_opencode_resume_is_refused_rather_than_launched_without_it(tmp_path, mo
 def test_no_resume_id_leaves_every_harness_argv_exactly_as_it_was(tmp_path, monkeypatch):
     """The default path is the one nearly every launch takes; it must not move."""
     monkeypatch.setattr("shutil.which", lambda binary, path=None: "/usr/local/bin/x")
+    monkeypatch.setattr(executors, "supports_flag", lambda b, f, e: True)
     for executor_id in ("claude-code", "codex", "copilot-cli", "opencode"):
         argv = _resume_launch(executor_id, tmp_path, resume_session_id=None).argv
         expected = ["/usr/local/bin/x"]
         if executor_id == "claude-code":
             expected += ["--settings", str(tmp_path / "task" / "settings.json")]
+        if executor_id == "codex":
+            expected += ["--no-daemon"]
         assert argv == expected, executor_id
         # An empty string is not a resume request either: no argv, no refusal.
         assert _resume_launch(executor_id, tmp_path, resume_session_id="").argv == expected
+
+
+def _fake_codex(tmp_path, help_text):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    codex = bin_dir / "codex"
+    # Shell builtins only: the child PATH holds just this directory.
+    codex.write_text("#!/bin/sh\nprintf '%s\\n' " + shlex.quote(help_text) + "\n")
+    codex.chmod(0o755)
+    return bin_dir
+
+
+@pytest.mark.skipif(os.name != "posix", reason="shell-script fake binary")
+@pytest.mark.parametrize(
+    "help_text, expected",
+    [
+        ("Options:\n      --no-daemon\n          Run without the shared background server", True),
+        ("Options:\n      --remote <ADDR>\n  -h, --help", False),
+    ],
+)
+def test_codex_no_daemon_follows_what_the_installed_binary_supports(tmp_path, help_text, expected):
+    """Older Codex releases reject --no-daemon (and have no shared daemon), so
+    the flag is only passed when the binary's own --help lists it."""
+    executors._help_cache.clear()
+    bin_dir = _fake_codex(tmp_path, help_text)
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    common = dict(
+        workspace=ws, task_dir=tmp_path / "task", port=8741, task_id="t",
+        hook_token="k", parent_env={"PATH": str(bin_dir)}, plugin_dir=None,
+    )
+    fresh = build_launch("codex", **common)
+    resumed = build_launch("codex", resume_session_id=_RESUME_ID, **common)
+    assert ("--no-daemon" in fresh.argv) is expected
+    assert ("--no-daemon" in resumed.argv) is expected
+    assert resumed.argv[1:3] == ["resume", _RESUME_ID]
+
+
+def test_flag_probe_failure_drops_the_flag_rather_than_breaking_the_launch(tmp_path):
+    executors._help_cache.clear()
+    assert executors.supports_flag(str(tmp_path / "missing"), "--no-daemon", {}) is False

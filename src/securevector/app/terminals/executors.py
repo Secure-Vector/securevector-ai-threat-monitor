@@ -14,6 +14,7 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import types
 from collections.abc import Mapping
@@ -60,6 +61,10 @@ class Executor:
     # executor's child. Kept off the global allowlist so a Copilot token or an
     # OpenAI key is never handed to an unrelated harness's process.
     env_extra: tuple[str, ...] = ()
+    # Flags added only when the installed binary's `--help` lists them, so an
+    # older release that lacks one still launches. Each must also be accepted
+    # by the resume subcommand, since they are appended after it.
+    optional_args: tuple[str, ...] = ()
 
 
 _EXECUTORS: dict[str, Executor] = {
@@ -74,6 +79,15 @@ _EXECUTORS: dict[str, Executor] = {
         id="codex",
         label="Codex",
         binary="codex",
+        # Codex's TUI otherwise attaches to a shared background app-server
+        # daemon, and its hooks then run with the env of whichever process
+        # first started that daemon, not this task's. The first Agent
+        # Terminals launch would pin its SV_TERMINAL_* capability into the
+        # daemon, so every later task posted the stale task id (403) and
+        # never linked its session. --no-daemon keeps the hooks in this
+        # task's own process tree; `codex resume` accepts it too. Releases
+        # without the flag have no shared daemon, so it is probed for.
+        optional_args=("--no-daemon",),
         # A subcommand, not a flag: `codex resume <id>`.
         resume_argv=("resume", "{session_id}"),
         env_extra=("OPENAI_API_KEY",),
@@ -227,6 +241,49 @@ def write_hook_settings(task_dir: Path, command: list[str]) -> Path:
     return path
 
 
+_FLAG_PROBE_TIMEOUT = 5.0
+# (realpath, mtime_ns) -> the binary's --help text. An upgrade in place changes
+# the mtime, so a new release is probed afresh.
+_help_cache: dict[tuple[str, int], str] = {}
+
+
+def _help_text(binary: str, env: Mapping[str, str]) -> Optional[str]:
+    """The binary's `--help` output, cached per installed build. None when it
+    cannot be read (not cached, so a transient failure is retried). Blocking:
+    callers on the event loop run build_launch in an executor."""
+    try:
+        real = os.path.realpath(binary)
+        key = (real, os.stat(real).st_mtime_ns)
+    except OSError:
+        return None
+    if key in _help_cache:
+        return _help_cache[key]
+    try:
+        proc = subprocess.run(
+            [binary, "--help"],
+            env=dict(env),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=_FLAG_PROBE_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    text = (proc.stdout or "") + (proc.stderr or "")
+    _help_cache[key] = text
+    return text
+
+
+def supports_flag(binary: str, flag: str, env: Mapping[str, str]) -> bool:
+    """Whether `binary --help` lists `flag`. Unknown means no: passing a flag
+    the binary rejects would stop the harness from starting at all."""
+    text = _help_text(binary, env)
+    if not text:
+        return False
+    return any(tok.strip(",[]") == flag for tok in text.split())
+
+
 def build_launch(
     executor_id: str,
     *,
@@ -286,6 +343,7 @@ def build_launch(
         if plugin_dir is not None:
             argv += ["--plugin-dir", str(plugin_dir)]
     argv += list(executor.extra_args)
+    argv += [flag for flag in executor.optional_args if supports_flag(resolved, flag, env)]
     if resume_args and not subcommand:
         argv += resume_args
     return Launch(argv=argv, env=env, cwd=str(workspace))

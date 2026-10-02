@@ -349,10 +349,52 @@ async def test_exit_marks_done_and_stop_marks_stopped(tmp_path):
     await m.stop(b["id"], origin="ui")
     await asyncio.sleep(0.05)
     tb = await m.store.get_task(b["id"])
-    assert tb["status"] == "failed" and tb["exit_code"] == -15
+    # The user's own Stop is not a failure (regression: it read "Failed").
+    assert tb["status"] == "stopped" and tb["exit_code"] == -15
     kinds = [e["kind"] for e in await m.store.list_events(b["id"])]
     assert kinds == ["spawn", "stop", "exit"]
     assert m.running_count() == 0
+
+
+class TrappingHost(FakeHost):
+    """A harness that traps SIGTERM and exits 128+15, as Claude Code does."""
+
+    def __init__(self, stop_code=143):
+        super().__init__()
+        self._stop_code = stop_code
+
+    def stop(self, task_id, grace=3.0):
+        self.stopped.append(task_id)
+        self.alive.discard(task_id)
+        self.on_exit[task_id](task_id, self._stop_code)
+
+
+@pytest.mark.asyncio
+async def test_user_stop_with_shell_style_sigterm_exit_is_stopped(tmp_path):
+    m, ws = await _manager(tmp_path, host=TrappingHost(143))
+    t = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    await m.stop(t["id"], origin="ui")
+    await asyncio.sleep(0.05)
+    row = await m.store.get_task(t["id"])
+    assert row["status"] == "stopped" and row["exit_code"] == 143
+
+
+@pytest.mark.asyncio
+async def test_signal_exit_the_app_did_not_send_stays_failed(tmp_path):
+    m, ws = await _manager(tmp_path)
+    t = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    m.host.exit(t["id"], 143)  # SIGTERM from outside the app
+    await asyncio.sleep(0.05)
+    assert (await m.store.get_task(t["id"]))["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_user_stop_with_a_non_signal_exit_stays_failed(tmp_path):
+    m, ws = await _manager(tmp_path, host=TrappingHost(1))
+    t = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    await m.stop(t["id"], origin="ui")
+    await asyncio.sleep(0.05)
+    assert (await m.store.get_task(t["id"]))["status"] == "failed"
 
 
 @pytest.mark.asyncio
@@ -1048,3 +1090,16 @@ def test_failed_tool_call_counts_as_activity():
     assert (status, activity) == ("working", "Bash: pytest")
     from securevector.app.terminals.executors import RELAY_EVENTS
     assert "PostToolUseFailure" in RELAY_EVENTS
+
+
+
+def test_stop_signal_table_builds_where_sighup_and_sigkill_do_not_exist():
+    """Windows has no SIGHUP/SIGKILL; the stop-signal table must not need them."""
+    import signal as signal_module
+    import types as types_module
+
+    windows_like = types_module.SimpleNamespace(
+        SIGINT=signal_module.SIGINT, SIGTERM=signal_module.SIGTERM
+    )
+    exits = manager_module._stop_signal_exits(windows_like)
+    assert {130, 143, -2, -15} == set(exits)

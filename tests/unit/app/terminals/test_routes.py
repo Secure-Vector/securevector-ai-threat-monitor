@@ -500,10 +500,10 @@ def test_stop_all_stops_every_running_task(tmp_path):
             body = client.get("/api/terminals/tasks", headers=headers).json()
         assert body["running"] == 0
         statuses = {t["id"]: t["status"] for t in body["items"]}
-        # -15 (SIGTERM) is not a clean exit, so store.set_exit records
-        # "failed", matching test_manager.py's test_exit_marks_done_and_stop_marks_stopped.
+        # -15 (SIGTERM) sent by the app's own Stop is recorded as "stopped",
+        # matching test_manager.py's test_exit_marks_done_and_stop_marks_stopped.
         for task_id in ids:
-            assert statuses[task_id] == "failed"
+            assert statuses[task_id] == "stopped"
 
 
 # --- linked sessions -------------------------------------------------------

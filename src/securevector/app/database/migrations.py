@@ -8,6 +8,7 @@ Provides:
 """
 
 import logging
+import re
 from datetime import datetime
 
 from securevector.app.database.connection import DatabaseConnection
@@ -199,6 +200,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         51: migrate_to_v51,
         52: migrate_to_v52,
         53: migrate_to_v53,
+        54: migrate_to_v54,
     }
 
     if version in migrations:
@@ -2768,3 +2770,76 @@ async def migrate_to_v53(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v53: generation outbox kind")
+
+
+_V54_OLD_STATUS = "'done','failed','interrupted')"
+_V54_NEW_STATUS = "'done','failed','interrupted','stopped')"
+
+
+async def migrate_to_v54(db: DatabaseConnection) -> None:
+    """v53 -> v54: terminal_tasks.status accepts 'stopped'.
+
+    A task the user stopped from the app exits on the app's own signal
+    (SIGTERM, exit 143); recording that as 'failed' blamed the agent for the
+    user's click. SQLite cannot widen a CHECK in place, so the table is
+    rebuilt from its own stored definition (keeping the columns later
+    migrations added) inside one ``BEGIN IMMEDIATE``, and its indexes are
+    recreated. Idempotent: an already widened constraint is left alone and an
+    interrupted rebuild is repaired first.
+    """
+    conn = await db.connect()
+
+    async def _sql(kind: str, name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?", (kind, name)
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    if await _sql("table", "terminal_tasks_v54"):
+        if await _sql("table", "terminal_tasks"):
+            await conn.execute("DROP TABLE terminal_tasks_v54")
+        else:
+            await conn.execute("ALTER TABLE terminal_tasks_v54 RENAME TO terminal_tasks")
+        await conn.commit()
+
+    existing = await _sql("table", "terminal_tasks")
+    if existing and "'stopped'" not in existing and _V54_OLD_STATUS in existing:
+        create = re.sub(
+            r"^CREATE TABLE\s+(IF NOT EXISTS\s+)?\"?terminal_tasks\"?",
+            "CREATE TABLE terminal_tasks_v54",
+            existing.strip(),
+            count=1,
+        ).replace(_V54_OLD_STATUS, _V54_NEW_STATUS, 1)
+        cur = await conn.execute("PRAGMA table_info(terminal_tasks)")
+        cols = ", ".join(f'"{row[1]}"' for row in await cur.fetchall())
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' "
+            "AND tbl_name = 'terminal_tasks' AND sql IS NOT NULL"
+        )
+        indexes = [row[0] for row in await cur.fetchall()]
+        script = "\n".join(
+            [
+                "BEGIN IMMEDIATE;",
+                create + ";",
+                f"INSERT INTO terminal_tasks_v54 ({cols}) SELECT {cols} FROM terminal_tasks;",
+                "DROP TABLE terminal_tasks;",
+                "ALTER TABLE terminal_tasks_v54 RENAME TO terminal_tasks;",
+                *[sql + ";" for sql in indexes],
+                "COMMIT;",
+            ]
+        )
+        try:
+            await conn.executescript(script)
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (54, CURRENT_TIMESTAMP, 'Agent Task status stopped')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v54: terminal_tasks status 'stopped'")

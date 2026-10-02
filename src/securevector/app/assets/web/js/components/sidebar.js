@@ -1612,6 +1612,7 @@ const Sidebar = {
         if (state === 'blocked') return `${harness} · blocked`;
         if (state === 'completed') return `${harness} · done`;
         if (state === 'failed') return `${harness} · stopped`;
+        if (state === 'interrupted' && task.status === 'stopped') return `${harness} · stopped by you`;
         if (state === 'interrupted') return `${harness} · interrupted`;
         return `${harness} · ${this._sinceShort(task.created_at)}`;
     },
@@ -1635,6 +1636,8 @@ const Sidebar = {
         if (task.status === 'blocked') return 'blocked';
         if (task.status === 'done') return 'completed';
         if (task.status === 'interrupted') return 'interrupted';
+        // A user Stop is not a failure: neutral, like interrupted.
+        if (task.status === 'stopped') return 'interrupted';
         if (task.status === 'failed') return 'failed';
         return 'active';
     },

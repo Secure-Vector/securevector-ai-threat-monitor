@@ -20,6 +20,7 @@ const TerminalsPage = {
     _attachedAt: null,
     _error: null,
     _pendingApprovalSessions: new Set(),
+    _pendingApprovalKinds: new Set(),
     _railSig: '',
     _taskQuery: '',
     _gen: 0,
@@ -805,10 +806,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._pendingApprovalSessions = new Set(
                 (jit.items || []).map(r => r.session_id).filter(Boolean)
             );
+            this._pendingApprovalKinds = new Set(
+                this._unmatchedApprovals(jit.items || []).map(r => r.runtime_kind).filter(Boolean)
+            );
         } catch (e) {
             // A temporary inbox failure must not make task attachment or the
             // task list unavailable. Avoid showing a stale approval badge.
             this._pendingApprovalSessions = new Set();
+            this._pendingApprovalKinds = new Set();
         }
         if (gen !== this._gen) return;
         this._renderTaskList();
@@ -1185,6 +1190,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (t.status === 'blocked') return { kind: 'blocked', label: 'Blocked', detail: 'Harness blocked this task', mark: '×' };
         if (t.status === 'done') return { kind: 'completed', label: 'Completed', detail: 'Task completed successfully', mark: '✓' };
         if (t.status === 'interrupted') return { kind: 'interrupted', label: 'Interrupted', detail: 'The app restarted before this task finished', mark: '–' };
+        // A Stop the user clicked: the harness ended on the app's own signal,
+        // so it is neither a failure nor a crash. Neutral, like interrupted.
+        if (t.status === 'stopped') return { kind: 'interrupted', label: 'Stopped', detail: 'Stopped by you', mark: '–' };
         if (t.status === 'failed') return { kind: 'failed', label: 'Failed', detail: t.exit_code == null ? 'Task failed' : `Task ended with exit code ${t.exit_code}`, mark: '!' };
         return { kind: 'active', label: 'Active', detail: 'Harness is running', mark: '•' };
     },
@@ -1275,12 +1283,53 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (t.status === 'done') return hasCode ? `Finished with exit code ${t.exit_code}` : 'Finished';
         if (t.status === 'failed') return hasCode ? `Stopped with exit code ${t.exit_code}` : 'Stopped';
         if (t.status === 'interrupted') return 'Interrupted when the app restarted';
+        if (t.status === 'stopped') return 'Stopped by you';
         if (t.status === 'starting') return 'Starting';
         return t.activity || t.status;
     },
 
     _hasPendingApproval(t) {
+        return Boolean(t.session_id && this._pendingApprovalSessions.has(t.session_id))
+            || Boolean(!this._ownsApproval(t) && this._pendingApprovalKinds && this._pendingApprovalKinds.has(t.executor_id));
+    },
+
+    /** A task with its own pending request is not also a candidate for
+     *  another session's orphan, so the badge never doubles up. */
+    _ownsApproval(t) {
         return Boolean(t.session_id && this._pendingApprovalSessions.has(t.session_id));
+    },
+
+    /** Pending requests that belong to no known task: no session id, or one
+     *  no task carries. Most recent first. */
+    _unmatchedApprovals(items) {
+        const known = new Set((this._tasks || []).map(t => t.session_id).filter(Boolean));
+        return (items || [])
+            .filter(r => !r.session_id || !known.has(r.session_id))
+            .sort((a, b) => String(b.requested_at || '').localeCompare(String(a.requested_at || '')));
+    },
+
+    /** Requested-at arrives as a bare UTC timestamp from SQLite. */
+    _approvalAgo(iso) {
+        const v = String(iso || '');
+        return this._ago(/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v : v.replace(' ', 'T') + 'Z');
+    },
+
+    _approvalHtml(r, other) {
+        const ago = this._approvalAgo(r.requested_at);
+        const noSession = !r.session_id;
+        const sid = noSession ? 'no session' : 'session ' + String(r.session_id).slice(0, 8);
+        return `
+              <div class="terminals-approval" data-id="${this._esc(r.id)}">
+                <div class="terminals-approval-tool">${this._esc(r.function_name || r.tool_id)}${ago ? ` <span class="terminals-approval-when">${this._esc(ago)}</span>` : ''}</div>
+                <div class="terminals-approval-why">${this._esc(r.justification || 'No justification given')}</div>
+                ${other ? `<div class="terminals-approval-when">${this._esc(sid)}</div>` : ''}
+                <div class="terminals-approval-actions">
+                  <button class="btn btn-sm btn-primary" data-act="approve" data-dur="15m">15 min</button>
+                  <button class="btn btn-sm btn-primary" data-act="approve" data-dur="1h">1 hour</button>
+                  <button class="btn btn-sm btn-primary" data-act="approve" data-dur="session"${noSession ? ' disabled title="This request did not include a session id"' : ''}>Rest of session</button>
+                  <button class="btn btn-sm" data-act="deny">Deny</button>
+                </div>
+              </div>`;
     },
 
     /** Session lifecycle sentinels the Guard plugins emit around a run
@@ -1296,7 +1345,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return sentinel(row && row.function_name) || sentinel(row && row.tool_id);
     },
     _statusLabel(status) {
-        return { starting: 'Starting', working: 'Running', blocked: 'Blocked', idle: 'Waiting', done: 'Finished', failed: 'Stopped', interrupted: 'Interrupted' }[status] || status;
+        return { starting: 'Starting', working: 'Running', blocked: 'Blocked', idle: 'Waiting', done: 'Finished', failed: 'Stopped', interrupted: 'Interrupted', stopped: 'Stopped' }[status] || status;
     },
 
     // --- attached terminals: the pane layout -----------------------------
@@ -4702,7 +4751,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return v;
     },
 
-    _ENDED_STATUSES: ['done', 'failed', 'interrupted'],
+    _ENDED_STATUSES: ['done', 'failed', 'interrupted', 'stopped'],
 
     /** Ended means the session is over for good: no more output is
      *  coming, and the harness and folder on the row are all that is
@@ -5180,6 +5229,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const jit = await API.getJitRequests('pending');
             if (this._attached !== id) return;
             const mine = (jit.items || []).filter(r => !sessionId || r.session_id === sessionId);
+            const attachedTask = (this._tasks || []).find(t => t.id === id);
+            const otherSessions = sessionId && attachedTask
+                ? this._unmatchedApprovals(jit.items || []).filter(r => r.runtime_kind === attachedTask.executor_id).slice(0, 5)
+                : [];
+            const waiting = mine.concat(otherSessions);
             // An expanded run offers Approve only for a call that is really
             // waiting, so it repaints once the inbox is known.
             this._railApprovals = mine;
@@ -5191,15 +5245,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 stuckMin != null ? `no activity for ${stuckMin} min` : null,
                 `${items.length} call${items.length === 1 ? '' : 's'} checked`,
                 fetchFailed ? null : `${traceRuns.length} trace${traceRuns.length === 1 ? '' : 's'}`,
-                mine.length ? `${mine.length} approval waiting` : 'no approvals waiting',
+                waiting.length ? `${waiting.length} approval waiting` : 'no approvals waiting',
             ].filter(Boolean);
             if (summary) summary.textContent = summaryParts.join(' · ');
             if (attention) {
-                attention.hidden = !mine.length;
+                attention.hidden = !waiting.length;
                 // The session is paused until this is answered, so the inbox
                 // opens itself rather than waiting to be found.
-                if (mine.length) this._forceGovSection('terminals-gov-approvals');
-                attention.innerHTML = mine.length
+                if (waiting.length) this._forceGovSection('terminals-gov-approvals');
+                attention.innerHTML = waiting.length
                     ? `<span><strong>Approval needed</strong> · This task is paused until you decide.</span><button class="btn btn-sm btn-primary" id="terminals-review-approval">Review</button>`
                     : '';
                 const review = attention.querySelector('#terminals-review-approval');
@@ -5210,26 +5264,27 @@ ${this.CLI_BIN} stop &lt;id&gt;
                     aEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
                 };
             }
-            aEl.innerHTML = mine.length ? mine.map(r => `
-              <div class="terminals-approval" data-id="${this._esc(r.id)}">
-                <div class="terminals-approval-tool">${this._esc(r.function_name || r.tool_id)}</div>
-                <div class="terminals-approval-why">${this._esc(r.justification || 'No justification given')}</div>
-                <div class="terminals-approval-actions">
-                  <button class="btn btn-sm btn-primary" data-act="approve">Allow 15 min</button>
-                  <button class="btn btn-sm" data-act="deny">Deny</button>
-                </div>
-              </div>`).join('') : '<span class="terminals-empty">Nothing waiting.</span>';
-            setCount('terminals-approvals-count', mine.length);
-            this._govHas.approvals = mine.length > 0;
+            aEl.innerHTML = waiting.length
+                ? mine.map(r => this._approvalHtml(r)).join('')
+                    + (otherSessions.length ? `<div class="terminals-approval-other">Other sessions</div>` + otherSessions.map(r => this._approvalHtml(r, true)).join('') : '')
+                : '<span class="terminals-empty">Nothing waiting.</span>';
+            setCount('terminals-approvals-count', waiting.length);
+            this._govHas.approvals = waiting.length > 0;
             this._renderGovHero();
             aEl.querySelectorAll('button[data-act]').forEach(b => {
                 b.onclick = async () => {
-                    const reqId = b.closest('.terminals-approval').dataset.id;
+                    const card = b.closest('.terminals-approval');
+                    const reqId = card.dataset.id;
                     const act = b.dataset.act;
+                    const btns = Array.from(card.querySelectorAll('button'));
+                    btns.forEach(x => { x.disabled = true; });
                     try {
-                        if (act === 'approve') await API.approveJitRequest(reqId, '15m');
+                        if (act === 'approve') await API.approveJitRequest(reqId, b.dataset.dur || '15m');
                         else await API.denyJitRequest(reqId, 'Denied from Terminals');
-                    } catch (e) { this._banner(e.message); }
+                    } catch (e) {
+                        btns.forEach(x => { x.disabled = false; });
+                        this._banner(e.message);
+                    }
                     this._refreshRail();
                 };
             });
@@ -6084,7 +6139,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (!t || !t.session_id) return '';
         const h = (this._healthBySession || {})[t.session_id];
         if (!h || !window.TraceSteps) return '';
-        const ended = ['done', 'failed', 'interrupted'].includes(t.status);
+        const ended = this._isEnded(t);
         const words = ended ? { loop: 'looped', failing: 'failed repeatedly' } : { loop: 'looping', failing: 'failing' };
         return window.TraceSteps.badgesHtml({ loop: h.loop, failing: h.failing }, { words });
     },

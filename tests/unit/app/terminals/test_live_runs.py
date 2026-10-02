@@ -673,3 +673,14 @@ def test_the_stop_emit_happens_before_the_host_is_told_to_stop():
     stop_emit = _MANAGER.index('live_runs.emit_nowait(task, "stop"')
     host_stop = _MANAGER.index("self.host.stop, task_id", stop_emit - 2000)
     assert stop_emit < host_stop
+
+
+def test_a_stopped_task_travels_as_done_never_stopped_or_none():
+    """The cloud task_event enum has no "stopped"; an unknown status fails the
+    whole upload batch, and None would hide how the task ended."""
+    row = dict(allowlisted_row(), status="stopped", exit_code=143)
+    payload = live_runs.build_payload(row, "exit", origin="process", key=KEY)
+    assert payload["status"] == "done"
+    assert payload["exit_code"] == 143
+    assert set(live_runs.STATUS_FOR_CLOUD.values()) <= live_runs.STATUSES
+    assert "stopped" not in live_runs.STATUSES

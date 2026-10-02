@@ -102,11 +102,11 @@ async def test_schema_version_advances_to_45(tmp_path):
     # Agent Task lifecycle rows bound for the fleet destination.
     # v53: external_forward_outbox.kind accepts 'generation' (model turn
     # rows for the fleet destination) plus the fleet_generation_sent markers.
-    assert CURRENT_SCHEMA_VERSION == 53
+    assert CURRENT_SCHEMA_VERSION == 54
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 53
+    assert row["v"] == 54
     exists = await db.fetch_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
     )

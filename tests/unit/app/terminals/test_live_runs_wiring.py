@@ -84,7 +84,8 @@ async def test_stop_exit_and_archive_each_emit(tmp_path, sent):
         assert events == ["spawn", "stop", "exit", "archived"]
         exit_event = sent[2]
         assert exit_event["event_origin"] == "process"
-        assert exit_event["status"] == "failed" and exit_event["exit_code"] == -15
+        # A user Stop is "stopped" locally and "done" on the wire (cloud enum).
+        assert exit_event["status"] == "done" and exit_event["exit_code"] == -15
         assert exit_event["ended_at"] is not None
         assert sent[3]["archived_at"] is not None
     finally:
@@ -185,7 +186,7 @@ async def _until_done_or_failed(store, task_id, timeout=5.0):
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while loop.time() < deadline:
-        if (await store.get_task(task_id))["status"] in ("done", "failed"):
+        if (await store.get_task(task_id))["status"] in ("done", "failed", "stopped"):
             return
         await asyncio.sleep(0.02)
     raise AssertionError(f"task {task_id} never finished")

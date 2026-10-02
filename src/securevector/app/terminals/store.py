@@ -408,8 +408,12 @@ class TerminalStore:
                 (status, activity[:200], _now(), task_id),
             )
 
-    async def set_exit(self, task_id: str, exit_code: Optional[int]) -> None:
-        status = "done" if exit_code == 0 else "failed"
+    async def set_exit(
+        self, task_id: str, exit_code: Optional[int], *, stopped: bool = False
+    ) -> None:
+        # `stopped` is the manager's word that the app itself signalled this
+        # process (the user clicked Stop); a signal exit then is not a failure.
+        status = "done" if exit_code == 0 else ("stopped" if stopped else "failed")
         await self.db.execute(
             "UPDATE terminal_tasks SET status = ?, exit_code = ?, ended_at = ? WHERE id = ?",
             (status, exit_code, _now(), task_id),

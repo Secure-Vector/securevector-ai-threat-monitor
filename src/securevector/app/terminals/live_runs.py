@@ -45,6 +45,7 @@ import inspect
 import logging
 import os
 import secrets
+import types
 import unicodedata
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -132,6 +133,11 @@ EXECUTOR_IDS = frozenset({"claude-code", "codex", "copilot-cli", "opencode"})
 STATUSES = frozenset(
     {"starting", "working", "blocked", "idle", "done", "failed", "interrupted"}
 )
+# Local statuses the cloud's task_event enum (STATUSES above) does not know,
+# mapped onto the nearest one it does. An unknown status fails the whole
+# upload batch, and None would hide how the task ended: a task the user
+# stopped ended normally, at their request, so it travels as "done".
+STATUS_FOR_CLOUD = types.MappingProxyType({"stopped": "done"})
 TASK_ORIGINS = frozenset({"launch", "linked"})
 # Every value `TerminalStore.add_event(kind=...)` is actually called with,
 # across manager.py, store.py, guardrail.py and routes.py. `spawn`, `stop`
@@ -451,7 +457,9 @@ def build_payload(
         "emitted_at": stamp.isoformat(timespec="milliseconds"),
         "task_id": _digest(row.get("id"), domain="task", key=key),
         "executor_id": _enum(row.get("executor_id"), EXECUTOR_IDS),
-        "status": _enum(row.get("status"), STATUSES),
+        "status": _enum(
+            STATUS_FOR_CLOUD.get(row.get("status"), row.get("status")), STATUSES
+        ),
         "task_origin": _enum(row.get("origin"), TASK_ORIGINS),
         "workspace_digest": workspace_digest(row.get("workspace"), key=key),
         "workspace_name": workspace_name(row.get("workspace")),
