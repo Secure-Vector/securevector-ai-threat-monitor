@@ -633,3 +633,88 @@ test('a transient traces failure keeps the hero away from live sections', async 
   assert.strictEqual(els['terminals-gov-hero'].hidden, true,
     'the hero must not pop over live sections mid-poll');
 });
+
+// --- session summary ---------------------------------------------------
+const SUMMARY_TASK = { id: 'abcdef1234567890', session_id: 's1', executor_id: 'claude-code', workspace: '/Users/someone/projects/demo', created_at: '2026-10-01T10:00:00Z', ended_at: '2026-10-01T10:05:30Z', exit_code: 0, spend_usd: 0.42 };
+
+test('session summary renders verdict counts and omits empty rows', () => {
+  const page = loadPage({});
+  const s = page._summaryBuild(SUMMARY_TASK, {
+    verdicts: { items: [
+      { action: 'allow' }, { action: 'allow' }, { action: 'allow', risk: 'amber' },
+      { action: 'block' }, { action: 'allow', status: 'failed' },
+      { function_name: '__session_start__', action: 'allow' },
+    ] },
+  });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(s.tool_calls)), { allowed: 2, flagged: 1, blocked: 1, failed: 1 });
+  const html = page._summaryHtml(s);
+  assert.match(html, /2 allowed/); assert.match(html, /1 flagged/); assert.match(html, /1 blocked/); assert.match(html, /1 failed/);
+  assert.match(html, /5m 30s/);
+  assert.ok(!/Hosts reached|Agent Health|Approvals|Model/.test(html), 'rows with no data are omitted');
+});
+
+test('session summary omits an unknown cost and never shows $0 for it', () => {
+  const page = loadPage({});
+  const html = page._summaryHtml(page._summaryBuild(Object.assign({}, SUMMARY_TASK, { spend_usd: null }), {}));
+  assert.ok(!/Cost/.test(html) && !/\$0/.test(html));
+  assert.match(page._summaryHtml(page._summaryBuild(SUMMARY_TASK, {})), /Cost[^]*\$0\.42/);
+});
+
+test('session summary lists hosts blocked first, top five, with the total', () => {
+  const page = loadPage({});
+  const destinations = [];
+  for (let i = 0; i < 7; i++) destinations.push({ host: 'h' + i + '.test', calls: 10 - i, blocked: 0 });
+  destinations.push({ host: 'bad.test', calls: 1, blocked: 1 });
+  const s = page._summaryBuild(SUMMARY_TASK, { egress: { destinations } });
+  assert.strictEqual(s.hosts.count, 8);
+  assert.strictEqual(s.hosts.top.length, 5);
+  assert.strictEqual(s.hosts.top[0].host, 'bad.test');
+  assert.strictEqual(s.hosts.top[1].host, 'h0.test');
+  assert.match(page._summaryHtml(s), /\+3 more/);
+});
+
+test('session summary caps health findings at three and links to Observability', () => {
+  const page = loadPage({});
+  const findings = [1, 2, 3, 4, 5].map(n => ({ category: 'loop', title: 'Finding ' + n }));
+  const s = page._summaryBuild(SUMMARY_TASK, { health: { findings }, jit: { items: [
+    { session_id: 's1', status: 'approved' }, { session_id: 's1', status: 'denied' }, { session_id: 'other', status: 'approved' }] } });
+  assert.strictEqual(s.findings.length, 3);
+  const html = page._summaryHtml(s);
+  assert.ok(!/Finding 4/.test(html));
+  assert.match(html, /data-summary-findings/);
+  assert.match(html, /1 approved, 1 denied/);
+});
+
+test('session summary export carries the summary fields only, with no full paths', () => {
+  const page = loadPage({});
+  const s = page._summaryBuild(SUMMARY_TASK, { verdicts: { items: [{ action: 'block', function_name: 'Bash', output: 'secret' }] }, model: 'm-1' });
+  const json = page._summaryExport(s);
+  const o = JSON.parse(json);
+  assert.deepStrictEqual(Object.keys(o).sort(), ['approvals', 'cost_usd', 'duration_seconds', 'ended_at', 'exit_code', 'findings', 'findings_total', 'folder', 'harness', 'hosts', 'model', 'session', 'started_at', 'tool_calls']);
+  assert.strictEqual(o.folder, 'demo');
+  assert.strictEqual(o.session, 'abcdef12');
+  assert.ok(!/\/Users\/|secret|Bash/.test(json));
+  assert.match(read('js/pages/terminals.js'), /sv-session-\$\{s\.id\}\.json/);
+});
+
+test('running panes get a Summary toggle in the status line', () => {
+  const page = loadPage({});
+  const govEl = { hidden: true, innerHTML: '', classList: { add() {}, remove() {} }, querySelector: () => null };
+  page._panes = new Map([['p1', { govEl, gov: { calls: 3, blocked: 1, hosts: 2 }, taskId: 't', summaryOpen: false, el: { getBoundingClientRect: () => ({ width: 900 }) } }]]);
+  page._renderPaneGov('p1');
+  assert.match(govEl.innerHTML, /data-pane-summary[^>]*aria-pressed="false"[^>]*aria-label="Session summary"/);
+  page._panes.get('p1').summaryOpen = true; page._panes.get('p1').summaryTaskId = 't';
+  page._renderPaneGov('p1');
+  assert.match(govEl.innerHTML, /aria-pressed="true"/);
+});
+
+test('summary review fixes: bad dates, load failure, titles, folder name', async () => {
+  const page = loadPage({}, { terminalsVerdicts: () => { throw new Error('x'); } });
+  assert.strictEqual(page._summaryBuild(Object.assign({}, SUMMARY_TASK, { created_at: 'nope' }), {}).duration_seconds, null);
+  const s = page._summaryBuild(SUMMARY_TASK, { health: { findings: [{ category: 'loop', title: 'Edits /Users/me/x' }] } });
+  assert.ok(!/Users\/me/.test(page._summaryExport(s)));
+  const host = { innerHTML: '' };
+  await page._summaryFill(host, Object.assign({}, SUMMARY_TASK, { session_id: null }));
+  assert.ok(!/Loading/.test(host.innerHTML));
+  assert.ok(!/ended-who[^\n]*\$\{this\._esc\(task\.workspace\)\}/.test(read('js/pages/terminals.js')));
+});

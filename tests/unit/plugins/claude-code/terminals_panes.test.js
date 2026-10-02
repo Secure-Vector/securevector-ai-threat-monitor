@@ -685,8 +685,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=6/);
-  assert.match(html, /terminals\.js\?v=91/);
-  assert.match(html, /styles\.css\?v=467/);
+  assert.match(html, /terminals\.js\?v=93/);
+  assert.match(html, /styles\.css\?v=468/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -3042,7 +3042,7 @@ test('an exit with nothing replayed swaps the pane for a panel that names the se
   assert.match(html, /This session has ended/);
   assert.match(html, /Fix the parser/, 'the panel says which task this was');
   assert.match(html, /Claude Code/, 'and which harness ran it');
-  assert.match(html, /\/srv\/app/, 'and in which folder');
+  assert.match(html, /Claude Code · app/, 'and in which folder');
   assert.match(html, /Exit code 3/);
 });
 

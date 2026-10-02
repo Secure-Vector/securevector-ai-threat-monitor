@@ -2627,11 +2627,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
           <div class="terminals-ended-stage">
             <div class="terminals-ended-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
             <h3>This session has ended</h3>
-            <p class="terminals-ended-who">${this._esc(name)} · ${this._esc(this._label(task.executor_id))} · ${this._esc(task.workspace)}</p>
+            <p class="terminals-ended-who">${this._esc(name)} · ${this._esc(this._label(task.executor_id))} · ${this._esc(this._folderName(task))}</p>
             <p class="terminals-ended-exit">${this._esc(exitLine)}</p>
+            <div class="terminals-summary-host" data-ended-summary><span class="terminals-empty">Loading summary…</span></div>
             <p>The terminal output is no longer held by the app, so there is nothing to replay.</p>
             <button type="button" class="btn btn-sm btn-primary" data-ended-restart="${this._esc(paneId)}">Restart in this pane</button>
           </div>`;
+        rec.summaryOpen = false; rec.summaryEl = null;
+        this._summaryFill(rec.stageEl.querySelector ? rec.stageEl.querySelector('[data-ended-summary]') : null, task);
         const buttons = rec.stageEl.querySelectorAll ? rec.stageEl.querySelectorAll('[data-ended-restart]') : [];
         buttons.forEach(b => {
             b.onclick = async () => {
@@ -2652,6 +2655,170 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 }
             };
         });
+    },
+
+    // --- session summary --------------------------------------------------
+    //
+    // What one task did, from data the page already reads: the task row, its
+    // verdicts, the session's egress hosts, the newest run's health findings
+    // and the approval inbox. A row with nothing to say is left out, and an
+    // unknown cost is never shown as $0. The pure parts (_summaryBuild,
+    // _summaryHtml, _summaryExport) take plain data so tests can drive them.
+    SUMMARY_HOSTS_MAX: 5,
+    SUMMARY_FINDINGS_MAX: 3,
+
+    _summaryBuild(task, d) {
+        d = d || {};
+        const rows = ((d.verdicts && d.verdicts.items) || []).filter(i => !this._isBoundaryRow(i));
+        const calls = { allowed: 0, flagged: 0, blocked: 0, failed: 0 };
+        rows.forEach(i => {
+            if (i.action === 'block') calls.blocked++;
+            else if (i.status === 'failed' || i.status === 'error' || i.success === false) calls.failed++;
+            else if (i.risk === 'amber') calls.flagged++;
+            else calls.allowed++;
+        });
+        const dests = ((d.egress && d.egress.destinations) || []).filter(r => r && r.host);
+        const top = dests.slice().sort((a, b) =>
+            ((b.blocked || 0) > 0) - ((a.blocked || 0) > 0)
+            || (b.calls || 0) - (a.calls || 0)
+            || String(a.host).localeCompare(String(b.host)))
+            .slice(0, this.SUMMARY_HOSTS_MAX)
+            .map(r => ({ host: r.host === 'web-search' ? 'Codex web search' : r.host, blocked: r.blocked || 0 }));
+        const all = (d.health && Array.isArray(d.health.findings)) ? d.health.findings : [];
+        const findings = all.slice(0, this.SUMMARY_FINDINGS_MAX)
+            .map(f => ({ category: String(f.category || ''), title: String(f.title || '') }))
+            .filter(f => f.title);
+        const jit = ((d.jit && d.jit.items) || []).filter(r => !task.session_id || r.session_id === task.session_id);
+        const approvals = {
+            approved: jit.filter(r => r.status === 'approved').length,
+            denied: jit.filter(r => r.status === 'denied').length,
+        };
+        const start = Date.parse(task.created_at);
+        const end = task.ended_at ? Date.parse(task.ended_at) : Date.now();
+        const folder = String(task.workspace || '').split(/[\\/]/).filter(Boolean).pop() || '';
+        return {
+            id: String(task.id || '').slice(0, 8),
+            harness: this._label(task.executor_id),
+            folder,
+            model: d.model || '',
+            cost_usd: typeof task.spend_usd === 'number' && isFinite(task.spend_usd) && task.spend_usd >= 0 ? task.spend_usd : null,
+            started_at: task.created_at || null,
+            ended_at: task.ended_at || null,
+            duration_seconds: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 1000) : null,
+            exit_code: typeof task.exit_code === 'number' ? task.exit_code : null,
+            tool_calls: calls,
+            hosts: { count: dests.length, top },
+            findings,
+            findings_total: all.length,
+            approvals,
+        };
+    },
+
+    _summaryHtml(s) {
+        const row = (label, body) => `<div class="terminals-summary-row"><dt>${label}</dt><dd>${body}</dd></div>`;
+        const out = [];
+        if (s.duration_seconds !== null) out.push(row('Duration', this._esc(this._elapsed(s.started_at, s.ended_at))));
+        out.push(row('Harness', this._esc(s.harness)));
+        if (s.model) out.push(row('Model', this._esc(s.model)));
+        if (s.cost_usd !== null) out.push(row('Cost', this._esc(this._fmtSpend(s.cost_usd))));
+        const c = s.tool_calls;
+        const chip = (n, word, cls) => n > 0
+            ? `<span class="terminals-summary-chip ${cls}"><span class="terminals-verdict-action">${n} ${word}</span></span>` : '';
+        const chips = chip(c.allowed, 'allowed', 'terminals-verdict-allow')
+            + chip(c.flagged, 'flagged', 'terminals-verdict-amber')
+            + chip(c.blocked, 'blocked', 'terminals-verdict-block')
+            + chip(c.failed, 'failed', 'terminals-summary-chip-neutral');
+        if (chips) out.push(row('Tool calls', chips));
+        if (s.hosts.count > 0) {
+            const list = s.hosts.top.map(h => `<li class="${h.blocked > 0 ? 'is-blocked' : ''}">${this._esc(h.host)}${h.blocked > 0 ? ' (blocked)' : ''}</li>`).join('');
+            const more = s.hosts.count - s.hosts.top.length;
+            out.push(row('Hosts reached', `${s.hosts.count}<ul class="terminals-summary-list">${list}</ul>${more > 0 ? `<span class="terminals-summary-more">+${more} more</span>` : ''}`));
+        }
+        if (s.findings.length) {
+            const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(f.title)}</li>`).join('');
+            out.push(row('Agent Health', `<ul class="terminals-summary-list">${list}</ul><a href="#" class="terminals-summary-all" data-summary-findings aria-label="All findings in Observability">All findings</a>`));
+        }
+        if (s.approvals.approved + s.approvals.denied > 0) {
+            out.push(row('Approvals', `${s.approvals.approved} approved, ${s.approvals.denied} denied`));
+        }
+        return `<section class="terminals-summary" aria-label="Session summary"><dl>${out.join('')}</dl>`
+            + '<button type="button" class="btn btn-sm" data-summary-export aria-label="Export session summary as JSON">Export</button></section>';
+    },
+
+    /** The summary fields only: no prompts, no output, and the working folder
+     *  as its last segment so no path on this machine leaves the app. */
+    _summaryExport(s) {
+        return JSON.stringify({
+            session: s.id, harness: s.harness, folder: s.folder, model: s.model || null,
+            cost_usd: s.cost_usd, started_at: s.started_at, ended_at: s.ended_at,
+            duration_seconds: s.duration_seconds, exit_code: s.exit_code,
+            tool_calls: s.tool_calls, hosts: s.hosts, findings: s.findings.map(f => ({ category: f.category })), findings_total: s.findings_total, approvals: s.approvals,
+        }, null, 2);
+    },
+
+    async _summaryLoad(task) {
+        const sid = task.session_id;
+        const soft = (f) => { try { return Promise.resolve(f()).catch(() => null); } catch (e) { return Promise.resolve(null); } };
+        const [verdicts, egress, jit] = await Promise.all([
+            soft(() => API.terminalsVerdicts(task.id)),
+            sid && API.getEgressSessionDestinations ? soft(() => API.getEgressSessionDestinations(sid)) : null,
+            sid && API.getJitRequests ? soft(() => API.getJitRequests()) : null,
+        ]);
+        let health = null;
+        if (sid && API.getTraceHealth) {
+            let runs = (this._allRunsCache && this._allRunsCache.runs) || [];
+            let run = runs.find(r => r.session_id === sid);
+            if (!run) {
+                const tr = await soft(() => this._fetchTraceRuns({ window_days: 7, limit: 200 }));
+                run = ((tr && tr.runs) || []).find(r => r.session_id === sid);
+            }
+            if (run && run.trace_id) health = await soft(() => API.getTraceHealth(run.trace_id));
+        }
+        const live = sid ? ((this._optLive && this._optLive.sessions) || []).find(x => x.session_id === sid) : null;
+        return this._summaryBuild(task, { verdicts, egress, health, jit, model: live && live.model });
+    },
+
+    /** Fill `host` with the task's summary and wire its Export and findings link. */
+    async _summaryFill(host, task) {
+        if (!host) return;
+        let s;
+        try { s = await this._summaryLoad(task); } catch (e) {
+            if (host.isConnected !== false) host.innerHTML = '<span class="terminals-empty">Summary unavailable</span>';
+            return;
+        }
+        if (!host.isConnected && host.isConnected !== undefined) return;
+        host.innerHTML = this._summaryHtml(s);
+        const ex = host.querySelector ? host.querySelector('[data-summary-export]') : null;
+        if (ex) ex.onclick = () => {
+            const url = URL.createObjectURL(new Blob([this._summaryExport(s)], { type: 'application/json' }));
+            const a = document.createElement('a');
+            a.href = url; a.download = `sv-session-${s.id}.json`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+        };
+        const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
+        if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
+    },
+
+    /** The status line's Summary toggle: a panel laid over the pane's stage. */
+    _toggleSummary(paneId) {
+        const rec = this._panes ? this._panes.get(paneId) : null;
+        const task = rec && (this._tasks || []).find(x => x.id === rec.taskId);
+        if (!rec || !rec.stageEl || !task) return;
+        rec.summaryOpen = !rec.summaryOpen;
+        if (rec.summaryEl && rec.summaryEl.remove) rec.summaryEl.remove();
+        rec.summaryEl = null;
+        if (rec.summaryOpen) {
+            const el = document.createElement('div');
+            el.className = 'terminals-summary-overlay';
+            el.innerHTML = '<span class="terminals-empty">Loading summary…</span>';
+            rec.stageEl.appendChild(el);
+            rec.summaryEl = el;
+            rec.summaryTaskId = task.id;
+            this._summaryFill(el, task);
+        }
+        rec.govSig = null;
+        this._renderPaneGov(paneId);
     },
 
     // --- per-pane governance strip ----------------------------------------
@@ -2720,7 +2887,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
             ? (rec.el.getBoundingClientRect().width || 0) : 0;
         const hidden = !g || (width > 0 && width < this.PANE_GOV_HIDE_PX);
         const compact = width > 0 && width < this.PANE_GOV_COMPACT_PX;
-        const sig = [hidden ? 'off' : 'on', compact ? 'icon' : 'full',
+        if (rec.summaryOpen && rec.summaryTaskId !== rec.taskId) {
+            rec.summaryOpen = false;
+            if (rec.summaryEl && rec.summaryEl.remove) rec.summaryEl.remove();
+            rec.summaryEl = null;
+        }
+        const sig = [hidden ? 'off' : 'on', compact ? 'icon' : 'full', rec.summaryOpen ? 'sum' : '',
             g ? `${g.calls}:${g.blocked}:${g.hosts}` : ''].join('|');
         if (sig === rec.govSig) return;
         rec.govSig = sig;
@@ -2733,7 +2905,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
             : `<span class="terminals-pane-gov-item${cls}">${n} ${word}</span>`;
         rec.govEl.innerHTML = cell(g.calls, 'calls', '')
             + dot + cell(g.blocked, 'blocked', g.blocked > 0 ? ' is-blocked' : '')
-            + dot + cell(g.hosts, 'hosts', '');
+            + dot + cell(g.hosts, 'hosts', '')
+            + dot + `<button type="button" class="terminals-pane-gov-summary${rec.summaryOpen ? ' is-open' : ''}" data-pane-summary aria-pressed="${rec.summaryOpen ? 'true' : 'false'}" aria-label="Session summary">Summary</button>`;
+        const tg = rec.govEl.querySelector ? rec.govEl.querySelector('[data-pane-summary]') : null;
+        if (tg) tg.onclick = () => this._toggleSummary(paneId);
     },
 
     // --- stopping every task in the layout --------------------------------
