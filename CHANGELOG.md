@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Failed tool calls are recorded (Claude Code).
 - SecureVector Guard for Antigravity, installable from Connect Agents. A Guard shows as governing only when its hooks are present and runnable, and shows "Installed but not governing" otherwise.
 - Every plugin reads the engine URL from `SECUREVECTOR_ENGINE_ENDPOINT`, then `SV_BASE_URL`, then `SECUREVECTOR_URL`, and warns once when the host is not loopback.
+- Plugin versions: Claude Code, Codex, GitHub Copilot CLI and Cursor 5.3.0; OpenCode and OpenClaw 1.1.0.
 
 **Install**
 - `npx @securevector/cli` installs the matching PyPI release into a managed virtual environment on first run. `securevector doctor` reports what is missing.
