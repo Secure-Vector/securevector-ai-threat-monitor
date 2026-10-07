@@ -34,7 +34,7 @@ Pick the one that describes you.
 No code changes. Install the app, then install the plugin for your agent.
 
 ```bash
-pip install "securevector-ai-monitor[app]" && securevector-app --web
+pip install "securevector-ai-monitor[app]" && securevector-app
 npx @securevector/cli                              # or from npm (needs Python 3.10+)
 ```
 
@@ -77,7 +77,7 @@ client = OpenAI()
 @guard(tool_id="orders.lookup")      # checks this tool's input and output
 def lookup_order(order_id): ...
 
-with guard.session("ticket-8812"):   # groups one run on the Traces page
+with guard.session("ticket-8812"):   # groups one run on the Observability page
     ...                              # your agent loop: model calls and tool calls
 ```
 
@@ -174,6 +174,11 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 > - **Bring your own sessions**: an agent you started in your own terminal appears in the app as soon as it makes a tool call. Add it to the board, continue it in the app, or leave it where it is.
 > - **Unchecked, not just quiet**: an agent that is still running but no longer reporting tool calls is marked **unverified**, so it never looks the same as an idle one.
 > - **Session commands in the CLI**: `sv-monitor session list | harnesses | unlinked | launch | link | stop` (`securevector monitor session ...` with npm), each with `--json`.
+> - **Live governance beside every session**: tool calls with verdicts, blocks, hosts reached and an approval inbox in a column on the right. Approve a held call for 15 minutes, 1 hour or the rest of the session without leaving it.
+> - **Session board and summary**: sessions grouped by folder with cost, calls and blocked counts; a summary when a session ends (duration, tool calls by verdict, hosts, findings), exportable as JSON.
+> - **Observability** (was Traces): each run shows a step list with model time vs tool time, and **Agent Health** points out loops, failing steps, waste and blocked runs. CSV and PDF exports include the steps.
+> - **Governance coverage**: see how many of your agents' tool calls SecureVector recorded and checked, and a list of gaps to close.
+> - **Live Runs in the cloud** (Cloud Connect): every governed session on your devices, live, with its title and folder name and the same step timeline. Metadata only.
 > - **Antigravity plugin**: install it from **Connect Agents** like the others.
 > - **Install from npm**: `npx @securevector/cli` runs the same app for Node developers, and [`@securevector/sdk`](#any-javascript-agent-one-import) checks tools in JavaScript and TypeScript agents.
 >
@@ -205,7 +210,7 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 <table>
 <tr>
 <td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its trace.</em></td>
-<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Traces" width="100%"><br><em>Traces — a turn-by-turn waterfall of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
+<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Observability" width="100%"><br><em>Observability: a turn-by-turn waterfall of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
 </tr>
 </table>
 
@@ -313,7 +318,7 @@ Details for each way to connect. The [Works with](#works-with) table above says 
 
 ### Any Python agent (one decorator)
 
-No framework required. Wrap the functions your agent calls and every call lands in Tool Activity, Agent Runs and the tamper-evident audit chain, scanned on the way in and on the way out.
+No framework required. Wrap the functions your agent calls and every call lands in Tool Activity, Observability and the tamper-evident audit chain, scanned on the way in and on the way out.
 
 ```python
 from securevector import guard
@@ -587,7 +592,7 @@ SecureVector is fully open source. No cloud required. No accounts. No tracking. 
 
 ```bash
 pip install "securevector-ai-monitor[app]"
-securevector-app --web
+securevector-app
 ```
 
 ### Option 2: npm
