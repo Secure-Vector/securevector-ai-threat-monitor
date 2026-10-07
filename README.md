@@ -2,7 +2,7 @@
 
 <h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
 
-<h3>Security and Observability for AI Agents</h3>
+<h3>Security, Observability and Governance for AI Agents</h3>
 
 <p><em>Every model call and every tool call your agent makes, on one timeline, and whether each was allowed or blocked. On your machine.</em></p>
 
@@ -19,10 +19,9 @@
 [![Downloads total](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads%20total&color=orange)](https://pepy.tech/project/securevector-ai-monitor)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
 
-
 </div>
 
-<p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Agent Sessions: two Claude Code sessions side by side in SecureVector, with each tool call, the hosts it reached, and its context use in the column on the right" width="100%"></p>
+<p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Agent Sessions: a Claude Code and a Codex session side by side in SecureVector, with each tool call and its verdict in the governance column on the right" width="100%"></p>
 <p align="center"><sub><b>Agent Sessions, new in 6.0.</b> Run Claude Code, Codex, Copilot CLI or OpenCode inside the app and watch every tool call get checked as it happens. <a href="docs/AGENT_SESSIONS.md">Guide</a></sub></p>
 
 ## Start here
@@ -48,9 +47,7 @@ More in the [Agent Sessions guide](docs/AGENT_SESSIONS.md).
 
 ### I build agents in Python
 
-Install the SDK for your framework (it brings the app with it) or the app on its own, then add a few lines to your agent.
-
-**LangGraph, LangChain or CrewAI:** use the SDK for your framework. It checks every tool call before it runs.
+**LangGraph, LangChain or CrewAI:** use the SDK for your framework (it brings the app with it). It checks every tool call before it runs.
 
 ```python
 # pip install securevector-sdk-langgraph
@@ -63,9 +60,9 @@ agent = create_agent(model, tools, middleware=[
 ])
 ```
 
-`create_agent` is LangChain's agent builder; `create_react_agent` takes no middleware, and a raw `StateGraph` has its own pattern in the [LangGraph SDK guide](docs/USECASES.md#langgraph). Same idea for [LangChain](https://github.com/Secure-Vector/securevector-sdk-langchain) and [CrewAI](https://github.com/Secure-Vector/securevector-sdk-crewai) (CrewAI records cost with `track_crew_usage(crew)`). Each framework SDK records model cost itself, so do not add `instrument()` below as well, or model calls are counted twice.
+Same idea for [LangChain](https://github.com/Secure-Vector/securevector-sdk-langchain) and [CrewAI](https://github.com/Secure-Vector/securevector-sdk-crewai); `create_react_agent` and raw `StateGraph` patterns are in the [LangGraph SDK guide](docs/USECASES.md#langgraph). The framework SDKs record model cost themselves, so do not add `instrument()` below as well ([why](docs/GUARD.md#compared-with-the-framework-sdks)).
 
-**Plain OpenAI or Anthropic code:** the app package includes a tracer and a tool guard.
+**Plain OpenAI or Anthropic code:** the app package includes a tracer and a tool guard. [Guide](docs/GUARD.md)
 
 ```python
 from openai import OpenAI            # or: from anthropic import Anthropic
@@ -83,7 +80,7 @@ with guard.session("ticket-8812"):   # groups one run on the Observability page
 
 ### I build agents in JavaScript or TypeScript
 
-**Run the app from npm.** Needs Node 20+ and Python 3.10+ on your PATH; the launcher sets up the rest on first run. No Python? Use a [binary installer](#option-3-binary-installers) instead.
+**Run the app from npm.** Needs Node 20+ and Python 3.10+ on your PATH; the launcher sets up the rest on first run. No Python? Use a [binary installer](#install) instead.
 
 ```bash
 npx @securevector/cli
@@ -109,22 +106,19 @@ Whichever path you took, open [http://localhost:8741](http://localhost:8741): ev
 
 ### I'm evaluating it for my team
 
-- **Where it runs:** on each developer's machine. The dashboard binds to 127.0.0.1 and has no login, so anyone with an account on that machine can use it. Rules, audit log and history live in one local database; retention is set in Settings (30 days by default), and deleting the app's data folder wipes it.
-- **What leaves the machine:** no telemetry. Outbound traffic happens only for the one-time Guardian model download from GitHub (pre-place it for air-gapped installs), SIEM destinations you configure, and [Cloud Connect](#cloud-optional-opt-in) if someone turns it on.
-- **What it sees:** tool calls and model calls from the agents you connect, and the agents' own session transcripts on that machine. Secrets are redacted before anything is written.
-- **What you can prove:** every tool call goes into a SHA-256 hash-chained log, with a per-rule evidence ledger for blocked actions. The local chain shows tampering on that machine; forward it to your SIEM ([SIEM Forwarder](#siem-forwarder)) for an off-host copy, and tie events to a machine with [Device Identity](#device-identity).
-- **What you can control:** allow, block or require approval per tool, and decide which outside hosts agents may reach.
-- **Who controls enforcement:** locally, the developer. They can stop the app or relax a rule, and while the app is not running agents keep working unchecked: every connector fails open by design, so SecureVector never breaks an agent. To set rules centrally, use Cloud Sync, whose policies are read-only on the device ([MCP Policies](#mcp-policies--cloud-sync-optional)), and watch your SIEM for machines that go quiet.
-- **Licence:** Apache 2.0. Read the code, run it air-gapped, or [self-host the engine](#deploy-to-your-own-cloud-self-host) in your own cloud.
+- **Where it runs and what leaves it:** on each developer's machine, bound to 127.0.0.1, no telemetry. Outbound traffic only for the one-time Guardian model download, SIEM destinations you configure, and [Cloud Connect](#cloud-optional-opt-in) if someone turns it on.
+- **What the record shows:** every tool call in a SHA-256 hash-chained log with a per-rule evidence ledger for blocked actions. The local hash chain shows tampering on this machine; the [SIEM Forwarder](docs/siem/README.md) gives you an off-host copy, and [Device Identity](docs/DEVICE_IDENTITY.md) ties events to a machine.
+- **Who controls enforcement:** locally, the developer, and every connector fails open, so an agent keeps working unchecked while the app is stopped. Central, read-only policies come from [Cloud Sync](docs/CONFIGURATION.md#mcp-policies-cloud-sync-optional).
+- **Licence:** Apache 2.0. Read the code, run it air-gapped, or [self-host the engine](docs/INSTALLATION.md#deploy-to-your-own-cloud-self-host). Full notes, including retention and what the app can see: [Evaluating it for a team](docs/FEATURES.md#evaluating-it-for-a-team).
 
 ## What you get
 
 - **Run it here.** Launch Claude Code, Codex, Copilot CLI or OpenCode from inside SecureVector and watch the terminal live, with every call and its verdict beside it. Sessions you started in your own terminal can be adopted onto the same board.
 - **See it.** One trace per agent session. Pick an agent on the left, read its whole run as a waterfall on the right. Live follow, replay, and a costliest-turn mark on every run.
 - **Stop it.** Allow, block or log-only per tool, enforced by default. A blocked call is refused straight away and becomes a request you can approve for fifteen minutes or an hour, after which the agent can retry. Blocking on detected threats in prompts and responses is opt-in.
-- **Catch it.** 72 rules covering the OWASP LLM Top 10 plus 28 agent-attack chains, and an optional offline ML model, applied while the agent is still running.
+- **Catch it.** 108 rules covering the OWASP LLM Top 10, MITRE ATT&CK-mapped patterns and agent-attack chains, plus an optional offline ML model, applied while the agent is still running.
 - **Know where it went.** Every external host an agent reached, when it was first seen, and a policy that decides which ones it may reach.
-- **Prove it.** Every tool call in a SHA-256 hash-chained log. Blocked actions get a per-rule evidence ledger.
+- **Keep the record.** Every tool call in a SHA-256 hash-chained log; the local chain shows tampering on this machine. Blocked actions get a per-rule evidence ledger.
 - **Pay less.** A local scan of your own transcripts shows why sessions cost what they did, with copyable fixes.
 - **Keep it.** Apache 2.0. No signup. Nothing leaves your machine unless you connect it.
 
@@ -133,11 +127,11 @@ Whichever path you took, open [http://localhost:8741](http://localhost:8741): ev
 | You use | How to connect |
 |---|---|
 | **Claude Code, Codex, GitHub Copilot CLI, OpenCode** | **Connect Agents** in the app, pick yours, **Install Plugin**. Launch sessions from **Agents** if you like ([guide](docs/AGENT_SESSIONS.md)) |
-| **Cursor, Antigravity, OpenClaw** | **Connect Agents**, pick yours, **Install Plugin** |
+| **Cursor, Antigravity, OpenClaw** | **Connect Agents**, pick yours, **Install Plugin** ([OpenClaw guide](docs/OPENCLAW.md)) |
 | **LangGraph, LangChain, CrewAI, Hermes** | The SDK for your framework: [langgraph](https://github.com/Secure-Vector/securevector-sdk-langgraph), [langchain](https://github.com/Secure-Vector/securevector-sdk-langchain), [crewai](https://github.com/Secure-Vector/securevector-sdk-crewai), [hermes](https://github.com/Secure-Vector/securevector-sdk-hermes) |
-| **Any other Python agent** (OpenAI, Anthropic, Bedrock, Gemini, plain functions) | [`@guard` and `instrument()`](#any-python-agent-one-decorator), included in the app package |
-| **Any JavaScript or TypeScript agent** (LangChain.js, Vercel AI SDK, Mastra, plain Node) | [`@securevector/sdk`](#any-javascript-agent-one-import) |
-| **Anything that calls an OpenAI-compatible API** (Ollama, Groq, n8n, Dify, any HTTP client) | The LLM proxy: **Connect Agents**, **Start Proxy**, then set `OPENAI_BASE_URL` (or `baseURL` in Node) to it. [Details](#pointing-your-agent-at-the-proxy) |
+| **Any other Python agent** (OpenAI, Anthropic, Bedrock, Gemini, plain functions) | [`@guard` and `instrument()`](docs/GUARD.md), included in the app package |
+| **Any JavaScript or TypeScript agent** (LangChain.js, Vercel AI SDK, Mastra, plain Node) | [`@securevector/sdk`](https://github.com/Secure-Vector/securevector-sdk-js#readme) |
+| **Anything that calls an OpenAI-compatible API** (Ollama, Groq, n8n, Dify, any HTTP client) | The LLM proxy: **Connect Agents**, **Start Proxy**, then set `OPENAI_BASE_URL` (or `baseURL` in Node) to it. [Details](docs/CONFIGURATION.md#pointing-your-agent-at-the-proxy) |
 | **Claude Desktop** | [MCP server](docs/MCP_GUIDE.md) |
 | **OpenTelemetry** | Send OTLP/HTTP JSON to `http://127.0.0.1:8741/v1/traces`. [Tracing guide](docs/TRACING.md) |
 
@@ -145,10 +139,7 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 
 <div align="center">
 
-<br>
-
-
-[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Verify your install](SECURITY.md#build-provenance--verifying-your-install) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
+[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Verify your install](SECURITY.md#build-provenance--verifying-your-install) · [Discord](https://discord.gg/k3bgZuCQBC) · [Screenshots](#screenshots)
 
 </div>
 
@@ -163,620 +154,56 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 > - **Governance coverage**: see how many of your agents' tool calls SecureVector recorded and checked, and a list of gaps to close.
 > - **Live Runs in the cloud** (Cloud Connect): every governed session on your devices, live, with its title and folder name and the same step timeline. Metadata only.
 > - **Antigravity plugin**: install it from **Connect Agents** like the others.
-> - **Install from npm**: `npx @securevector/cli` runs the same app for Node developers, and [`@securevector/sdk`](#any-javascript-agent-one-import) checks tools in JavaScript and TypeScript agents.
->
-> **Previously:** v5.3.0 shipped the native desktop shell, the three-group navigation rail, and full 8 KB traces kept locally with secrets redacted on every write. v5.2.0 shipped the Cost / Token Optimizer, per-run limits, and the Guard for OpenCode.
+> - **Install from npm**: `npx @securevector/cli` runs the same app for Node developers, and [`@securevector/sdk`](https://github.com/Secure-Vector/securevector-sdk-js#readme) checks tools in JavaScript and TypeScript agents.
 >
 > Full release history in the [CHANGELOG](CHANGELOG.md).
 
-## How It Works
-
-<img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
-
-**SecureVector** protects your AI agents at three layers:
-
-- **Pre-install** — the Skill Scanner checks agent skill packages for shell access, network calls, and hidden risks before you install them.
-- **Runtime** — every tool call lands in a SHA-256 hash-chained audit log; prompts, responses, and natural-language tool inputs are scanned for injection, data leaks, and unauthorized access.
-- **Observe** — the SIEM Forwarder ships threats + audits to your SOC in OCSF 1.3.0 (Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP, webhook, NDJSON). Metadata-only by default.
-
-100% local — events only leave the machine when you configure a SIEM destination you control.
-
-<br>
-
-
 ## Screenshots
 
-*All screenshots are from a local app instance.*
-
-**🗺️ Agent Map & Traces**
-
 <table>
 <tr>
-<td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its trace.</em></td>
-<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Observability" width="100%"><br><em>Observability: a step-by-step view of each run, with model time versus tool time per step, every tool call's allow / block verdict and reason, and an Agent Health finding when the agent loops on the same call.</em></td>
+<td width="50%"><img src="docs/screenshots/agent-sessions-board.png" alt="Agent Sessions board" width="100%"><br><em>Agent Sessions board: sessions grouped by folder, with calls, blocked count and age on each card.</em></td>
+<td width="50%"><img src="docs/screenshots/agent-runs.png" alt="Observability" width="100%"><br><em>Observability: a step list per run with model time versus tool time, each call's verdict, and Agent Health findings.</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map: harnesses, sessions and tools, with blocked calls in red.</em></td>
+<td width="50%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Activity" width="100%"><br><em>Tool Activity: every tool call in a SHA-256 hash-chained log, each row integrity-verified.</em></td>
 </tr>
 </table>
 
-<br>
-
-<table>
-<tr>
-<td width="25%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 4,925 calls in a SHA-256 hash-chained log, every row integrity-verified: 7 blocked, 48 logged</em></td>
-<td width="25%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threats, secret catches, tool-call volume, and the Optimizer headline across the last 30 days</em></td>
-<td width="25%"><img src="docs/screenshots/costs-light.png" alt="Cost / Token Optimizer" width="100%"><br><em>Cost / Token Optimizer — what your sessions used, what they could have used, and the lossless fixes behind the gap</em></td>
-<td width="25%"><img src="docs/screenshots/skill-scanner.png" alt="Skill Scanner" width="100%"><br><em>Skill Scanner — static analysis of a skill package before you install it: risk level and findings, per skill</em></td>
-</tr>
-</table>
-
-<br>
-
-## Features in depth
-
-<table>
-<tr>
-<th align="left" width="50%">Tool Audit & Permissions</th>
-<th align="left" width="50%">Threat Detection</th>
-</tr>
-<tr>
-<td valign="top">
-
-Every tool call is recorded to a SHA-256-linked, tamper-evident audit log (re-verify in one click). Tool inputs are stored *after* secret redaction, up to 8 KB per field, and never leave the device (older plugin hooks cut at 200 characters, so reinstall the plugin and reload after updating). Allow / deny / ask rules per tool, enforced at the agent runtime via PreToolUse hooks or the multi-provider proxy.
-
-</td>
-<td valign="top">
-
-Scans every prompt, response, and natural-language tool input for prompt injection (direct + indirect), jailbreaks, PII leaks, credential exfiltration, and tool-result injection. 72 rules covering the OWASP LLM Top 10 + 28 agent-attack chains. Monitor by default; opt-in block mode for hard-stop.
-
-</td>
-</tr>
-<tr>
-<th align="left">Skill Scanner</th>
-<th align="left">Cost & Token Tracking</th>
-</tr>
-<tr>
-<td valign="top">
-
-Scan agent skills and tool packages before installing. Static analysis across 10 categories detects shell access, network calls, env var reads, code exec, base64 payloads, symlink escapes, and more. Optional AI review filters false positives automatically.
-
-</td>
-<td valign="top">
-
-Per-agent, per-model token and USD spend in real time, with daily budget auto-stop. Plugins read session transcripts locally for a 7-day input/output/cache trend per runtime — no cloud round-trip, no token data leaves your machine.
-
-</td>
-</tr>
-<tr>
-<th align="left">Cost / Token Optimizer</th>
-<th align="left">Guardian Assistant</th>
-</tr>
-<tr>
-<td valign="top">
-
-Opt-in local scan that explains the spend: cache waste vs compaction waste, eight detectors with ranked findings that deep-link to the exact turns in Traces, and impact receipts that only resolve when the metric actually moved — measured, never just modeled. Optional per-run limits (tool-call caps, loop breaker, cost/token ceilings) enforce on the existing deny rails; everything ships off.
-
-</td>
-<td valign="top">
-
-An ambient character that docks in the corner and speaks only when it helps: context-fill warnings naming the exact agent, copyable fixes whose follow-through is measured from your local transcripts, and a two-sentence orientation of whatever you just opened — answered on the page you are already on. Advisory only: it never types into a session and never edits your files.
-
-</td>
-</tr>
-<tr>
-<th align="left">SIEM Forwarder</th>
-<th align="left">Full Visibility</th>
-</tr>
-<tr>
-<td valign="top">
-
-Forward every threat + tool-call audit to your SOC in OCSF 1.3.0. Supports Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, OpenTelemetry/OTLP, generic webhook, or a local NDJSON file. Metadata-only by default; raw data is opt-in per destination.
-
-</td>
-<td valign="top">
-
-Live dashboard showing every LLM request, tool call, token count, and threat event. Per-agent Replay timeline merges threat scans + tool audits + cost into one feed.
-
-</td>
-</tr>
-<tr>
-<th align="left" colspan="2">100% Local by Default</th>
-</tr>
-<tr>
-<td valign="top" colspan="2">
-
-Runs entirely on your machine. No accounts required. No data leaves your infrastructure unless you configure a SIEM destination. Open source under Apache 2.0.
-
-</td>
-</tr>
-</table>
-
-<br>
-
-**Performance:** Rule-based analysis (default) adds ~10–50ms to each scanned prompt or response. Native plugins add no network hop, and the optional Guardian model scores in well under a millisecond. Optional AI analysis adds 1–3s depending on the model and provider — shown on the dashboard so you can measure it against your actual traffic. Tool-permission decisions (`allow` / `block` / `log_only`): see the [Tool Permissions guide](docs/TOOL_PERMISSIONS.md).
-
-<br>
-
-## Integration reference
-
-Details for each way to connect. The [Works with](#works-with) table above says which one to use.
-
-### Any Python agent (one decorator)
-
-No framework required. Wrap the functions your agent calls and every call lands in Tool Activity, Observability and the tamper-evident audit chain, scanned on the way in and on the way out.
-
-```python
-from securevector import guard
-
-@guard
-def search_web(query: str) -> str:
-    ...
-
-@guard(tool_id="db.query", mode="enforce")   # a finding on the arguments stops the call
-async def run_sql(sql: str) -> list[dict]:
-    ...
-
-with guard.session("run-42"):                # group one agent run in the app
-    search_web("weather in Austin")
-```
-
-Fail-open: if the app is not running, the function still runs and one warning is logged. Configure with the same variables as the framework SDKs (`SECUREVECTOR_SDK_MODE=enforce`, `SECUREVECTOR_ENGINE_ENDPOINT=https://...` for a self-hosted engine).
-
-[Full guide](docs/GUARD.md)
-
-**Model calls too.** Add `instrument()` and every OpenAI or Anthropic call joins the same trace with tokens, cost, prompt and response previews, duration and a verdict; `guard.generation()` does the same for Bedrock, Gemini or any other client. The Traces page then shows cost per run, spend per model and the costliest turn.
-
-```python
-from openai import OpenAI
-from securevector import guard, instrument
-
-instrument()                                  # openai and anthropic clients
-
-client = OpenAI()
-
-with guard.session("run-42", user_id="u-1"):
-    client.chat.completions.create(model="gpt-4o", messages=messages)   # recorded
-    search_web("weather in Austin")                                     # nested under it
-```
-
-Already on OpenTelemetry? Point your exporter at `http://127.0.0.1:8741/v1/traces` (OTLP/HTTP JSON) and skip the SDK. [Tracing guide](docs/TRACING.md)
-
-### Any JavaScript agent (one import)
-
-Node and TypeScript agents use [`@securevector/sdk`](https://github.com/Secure-Vector/securevector-sdk-js): the same verdicts, traces, and audit chain as the Python package, sent to the app you are already running. Zero runtime dependencies, Node 20 or newer, fail-open.
-
-```bash
-npm install @securevector/sdk
-```
-
-The API, examples, and configuration live in the [SDK repository](https://github.com/Secure-Vector/securevector-sdk-js#readme).
-
-### OpenClaw / ClawdBot
-
-Native plugin that runs inside the agent, so it adds no network hop and needs no proxy. Install from **Connect Agents** or `curl -X POST http://localhost:8741/api/hooks/install`. Enable block mode from the dashboard when you want to actively stop threats via proxy.
-
-[Full setup guide](docs/OPENCLAW.md)
-
-### Claude Code
-
-First-class plugin for Anthropic's Claude Code CLI — `PreToolUse` enforces tool-permission rules (allow / deny / ask, cloud-syncable), `PostToolUse` writes a tamper-evident audit row + scans prose tool inputs, `UserPromptSubmit` catches direct prompt-injection. Optional one-line statusline emitter surfaces live findings next to model / cwd / git state. Loopback-only, fail-open.
-
-**Install — two options:**
-
-```bash
-# Option A: via the app UI
-# Open http://127.0.0.1:8741 → Connect Agents → Claude Code → Install Plugin
-
-# Option B: via CLI
-securevector-app --install-plugin claude-code      # npm: securevector --install-plugin claude-code
-# Uninstall: securevector-app --uninstall-plugin claude-code
-
-# Then, in your Claude Code session:
-/reload-plugins
-```
-
-[Full setup guide](docs/CLAUDE_CODE.md)
-
-<br>
-
-## Agent Sessions
-
-Run Claude Code, Codex, GitHub Copilot CLI or OpenCode inside SecureVector and watch each tool call get checked as it happens, with the hosts it reached, its context use, and any calls waiting for your approval beside the terminal. Split the pane to run several side by side. Sessions you started in your own terminal can join the same board.
-
-Open **Agents** in the app and click **+ Launch**, or from a terminal:
-
-```bash
-sv-monitor session launch claude-code ~/project   # start a session
-sv-monitor session list                           # see them all
-sv-monitor session stop <id>                      # stop one (or --all)
-```
-
-With npm, use `securevector monitor session ...`. Each agent needs its plugin installed first (**Connect Agents**). macOS and Linux get a full terminal; Windows shows output only for now, though the plugins check tool calls on every OS. Everything else, including linking sessions you started yourself, is in the [Agent Sessions guide](docs/AGENT_SESSIONS.md).
-
-## What It Detects
-
-| Input Threats (User to LLM) | Output Threats (LLM to User) |
-|-----------------------------|------------------------------|
-| Prompt injection | Credential leakage (API keys, tokens) |
-| Jailbreak attempts | System prompt exposure |
-| Data exfiltration requests | PII disclosure (SSN, credit cards) |
-| Social engineering | Jailbreak success indicators |
-| SQL injection patterns | Encoded malicious content |
-| Tool result injection (MCP) | — |
-| Multi-agent authority spoofing | — |
-| Permission scope escalation | — |
-
-Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
-
-### AI Agent Attack Protection (28 new rules · 72 total)
-
-Built from real attack chains observed against production agent frameworks:
-
-- **Tool Result Injection** — injected instructions hidden inside MCP tool responses
-- **Multi-Agent Authority Spoofing** — impersonating trusted agents in multi-agent pipelines
-- **Permission Scope Escalation** — agents requesting more permissions than granted
-- **MCP Tool Call Injection** — malicious payloads delivered through MCP tool calls
-- **Evasion techniques** (22 rules) — zero-width characters, encoding tricks, roleplay framing, leetspeak, semantic inversion, emotional manipulation, and more
-
-### Optional ML Detection Layer — SecureVector Guardian
-
-Alongside the 72 regex rules, the app ships an **optional ML detection layer** — [**SecureVector Guardian**](https://github.com/Secure-Vector/securevector-guardian-model), a stdlib-only semantic threat classifier. It runs in parallel with the rule engine and catches obfuscated, paraphrased, buried, or encoded attacks that literal patterns miss, folding its verdict into the same allow / alert / block decision. The model is fully local and runs offline — no cloud round-trip, no prompt text leaves your machine.
-
-**Install — comes with the app.** Guardian is the [`securevector-guardian-model`](https://github.com/Secure-Vector/securevector-guardian-model) package, installed automatically as a dependency: `pip install "securevector-ai-monitor[app]"` pulls it in (pure Python, zero ML dependencies). `pip install -U securevector-guardian-model` + restart updates the model independently of app releases, and the loaded version is shown in **Settings → Guardian ML Detection**. The model runtime (~1.8 MB) is downloaded once, on first use, from this project's GitHub releases, then cached and used offline; for air-gapped installs, pre-place it and point `SV_GUARDIAN_RUNTIME` at the file.
-
-**On by default.** Toggle it from **Settings → Guardian ML Detection** (default ON), or force it off globally with the `SECUREVECTOR_ML_ENABLED=false` environment flag. With Guardian disabled the regex rules keep running unchanged, and the layer is fail-open — any model error silently falls back to rules-only so it never breaks the analyze path.
-
-**What to expect when it's on.** The model is pure Python (zero dependencies, no GPU, no network), so it runs on any machine. It analyzes **in parallel** with the regex rules, adding roughly **~0.15 ms per typical analysis** (a prompt, tool call, or response — sub-millisecond), a few ms for ~1 KB of text, and up to ~100 ms only for very large documents (bounded, never unbounded). One-time startup is ~200 ms + ~34 MB RAM. Older/slower CPUs scale proportionally, but everyday inputs stay sub-millisecond. Full benchmark: [model performance](https://github.com/Secure-Vector/securevector-guardian-model#performance--what-to-expect).
-
-<br>
-
-## Device Identity
-
-Every scan and audit row is stamped with a stable `device_id` so a customer running SecureVector across several laptops or agents can answer *"which agent blocked this, which laptop is tampered, which machine spent what?"* — not just *"one of my installs did this"*.
-
-**Why we need it.** A solo developer runs one install. A SOC team runs five to fifty. When an audit chain breaks, or a spike of blocked gmail-send calls shows up, the useful first question is *which machine*. Without a per-device tag, the answer is "some install" — which is useless in a fleet. `device_id` pins every row to a specific machine so dashboards, alerts, and compliance reviews can slice by device.
-
-**How it's generated** (`src/securevector/app/utils/device_id.py`):
-
-1. Read the OS's existing stable machine identifier:
-   - macOS → `IOPlatformUUID` via `ioreg`
-   - Linux → `/etc/machine-id` (fallback `/var/lib/dbus/machine-id`)
-   - Windows → `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`
-2. SHA-256 hash it with a namespace prefix (`securevector-device-v1:<raw>`) and truncate to 24 hex chars → `sv-a1b2c3d4e5f6...`
-3. Cache the result in `~/Library/Application Support/ThreatMonitor/.device_id` (0o600) so the OS fetch happens once per install.
-4. If the OS refuses (rare: locked-down container, unusual Linux image), fall back to a random UUID cached to the same file.
-
-**Stability across reinstalls.** The OS identifier outlives the app install — so uninstalling and reinstalling SecureVector on the same machine gives you the **same `device_id`**. Wiping the app data dir AND having no readable OS ID is the only combination that generates a new one. A new physical machine always gets a new ID.
-
-**Security / privacy posture — what the customer should know:**
-
-| Concern | Reality |
-|---|---|
-| Is the raw OS machine UUID transmitted? | **No.** It's read locally, SHA-256 hashed with a namespace, and only the hash is stored. The raw value never reaches a log file or outbound event. |
-| Can `device_id` be reversed to the OS UUID? | SHA-256 is one-way. An attacker who already has the raw OS UUID can *compute* the `device_id` — but they already have the machine at that point, so there's no incremental leak. |
-| Does it track users? | No. It tracks *machines*. Multiple users on one laptop share one `device_id`. It's not tied to email, username, or any identity field. |
-| Is it sent to SecureVector Cloud? | Only if Cloud Connect is on AND you trigger an action that reaches the cloud (rule sync, cloud-routed `/analyze`). `device_id` goes in metadata alongside scan results. You can opt out by keeping Cloud Connect off — local-only operation never transmits it. |
-| Is it in SIEM forwards? | Yes, when the v4.0+ SIEM forwarder is enabled — travels inside each OCSF event's `unmapped` block so your Splunk/Datadog can group by device. |
-| Can the customer reset it? | Yes — delete `.device_id` in the app data dir. Next write will regenerate from the OS identifier (so same ID reappears) OR a fresh random UUID if the OS ID is unavailable. |
-| Does it collide across containers cloned from the same image? | Potentially yes (they share `/etc/machine-id`). Not relevant for desktop use; mention it if you're deploying in Kubernetes. |
-
-**In one sentence:** `device_id` is a machine-identifier-per-install, derived locally, hashed before storage, never transmitted except with explicit user opt-in (Cloud Connect or SIEM Forwarder).
-
-<br>
-
-## SIEM Forwarder
-
-Stream every threat detection and tool-call audit into your own SIEM — Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, an OpenTelemetry collector, a local NDJSON file, or any HTTPS endpoint that accepts JSON. Your data, your pipes.
-
-**Why this is safe to ship with zero monetization:**
-
-| Feature | What leaves your machine |
-|---|---|
-| Scan verdict | `scan_id`, `verdict`, `threat_score`, `risk_level`, `detected_types[]`, counts, durations |
-| Tool-call audit | `seq`, `action`, `risk`, `prev_hash`, `row_hash` (the chain witness — lets your SIEM verify integrity) |
-| **Not transmitted by default** | Prompt text, LLM output, matched patterns, reviewer reasoning, model reasoning. A destination set to the `full` level (off by default, chosen per destination) adds raw prompt text, LLM output and full tool arguments, each capped at 8 KB |
-
-The allow-list is enforced at enqueue time by `_assert_metadata_only()`: a destination below `full` can never receive those fields, even if the forwarder code were tampered with.
-
-**Supported destinations (one code path, OCSF 1.3.0 payload):**
-
-| Kind | Target | Auth header |
-|---|---|---|
-| `splunk_hec` | `https://<host>/services/collector/event` | `Authorization: Splunk <HEC-token>` |
-| `datadog` | `https://http-intake.logs.<site>/api/v2/logs` | `DD-API-KEY: <key>` |
-| `otlp_http` | `https://<collector>/v1/logs` | optional `Authorization: Bearer <token>` |
-| `webhook` | anything that accepts JSON POST | optional `Authorization: Bearer <token>` |
-
-**Configure in Connect → SIEM Forwarder.** Add SIEM destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
-
-**📊 Starter dashboards included:**
-
-| Platform | Template |
-|---|---|
-| Microsoft Sentinel | [`docs/siem/sentinel/securevector-workbook.json`](docs/siem/sentinel/securevector-workbook.json) |
-| Splunk | [`docs/siem/splunk/securevector-dashboard.xml`](docs/siem/splunk/securevector-dashboard.xml) |
-| Datadog | [`docs/siem/datadog/securevector-dashboard.json`](docs/siem/datadog/securevector-dashboard.json) |
-| Grafana (Loki) | [`docs/siem/grafana/securevector-dashboard.json`](docs/siem/grafana/securevector-dashboard.json) |
-
-Each carries severity counters, events-over-time by severity, actor and MITRE-ish breakdowns, and a recent-high-severity log feed. **MIT-licensed, AS-IS.** Full install steps + field reference in [`docs/siem/README.md`](docs/siem/README.md); trademark + upstream licenses in [`docs/siem/NOTICE`](docs/siem/NOTICE).
-
-> Starter templates — import-test in your own stack and adjust queries / facets / sourcetypes before relying on them for production detections.
-
-**Reliability:**
-- Per-destination outbox with at-least-once delivery.
-- A failing Datadog destination never blocks a healthy Splunk one.
-- Per-destination circuit breaker backs off broken endpoints (1 min → 1 hour cap).
-- Rows that fail 10 times are dropped (the health view shows the consecutive-failure count).
-
-**SIEM-side integrity verification.** Every forwarded tool-call audit row carries its `prev_hash` and `row_hash`. Run a nightly search in your SIEM that rebuilds the chain — if a historic row has been tampered with on the local host, the forwarded evidence still tells the true story. That's the *actual* tamper evidence; the local chain alone is only the low bar.
-
-<br>
-
-## Skill Scanner
-
-Scan AI agent skills and tool packages **before** you install them. SecureVector performs static analysis across 10 detection categories, assigns a risk score, and optionally runs an AI review to filter false positives.
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        Skill Scanner Flow                           │
-│                                                                     │
-│   ┌─────────────┐     ┌──────────────────┐     ┌────────────────┐  │
-│   │  Skill Dir   │────>│  Static Analysis  │────>│  Risk Scoring  │  │
-│   │  or URL      │     │  (10 categories)  │     │  LOW/MED/HIGH  │  │
-│   └─────────────┘     └──────────────────┘     └───────┬────────┘  │
-│                                                         │           │
-│                              ┌───────────────────────── │           │
-│                              v                          v           │
-│                     ┌─────────────────┐     ┌────────────────────┐  │
-│                     │  AI Review      │     │  Policy Engine     │  │
-│                     │  (optional LLM) │     │  allow/block rules │  │
-│                     │  FP filtering   │     │  trusted publishers│  │
-│                     └────────┬────────┘     └─────────┬──────────┘  │
-│                              │                        │             │
-│                              v                        v             │
-│                     ┌──────────────────────────────────────┐        │
-│                     │  Verdict: PASS / WARN / BLOCK        │        │
-│                     │  + detailed findings per category     │        │
-│                     └──────────────────────────────────────┘        │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Detection Categories
-
-| Category | What It Finds |
-|----------|--------------|
-| `shell_exec` | Subprocess calls, system commands |
-| `network_domain` | HTTP requests, socket connections, DNS lookups |
-| `env_var_read` | Access to environment variables (API keys, secrets) |
-| `code_exec` | eval, dynamic code generation |
-| `dynamic_import` | Runtime module loading |
-| `file_write` | Writing to disk outside expected paths |
-| `base64_literal` | Obfuscated payloads in base64 strings |
-| `compiled_code` | .pyc, .so, .dll binaries embedded in the skill |
-| `symlink_escape` | Symlinks pointing outside the skill directory |
-| `missing_manifest` | No permissions.yml declaring required capabilities |
-
-### AI-Powered Review
-
-Enable AI analysis (OpenAI, Anthropic, Ollama, Azure, or Bedrock) to automatically review findings and filter false positives. The AI examines each finding in context and adjusts the risk level — reducing noise without hiding real threats.
-
-<br>
-
-## Open Source
-
-SecureVector is fully open source. No cloud required. No accounts. No tracking. Run it, fork it, contribute to it.
-
-**Built for** solo developers and small teams who ship AI agents without a security team or a FinOps budget. If you are building with LangChain, CrewAI, OpenClaw, or any agent framework, or you run coding agents like Claude Code and Codex, and you do not have someone watching your agent traffic and API spend, SecureVector is for you.
-
+[More screenshots](docs/SCREENSHOTS.md): Agent Map, Dashboard, Cost / Token Optimizer, Skill Scanner.
 
 ## Install
 
-### Option 1: pip
-
-**Requires:** Python 3.10+
-
-```bash
-pip install "securevector-ai-monitor[app]"
-securevector-app
-```
-
-### Option 2: npm
-
-For Node toolchains. Same product, same version number as the PyPI release.
-
-```bash
-npm install -g @securevector/cli
-securevector
-```
-
-or without installing anything globally:
-
-```bash
-npx @securevector/cli
-```
-
-**Requires:** Python 3.10+ on PATH. The npm package is a launcher, not a
-reimplementation: it finds your Python, installs the matching release into a
-virtual environment it manages, and hands over.
-
-`npm install` itself makes no network request beyond fetching the package. There
-is no install script. The first time you actually run `securevector` it says
-what it is about to do, sets up once, and every run after that is immediate.
-That is deliberate: a postinstall that downloads and executes code is the
-supply-chain shape this product exists to warn you about, and it will not
-install a Python runtime for you either. If Python is missing or too old,
-`securevector doctor` tells you exactly what to do.
-
-```
-securevector [app]           Start the local app (default)
-securevector monitor ...     The sv-monitor CLI, including session commands
-securevector proxy ...       The LLM proxy
-securevector mcp ...         The MCP server
-securevector doctor          Check this machine, report what is missing
-securevector where           Print the managed environment path
-```
-
-Anything after the verb is passed through untouched, so `securevector monitor
-session list` is exactly `sv-monitor session list`.
-
-### Option 3: Binary installers
-
-No Python required. Download and run.
-
-Download the installer for your platform from the [latest release](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest): `.exe` for Windows, `.dmg` for macOS, `.AppImage`, `.deb` or `.rpm` for Linux. Each release lists SHA256 checksums beside the files.
-
-> **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
-
-> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) before installing. (Prefer pip? `pip install "securevector-ai-monitor[app]"` always works too.)
-
-### Other install options
-
-| Install | Use Case |
-|---------|----------|
-| `pip install securevector-ai-monitor` | **SDK only** — lightweight, for programmatic integration |
-| `pip install "securevector-ai-monitor[app]"` | **Full app** — web UI, LLM proxy, cost tracking, tool permissions |
-| `pip install "securevector-ai-monitor[mcp]"` | **MCP server** — Claude Desktop, Cursor |
-
-<br>
-
-### Deploy to your own cloud (self-host)
-
-Want it as shared infrastructure instead of one laptop? Run the engine in **your own cloud tenant** — one `terraform apply` stands it up with a live HTTPS dashboard, so a whole team's agents point at a single instance. Open-source modules (Apache 2.0), one per provider:
-
-| Cloud | Terraform module |
-|---|---|
-| **AWS** | [terraform-aws-securevector](https://github.com/Secure-Vector/terraform-aws-securevector) |
-| **Azure** | [terraform-azurerm-securevector](https://github.com/Secure-Vector/terraform-azurerm-securevector) |
-| **Google Cloud** | [terraform-google-securevector](https://github.com/Secure-Vector/terraform-google-securevector) |
-| **Oracle Cloud** | [terraform-oci-securevector](https://github.com/Secure-Vector/terraform-oci-securevector) |
-
-Your data stays in your tenant. `terraform output` gives you the endpoint URL — then point your agents at it with the lightweight SDK (LangChain / LangGraph / CrewAI / Hermes, `--no-deps` install; `@securevector/sdk` for Node) and/or the SecureVector Guard plugin. See each SDK / plugin's docs for the one env var to set.
-
-<br>
-
-## Configuration
-
-SecureVector writes `svconfig.yml` to your app data directory on first run with sensible defaults.
-
-The config path is printed at startup — `~/.local/share/securevector/threat-monitor/svconfig.yml` (Linux), `~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml` (macOS), `%LOCALAPPDATA%/SecureVector/ThreatMonitor/svconfig.yml` (Windows). Key settings (all editable from the dashboard, which writes back to this file):
-
-```yaml
-server:   { host: 127.0.0.1, port: 8741 }        # change port if 8741 is taken
-security: { block_mode: false, output_scan: true } # log/warn by default; flip block_mode to hard-stop
-budget:   { daily_limit: 5.00, warn: true, block: true }  # USD/day, LLM proxy traffic only; null to disable
-tools:    { enforcement: true }                   # apply allow/block tool rules
-proxy:    { integration: openclaw, mode: multi-provider, host: 127.0.0.1, port: 8742 }
-          # integration: openclaw | langchain | langgraph | crewai | hermes | ollama; port defaults to server.port + 1
-```
-
-### MCP Policies — Cloud Sync (optional)
-
-If your org distributes signed MCP tool-policy bundles from SecureVector Cloud, enroll the device once and let the local app long-poll for updates.
-
-**1. Admin mints a token** in the cloud admin UI (`app.securevector.io` → Onboarding → Invite users) and shares the install command.
-
-**2. User enrolls locally:**
-
-```bash
-securevector-app enroll svet_<token>
-```
-
-The local app POSTs `/api/v1/devices/enroll`, persists `org_id` + signing key + auth credentials to `~/Library/Application Support/.credentials` (macOS — equivalent path on Linux/Windows), and starts the cloud sync loop on next launch.
-
-**3. Set `SECUREVECTOR_API_KEY` for stable sync auth (recommended).**
-
-The local app accepts two auth methods on `/policy/sync`. The API key path is **canonical** — it eliminates the short-lived-JWT refresh fragility that can leave a device unable to sync if the refresh token goes stale.
-
-```bash
-export SECUREVECTOR_API_KEY=sk-<long-lived-key>
-```
-
-| Auth method | Header sent | Source | Lifetime | Sync stability |
-|---|---|---|---|---|
-| **API key** ✅ recommended | `X-Api-Key: sk-...` | `SECUREVECTOR_API_KEY` env, then `creds.api_key` | Long-lived | Robust — no refresh path needed |
-| JWT (fallback) | `Authorization: Bearer ...` | Stored from enrollment | ~1h, auto-refresh on 401/403 | Breaks if the refresh token expires; requires re-enrollment to recover |
-
-When both are present, the API key wins. `device_id` rides as `X-SecureVector-Device-Id` on every request regardless of auth method; `org_id` is resolved server-side from the auth principal.
-
-You can mint API keys in the cloud admin UI under Access Management. Set the env var in your shell profile or systemd service unit so it survives restarts.
-
-**4. Cloud Sync starts automatically** once enrolled, with no further configuration. Only then does the app contact the cloud endpoints (`auth.securevector.io` and `engine.securevector.io`); an app that never enrolled does not call them. Override env vars exist for self-hosted / on-prem deployments only.
-
-Synced rules are read-only on the device — authoring lives in the cloud admin. The MCP Policies page (sidebar → Configure → MCP Policies) shows verification status, applied policies + rules, and a Sync Now button for manual refresh.
-
-### Pointing Your Agent at the Proxy
-
-For frameworks without an SDK (Ollama, n8n, Dify, raw HTTP clients), point your application at SecureVector's proxy instead of the provider's API. LangChain, LangGraph and CrewAI should use their SDK instead; do not use both, or model calls are counted twice. If the proxy is not running, calls through it fail rather than skip the check. OpenClaw/ClawdBot users only need this when block mode is enabled.
-
-<table>
-<tr>
-<th align="left" width="50%">🪟 Windows</th>
-<th align="left" width="50%">🐧 Linux / macOS</th>
-</tr>
-<tr>
-<td valign="top">
-
-**Command Prompt** (current session)
-<pre>set OPENAI_BASE_URL=http://localhost:8742/openai/v1
-set ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
-
-**PowerShell** (current session)
-<pre>$env:OPENAI_BASE_URL="http://localhost:8742/openai/v1"
-$env:ANTHROPIC_BASE_URL="http://localhost:8742/anthropic"</pre>
-
-**PowerShell** (persistent, per user)
-<pre>[Environment]::SetEnvironmentVariable(
-  "OPENAI_BASE_URL",
-  "http://localhost:8742/openai/v1",
-  "User"
-)</pre>
-
-</td>
-<td valign="top">
-
-**Terminal** (current session)
-<pre>export OPENAI_BASE_URL=http://localhost:8742/openai/v1
-export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
-
-**Persistent** (add to `~/.bashrc` or `~/.zshrc`)
-<pre>echo 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1' >> ~/.bashrc
-echo 'export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic' >> ~/.bashrc
-source ~/.bashrc</pre>
-
-</td>
-</tr>
-</table>
-
-Every request is scanned for prompt injection. Every response is scanned for data leaks. Every dollar is tracked — whether via native plugin (OpenClaw) or proxy (all other frameworks).
-
-**Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
-
-<br>
-
-## Update
-
 | Method | Command |
-|--------|---------|
-| **PyPI** | `pip install --upgrade "securevector-ai-monitor[app]"` |
-| **npm** | `npm install -g @securevector/cli@latest`. The next run sets up the new version; the old environment stays until you remove it with `securevector where` |
-| **Source** | `git pull && pip install -e ".[app]"` |
-| **Windows** | Download latest [.exe installer](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and run it (overwrites previous version) |
-| **macOS** | Download latest [.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest), drag to Applications |
-| **Linux AppImage** | Download latest [.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and replace the old file |
-| **Linux DEB** | `sudo dpkg -i securevector_<version>_amd64.deb` |
-| **Linux RPM** | `sudo rpm -U securevector-<version>.x86_64.rpm` |
+|---|---|
+| **pip** (Python 3.10+) | `pip install "securevector-ai-monitor[app]"` then `securevector-app` |
+| **npm** (Node 20+, Python 3.10+ on PATH) | `npx @securevector/cli`, or `npm install -g @securevector/cli` then `securevector` |
+| **Installers** (no Python) | `.exe`, `.dmg`, `.AppImage`, `.deb` or `.rpm` from the [latest release](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest), SHA256 checksums beside each file. [Verify your install](SECURITY.md#build-provenance--verifying-your-install) |
+| **Self-host** | Run the engine in your own cloud with one Terraform module per provider: [AWS, Azure, Google Cloud, Oracle Cloud](docs/INSTALLATION.md#deploy-to-your-own-cloud-self-host) |
 
-After updating, restart SecureVector. Then reinstall the Guard plugin for each harness you use (Integrations, or `securevector-app --install-plugin <harness>`) and run `/reload-plugins` in Claude Code, or start a new session. The updated hooks send the full tool input, up to 8 KB per field, so Traces on this device show complete arguments instead of a 200-character cut. Secrets are still redacted, and nothing leaves the device.
-
-<br>
+Only download installers from this repository. The npm launcher details, SDK-only and MCP extras, and updating are in the [Installation guide](docs/INSTALLATION.md).
 
 ## Documentation
 
-- [Installation Guide](docs/INSTALLATION.md) — Binary installers, pip, service setup
-- [Use Cases & Examples](docs/USECASES.md) — LangChain, LangGraph, CrewAI, Hermes, n8n, FastAPI
-- [MCP Server Guide](docs/MCP_GUIDE.md) — Claude Desktop, Cursor integration
-- [API Reference](docs/API_SPECIFICATION.md) — REST API endpoints
-- [Security Policy](.github/SECURITY.md) — Vulnerability disclosure
-
-<br>
+- [Getting Started](docs/GETTING_STARTED.md): first run, how scanning works, threat modes, AI analysis
+- [Installation](docs/INSTALLATION.md): pip, npm, binary installers, self-host, upgrading
+- [Configuration](docs/CONFIGURATION.md): `svconfig.yml`, MCP Policies Cloud Sync, pointing an agent at the proxy
+- [Agent Sessions](docs/AGENT_SESSIONS.md): launch and govern Claude Code, Codex, Copilot CLI and OpenCode in the app
+- [Features in depth](docs/FEATURES.md): every feature, performance, notes for teams evaluating it
+- [Threat detection](docs/DETECTION.md): what the 108 rules catch, and the Guardian ML layer
+- [Screenshots](docs/SCREENSHOTS.md): every view of the app
+- [Python `@guard`](docs/GUARD.md), [Claude Code plugin](docs/CLAUDE_CODE.md), [OpenClaw plugin](docs/OPENCLAW.md): connecting each kind of agent
+- [Tool Permissions](docs/TOOL_PERMISSIONS.md): allow / block / log_only per tool
+- [Tracing](docs/TRACING.md): OpenTelemetry and the Observability page
+- [Device Identity](docs/DEVICE_IDENTITY.md): the per-machine `device_id` on every row
+- [Skill Scanner](docs/SKILL_SCANNER.md): static analysis of skill packages before you install them
+- [SIEM Forwarder](docs/siem/README.md): destinations, what leaves the machine, starter dashboards
+- [Use Cases & Examples](docs/USECASES.md): LangChain, LangGraph, CrewAI, Hermes, n8n, FastAPI
+- [MCP Server Guide](docs/MCP_GUIDE.md): Claude Desktop, Cursor integration
+- [API Reference](docs/API_SPECIFICATION.md): REST API endpoints
+- [Security Policy](SECURITY.md): vulnerability disclosure and verifying your install
+- [Changelog](CHANGELOG.md)
 
 ## Contributing
 
@@ -795,13 +222,13 @@ A wrong detection is the most useful thing you can send. Every detection in the 
 
 ## Cloud (optional, opt-in)
 
-A separate cloud product handles MCP tool-permission policy sync across enrolled devices, per-org audit attribution, and per-device fleet slicing. It also adds **AI Agent Governance** — your agents' governance posture rolled into a single score across the fleet ([app.securevector.io/governance](https://app.securevector.io/governance)) — plus **EU AI Act orientation** that maps your action-layer logging and tamper-evident tool-call audit to the relevant obligations ([governance/eu-ai-act](https://app.securevector.io/governance/eu-ai-act)); orientation only, not legal advice. Sign in for the fleet-wide view — the local install already gives you the single-device snapshot. Strictly additive — the local install above works standalone without it. Details: [securevector.io](https://securevector.io).
+A separate cloud product handles MCP tool-permission policy sync across enrolled devices, per-org audit attribution, and per-device fleet slicing. It also adds **AI Agent Governance**, your agents' governance posture rolled into a single score across the fleet ([app.securevector.io/governance](https://app.securevector.io/governance)), plus **EU AI Act orientation** that maps your action-layer logging and tamper-evident tool-call audit to the relevant obligations ([governance/eu-ai-act](https://app.securevector.io/governance/eu-ai-act)); orientation only, not legal advice. Sign in for the fleet-wide view; the local install already gives you the single-device snapshot. Strictly additive: the local install above works standalone without it. Details: [securevector.io](https://securevector.io).
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0, see [LICENSE](LICENSE).
 
-The starter SIEM dashboard templates under [`docs/siem/`](docs/siem/) (Splunk XML, Sentinel workbook, Datadog + Grafana JSON) are MIT-licensed — see [`docs/siem/LICENSE`](docs/siem/LICENSE) and [`docs/siem/NOTICE`](docs/siem/NOTICE) for trademark disclaimers.
+The starter SIEM dashboard templates under [`docs/siem/`](docs/siem/) (Splunk XML, Sentinel workbook, Datadog + Grafana JSON) are MIT-licensed; see [`docs/siem/LICENSE`](docs/siem/LICENSE) and [`docs/siem/NOTICE`](docs/siem/NOTICE) for trademark disclaimers.
 
 **SecureVector** is a trademark of SecureVector. See [NOTICE](NOTICE).
 

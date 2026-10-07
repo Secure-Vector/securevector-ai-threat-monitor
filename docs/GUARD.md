@@ -25,7 +25,12 @@ search_web("weather in Austin")
 ```
 
 Open the app. The call is in **Tool Activity** with its arguments preview, in
-**Agent Runs** grouped under the current session, and in the audit chain.
+**Observability** grouped under the current session, and in the audit chain.
+
+Fail-open: if the app is not running, the function still runs and one warning
+is logged. Configure with the same variables as the framework SDKs
+(`SECUREVECTOR_SDK_MODE=enforce`, `SECUREVECTOR_ENGINE_ENDPOINT=https://...`
+for a self-hosted engine); see [Configuration](#configuration) below.
 
 ## What one call does
 
@@ -62,7 +67,7 @@ dropped from the preview.
 
 ### Sessions
 
-Calls are grouped in Agent Runs by session. By default every process gets one
+Calls are grouped in Observability by session. By default every process gets one
 session id. To group one agent run explicitly:
 
 ```python
@@ -134,7 +139,25 @@ curl -X PUT http://127.0.0.1:8741/api/settings \
 `instrument()` records OpenAI and Anthropic calls, and `guard.generation()`
 any other provider, into the same run as your `@guard` tool calls: tokens,
 cost, previews, duration and a verdict per model turn. See
-[TRACING.md](TRACING.md).
+[TRACING.md](TRACING.md). The Observability page then shows cost per run,
+spend per model and the costliest turn.
+
+```python
+from openai import OpenAI
+from securevector import guard, instrument
+
+instrument()                                  # openai and anthropic clients
+
+client = OpenAI()
+
+with guard.session("run-42", user_id="u-1"):
+    client.chat.completions.create(model="gpt-4o", messages=messages)   # recorded
+    search_web("weather in Austin")                                     # nested under it
+```
+
+Already on OpenTelemetry? Point your exporter at
+`http://127.0.0.1:8741/v1/traces` (OTLP/HTTP JSON) and skip the SDK.
+[Tracing guide](TRACING.md)
 
 ## Compared with the framework SDKs
 
@@ -142,3 +165,12 @@ The LangChain, LangGraph, CrewAI and Hermes SDKs hook into the framework's own
 tool-call path, so you install them and change nothing. `@guard` is for code
 that has no framework: you choose which functions count as tools. Both write
 the same rows to the same app.
+
+With LangGraph, `create_agent` is LangChain's agent builder and takes the
+SecureVector middleware; `create_react_agent` takes no middleware, and a raw
+`StateGraph` has its own pattern in the [LangGraph SDK guide](USECASES.md#langgraph).
+Same idea for [LangChain](https://github.com/Secure-Vector/securevector-sdk-langchain)
+and [CrewAI](https://github.com/Secure-Vector/securevector-sdk-crewai) (CrewAI
+records cost with `track_crew_usage(crew)`). Each framework SDK records model
+cost itself, so do not add `instrument()` as well, or model calls are counted
+twice.

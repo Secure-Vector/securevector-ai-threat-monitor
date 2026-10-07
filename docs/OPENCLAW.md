@@ -10,7 +10,7 @@ The SecureVector Guard plugin runs natively inside OpenClaw. No proxy, no env va
 # 1. Start SecureVector
 securevector-app --web
 
-# 2. Install the plugin (Integrations tab in the UI, or via API)
+# 2. Install the plugin (Connect Agents in the UI, or via API)
 curl -X POST http://localhost:8741/api/hooks/install
 
 # 3. Restart OpenClaw — the plugin loads automatically
