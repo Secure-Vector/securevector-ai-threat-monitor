@@ -23,7 +23,12 @@ const SECRET_PATTERNS = [
   /\b(?:aws_secret_access_key\s*[:=]\s*['"]?)[A-Za-z0-9/+=]{40}\b/gi,                         // AWS Secret Access Key (40-char b64)
   /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,                           // JWT
   /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY-----[\s\S]{1,8192}?-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY-----/g, // PEM private keys (any flavor) — bounded to 8 KB body to cap ReDoS worst-case on inputs with BEGIN but no END
-  /(["']?(?:password|secret|token|api[_-]?key|bearer|auth[_-]?token|access[_-]?token|client[_-]?secret)["']?\s*[:=]\s*["']?)[^"'\s,}\]]{6,256}/gi, // labelled kv-pairs (broadened, bounded to 256 chars to cap ReDoS on 16 KB Bash stdout)
+  /(["']?(?:password|secret|token|api[_-]?key|bearer|auth[_-]?token|access[_-]?token|client[_-]?secret)["']?\s*[:=]\s*["']?)[^"'\s,}\]]{6,}/gi, // labelled kv-pairs (broadened). Unbounded on purpose: a bound leaves the tail of a longer value in the clear, and a greedy negated class cannot backtrack, so there is no ReDoS to cap here
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/g,                                                          // Slack bot / app / user / refresh tokens
+  /\bAIza[0-9A-Za-z_-]{35}\b/g,                                                               // Google API key
+  /\bnpm_[A-Za-z0-9]{36}\b/g,                                                                 // npm automation / publish token
+  /\bglpat-[A-Za-z0-9_-]{20,}/g,                                                              // GitLab personal access token
+  /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g,                                            // SendGrid API key
 ];
 
 /**

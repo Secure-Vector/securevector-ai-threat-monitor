@@ -280,3 +280,9 @@ scratch_*
 # Local marketing/scratch drafts — never commit to this public repo
 cloud-subscriber-feedback-email.md
 .claude/summaries/
+
+# npm pack output. A build artifact; the tarball is produced by CI at publish
+# time and by hand for local end-to-end checks, and must never be committed.
+npm/*.tgz
+
+npm/node_modules/

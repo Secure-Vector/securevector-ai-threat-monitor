@@ -1,7 +1,6 @@
 /**
- * Source-assertion guard for the one-time 5.3.0 trace notice shown on
- * startup to upgraders. The app shell runs inside pywebview, so the
- * cheapest viable guard is asserting the source text.
+ * Source-assertion guard that keeps the retired 5.3.0 trace upgrade notice
+ * out of the app shell without disturbing the generic first-launch welcome.
  */
 
 'use strict';
@@ -18,21 +17,18 @@ const APP = path.resolve(
 
 const src = fs.readFileSync(APP, 'utf8');
 
-test('trace notice is versioned and shown once', () => {
-  assert.match(src, /TRACE_NOTICE_VERSION: '5\.3\.0'/);
-  assert.match(src, /TRACE_NOTICE_KEY: 'sv-trace-notice-acked'/);
-  assert.match(src, /if \(acked === this\.TRACE_NOTICE_VERSION\) return;/);
+test('obsolete 5.3.0 trace upgrade notice stays retired', () => {
+  assert.doesNotMatch(src, /SecureVector 5\.3\.0: Traces now keep the full tool input/);
+  assert.doesNotMatch(src, /showTraceUpgradeNotice/);
+  assert.doesNotMatch(src, /TRACE_NOTICE_VERSION/);
+  assert.doesNotMatch(src, /TRACE_NOTICE_KEY/);
+  assert.doesNotMatch(src, /sv-trace-notice-acked/);
 });
 
-test('trace notice targets upgraders only and lasts a few seconds', () => {
-  assert.match(src, /if \(hasSeenGeneric\) this\.showTraceUpgradeNotice\(\);/);
-  const ms = Number(src.match(/TRACE_NOTICE_MS: (\d+)/)[1]);
-  assert.ok(ms >= 5000 && ms <= 15000, `duration ${ms}ms should be a few seconds`);
-});
-
-test('trace notice copy says reload the plugin and has no em dash', () => {
-  const m = src.match(/message: '([^']*Reload your plugin[^']*)'/);
-  assert.ok(m, 'notice copy should tell the user to reload the plugin');
-  assert.match(m[1], /secrets redacted/);
-  assert.doesNotMatch(m[1], /—/);
+test('generic first-launch welcome behavior remains intact', () => {
+  assert.match(src, /this\.showFirstLaunchWelcome\(\);/);
+  assert.match(src, /async showFirstLaunchWelcome\(\)/);
+  assert.match(src, /const hasSeenGeneric = localStorage\.getItem\('sv-welcome-seen-v2'\);/);
+  assert.match(src, /if \(!hasSeenGeneric\) this\.showWelcomeIfFirstLaunch\(\);/);
+  assert.doesNotMatch(src, /if \(hasSeenGeneric\).*Toast\.show/s);
 });

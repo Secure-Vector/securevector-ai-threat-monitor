@@ -205,5 +205,13 @@ def force_reset_device_id() -> str:
             path.unlink()
     except Exception as exc:  # noqa: BLE001
         logger.warning("device_id reset: could not unlink cache: %s", exc)
-    _CACHED_ID = None
-    return get_device_id()
+    # A fresh random id, not get_device_id(): that would re-derive the same
+    # hash from the OS machine identifier and the collision would persist.
+    device_id = _hash_id(str(uuid.uuid4()))
+    _write_cache_file(device_id)
+    # Without the cache file the next start re-derives the old id, so a
+    # failed write must fail the reset rather than pass silently.
+    if _read_cache_file() != device_id:
+        raise RuntimeError("could not persist the new device id")
+    _CACHED_ID = device_id
+    return device_id

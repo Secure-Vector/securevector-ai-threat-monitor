@@ -8,6 +8,7 @@ and control permissions through the same block/allow system as essential tools.
 import asyncio
 import hashlib
 import logging
+import re
 from typing import Optional
 
 from securevector.app.utils.trace_text import sanitize_trace_text
@@ -49,6 +50,10 @@ async def _siem_enqueue_tool_audit(
     turn_index: Optional[int] = None,
     parent_span_id: Optional[str] = None,
     runtime_kind: Optional[str] = None,
+    # Step outcome inputs: the stored (redacted) reason marks a failed call,
+    # request_id joins the call to any detection it raised.
+    reason: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> None:
     """Fan a new audit row out to every enabled SIEM forwarder.
 
@@ -93,6 +98,18 @@ async def _siem_enqueue_tool_audit(
     except Exception:
         pass  # best-effort finding_group_id derivation; falls through to None
 
+    # The detection lookup only feeds the fleet step chip, so it runs only
+    # when an active enrollment destination takes tool audits (fwds is
+    # already loaded above, so this check costs nothing).
+    fleet_audits = any(
+        str(f.get("source") or "") == "enrollment" and f.get("include_tool_audits")
+        for f in fwds
+    )
+    is_error, flagged = await _tool_step_flags(
+        db, action=action, risk=risk, reason=reason, request_id=request_id,
+        lookup_detections=fleet_audits,
+    )
+
     # audit_id isn't known at this call site (we only have seq + row_hash),
     # so pass 0 — consumers keying on row_hash are unaffected, and the OCSF
     # encoder surfaces audit_id in `unmapped` for completeness.
@@ -121,12 +138,50 @@ async def _siem_enqueue_tool_audit(
         turn_index=turn_index,
         parent_span_id=parent_span_id,
         runtime_kind=runtime_kind,
+        is_error=is_error,
+        flagged=flagged,
     )
 
     outbox = ExternalForwardOutboxRepository(db)
     written = await outbox.enqueue_fanout("tool_audit", payload, forwarders=fwds)
     if written:
         logger.debug(f"siem: enqueued tool_audit seq={seq} → {written} forwarder(s)")
+
+
+# PostToolUseFailure rows carry a reason starting "tool error" (the same test
+# the run health checks and the step list use).
+_TOOL_ERROR_REASON = re.compile(r"^tool error\b")
+
+
+async def _tool_step_flags(
+    db: DatabaseConnection,
+    *,
+    action: Optional[str],
+    risk: Optional[str],
+    reason: Optional[str],
+    request_id: Optional[str],
+    lookup_detections: bool = True,
+) -> tuple[bool, bool]:
+    """(is_error, flagged) for one audit row, matching the local step list.
+
+    flagged mirrors the step chip rule: not blocked, and either only logged
+    (log_only / warn), an amber risk, or a detection tied to the call by its
+    request_id. The detection lookup is best-effort: a call whose scan has
+    not been written yet reads as not flagged. It is skipped when
+    ``lookup_detections`` is False (no fleet destination takes tool audits).
+    """
+    is_error = bool(_TOOL_ERROR_REASON.match(str(reason or "")))
+    act = str(action or "").lower()
+    if act == "block":
+        return is_error, False
+    flagged = act in ("log_only", "warn") or str(risk or "").lower() == "amber"
+    if not flagged and request_id and lookup_detections:
+        try:
+            detections = await CustomToolsRepository(db).get_detection_sources([request_id])
+            flagged = bool(detections.get(request_id))
+        except Exception:  # noqa: BLE001 - a lookup failure leaves it unflagged
+            flagged = False
+    return is_error, flagged
 
 
 def _compute_audit_row_hash(
@@ -559,6 +614,8 @@ class CustomToolsRepository:
                 turn_index=turn_index,
                 parent_span_id=parent_span_id,
                 runtime_kind=runtime_kind,
+                reason=reason,
+                request_id=request_id,
             )
         except Exception as _sie:
             logger.debug(f"siem enqueue (tool_audit) skipped: {_sie}")
@@ -1306,6 +1363,25 @@ class CustomToolsRepository:
                 bucket["secrets"] += 1
         return out
 
+    async def get_run_windows_for_sessions(self, session_ids) -> list[dict]:
+        """Each run's time bounds over its tool-call rows, for these sessions
+        (trace_id, session_id, runtime_kind, started_at, ended_at)."""
+        ids = [s for s in dict.fromkeys(session_ids or []) if s][:500]
+        if not ids:
+            return []
+        marks = ", ".join("?" for _ in ids)
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT trace_id, MAX(session_id) AS session_id, MAX(runtime_kind) AS runtime_kind,
+                   MIN(called_at) AS started_at, MAX(called_at) AS ended_at
+            FROM tool_call_audit
+            WHERE session_id IN ({marks}) AND trace_id IS NOT NULL
+            GROUP BY trace_id
+            """,
+            tuple(ids),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def get_trace_spans(self, trace_id: str) -> list[dict]:
         """Return the ordered spans (tool-call audit rows) for one run.
 
@@ -1330,6 +1406,64 @@ class CustomToolsRepository:
             (trace_id,),
         )
         return [dict(r) for r in rows] if rows else []
+
+    async def get_health_rows(self, trace_ids, prefix_chars: int = 512, per_trace: int = 300) -> dict:
+        """The last ``per_trace`` governed calls of each run, in order, for
+        the run-health list pass: one query, grouped here by trace_id. Only
+        the first ``prefix_chars`` of each args preview (and its length)
+        leave SQLite, so 200 runs stay cheap. Ordered by (trace_id,
+        turn_index), the idx_tool_call_audit_trace index, with seq breaking
+        ties. Returns ``{trace_id: [row, ...]}``."""
+        ids = [t for t in dict.fromkeys(trace_ids or []) if t][:500]
+        if not ids:
+            return {}
+        marks = ", ".join("?" for _ in ids)
+        n = max(1, int(prefix_chars))
+        cap = max(1, int(per_trace))
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT trace_id, span_id, function_name, tool_id, action, called_at,
+                   args_head, args_len
+            FROM (
+                SELECT trace_id, span_id, function_name, tool_id, action, called_at,
+                       turn_index, seq,
+                       substr(args_preview, 1, {n}) AS args_head,
+                       length(args_preview) AS args_len,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY trace_id ORDER BY turn_index DESC, seq DESC
+                       ) AS rn
+                FROM tool_call_audit
+                WHERE trace_id IN ({marks})
+            )
+            WHERE rn <= {cap}
+            ORDER BY trace_id, turn_index ASC, seq ASC
+            """,
+            tuple(ids),
+        )
+        out: dict = {}
+        for r in rows or []:
+            d = dict(r)
+            out.setdefault(d["trace_id"], []).append(d)
+        return out
+
+    async def get_runtime_call_medians(self, runtime_kind: str, window_days: int = 30) -> dict:
+        """Median governed calls per run for one runtime over the window,
+        and how many runs that median stands on."""
+        rows = await self.db.fetch_all(
+            """
+            SELECT COUNT(*) AS n FROM tool_call_audit
+            WHERE runtime_kind = ? AND trace_id IS NOT NULL
+              AND called_at >= datetime('now', ?)
+            GROUP BY trace_id
+            """,
+            (runtime_kind, f"-{max(1, min(int(window_days), 90))} days"),
+        )
+        counts = sorted(int(r["n"]) for r in rows or [])
+        if not counts:
+            return {"runs": 0, "median_calls": None}
+        mid = len(counts) // 2
+        med = counts[mid] if len(counts) % 2 else (counts[mid - 1] + counts[mid]) / 2
+        return {"runs": len(counts), "median_calls": med}
 
     async def get_detection_sources(self, request_ids) -> dict:
         """Map request_id → detection-source summary for a set of requests.

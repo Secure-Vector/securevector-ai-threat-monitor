@@ -127,6 +127,21 @@ def _any_value(v: Any) -> Dict[str, Any]:
     return {"stringValue": _to_text(v) if not isinstance(v, str) else v}
 
 
+def _sdk_version() -> str:
+    """The package version, for the OTLP scope.
+
+    Read rather than written: this was a literal, and it stayed at the release
+    it was typed in while the package moved on, so the Python and JavaScript
+    SDKs reported different scope versions for the same wire format.
+    """
+    try:
+        from securevector import __version__
+
+        return str(__version__)
+    except Exception:  # noqa: BLE001 - a version is never worth an exception here
+        return "0"
+
+
 def _kv(attrs: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [{"key": k, "value": _any_value(v)} for k, v in attrs.items() if v is not None]
 
@@ -163,7 +178,7 @@ def encode_otlp(spans: List[Span], service_name: str = RUNTIME_KIND,
         "resourceSpans": [{
             "resource": {"attributes": _kv(res_attrs)},
             "scopeSpans": [{
-                "scope": {"name": "securevector", "version": "5.3.0"},
+                "scope": {"name": "securevector", "version": _sdk_version()},
                 "spans": out,
             }],
         }]

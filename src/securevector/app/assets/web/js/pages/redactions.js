@@ -22,6 +22,11 @@ const RedactionsPage = {
         const map = {
             'claude-code': 'Claude Code',
             'claude_code': 'Claude Code',
+            'codex':       'Codex',
+            'copilot-cli': 'Copilot CLI',
+            'cursor':      'Cursor',
+            'opencode':    'OpenCode',
+            'antigravity': 'Antigravity',
             'openclaw':    'OpenClaw',
             'langchain':   'LangChain',
             'langgraph':   'LangGraph',

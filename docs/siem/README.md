@@ -1,12 +1,47 @@
-# SIEM dashboard templates
+# SIEM Forwarder and dashboard templates
+
+Stream every threat detection and tool-call audit into your own SIEM: Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, an OpenTelemetry collector, a local NDJSON file, or any HTTPS endpoint that accepts JSON. Your data, your pipes.
+
+## The forwarder
+
+**Why this is safe to ship with zero monetization:**
+
+| Feature | What leaves your machine |
+|---|---|
+| Scan verdict | `scan_id`, `verdict`, `threat_score`, `risk_level`, `detected_types[]`, counts, durations |
+| Tool-call audit | `seq`, `action`, `risk`, `prev_hash`, `row_hash` (the chain witness, which lets your SIEM verify integrity) |
+| **Not transmitted by default** | Prompt text, LLM output, matched patterns, reviewer reasoning, model reasoning. A destination set to the `full` level (off by default, chosen per destination) adds raw prompt text, LLM output and full tool arguments, each capped at 8 KB |
+
+The allow-list is enforced at enqueue time by `_assert_metadata_only()`: a destination below `full` can never receive those fields, even if the forwarder code were tampered with.
+
+**Supported destinations (one code path, OCSF 1.3.0 payload):**
+
+| Kind | Target | Auth header |
+|---|---|---|
+| `splunk_hec` | `https://<host>/services/collector/event` | `Authorization: Splunk <HEC-token>` |
+| `datadog` | `https://http-intake.logs.<site>/api/v2/logs` | `DD-API-KEY: <key>` |
+| `otlp_http` | `https://<collector>/v1/logs` | optional `Authorization: Bearer <token>` |
+| `webhook` | anything that accepts JSON POST | optional `Authorization: Bearer <token>` |
+
+**Configure in Connect → SIEM Forwarder.** Add SIEM destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
+
+**Reliability:**
+- Per-destination outbox with at-least-once delivery.
+- A failing Datadog destination never blocks a healthy Splunk one.
+- Per-destination circuit breaker backs off broken endpoints (1 min → 1 hour cap).
+- Rows that fail 10 times are dropped (the health view shows the consecutive-failure count).
+
+**SIEM-side integrity verification.** Every forwarded tool-call audit row carries its `prev_hash` and `row_hash`. Run a nightly search in your SIEM that rebuilds the chain: if a historic row has been changed on the local host, the forwarded copy still tells the true story. The local hash chain shows tampering on this machine; the forwarded chain is the off-host record. Every event also carries `device.uid`, so a fleet can be sliced by machine ([Device Identity](../DEVICE_IDENTITY.md)).
+
+## Starter dashboards
 
 Pre-built overviews of SecureVector events (OCSF 1.3.0) for common SIEMs. Each
 template assumes you have a SIEM Forwarder configured (Connect → SIEM Forwarder
-inside the app) pointing at the corresponding destination.
+inside the app) pointing at the corresponding destination. Each carries severity counters, events-over-time by severity, actor and MITRE-ish breakdowns, and a recent-high-severity log feed.
 
 **MIT-licensed, AS-IS.** See [`LICENSE`](LICENSE) + [`NOTICE`](NOTICE). Import
 into your own stack and verify panels render against real events before relying
-on them for production detections.
+on them for production detections. Adjust queries, facets and sourcetypes to your stack.
 
 ## Splunk
 

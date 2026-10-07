@@ -45,6 +45,113 @@ const IntegrationPage = {
         }
     },
 
+    // --- Guard uninstall: the live-session refusal ------------------------
+    // Removing a Guard plugin while that harness still has live sessions
+    // strands them: the hooks stop firing and nothing records the moment
+    // governance ended, because the thing that writes the trail is what was
+    // removed. The server refuses that with HTTP 409 and a `detail` naming the
+    // sessions. A 409 body carries no `ok` field, so the refusal has to be read
+    // off the status code: checking `result.ok` alone throws the reason away and
+    // shows a generic failure for something the server explained precisely.
+    //
+    // Going ahead anyway is a second, deliberate click on a button that does not
+    // exist until the refusal has been shown. That matches the in-place confirm
+    // on the Terminals board (js/pages/terminals.js, _askRemove): never a native
+    // confirm(), which freezes the window and cannot be styled or tested, and
+    // never a "force" checkbox sitting pre-ticked before anyone has read what it
+    // overrides. Like that one it disarms itself, so a forgotten prompt is not
+    // still armed under a later click.
+    UNINSTALL_CONFIRM_MS: 8000,
+
+    /** POST one plugin uninstall. `force` travels in the JSON body: the
+     *  endpoint reads it there, not from the query string. */
+    async postUninstall(url, force = false) {
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(force ? { force: true } : {}),
+        });
+    },
+
+    /** Show the server's refusal verbatim, and offer the way past it.
+     *  `detail` names the specific sessions, so it is not paraphrased. */
+    showUninstallRefusal({ resultArea, showResult, detail, onProceed }) {
+        showResult('warning', detail);
+        if (!resultArea) return null;
+
+        const row = document.createElement('div');
+        row.style.cssText = 'margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;';
+
+        const hint = document.createElement('div');
+        hint.style.cssText = 'font-size: 12px; color: var(--text-secondary); width: 100%;';
+        hint.textContent = 'Removing it does not stop them. The Guard goes, and the gap is written to each session trail.';
+        row.appendChild(hint);
+
+        const keepBtn = document.createElement('button');
+        keepBtn.type = 'button';
+        keepBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
+        keepBtn.textContent = 'Keep the plugin';
+
+        const forceBtn = document.createElement('button');
+        forceBtn.type = 'button';
+        forceBtn.style.cssText = 'background: transparent; color: var(--warning); border: 1px solid var(--warning); padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
+        forceBtn.textContent = 'Remove anyway, stop watching them';
+
+        let timer = null;
+        const disarm = () => {
+            if (timer !== null) { clearTimeout(timer); timer = null; }
+            if (row.parentNode) row.parentNode.removeChild(row);
+        };
+        keepBtn.onclick = disarm;
+        forceBtn.onclick = () => { disarm(); onProceed(); };
+        timer = setTimeout(disarm, this.UNINSTALL_CONFIRM_MS);
+
+        row.appendChild(keepBtn);
+        row.appendChild(forceBtn);
+        resultArea.appendChild(row);
+        return row;
+    },
+
+    /** One Uninstall click for a Guard plugin, refusal handling included.
+     *  `onRemoved` owns the success copy and the pill/button state, which
+     *  differ per harness; everything else here is the same for all of them. */
+    async runPluginUninstall({ url, button, resultArea, showResult, onRemoved, busyLabel = 'Uninstalling...', idleLabel = 'Uninstall' }) {
+        const attempt = async (force) => {
+            button.disabled = true;
+            button.textContent = busyLabel;
+            try {
+                const res = await this.postUninstall(url, force);
+                if (res && res.status === 409) {
+                    let detail = '';
+                    try {
+                        const body = await res.json();
+                        detail = (body && body.detail) || '';
+                    } catch { /* a 409 without a JSON body: fall back to the generic line */ }
+                    this.showUninstallRefusal({
+                        resultArea,
+                        showResult,
+                        detail: detail || 'Sessions of this harness are still running. Stop them first, or they keep running with nothing watching them.',
+                        onProceed: () => { attempt(true); },
+                    });
+                    button.disabled = false;
+                    button.textContent = idleLabel;
+                    return;
+                }
+                const result = await res.json();
+                if (result && result.ok) {
+                    onRemoved(result);
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            button.disabled = false;
+            button.textContent = idleLabel;
+        };
+        await attempt(false);
+    },
+
     // Update all proxy buttons
     async updateProxyButtons() {
         await this.checkProxyStatus();
@@ -148,6 +255,42 @@ async def run_sql(sql: str) -> list[dict]:
 
 with guard.session("run-42"):                # group one agent run
     search_web("weather in Austin")`
+        },
+        'proxy-node': {
+            name: 'Node and TypeScript',
+            description: 'Any JavaScript agent: one import, no OpenTelemetry setup',
+            defaultProvider: 'openai',
+            runtimeKind: 'node',
+            sdkPackage: '@securevector/sdk',
+            sdkInstallCmd: 'npm install @securevector/sdk',
+            sdkInstallNote: 'Zero runtime dependencies, Node 20 or newer. The package is a client: it calls the app that is serving this page, so keep the app running or point SECUREVECTOR_ENGINE_ENDPOINT at your self-host engine.',
+            sdkSnippet: `import { guard, session, generation, flush, GuardBlocked } from '@securevector/sdk';
+
+// Wrap the functions your agent calls. Arguments are scanned on the way in,
+// the return value on the way out, and every call lands in Tool Activity,
+// Traces and the audit chain (runtime_kind=node). Fail-open: if the app is
+// unreachable the tool still runs.
+const lookupOrder = guard(
+  async ({ orderId }) => fetchOrder(orderId),
+  { toolId: 'orders.lookup', mode: 'enforce' },   // observe is the default
+);
+
+await session('run-42', { userId: 'demo' }, async () => {
+  // generation() is async here, unlike the Python version: the enforce-mode
+  // scan has to finish before the model call goes out.
+  const gen = await generation({ model: 'gpt-4o-mini', provider: 'openai', input: messages });
+  const res = await callTheModel(messages);
+  await gen.end({ output: res.message, usage: res.usage });
+
+  try {
+    await lookupOrder({ orderId });
+  } catch (err) {
+    if (err instanceof GuardBlocked) console.log(\`blocked by \${err.rule}\`);
+    else throw err;
+  }
+});
+
+await flush();`
         },
         'proxy-langchain': {
             name: 'LangChain',
@@ -308,6 +451,12 @@ def chat_with_protection(user_input):
             description: 'Cursor IDE agent, real-time policy enforcement + tamper-evident audit for shell, MCP, file edits, and prompts',
             isCursor: true,
             defaultProvider: 'openai'
+        },
+        'proxy-antigravity': {
+            name: 'Antigravity',
+            description: 'Policy enforcement and tamper-evident audit for Antigravity agent sessions',
+            isAntigravity: true,
+            defaultProvider: 'gemini'
         }
     },
 
@@ -378,6 +527,9 @@ def chat_with_protection(user_input):
             } else if (integration.isCursor) {
                 // Cursor: Plugin card only (native .cursor-plugin install, no proxy/block-mode)
                 container.appendChild(this.createCursorPluginCard());
+            } else if (integration.isAntigravity) {
+                // Antigravity: Plugin card only (native plugin install, no proxy/block-mode)
+                container.appendChild(this.createAntigravityPluginCard());
             } else if (integration.isOpenClaw) {
                 // OpenClaw: Plugin card + separate block mode card
                 container.appendChild(this.createOpenClawPluginCard());
@@ -1221,27 +1373,22 @@ def chat_with_protection(user_input):
         };
 
         // --- Uninstall click handler ---
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/claude-code/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed. Run /reload-plugins in your Claude Code session to drop it from the active runtime.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/claude-code/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed. Run /reload-plugins in your Claude Code session to drop it from the active runtime.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // --- Initial status check ---
         // The /status endpoint reports installation but does NOT echo the
@@ -1590,27 +1737,22 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/copilot-cli/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed from Copilot CLI (deregistered from config.json and deleted from the store). Start a new Copilot session to drop the hooks.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/copilot-cli/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed from Copilot CLI (deregistered from config.json and deleted from the store). Start a new Copilot session to drop the hooks.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // Initial status check. `auto_installed`+`enabled` mean we wrote into
         // Copilot's store + config.json; `installed` (staged) without them is the
@@ -1848,27 +1990,22 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/opencode/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed from OpenCode (deregistered from opencode.json and the staged tree deleted). Start a new OpenCode session to drop the hooks.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/opencode/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed from OpenCode (deregistered from opencode.json and the staged tree deleted). Start a new OpenCode session to drop the hooks.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // Initial status check. `auto_installed`+`enabled` mean we wrote into
         // OpenCode's config "plugin" array; `installed` (staged) without them is
@@ -2142,6 +2279,225 @@ def chat_with_protection(user_input):
         return card;
     },
 
+    createAntigravityPluginCard() {
+        // SecureVector Guard for Antigravity, a native plugin
+        // (hooks/pre-tool-use.js, post-tool-use.js, pre-invocation.js) copied
+        // into ~/.gemini/config/plugins/securevector-guard/. Antigravity reads
+        // its plugins directory at startup, so activation means restarting
+        // Antigravity, then confirming with `agy plugin list`. If ~/.gemini is
+        // absent, Antigravity was not detected: install Antigravity, then
+        // click Install again.
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px;';
+        title.textContent = 'SecureVector Guard for Antigravity';
+        header.appendChild(title);
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        subtitle.textContent = 'Real-time policy enforcement and tamper-evident audit for Antigravity agent sessions';
+        header.appendChild(subtitle);
+        card.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 14px;';
+
+        const installBtn = document.createElement('button');
+        installBtn.id = 'install-antigravity-plugin-btn';
+        installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        installBtn.textContent = 'Install Plugin';
+
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.id = 'uninstall-antigravity-plugin-btn';
+        uninstallBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        uninstallBtn.textContent = 'Uninstall';
+
+        const statusPill = document.createElement('span');
+        statusPill.id = 'antigravity-plugin-status';
+        statusPill.setAttribute('role', 'status');
+        statusPill.setAttribute('aria-live', 'polite');
+        statusPill.setAttribute('aria-atomic', 'true');
+        statusPill.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        statusPill.textContent = 'Checking...';
+
+        btnRow.appendChild(installBtn);
+        btnRow.appendChild(uninstallBtn);
+        btnRow.appendChild(statusPill);
+        content.appendChild(btnRow);
+
+        const resultArea = document.createElement('div');
+        resultArea.id = 'antigravity-plugin-result';
+        resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
+        content.appendChild(resultArea);
+
+        const setStatusPill = (state, opts = {}) => {
+            statusPill.textContent = '';
+            const span = document.createElement('strong');
+            if (state === 'installed') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Installed & enabled · restart Antigravity to activate';
+            } else if (state === 'staged') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Staged · install Antigravity, then click Reinstall';
+            } else if (state === 'not-staged') {
+                statusPill.style.color = 'var(--text-secondary)';
+                span.style.fontWeight = '400';
+                span.textContent = 'Not staged';
+            } else if (state === 'error') {
+                span.style.color = 'var(--error)';
+                span.textContent = opts.message || 'Status unknown';
+            } else {
+                span.style.fontWeight = '400';
+                span.textContent = 'Checking...';
+            }
+            statusPill.appendChild(span);
+        };
+
+        const showResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.textContent = '';
+            if (kind === 'success') {
+                resultArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                resultArea.style.border = '1px solid var(--success)';
+            } else if (kind === 'warning') {
+                resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                resultArea.style.border = '1px solid var(--warning)';
+            } else {
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+            }
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
+        };
+
+        installBtn.onclick = async () => {
+            installBtn.disabled = true;
+            const wasReinstall = installBtn.textContent === 'Reinstall Plugin';
+            installBtn.textContent = wasReinstall ? 'Reinstalling...' : 'Installing...';
+            try {
+                const res = await fetch('/api/hooks/antigravity/install', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    if (result.auto_installed) {
+                        showResult('success', `Installed and enabled (${result.files.length} files at ${result.install_path}). ${result.next_step || ''}`.trim());
+                        setStatusPill('installed');
+                    } else {
+                        // Antigravity not detected (~/.gemini is absent): staged only.
+                        showResult('warning', `Plugin staged at ${result.staging_dir} (${result.files.length} files). ${result.next_step || 'Antigravity was not detected (~/.gemini is absent). Install Antigravity, then click Install again.'}`.trim());
+                        setStatusPill('staged');
+                    }
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    showResult('error', 'Install failed. Check the threat-monitor server logs.');
+                    installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+                }
+            } catch (e) {
+                showResult('error', 'Failed to reach the SecureVector server.');
+                installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+            }
+            installBtn.disabled = false;
+        };
+
+        uninstallBtn.onclick = async () => {
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Uninstalling...';
+            try {
+                const res = await fetch('/api/hooks/antigravity/uninstall', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    showResult('warning', 'Plugin removed: deleted ~/.gemini/config/plugins/securevector-guard/ (your other config untouched). Restart Antigravity to drop the hooks.');
+                    setStatusPill('not-staged');
+                    installBtn.textContent = 'Install Plugin';
+                    uninstallBtn.style.display = 'none';
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = 'Uninstall';
+        };
+
+        // Initial status check. `auto_installed`+`enabled` mean the plugin dir
+        // exists under ~/.gemini/config/plugins/securevector-guard/.
+        // `antigravity_detected` mirrors the sibling harnesses' *_detected
+        // field name (installed vs. merely staged).
+        setTimeout(async () => {
+            try {
+                const res = await fetch('/api/hooks/antigravity/status');
+                const status = await res.json();
+                if (status.auto_installed) {
+                    setStatusPill('installed');
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.problem) {
+                    // Present but not governing. `agy plugin install` copies the
+                    // plugin verbatim and leaves the hook paths unresolved, so
+                    // Antigravity lists the Guard as enabled while every hook
+                    // command points at a file that is not there. A green pill
+                    // here would be the worst thing this page could show.
+                    setStatusPill('error', { message: 'Installed but not governing' });
+                    showResult('warning', 'Antigravity has this plugin, but ' + status.problem);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
+                    setStatusPill('staged');
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.files_present && status.files_present.length > 0) {
+                    setStatusPill('staged', { message: 'Partially staged' });
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.antigravity_detected === false) {
+                    setStatusPill('not-staged', { message: 'Antigravity not detected' });
+                } else {
+                    setStatusPill('not-staged');
+                }
+            } catch {
+                setStatusPill('error');
+            }
+        }, 0);
+
+        const featuresLabel = document.createElement('div');
+        featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
+        featuresLabel.textContent = 'Capabilities (v6.0)';
+        content.appendChild(featuresLabel);
+
+        const featuresGrid = document.createElement('div');
+        featuresGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;';
+        const features = [
+            { name: 'Tool Permissions', desc: 'Allow / deny / force_ask via PreToolUse' },
+            { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=antigravity' },
+            { name: 'Content Scans', desc: 'Prose-bearing tool args → /analyze (no prompt or result scan yet)' },
+            { name: 'Fail-Open on App Down', desc: 'Explicit JSON + exit 0 · never blocks your session' },
+        ];
+        for (const f of features) {
+            const item = document.createElement('div');
+            item.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            const fn = document.createElement('div');
+            fn.style.cssText = 'font-size: 12px; font-weight: 600;';
+            fn.textContent = f.name;
+            const fd = document.createElement('div');
+            fd.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 2px;';
+            fd.textContent = f.desc;
+            item.appendChild(fn);
+            item.appendChild(fd);
+            featuresGrid.appendChild(item);
+        }
+        content.appendChild(featuresGrid);
+
+        card.appendChild(content);
+        return card;
+    },
+
     createCodexPluginCard() {
         // SecureVector Guard for Codex — mirrors createClaudeCodePluginCard
         // but adapted for Codex's TOML config + `~/.codex/` layout. Install
@@ -2194,6 +2550,15 @@ def chat_with_protection(user_input):
         btnRow.appendChild(uninstallBtn);
         btnRow.appendChild(statusPill);
         content.appendChild(btnRow);
+
+        // Codex's built-in web tool runs inside the harness and fires no hook,
+        // so the Guard never sees it. Terminals lists it after the fact from
+        // the local transcript; this is how to bring it under the Guard.
+        const webHint = document.createElement('div');
+        webHint.id = 'codex-web-search-hint';
+        webHint.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 14px;';
+        webHint.textContent = 'Web search inside Codex is not hookable. Set web_search = false in Codex\'s config to force web access through shell commands, which the Guard governs.';
+        content.appendChild(webHint);
 
         const resultArea = document.createElement('div');
         resultArea.id = 'codex-plugin-result';
@@ -2329,27 +2694,22 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/codex/uninstall', { method: 'POST' });
-                const result = await res.json();
-                if (result.ok) {
-                    showResult('warning', 'Plugin removed. Restart your Codex session to drop it from the active runtime.');
-                    renderCommands([]);
-                    setStatusPill('not-staged');
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                } else {
-                    showResult('error', 'Uninstall failed.');
-                }
-            } catch {
-                showResult('error', 'Failed to reach the SecureVector server.');
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
-        };
+        // The server refuses this while sessions of this harness are live
+        // (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/codex/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult,
+            onRemoved: () => {
+                showResult('warning', 'Plugin removed. Restart your Codex session to drop it from the active runtime.');
+                renderCommands([]);
+                setStatusPill('not-staged');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+            },
+        });
 
         // Initial status check. Codex /status uses `codex_install_path`
         // and `codex_detected` field names (different from CC's
@@ -3717,7 +4077,7 @@ def chat_with_protection(user_input):
         const slug = (integrationId || '').replace('proxy-', '');
         const ep = engineUrl || 'https://<your-engine-endpoint>';
         const isSdk = !!integration.sdkPackage;
-        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenCode || integration.isOpenClaw;
+        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenCode || integration.isOpenClaw || integration.isAntigravity;
 
         const details = document.createElement('details');
         details.style.cssText = 'margin-bottom: 16px;';

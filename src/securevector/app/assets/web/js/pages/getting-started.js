@@ -250,7 +250,7 @@ const GettingStartedPage = {
 
         const setupDesc = document.createElement('div');
         setupDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-        setupDesc.textContent = 'Two routes: framework SDKs (LangChain \u00b7 LangGraph \u00b7 CrewAI \u00b7 Hermes) or coding-agent plugins (Claude Code, Codex, Copilot CLI, Cursor, OpenCode, OpenClaw). Works the same on the local app or a self-host / Terraform engine.';
+        setupDesc.textContent = 'Two routes: framework SDKs (LangChain \u00b7 LangGraph \u00b7 CrewAI \u00b7 Hermes) or coding-agent plugins (Claude Code, Codex, Copilot CLI, Cursor, OpenCode, Antigravity, OpenClaw). Works the same on the local app or a self-host / Terraform engine.';
         setupBox.appendChild(setupDesc);
 
         const setupLink = document.createElement('span');
@@ -2096,7 +2096,7 @@ const GettingStartedPage = {
         frag.appendChild(list([
             '<strong>Device</strong>: the root; your local machine.',
             '<strong>Harness</strong>: one node per runtime. Node colour is the harness: Claude Code orange, Codex blue, OpenClaw red.',
-            '<strong>Agent</strong>: one node per session, labelled "agent #N" (newest = #1 per harness). Click the pencil on its card to rename it; the name follows the session into Traces and the Live feed.',
+            '<strong>Session</strong>: one node per runtime session, labelled with its short session ID. Click the pencil on its card to rename it; the name follows the session into Traces and the Live feed.',
             '<strong>Tool</strong>: each tool the agent called (Bash, Read, an MCP tool, …).',
         ]));
 
@@ -2130,21 +2130,21 @@ const GettingStartedPage = {
         const { para, head, list, callout } = this._gsHelpers();
 
         frag.appendChild(para(
-            '<strong style="color:var(--text-primary);">Traces</strong> (Observability → Traces) is the per-session trace: the trace list on the left, ' +
-            'and on the right a turn-by-turn waterfall of every span (tool call) in the selected trace, each with the tool permission that was applied. ' +
-            'One trace = one agent session; the spans are the steps inside it (Session → Trace → Span, the standard observability hierarchy).'
+            '<strong style="color:var(--text-primary);">Traces</strong> (Observability → Traces) shows one trace per runtime session. ' +
+            'Select a session on the left to inspect its model and tool spans on the right, in execution order. Tool spans include the permission verdict that was applied.'
         ));
 
         frag.appendChild(head('The trace list'));
         frag.appendChild(list([
-            'Each card leads with the agent label: its custom name or <strong>"agent #N"</strong> (the same number as on the Map): with the harness as a small tag beside it.',
-            'The left rail and dot are coloured by harness; the right dot is the trace\'s risk.',
-            'Meta shows span count, blocked count, and the end time.',
+            'Each card leads with a custom name, linked Terminal task title, workspace name, or stable short session ID. The Map uses the same session ID.',
+            'The dot identifies the harness, while risk colour marks a security finding.',
+            'The compact rail shows recent activity and nonzero tool calls, blocks, and model cost.',
         ]));
 
         frag.appendChild(head('Filters'));
         frag.appendChild(list([
             '<strong>Window</strong>: 24h / 7d / 30d.',
+            '<strong>Quick views</strong>: All, Live, Flagged, Blocked, and more focused views under More.',
             '<strong>Harness</strong>: narrow to one runtime (claude-code / codex / openclaw / …). A Map drill-down pre-sets this.',
             '<strong>Tool</strong>: show built-in, external MCP, or both.',
             '<strong>Outcome</strong>: allowed / blocked / log-only / threats / secret-touching, matching the Map\'s Outcome filter.',
@@ -2152,9 +2152,9 @@ const GettingStartedPage = {
 
         frag.appendChild(head('The waterfall'));
         frag.appendChild(list([
-            'Each step is one tool call: its verdict dot (allow / block / log-only), the tool name, a built-in vs external chip, and the outcome badge.',
+            'Model and tool spans appear in the same session trace. Tool calls show their verdict, tool name, built-in or external kind, and outcome.',
             'Click a step to expand its arguments, reason, and risk.',
-            'The header shows the agent label + harness; the sub-line carries the full, copyable session id.',
+            'The header shows the session name and harness; the sub-line carries the full, copyable session ID. Verified linked tasks offer Open Terminal task.',
         ]));
 
         frag.appendChild(callout(
@@ -2503,7 +2503,8 @@ const GettingStartedPage = {
             frag.appendChild(row);
         };
         group('Coding agents', [['Claude Code', 'guide-claude-code'], ['Codex', 'guide-codex'], ['GitHub Copilot CLI', 'guide-copilot-cli'],
-            ['Cursor', 'guide-cursor'], ['OpenCode', 'guide-opencode'], ['OpenClaw / ClawdBot', 'guide-openclaw']]);
+            ['Cursor', 'guide-cursor'], ['OpenCode', 'guide-opencode'], ['Antigravity', 'guide-antigravity'],
+            ['OpenClaw / ClawdBot', 'guide-openclaw']]);
         group('Frameworks and Python', [['Python @guard', 'proxy-python'], ['LangChain, LangGraph, CrewAI, Hermes', 'guide-frameworks']]);
         group('Proxies', [['n8n', 'proxy-n8n'], ['Ollama', 'proxy-ollama']]);
         group('Start here', [['Connect Agents', 'guide-connect-agents']]);

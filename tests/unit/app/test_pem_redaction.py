@@ -248,3 +248,78 @@ def test_column_form_still_catches_spaced_table_pipe():
     body = out[0] if isinstance(out, tuple) else out
     assert "[REDACTED]" in body
     assert "FakePass!2026xZ" not in body
+
+
+# ---------------------------------------------------------------------------
+# Env-style secret assignments (AWS_SECRET_ACCESS_KEY=..., GITHUB_TOKEN: ...)
+# ---------------------------------------------------------------------------
+# Added for Agent Terminals activity previews (raw shell/env text), which the
+# literal-keyword patterns above (api_key, api_secret, password-kv, ...) miss
+# because the identifier doesn't contain those exact words.
+
+def test_env_style_aws_secret_key_redacted():
+    out, n = redact_secrets('AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG')
+    assert n >= 1
+    assert out == 'AWS_SECRET_ACCESS_KEY=****'
+
+
+def test_env_style_github_token_colon_form_redacted():
+    out, n = redact_secrets('export GITHUB_TOKEN: ghx_abcdefgh12345678')
+    assert n >= 1
+    assert out == 'export GITHUB_TOKEN: ****'
+    assert 'ghx_abcdefgh12345678' not in out
+
+
+def test_env_style_pattern_ignores_ordinary_tool_preview():
+    text = 'Bash: {"command": "pytest -q"}'
+    out, n = redact_secrets(text)
+    assert n == 0
+    assert out == text
+
+
+def test_env_style_pattern_ignores_json_numeric_token_count():
+    text = '"token_count": 12'
+    out, n = redact_secrets(text)
+    assert n == 0
+    assert out == text
+
+
+def test_env_style_pattern_ignores_word_containing_key_as_substring():
+    text = 'MONKEY=bananas12'
+    out, n = redact_secrets(text)
+    assert n == 0
+    assert out == text
+
+
+def test_env_style_pattern_ignores_hotkey_assignment():
+    text = 'HOTKEY=ctrl-shift-p'
+    out, n = redact_secrets(text)
+    assert n == 0
+    assert out == text
+
+
+def test_env_style_pattern_redacts_key_as_whole_segment():
+    out, n = redact_secrets('API_KEY=abcdefgh1234')
+    assert n >= 1
+    assert out == 'API_KEY=****'
+
+
+def test_env_style_pattern_ignores_bare_token_prose():
+    # A bare keyword with no underscore-delimited identifier segment reads as
+    # prose, not an env assignment: "TOKEN:" alone is too common in ordinary
+    # descriptive text to safely redact.
+    text = 'TOKEN: description here'
+    out, n = redact_secrets(text)
+    assert n == 0
+    assert out == text
+
+
+def test_bare_password_keyword_still_redacted_by_password_kv():
+    # The env-assignment pattern itself no longer matches a bare "PASSWORD"
+    # identifier (it now requires an underscore-delimited segment), but the
+    # dedicated password-kv pattern above already covers the literal word
+    # "password" case-insensitively — so a real "PASSWORD=<secret>" leak is
+    # still caught, just via a different pattern_id.
+    out, n = redact_secrets('PASSWORD=hunter2abc')
+    assert n >= 1
+    assert out == 'PASSWORD=[REDACTED]'

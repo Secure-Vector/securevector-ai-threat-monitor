@@ -29,7 +29,7 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
-const { fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
+const { resolveBaseUrl, fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
 
 const EFFECT_TO_DECISION = Object.freeze({
@@ -38,7 +38,6 @@ const EFFECT_TO_DECISION = Object.freeze({
   prompt: 'ask',
 });
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ALLOW = Object.freeze({ decision: 'allow' });
 const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'codex';
@@ -340,7 +339,7 @@ async function main() {
     return;
   }
   const toolName = (event && (event.tool_name || event.toolName)) || '';
-  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl();
   const sessionId = (event && (event.session_id || event.sessionId)) || null;
   const toolInputForCall = (event && (event.tool_input || event.toolInput)) || null;
   let decision = ALLOW;

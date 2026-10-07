@@ -120,14 +120,28 @@ class TestEffectiveCeiling:
         assert _effective_ceiling(None, recs, 0) == 200_000
 
     def test_observed_peak_disproves_the_lookup(self):
-        # the "118% full" bug: lookup said 200K, the session said otherwise
-        assert _effective_ceiling(None, [], 236_000) == 236_000
+        # the "118% full" bug: lookup said 200K, the session said otherwise.
+        # A run past 200K places the session on the next real tier, rather
+        # than on a window that happens to equal its own high-water mark.
+        assert _effective_ceiling(None, [], 236_000) == 1_000_000
+
+    def test_a_promoted_session_is_not_reported_as_full(self):
+        # the sequel bug: pinning the ceiling to the peak read as 100% of
+        # 235K to someone with three quarters of a 1M window still to spend.
+        snap = analyze_live_tail([_usage(236_000)])
+        assert snap["context_window"] == 1_000_000
+        assert snap["fill_pct"] < 30.0
+
+    def test_a_peak_inside_the_window_leaves_the_lookup_alone(self):
+        assert _effective_ceiling(None, [], 120_000) == 200_000
+
+    def test_a_peak_past_every_known_tier_falls_back_to_the_peak(self):
+        assert _effective_ceiling(None, [], 1_400_000) == 1_400_000
 
     def test_fill_never_exceeds_one_hundred(self):
         recs = [_usage(236_000)]
         snap = analyze_live_tail(recs)
         assert snap["fill_pct"] <= 100.0
-        assert snap["context_window"] == 236_000
 
 
 class TestAutocompactAttribution:

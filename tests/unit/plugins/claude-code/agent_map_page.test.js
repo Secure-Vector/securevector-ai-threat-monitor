@@ -104,7 +104,7 @@ test('agent-map is wired into the API client, sidebar, router, and index', () =>
   // 1 trace here), landing on agent-runs, with the other views as aliases so
   // the entry stays highlighted while the Map/Live-feed/legacy-Sessions tab is
   // active.
-  assert.match(read('js/components/sidebar.js'), /id: 'agent-runs',\s*label: 'Traces'/);
+  assert.match(read('js/components/sidebar.js'), /id: 'agent-runs',\s*label: 'Observability'/);
   assert.match(read('js/components/sidebar.js'), /aliases:\s*\[[^\]]*'storylines'[^\]]*'agent-map'[^\]]*'agent-timeline'[^\]]*\]/);
   // App.pages route → AgentMapPage (the spa_routes symmetry requirement)
   assert.match(read('js/app.js'), /'agent-map':\s*AgentMapPage/);
