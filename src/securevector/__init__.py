@@ -47,6 +47,10 @@ from .types import (  # Type definitions for better IDE support
     ThreatAnalyzer,
 )
 
+# Defined before the MCP imports below: securevector.mcp reads it while this
+# module is still initialising, and a later definition makes that import fail.
+__version__ = "6.0.0"
+
 # MCP Server imports (optional - only if MCP dependencies available)
 try:
     from .mcp import (
@@ -72,7 +76,6 @@ except ImportError:
         return False
 
 # Main public interface
-__version__ = "6.0.0"
 __all__ = [
     # One-decorator instrumentation
     "guard",
