@@ -2147,7 +2147,7 @@ def print_logo():
 ║       ╚████╔╝  ███████╗ ╚██████╗    ██║    ╚██████╔╝ ██║  ██║     ║
 ║        ╚═══╝   ╚══════╝  ╚═════╝    ╚═╝     ╚═════╝  ╚═╝  ╚═╝     ║
 ║                                                                   ║
-║              Security & Observability for AI Agents               ║
+║        Security, Observability and Governance for AI Agents       ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 """

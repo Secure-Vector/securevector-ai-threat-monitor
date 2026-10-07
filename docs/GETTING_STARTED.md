@@ -1,6 +1,6 @@
 # Getting Started with SecureVector
 
-Security & Observability for AI Agents. Scans inputs for prompt injection, outputs for data leaks. 100% local by default.
+Security, Observability and Governance for AI Agents. Scans inputs for prompt injection, outputs for data leaks. 100% local by default.
 
 ## Prerequisites
 

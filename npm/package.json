@@ -1,7 +1,7 @@
 {
   "name": "@securevector/cli",
   "version": "6.0.0",
-  "description": "Security and observability for AI agents. Launcher for npm and Node users; the product itself is published on PyPI and this installs the matching version.",
+  "description": "Security, observability and governance for AI agents. Launcher for npm and Node users; the product itself is published on PyPI and this installs the matching version.",
   "keywords": [
     "securevector",
     "ai-security",

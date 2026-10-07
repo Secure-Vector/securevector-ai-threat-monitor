@@ -520,7 +520,7 @@ class DesktopMenu:
     def about(self) -> None:
         self.window.create_confirmation_dialog(
             "About SecureVector",
-            f"SecureVector v{self.version}\nSecurity & Observability for AI Agents\n{DOCS_URL}",
+            f"SecureVector v{self.version}\nSecurity, Observability and Governance for AI Agents\n{DOCS_URL}",
         )
 
     # --- tree ---

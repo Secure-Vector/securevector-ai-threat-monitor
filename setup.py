@@ -23,7 +23,7 @@ setup(
     version=get_version(),
     author="SecureVector Team",
     # author_email removed - contact via GitHub issues
-    description="Real-time AI threat monitoring. Protect your apps from prompt injection, leaks, and attacks in just a few lines of code.",
+    description="Security, observability and governance for AI agents: govern every tool call, watch every agent session, and catch threats, locally.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/secure-vector/ai-threat-monitor",
