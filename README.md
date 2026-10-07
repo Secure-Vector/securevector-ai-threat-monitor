@@ -210,7 +210,7 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 <table>
 <tr>
 <td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its trace.</em></td>
-<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Observability" width="100%"><br><em>Observability: a turn-by-turn waterfall of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
+<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Observability" width="100%"><br><em>Observability: a step-by-step view of each run, with model time versus tool time per step, every tool call's allow / block verdict and reason, and an Agent Health finding when the agent loops on the same call.</em></td>
 </tr>
 </table>
 
