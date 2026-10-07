@@ -152,23 +152,6 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 
 </div>
 
-<br>
-
-<div align="center">
-  <h3>▶ Watch the Demo</h3>
-  <a href="https://youtu.be/9RByIHSV95s">
-    <img src="https://img.youtube.com/vi/9RByIHSV95s/maxresdefault.jpg" alt="SecureVector Demo — Security &amp; Observability for AI Agents, live" width="480">
-  </a>
-  <p><em>Threat detection, tool permissions, and cost tracking — running locally in real time.</em></p>
-</div>
-
-<br>
-
-<div align="center">
-  <img src="docs/guardian-bot.gif" width="150" alt="The Guardian bot, cycling through its accent colors">
-  <p><em>Meet the Guardian, our new on-device advisor. Pick any of its six colors.</em></p>
-</div>
-
 > **What's new in v6.0.0**
 > - **Agent Sessions**: launch Claude Code, Codex, GitHub Copilot CLI or OpenCode from inside SecureVector and watch every tool call get checked beside the terminal. [Guide](docs/AGENT_SESSIONS.md)
 > - **Bring your own sessions**: an agent you started in your own terminal appears in the app as soon as it makes a tool call. Add it to the board, continue it in the app, or leave it where it is.
