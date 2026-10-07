@@ -88,12 +88,25 @@ async def test_schema_version_advances_to_45(tmp_path):
     # the model turn that made them; backfills proxy trace ids.
     # v47: guardian_cleared_events: rule-only detections the Guardian model
     # cleared before recording, so the veto stays countable on Threats.
+    # v48: terminal_tasks and terminal_events for Agent Terminals — the task
+    # board plus a hash-chained audit trail for spawn/input/stop/hook/exit.
+    # v49: terminal_tasks.archived_at so a finished Agent Task can leave the
+    # active board without deleting its hash-chained audit trail.
+    # v50: terminal_tasks.origin ('launch' | 'linked') so a harness session
+    # started outside the app can be linked by its session id and governed
+    # on the board with no PTY of its own.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 47
+    # v51: egress_audit.action accepts 'observed' for calls read back from a
+    # harness transcript after the fact (no hook fired, nothing was governed).
+    # v52: external_forward_outbox.kind accepts 'task_event' for metadata-only
+    # Agent Task lifecycle rows bound for the fleet destination.
+    # v53: external_forward_outbox.kind accepts 'generation' (model turn
+    # rows for the fleet destination) plus the fleet_generation_sent markers.
+    assert CURRENT_SCHEMA_VERSION == 54
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 47
+    assert row["v"] == 54
     exists = await db.fetch_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
     )

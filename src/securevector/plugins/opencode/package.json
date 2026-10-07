@@ -1,6 +1,6 @@
 {
   "name": "@securevector/opencode-guard",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "SecureVector Guard for OpenCode - policy enforcement, tamper-evident audit, and threat scanning for OpenCode tool calls, backed by the local SecureVector app.",
   "type": "module",
   "main": "index.js",

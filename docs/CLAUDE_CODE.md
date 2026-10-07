@@ -33,8 +33,10 @@ Then pick one of the two install paths:
 ### Option A — via the app UI
 
 1. Open `http://127.0.0.1:8741` in a browser.
-2. **Integrations → Claude Code**.
+2. **Connect Agents → Claude Code**.
 3. Click **Install Plugin**.
+
+With the npm launcher the CLI equivalents are `securevector --install-plugin claude-code` and `securevector --uninstall-plugin claude-code`.
 
 ### Option B — via CLI
 

@@ -153,8 +153,13 @@ const GovernancePage = {
             '@keyframes sv-gov-flash{0%,100%{box-shadow:0 0 0 0 rgba(94,173,184,0);}50%{box-shadow:0 0 0 3px rgba(94,173,184,0.30);}}',
             '.sv-gov-flash{animation:sv-gov-flash 0.6s ease-in-out 3;}',
             '@keyframes gov-in{from{opacity:0;transform:translateY(7px);}to{opacity:1;transform:none;}}',
-            '.gov-wrap{max-width:920px;}',
+            '.gov-wrap{width:100%;max-width:1180px;margin-inline:auto;box-sizing:border-box;}',
             '.gov-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--elevate-1);}',
+            '.gov-overview{display:grid;grid-template-areas:"coverage gaps" "action gaps";grid-template-columns:minmax(260px,.75fr) minmax(0,1.5fr);gap:16px;align-items:start;margin-bottom:16px;}',
+            '.gov-overview>.gov-card{min-width:0;margin-bottom:0;}',
+            '.gov-cov-card{grid-area:coverage;}',
+            '.gov-gaps-card{grid-area:gaps;}',
+            '.gov-next{grid-area:action;}',
             // v5 posture hero — the signature card gets the deeper elevation
             // and a hairline accent so the score reads as the page centerpiece.
             '.gov-hero{padding:22px 24px;box-shadow:var(--elevate-2);}',
@@ -183,11 +188,12 @@ const GovernancePage = {
             '.gov-stat{font-size:11px;font-weight:600;color:var(--text-secondary);display:inline-flex;align-items:center;gap:6px;}',
             '.gov-stat i{width:8px;height:8px;border-radius:2px;display:inline-block;font-style:normal;}',
             // Next-action card — the page's to-do, not just a report.
-            '.gov-next{display:flex;align-items:center;gap:14px;border-left:3px solid var(--next-color,var(--accent-primary));}',
+            '.gov-next{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-left:3px solid var(--next-color,var(--accent-primary));}',
+            '.gov-next>div{flex:1;min-width:min(100%,180px);overflow-wrap:anywhere;}',
             '.gov-next-eyebrow{font-family:var(--font-mono);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--next-color,var(--accent-primary));font-weight:700;}',
             '.gov-next-lab{font-family:var(--font-display);font-weight:650;font-size:14px;color:var(--text-primary);margin-top:2px;}',
             '.gov-next-note{font-size:12px;color:var(--text-secondary);margin-top:3px;line-height:1.5;}',
-            '.gov-next-btn{flex:none;margin-left:auto;border:1px solid var(--next-color,var(--accent-primary));border-radius:8px;padding:8px 16px;cursor:pointer;',
+            '.gov-next-btn{flex:none;max-width:100%;margin-left:auto;border:1px solid var(--next-color,var(--accent-primary));border-radius:8px;padding:8px 16px;cursor:pointer;white-space:normal;overflow-wrap:anywhere;',
             '  background:color-mix(in srgb, var(--next-color,var(--accent-primary)) 12%, transparent);color:var(--text-primary);font:600 12.5px var(--font-display,inherit);transition:background .15s;}',
             '.gov-next-btn:hover{background:color-mix(in srgb, var(--next-color,var(--accent-primary)) 22%, transparent);}',
             // Evidence tiles — live enforcement counts that click through to the
@@ -201,6 +207,34 @@ const GovernancePage = {
             '.gov-hist{display:flex;align-items:flex-end;gap:3px;height:26px;margin-top:12px;}',
             '.gov-hist i{display:inline-block;width:9px;border-radius:2px 2px 0 0;min-height:3px;opacity:.9;}',
             '.gov-hist-note{font-size:10.5px;color:var(--text-muted);margin-top:5px;}',
+            // Coverage + gaps (6.0.0): colour is security state only. Amber
+            // marks a high gap (nothing was blocked, so never red); the rest
+            // stay neutral.
+            '.gov-cov-row{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-top:8px;}',
+            '.gov-cov-pct{font-family:var(--font-mono);font-weight:700;font-size:40px;line-height:1;letter-spacing:-0.03em;color:var(--text-primary);font-variant-numeric:tabular-nums;}',
+            '.gov-cov-of{font-size:13px;color:var(--text-secondary);}',
+            '.gov-cov-delta{font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);}',
+            '.gov-cov-track{height:8px;margin-top:18px;border-radius:999px;background:var(--border-default);overflow:hidden;}',
+            '.gov-cov-fill{display:block;height:100%;border-radius:inherit;background:var(--accent-primary);}',
+            '.gov-cov-empty{font-family:var(--font-display);font-weight:650;font-size:18px;color:var(--text-primary);margin-top:8px;}',
+            '.gov-cov-note{font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5;}',
+            '.gov-gap{display:flex;align-items:flex-start;gap:12px;border-top:1px solid var(--border-default);padding:13px 4px;}',
+            '.gov-gap:first-of-type{border-top:none;}',
+            '.gov-gap-ico{flex:none;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:var(--text-muted,#7d8590);background:rgba(125,133,144,0.12);}',
+            '.gov-gap-high .gov-gap-ico{color:var(--warning,#f59e0b);background:rgba(245,158,11,0.14);}',
+            '.gov-gap-body{flex:1;min-width:0;}',
+            '.gov-gap-title{font-size:13.5px;font-weight:650;color:var(--text-primary);}',
+            '.gov-gap-detail{font-size:12px;color:var(--text-secondary);margin-top:3px;line-height:1.5;}',
+            '.gov-gap-fix{flex:none;align-self:center;border:1px solid var(--border-default);border-radius:8px;padding:6px 12px;cursor:pointer;background:transparent;color:var(--text-primary);font:600 12px var(--font-display,inherit);}',
+            '.gov-gap-fix:hover,.gov-gap-fix:focus-visible{border-color:var(--accent-primary);}',
+            '.gov-gap-hint{flex:none;align-self:center;max-width:220px;font-size:11.5px;color:var(--text-secondary);text-align:right;}',
+            '@media (max-width:900px){.gov-overview{grid-template-areas:"coverage" "gaps" "action";grid-template-columns:minmax(0,1fr);}}',
+            '@media (max-width:600px){.gov-gap{flex-wrap:wrap;}.gov-gap-fix,.gov-gap-hint{margin-left:38px;max-width:calc(100% - 38px);text-align:left;}.gov-next{flex-wrap:wrap;}.gov-next-btn{margin-left:0;}}',
+            '.gov-checklist>summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--text-primary);padding:14px 20px;list-style:revert;}',
+            '.gov-checklist-help{display:block;margin-top:3px;font-size:11px;font-weight:400;line-height:1.4;color:var(--text-muted);}',
+            '.gov-checklist{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;margin-bottom:16px;}',
+            '.gov-checklist[open]>summary{border-bottom:1px solid var(--border-default);}',
+            '.gov-checklist-body{padding:14px 14px 0;}',
         ].join('');
         document.head.appendChild(st);
     },
@@ -273,7 +307,7 @@ const GovernancePage = {
         // Evidence: what enforcement actually did in the last 7 days — the
         // live numbers that make posture concrete (and give the page a pulse).
         let traceRows = [];
-        try { const td = await API.getTraces({ window_days: 7 }); traceRows = (td && td.runs) || []; } catch (e) {}
+        try { const td = await API.getTraces({ window_days: 7, health: 0 }); traceRows = (td && td.runs) || []; } catch (e) {}
         const cloudOn = !!(cloud && cloud.cloud_mode_enabled && cloud.credentials_configured);
         const recentActivity = traceRows.length > 0;
         const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen, sessionCount, openclawActive, recentActivity };
@@ -299,6 +333,179 @@ const GovernancePage = {
         };
     },
 
+    _esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    },
+
+    WATCHED: 'Watched: tool calls SecureVector has no record of, Guard plugins that are not active, Codex hook trust, egress hosts no rule decided, approvals waiting on you, and runs that loop or fail.',
+
+    DELTA_MIN_CALLS: 20,
+
+    _coverageSkeletonHtml() {
+        return '<div style="font-weight:700;font-size:14px;color:var(--text-primary);">Governed coverage, last 7 days</div>' +
+            '<div class="gov-skel gov-cov-note" aria-busy="true">Checking recent sessions...</div>';
+    },
+
+    _gapsSkeletonHtml() {
+        return '<div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:4px;">Gaps to close</div>' +
+            '<div class="gov-skel gov-cov-note" aria-busy="true">Looking for gaps in recent activity...</div>';
+    },
+
+    /** Coverage card body: the share of model-issued tool calls that were
+     *  checked, or an honest "not enough data" (never a made-up 100%). */
+    _coverageHtml(data) {
+        const e = (s) => this._esc(s);
+        const days = (data && data.window_days) || 7;
+        const cov = (data && data.coverage) || null;
+        const sinceMs = cov && cov.recording_since ? Date.parse(cov.recording_since) : NaN;
+        const since = Number.isFinite(sinceMs) ? new Date(sinceMs).toISOString().slice(0, 10) : '';
+        let html = '<div class="gov-cov-title" style="font-weight:700;font-size:14px;color:var(--text-primary);">Governed coverage, last ' + e(days) + ' days' +
+            (since ? ' <span class="gov-cov-since" style="font-weight:500;color:var(--text-muted);">(since ' + e(since) + ', when recording began)</span>' : '') + '</div>';
+        if (!cov || cov.pct === null || cov.pct === undefined || !Number.isFinite(Number(cov.pct))) {
+            const why = cov && cov.note ? cov.note : 'Coverage could not be loaded right now.';
+            html += '<div class="gov-cov-empty">Not enough data yet</div>';
+            html += '<div class="gov-cov-note">' + e(why) + ' Coverage counts the tool calls Claude Code and Codex record in their own transcripts.</div>';
+            return html;
+        }
+        const pct = Math.max(0, Math.min(100, Number(cov.pct)));
+        const n = Number(cov.governed_calls) || 0, m = Number(cov.total_calls) || 0;
+        html += '<div class="gov-cov-row"><div class="gov-cov-pct">' + e(pct.toFixed(pct % 1 ? 1 : 0)) + '<span style="color:var(--text-muted);font-size:24px;">%</span></div>';
+        html += '<div><div class="gov-cov-of">' + e(n.toLocaleString()) + ' of ' + e(m.toLocaleString()) + ' tool call' + (m === 1 ? ' was' : 's were') + ' checked</div>';
+        // A change is shown only when both windows hold enough calls (20)
+        // for the difference to mean something.
+        const prevM = Number(cov.prev_total_calls) || 0;
+        if (m >= this.DELTA_MIN_CALLS && prevM >= this.DELTA_MIN_CALLS &&
+            cov.prev_pct !== null && cov.prev_pct !== undefined && Number.isFinite(Number(cov.prev_pct))) {
+            const d = Math.round((pct - Number(cov.prev_pct)) * 10) / 10;
+            const arrow = d > 0 ? '▲' : (d < 0 ? '▼' : '');
+            html += '<div class="gov-cov-delta">' + (d === 0 ? 'No change' : e(arrow + ' ' + Math.abs(d) + ' pts')) + ' vs previous ' + e(days) + ' days' + (cov.prev_partial ? ' (partial)' : '') + '</div>';
+        }
+        html += '</div></div>';
+        html += '<div class="gov-cov-track" role="progressbar" aria-label="Governed coverage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + e(pct) + '">' +
+            '<span class="gov-cov-fill" style="width:' + e(pct) + '%"></span></div>';
+        html += '<div class="gov-cov-note">Calls the agents made (from their transcripts) that a SecureVector Guard hook checked.</div>';
+        if (data && data.partial) html += '<div class="gov-cov-partial gov-cov-note">Still checking older sessions. Reload in a moment for the full count.</div>';
+        return html;
+    },
+
+    /** "Gaps to close": one row per gap with a Fix button, or the empty
+     *  state. Fix targets ride on data attributes and are read back, never
+     *  evaluated. */
+    _gapsHtml(data) {
+        const e = (s) => this._esc(s);
+        const days = (data && data.window_days) || 7;
+        let html = '<div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:4px;">Gaps to close</div>';
+        if (!data) {
+            return html + '<div class="gov-cov-note">Gaps could not be loaded right now.</div>';
+        }
+        const gaps = Array.isArray(data.gaps) ? data.gaps : [];
+        if (!gaps.length) {
+            return html + '<div class="gov-gaps-empty" style="font-size:13px;color:var(--text-primary);margin-top:6px;">No gaps in the last ' + e(days) + ' days.</div>' +
+                '<div class="gov-cov-note">' + e(this.WATCHED) + '</div>';
+        }
+        gaps.forEach((g, i) => {
+            const sev = g.severity === 'high' ? 'high' : (g.severity === 'warn' ? 'warn' : 'info');
+            const glyph = sev === 'info' ? 'i' : '!';
+            const fix = g.fix || {};
+            let fixHtml = '';
+            if (fix.route || fix.action) {
+                fixHtml = '<button type="button" class="gov-gap-fix" data-gap-index="' + i + '"' +
+                    (fix.route ? ' data-route="' + e(fix.route) + '"' : '') +
+                    (fix.action ? ' data-action="' + e(fix.action) + '"' : '') + '>' + e(fix.label || 'Fix') + '</button>';
+            } else if (fix.label) {
+                fixHtml = '<div class="gov-gap-hint">' + e(fix.label) + '</div>';
+            }
+            html += '<div class="gov-gap gov-gap-' + sev + '" data-kind="' + e(g.kind) + '">' +
+                '<span class="gov-gap-ico" aria-label="' + e(sev) + '">' + glyph + '</span>' +
+                '<div class="gov-gap-body"><div class="gov-gap-title">' + e(g.title) + '</div>' +
+                '<div class="gov-gap-detail">' + e(g.detail) + '</div></div>' + fixHtml + '</div>';
+        });
+        return html;
+    },
+
+    _nextAction(rows, band, gapsData) {
+        const activityGaps = gapsData && Array.isArray(gapsData.gaps) ? gapsData.gaps : null;
+        const activityGap = activityGaps && activityGaps[0];
+        if (activityGap) {
+            const fix = activityGap.fix || {};
+            return {
+                color: activityGap.severity === 'high' ? 'var(--warning, #f59e0b)' : 'var(--accent-primary)',
+                label: activityGap.title || 'Review an activity gap',
+                note: activityGap.detail || (fix.label && !fix.route && !fix.action ? fix.label : 'Review this gap in recent activity.'),
+                button: fix.route || fix.action ? (fix.label || 'Fix now') : '',
+                route: fix.route || null,
+                action: fix.action || null,
+            };
+        }
+        const firstSetupGap = rows.find(r => r.gap) || rows.find(r => r.required && r.state === 'partial');
+        if (firstSetupGap) {
+            return { color: this._mark(firstSetupGap).color, label: firstSetupGap.label, note: firstSetupGap.note,
+                button: 'Fix now →', route: firstSetupGap.nav };
+        }
+        if (band.unassessed) {
+            return { color: 'var(--accent-primary)', label: 'Connect an agent',
+                note: 'Nothing has reported through SV Guard / SDK yet, so there is nothing to govern. Connect a runtime to light this page up.',
+                button: 'Connect →', route: 'guide-connect-agents' };
+        }
+        const coverage = gapsData && gapsData.coverage;
+        if (!activityGaps || gapsData.partial || !coverage || !Number.isFinite(coverage.pct)) {
+            return { color: 'var(--accent-primary)', label: 'Review current enforcement',
+                note: 'Recent activity could not be fully checked. Review the activity gaps above and try again in a moment.',
+                button: 'Blocked Actions →', route: 'blocked-ledger' };
+        }
+        return { color: 'var(--success, #10b981)', label: 'No gaps: review what enforcement did',
+            note: 'Every required control is enforced for your connected integrations. Blocked Actions holds the receipts.',
+            button: 'Blocked Actions →', route: 'blocked-ledger' };
+    },
+
+    _renderNextAction(nextCard, rows, band, gapsData) {
+        const action = this._nextAction(rows, band, gapsData);
+        nextCard.textContent = '';
+        nextCard.style.setProperty('--next-color', action.color);
+        const body = document.createElement('div');
+        const eyebrow = document.createElement('div'); eyebrow.className = 'gov-next-eyebrow'; eyebrow.textContent = 'Next action'; body.appendChild(eyebrow);
+        const label = document.createElement('div'); label.className = 'gov-next-lab'; label.textContent = action.label; body.appendChild(label);
+        const note = document.createElement('div'); note.className = 'gov-next-note'; note.textContent = action.note; body.appendChild(note);
+        nextCard.appendChild(body);
+        if (action.button) {
+            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn'; btn.textContent = action.button;
+            btn.addEventListener('click', () => this._runFix(action.route, action.action, btn));
+            nextCard.appendChild(btn);
+        }
+    },
+
+    async _runFix(route, action, btn) {
+        if (route) return this._go(route);
+        const m = /^install_plugin:([a-z0-9-]+)$/.exec(String(action || ''));
+        if (!m || !window.API || !API.installGuard) return;
+        const label = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Installing...'; }
+        let failed = false;
+        try {
+            await API.installGuard(m[1]);
+            const overview = btn && btn.closest ? btn.closest('.gov-overview') : null;
+            const directCard = btn && btn.closest ? btn.closest('.gov-gaps-card') : null;
+            const card = directCard || (overview ? overview.querySelector('.gov-gaps-card') : null);
+            const covCard = overview ? overview.querySelector('.gov-cov-card') : document.querySelector('.gov-cov-card');
+            const data = await API.getGovernanceGaps({ window_days: 7, refresh: true });
+            if (card) this._fillGaps(card, data);
+            if (covCard) covCard.innerHTML = this._coverageHtml(data);
+            if (this._nextActionRefresh) this._nextActionRefresh(data);
+        } catch (err) {
+            failed = true;
+        } finally {
+            // The row may have been redrawn; a surviving button always comes back.
+            if (btn) { btn.disabled = false; btn.textContent = failed ? 'Install failed, retry' : label; }
+        }
+    },
+
+    _fillGaps(card, data) {
+        card.innerHTML = this._gapsHtml(data);
+        card.querySelectorAll('.gov-gap-fix').forEach(btn => {
+            btn.addEventListener('click', () => this._runFix(btn.getAttribute('data-route'), btn.getAttribute('data-action'), btn));
+        });
+    },
+
     async render(container) {
         this._injectStyle();
         container.textContent = '';
@@ -307,6 +514,26 @@ const GovernancePage = {
         let firstView = true;
         try { firstView = sessionStorage.getItem('sv-governance-flashed') !== '1'; } catch (e) {}
 
+        // Governance from real activity leads: what was checked, then the
+        // gaps to close. Both render at once as skeletons and fill when the
+        // gaps call answers, so the page is never blank while it runs. The
+        // 7-control setup checklist follows, collapsed.
+        const wrap = document.createElement('div'); wrap.className = 'gov-wrap';
+        const overview = document.createElement('div'); overview.className = 'gov-overview';
+        const covCard = document.createElement('div'); covCard.className = 'gov-card gov-cov-card';
+        covCard.innerHTML = this._coverageSkeletonHtml();
+        overview.appendChild(covCard);
+        const gapsCard = document.createElement('div'); gapsCard.className = 'gov-card gov-gaps-card';
+        gapsCard.innerHTML = this._gapsSkeletonHtml();
+        overview.appendChild(gapsCard);
+        wrap.appendChild(overview);
+        container.appendChild(wrap);
+        const gapsPromise = (window.API && API.getGovernanceGaps) ? API.getGovernanceGaps({ window_days: 7 }) : Promise.resolve(null);
+        const gapsDataPromise = Promise.resolve(gapsPromise).catch(() => null);
+        gapsDataPromise.then((gapsData) => {
+            covCard.innerHTML = this._coverageHtml(gapsData);
+            this._fillGaps(gapsCard, gapsData);
+        });
         const { settings, cloud, cloudOn, traceRows, ctx, agentTxt } = await this._gather();
         const { activeRuntimes, sessionCount } = ctx;
 
@@ -316,7 +543,6 @@ const GovernancePage = {
         const partialCount = rows.filter(r => r.state === 'partial').length;
         const gapCount = rows.filter(r => r.gap).length;
 
-        const wrap = document.createElement('div'); wrap.className = 'gov-wrap';
         const card = (mb) => { const d = document.createElement('div'); d.className = 'gov-card'; if (mb != null) d.style.marginBottom = mb + 'px'; return d; };
 
         // "What this is + scope" — collapsed by default so the posture hero
@@ -353,14 +579,26 @@ const GovernancePage = {
         };
         applyIntro();
         inHead.addEventListener('click', () => { introOpen = !introOpen; try { localStorage.setItem(introKey, introOpen ? '1' : '0'); } catch (_) {} applyIntro(); });
-        wrap.appendChild(intro);
+        wrap.insertBefore(intro, overview);
 
         // Band + segmented posture meter
         const C = { on: 'var(--success, #10b981)', native: 'var(--accent-primary, #5eadb8)', partial: 'var(--warning, #f59e0b)', gap: 'var(--danger, #ef4444)', off: 'var(--text-muted, #7d8590)' };
         const counts = { on: 0, native: 0, partial: 0, gap: 0, off: 0 };
         rows.forEach(r => { if (r.state === 'on') counts.on++; else if (r.state === 'native') counts.native++; else if (r.state === 'partial') counts.partial++; else if (r.gap) counts.gap++; else counts.off++; });
 
-        const bandCard = card(); bandCard.className = 'gov-card gov-hero' + (firstView ? ' sv-gov-flash' : '');
+        const checklist = document.createElement('details');
+        checklist.className = 'gov-checklist';
+        const clSummary = document.createElement('summary');
+        clSummary.textContent = 'Protection controls · ' + (counts.on + counts.native) + '/' + rows.length + ' active';
+        const clHelp = document.createElement('span');
+        clHelp.className = 'gov-checklist-help';
+        clHelp.textContent = 'Configuration status only. Recent enforcement coverage and missed calls are shown above.';
+        clSummary.appendChild(clHelp);
+        checklist.appendChild(clSummary);
+        const clBody = document.createElement('div'); clBody.className = 'gov-checklist-body';
+        checklist.appendChild(clBody);
+
+        const bandCard = card(); bandCard.className = 'gov-card gov-hero';
         const head = document.createElement('div'); head.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;';
         const hLeft = document.createElement('div'); hLeft.style.cssText = 'display:flex; align-items:baseline; gap:16px; flex-wrap:wrap;';
         // v5 signature: the posture reads as a telemetry instrument — a big
@@ -387,7 +625,7 @@ const GovernancePage = {
         const pill = document.createElement('div'); pill.style.cssText = 'display:inline-flex; align-items:center; gap:9px; padding:8px 18px; border-radius:999px; border:1px solid ' + band.color + '; background:color-mix(in srgb, ' + band.color + ' 12%, transparent); color:' + band.color + '; font-family:var(--font-display); font-weight:600; font-size:15px; letter-spacing:.2px;';
         const dot = document.createElement('span'); dot.style.cssText = 'width:9px; height:9px; border-radius:50%; background:' + band.color + '; box-shadow:0 0 8px ' + band.color + ';'; pill.appendChild(dot);
         pill.appendChild(document.createTextNode(band.name));
-        pill.title = band.name + ' — ' + band.def + '. Operational posture, not a compliance score.';
+        pill.title = band.name + ': ' + band.def + '. Operational posture, not a compliance score.';
         head.appendChild(pill); bandCard.appendChild(head);
 
         const meter = document.createElement('div'); meter.className = 'gov-meter';
@@ -428,7 +666,7 @@ const GovernancePage = {
                     const frac = h.t ? h.e / h.t : 0;
                     i.style.height = Math.max(12, Math.round(frac * 100)) + '%';
                     i.style.background = h.g > 0 ? 'var(--warning, #f59e0b)' : 'var(--success, #10b981)';
-                    i.title = h.d + ' — ' + h.e + '/' + h.t + ' enforced' + (h.g ? ', ' + h.g + ' gap' + (h.g === 1 ? '' : 's') : '');
+                    i.title = h.d + ': ' + h.e + '/' + h.t + ' enforced' + (h.g ? ', ' + h.g + ' gap' + (h.g === 1 ? '' : 's') : '');
                     bars.appendChild(i);
                 });
                 bandCard.appendChild(bars);
@@ -445,90 +683,22 @@ const GovernancePage = {
                 }
                 bandCard.appendChild(note);
             }
-        } catch (_) { /* history is a bonus — never break the page */ }
-        wrap.appendChild(bandCard);
+        } catch (_) { /* history is a bonus, never break the page */ }
+        clBody.appendChild(bandCard);
 
-        // --- Next action: the single highest-impact thing to do right now.
-        // Gaps are ranked by CONTROLS order (blocking first), so the first gap
-        // is the one to fix. No gaps → point at the evidence instead. This is
-        // what turns the page from a report into a to-do.
-        const firstGap = rows.find(r => r.gap) || rows.find(r => r.required && r.state === 'partial');
+        // --- Next action: prioritize activity gaps from the resolved response,
+        // then setup controls. The activity request started alongside _gather.
+        const gapsData = await gapsDataPromise;
         const nextCard = card();
         nextCard.classList.add('gov-next');
-        if (firstGap) {
-            const m2 = this._mark(firstGap);
-            nextCard.style.setProperty('--next-color', m2.color);
-            const body = document.createElement('div');
-            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
-                '<div class="gov-next-lab"></div><div class="gov-next-note"></div>';
-            body.querySelector('.gov-next-lab').textContent = firstGap.label;
-            body.querySelector('.gov-next-note').textContent = firstGap.note;
-            nextCard.appendChild(body);
-            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
-            btn.textContent = 'Fix now →';
-            btn.addEventListener('click', () => this._go(firstGap.nav));
-            nextCard.appendChild(btn);
-        } else if (band.unassessed) {
-            nextCard.style.setProperty('--next-color', 'var(--accent-primary)');
-            const body = document.createElement('div');
-            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
-                '<div class="gov-next-lab">Connect an agent</div>' +
-                '<div class="gov-next-note">Nothing has reported through SV Guard / SDK yet, so there is nothing to govern. Connect a runtime to light this page up.</div>';
-            nextCard.appendChild(body);
-            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
-            btn.textContent = 'Connect →';
-            btn.addEventListener('click', () => this._go('guide-connect-agents'));
-            nextCard.appendChild(btn);
-        } else {
-            nextCard.style.setProperty('--next-color', 'var(--success, #10b981)');
-            const body = document.createElement('div');
-            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
-                '<div class="gov-next-lab">No gaps: review what enforcement did</div>' +
-                '<div class="gov-next-note">Every required control is enforced for your connected integrations. The evidence below links to the receipts.</div>';
-            nextCard.appendChild(body);
-            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
-            btn.textContent = 'Blocked Actions →';
-            btn.addEventListener('click', () => this._go('blocked-ledger'));
-            nextCard.appendChild(btn);
-        }
-        wrap.appendChild(nextCard);
+        this._renderNextAction(nextCard, rows, band, gapsData);
+        overview.appendChild(nextCard);
+        this._nextActionRefresh = (data) => {
+            if (nextCard.isConnected) this._renderNextAction(nextCard, rows, band, data);
+        };
 
-        // --- Evidence: live enforcement counts (7 days), each tile deep-links
-        // to the page holding the receipts. SOC colour discipline: neutral
-        // numbers; colour only where it encodes a security state.
-        {
-            const evi = card();
-            const eTitle = document.createElement('div'); eTitle.textContent = 'Evidence: last 7 days on this device';
-            eTitle.style.cssText = 'font-weight:700; font-size:14px; color:var(--text-primary);';
-            evi.appendChild(eTitle);
-            const eHint = document.createElement('div');
-            eHint.textContent = 'What the controls above actually did. Click a tile for the detail.';
-            eHint.style.cssText = 'font-size:11.5px; color:var(--text-muted); margin-top:2px;';
-            evi.appendChild(eHint);
-            const sum = (k) => traceRows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-            const tiles = document.createElement('div'); tiles.className = 'gov-evi';
-            const tile = (n, label, nav, color) => {
-                const t = document.createElement('button'); t.type = 'button'; t.className = 'gov-evi-tile';
-                const v = document.createElement('div'); v.className = 'gov-evi-n'; v.textContent = Number(n).toLocaleString();
-                if (color && n > 0) v.style.color = color;
-                const l = document.createElement('div'); l.className = 'gov-evi-l'; l.textContent = label;
-                t.appendChild(v); t.appendChild(l);
-                t.addEventListener('click', () => this._go(nav));
-                tiles.appendChild(t);
-            };
-            tile(sum('spans'), 'tool runs governed', 'agent-runs');
-            tile(sum('detections'), 'threats detected', 'threats', 'var(--danger, #ef4444)');
-            tile(sum('blocked'), 'actions blocked', 'blocked-ledger', 'var(--success, #10b981)');
-            tile(sum('secrets'), 'secrets caught', 'redactions', 'var(--warning, #f59e0b)');
-            evi.appendChild(tiles);
-            if (!traceRows.length) {
-                const none = document.createElement('div');
-                none.style.cssText = 'font-size:11.5px; color:var(--text-muted); margin-top:8px;';
-                none.textContent = 'No agent traces in the window yet: these fill in as soon as a connected agent runs.';
-                evi.appendChild(none);
-            }
-            wrap.appendChild(evi);
-        }
+        // Evidence tiles were dropped in 6.0.0: the coverage card above
+        // carries the live numbers.
 
         // (Scope + explainer are merged into the yellow intro block at the top.)
 
@@ -574,7 +744,8 @@ const GovernancePage = {
                 list.appendChild(setup);
             }
         });
-        wrap.appendChild(list);
+        clBody.appendChild(list);
+        wrap.appendChild(checklist);
 
         // How measured + provenance + disclaimer
         const meta = card();
@@ -615,7 +786,7 @@ const GovernancePage = {
             wrap.insertBefore(cta, wrap.firstChild);
         }
 
-        container.appendChild(wrap);
+        if (wrap.parentNode !== container) container.appendChild(wrap);
 
         if (firstView) { try { sessionStorage.setItem('sv-governance-flashed', '1'); } catch (e) {} }
     },

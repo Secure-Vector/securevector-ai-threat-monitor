@@ -1,0 +1,40 @@
+{
+  "securevector-guard": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__SV_PLUGIN_ROOT__/hooks/pre-tool-use.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__SV_PLUGIN_ROOT__/hooks/post-tool-use.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreInvocation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__SV_PLUGIN_ROOT__/hooks/pre-invocation.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -163,15 +163,15 @@ test('the reaction rides the existing per-category cooldown, not a new timer', (
   const calls = [...a.matchAll(/this\._react\(/g)];
   assert.equal(calls.length, 1, 'the Guardian must react from exactly one call site');
   assert.match(a, /BUBBLE_COOLDOWN_MS/);
-  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood, act })'));
+  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood, act, openTask })'));
   assert.match(speak.slice(0, 400), /if \(this\._bubbleEl && this\._bubbleEl\.isConnected\) return false;/);
 });
 
 test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
-  assert.match(html, /guardian-bot\.js\?v=13/);
+  assert.match(html, /guardian-bot\.js\?v=14/);
   assert.match(html, /guardian-3d\.js\?v=18/);
-  assert.match(html, /guardian-assistant\.js\?v=47/);
+  assert.match(html, /guardian-assistant\.js\?v=49/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {
@@ -180,7 +180,8 @@ test('a live card says which agent it means, and the copy button says where it g
   assert.match(a, /_liveWho\(s\) \{/);
   // the bubble names the agent by number only: the id never reaches a toast
   // that ends up in screenshots and recordings
-  assert.match(a, /num > 0 \? `Agent #\$\{num\}` : 'Live session'/);
+  assert.match(a, /num > 0 && this\._currentPage\(\) === 'costs'/);
+  assert.match(a, /title = `Agent #\$\{num\}`;/);
   // the number comes from the same activity list the Optimizer numbers from,
   // so one session cannot end up with two different names across the app
   assert.match(a, /this\._activityIds/);
@@ -233,6 +234,7 @@ test('agent identity: numbered when known, never guessed when not', () => {
   const GA = loadAssistant();
   const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
   GA._activityIds = ['aaaa1111-x', 'bbbb2222-y'];
+  GA._currentPage = () => 'costs'; // the number only exists where the Optimizer shows it
 
   const first = GA._liveWho({
     session_id: 'aaaa1111-x', harness: 'claude-code',
@@ -252,7 +254,7 @@ test('agent identity: numbered when known, never guessed when not', () => {
   const unknown = GA._liveWho({
     session_id: 'cccc3333-z', harness: 'cursor', model: 'sonnet', last_activity: ago(9000),
   });
-  assert.equal(unknown.title, 'Live session');
+  assert.equal(unknown.title, 'A cursor session');
   assert.match(unknown.sub, /active 3h ago$/);
 
   // no metadata at all: the sub-line is empty so the card omits it entirely
@@ -677,4 +679,36 @@ test('the bot color picker is scoped to the mascot and respects the theme', () =
   assert.match(g3, /halo\.material\.color\.setHex\(tinted \? acc : 0xffffff\)/);
   assert.ok(bot.includes('[data-bot-accent] .sv-gbot .gb-pod { fill: var(--sv-bot-accent); }'));
   assert.match(g3, /attributeFilter: \['data-theme', 'data-bot-accent'\]/);
+});
+
+test('off Costs, a session is named by its task, or harness and folder, never a number', () => {
+  const GA = loadAssistant();
+  GA._currentPage = () => 'terminals';
+  GA._activityIds = ['aaaa1111-x'];
+  GA._govTasks = [{ id: 't1', title: 'Fetch page title', session_id: 'aaaa1111-x' }];
+  assert.equal(GA._liveWho({ session_id: 'aaaa1111-x', harness: 'claude-code' }).title,
+    '"Fetch page title" (Claude Code)');
+  assert.equal(GA._liveWho({ session_id: 'zzz', harness: 'claude-code', cwd: '/Users/me/acme-weather' }).title,
+    'Claude Code in acme-weather');
+  assert.equal(GA._liveWho({ session_id: 'zzz', harness: 'claude-code' }).title, 'A Claude Code session');
+  assert.equal(GA._liveWho({ session_id: 'zzz' }).title, 'A live session');
+});
+
+test('context alert CTA: governed task opens the session, others go to the Optimizer', () => {
+  const GA = loadAssistant();
+  GA._currentPage = () => 'terminals';
+  GA._govTasks = [{ id: 't1', title: 'Fetch page title', session_id: 'aaaa1111-x' }];
+  const got = [];
+  GA._speak = (o) => { got.push(o); return true; };
+  GA._speakContextAlert('x', { session_id: 'aaaa1111-x' });
+  assert.equal(got[0].cta, 'Open the session');
+  assert.equal(got[0].page, 'terminals');
+  assert.equal(got[0].openTask, 't1');
+  GA._speakContextAlert('x', { session_id: 'other' });
+  assert.equal(got[1].cta, 'See it in Cost Optimizer');
+  assert.equal(got[1].page, 'costs');
+  assert.equal(got[1].tab, 'optimizer');
+  // a bare home folder is not a useful name
+  assert.equal(GA._liveWho({ session_id: 'o', harness: 'claude-code', cwd: '/Users/yash' }).title,
+    'A Claude Code session');
 });

@@ -627,11 +627,21 @@ LIVE_THRESHOLD_DEFAULTS = {
 }
 
 
+# The context windows actually on offer, smallest first. A session cannot
+# land between two of these, so an observed peak above one tier places the
+# session on the next: see _effective_ceiling.
+_CONTEXT_TIERS = (200_000, 1_000_000)
+
+
 def _context_window(model: Optional[str]) -> int:
     """Model-name fallback for the fill % denominator. Unknown models assume
     200K, the common window for current Anthropic models; a [1m] suffix marks
     the long-context window. Evidence beats this lookup: see
-    _effective_ceiling."""
+    _effective_ceiling.
+
+    Note the suffix is frequently absent. Harness session files record the
+    plain id ("claude-opus-5") even for a run on the long-context window, so
+    a False here means "no evidence in the name", never "not 1M"."""
     if model and "[1m]" in model:
         return 1_000_000
     return 200_000
@@ -664,16 +674,28 @@ def _effective_ceiling(model: Optional[str], records: list[dict],
        user-configurable per session (e.g. 600K on a 1M window), so the
        model's max is the wrong number whenever the two differ. The most
        recent auto trigger wins, because the setting can change mid-session.
-    2. Otherwise the model-name lookup, raised to the observed context peak
-       when the peak disproves it: a session once read "118% full" because
-       the lookup said 200K and the session said otherwise. Fill therefore
-       never exceeds 100.
+    2. Otherwise the model-name lookup, promoted when the observed peak
+       disproves it. A session once read "118% full" because the lookup said
+       200K and the session said otherwise; raising the denominator to the
+       peak itself fixed that but replaced it with a session pinned at
+       exactly 100% of whatever it had already used, which reads as "compact
+       now" to someone with three quarters of a 1M window left. A run past a
+       tier is evidence of the next tier, not of a window that happens to
+       equal its own high-water mark. Fill still never exceeds 100.
     """
     auto = [pre for _, trig, pre in _compact_boundaries(records)
             if trig == "auto" and pre > 0]
     if auto:
         return max(auto[-1], 1)
-    return max(_context_window(model), ctx_peak, 1)
+    nominal = _context_window(model)
+    if ctx_peak > nominal:
+        for tier in _CONTEXT_TIERS:
+            if tier > ctx_peak:
+                return tier
+        # Past every tier we know about. Fall back to the peak so fill stays
+        # bounded rather than inventing a ceiling from nothing.
+        return max(ctx_peak, 1)
+    return max(nominal, 1)
 
 
 def _tail_records(path: Path, tail_bytes: int = 524288) -> list[dict]:

@@ -32,9 +32,10 @@ const CommandPalette = {
             // 'blocked-ledger' and 'redactions' are facets of Threat Monitor now,
             // but stay searchable here: users look for them by name, and the
             // ids remain routable straight to the right facet.
-            if (['dashboard', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
-                'blocked-ledger', 'redactions', 'costs', 'egress'].includes(id)) return 'Visibility';
-            if (['tool-permissions', 'rules', 'egress-policy', 'skill-scanner', 'guardian-ml',
+            if (['dashboard', 'terminals', 'threats', 'agent-activity', 'agent-map', 'storylines', 'run-health',
+                'instant-audit', 'blocked-ledger', 'redactions', 'costs', 'egress'].includes(id)) return 'Visibility';
+            // Tool Activity lives under Policies > Tool Permissions since 6.0.0.
+            if (['tool-permissions', 'tool-activity', 'rules', 'egress-policy', 'skill-scanner', 'guardian-ml',
                 'cost-settings', 'governance', 'mcp-policies', 'policies'].includes(id)) return 'Configure';
             if (['connect-wizard', 'guide-connect-agents', 'integrations'].includes(id) || id.startsWith('proxy-')) return 'Connect';
             if (['siem-export', 'cloud-activity'].includes(id)) return 'Cloud & Forwarders';
@@ -56,9 +57,14 @@ const CommandPalette = {
             });
         });
         // A few high-value aliases people will actually type.
-        push('agent-runs', 'Traces: trace + run waterfall');
-        push('agent-timeline', 'Traces: Live feed');
-        push('storylines', 'Traces: grouped by agent');
+        push('agent-runs', 'Observability: trace + run waterfall');
+        push('run-health', 'Observability: Health findings');
+        push('agent-map', 'Observability: Map');
+        push('agent-timeline', 'Observability: Live feed');
+        // Out of the rail since 6.0.0 but still routable destinations.
+        push('tool-activity', 'Tool Activity', 'Policies Tool Permissions bill-of-tools');
+        push('instant-audit', 'Instant Audit', 'Threats audit past sessions');
+        push('storylines', 'Observability: grouped by agent');
         push('bill-of-tools', 'Tool Inventory (SBOM)');
         // Folded into Threat Monitor as facets — no longer nav entries, so the
         // loop above cannot emit them. People still search these by name, and

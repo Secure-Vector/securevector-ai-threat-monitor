@@ -230,7 +230,7 @@ const InstantAuditPage = {
             const sid = link.dataset.sid;
             // Traces route caps window_days at 90 (le=90); 365 returns a 422
             // and silently drops every link to the "no trace" toast.
-            const res = await API.getTraces({ window_days: 90, limit: 500 });
+            const res = await API.getTraces({ window_days: 90, limit: 500, health: 0 });
             const run = ((res && res.runs) || []).find(x => x.session_id === sid);
             if (run && window.AgentRunsPage) {
                 AgentRunsPage._pendingTrace = run.trace_id;

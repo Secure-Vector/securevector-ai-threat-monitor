@@ -185,24 +185,22 @@ def test_build_graph_3layer_emits_three_node_kinds_and_two_edge_tiers():
     assert len(hs) == 3
 
 
-def test_build_graph_3layer_numbers_agents_globally_by_recency():
+def test_build_graph_3layer_labels_sessions_by_stable_id():
     raw = [
         _row3("claude-code", "old", "srv:read", 1, allowed=1, last_used="2026-06-01 09:00:00"),
         _row3("claude-code", "new", "srv:read", 1, allowed=1, last_used="2026-06-05 17:00:00"),
     ]
     g = build_graph_3layer(raw, window_days=7, now=_NOW)
     sessions = {n["id"]: n for n in g["nodes"] if n["kind"] == "session"}
-    # newest run is agent #1
-    assert sessions["session:new"]["num"] == 1
-    assert sessions["session:new"]["label"] == "agent #1"
-    assert sessions["session:old"]["num"] == 2
+    assert sessions["session:new"]["label"] == "Session new"
+    assert sessions["session:old"]["label"] == "Session old"
 
 
 def test_build_graph_3layer_agent_numbers_unique_across_harnesses():
-    # Regression: per-harness numbering produced three "agent #1"s (one per
-    # harness) that were indistinguishable on the flat Traces list. Numbering
-    # is global now — every session gets a unique #N, newest-first, regardless
-    # of which harness it ran on.
+    # Regression: per-harness numbering used to produce three "agent #1"s
+    # (one per harness), indistinguishable on the flat Traces list. Sessions
+    # are labelled by their own stable session id now, so that collision
+    # cannot recur regardless of which harness ran them.
     raw = [
         _row3("claude-code", "cc", "srv:read", 1, allowed=1, last_used="2026-06-05 17:00:00"),
         _row3("codex", "cx", "srv:read", 1, allowed=1, last_used="2026-06-05 16:00:00"),
@@ -210,12 +208,9 @@ def test_build_graph_3layer_agent_numbers_unique_across_harnesses():
     ]
     g = build_graph_3layer(raw, window_days=7, now=_NOW)
     sessions = {n["id"]: n for n in g["nodes"] if n["kind"] == "session"}
-    nums = sorted(s["num"] for s in sessions.values())
-    assert nums == [1, 2, 3]  # unique, not three #1s
-    # recency-ordered globally: newest across all harnesses is #1
-    assert sessions["session:cc"]["num"] == 1
-    assert sessions["session:cx"]["num"] == 2
-    assert sessions["session:lc"]["num"] == 3
+    labels = sorted(s["label"] for s in sessions.values())
+    assert labels == ["Session cc", "Session cx", "Session lc"]  # unique
+    assert "num" not in sessions["session:cc"]
 
 
 def test_build_graph_3layer_marks_active_and_idle_days():

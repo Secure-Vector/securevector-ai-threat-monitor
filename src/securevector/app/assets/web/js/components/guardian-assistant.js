@@ -38,6 +38,7 @@ const GuardianAssistant = {
     RECAP_MAX_AGE_MS: 60 * 60 * 1000,     // too old to mention
     RECAP_MIN_CONTEXT: 60000,
     CONTEXT_ALERT_TOKENS: 150000,        // live session re-sending this much per turn
+    HARNESS_NAMES: { 'claude-code': 'Claude Code', codex: 'Codex' },
     CONTEXT_REALERT_GROWTH: 1.5,         // speak again only after 1.5x growth
     BUDGET_ALERT_SHARE: 0.8,             // spoken when a user-set daily budget is 80% used
     LIVE_MS: 45000,                      // live advisor poll cadence
@@ -1083,6 +1084,12 @@ const GuardianAssistant = {
             look: 'Pending requests at the top are agents waiting on your answer right now.',
             cta: 'See what was blocked', page: 'blocked-ledger',
         },
+        terminals: {
+            noun: 'Agent Sessions',
+            what: 'Launch a governed harness task here, then open its card for the live terminal, each tool call\'s verdict, and any approvals waiting on you.',
+            look: 'Waiting approval is the urgent state: your agent is paused until you allow or deny that exact tool call.',
+            cta: 'Review tool permissions', page: 'tool-permissions',
+        },
         rules: {
             noun: 'the rules',
             what: 'Rules are the detection library: each one names the pattern it watches for and what happens on a match.',
@@ -1504,7 +1511,7 @@ const GuardianAssistant = {
     THOUGHT_GAP_MS: 5 * 60 * 1000,   // first thought 5 min after the last word
     THOUGHT_SETTLE_MS: 2 * 60 * 1000,
 
-    _speak({ text, cta, page, tab, mood, act }) {
+    _speak({ text, cta, page, tab, mood, act, openTask }) {
         if (this._quiet() || !this._fab) return false;
         this._lastEventAt = Date.now(); // something happened; the shift is not quiet
         if (this._bubbleEl && this._bubbleEl.isConnected) return false; // one at a time
@@ -1525,6 +1532,7 @@ const GuardianAssistant = {
         go.addEventListener('click', () => {
             this._hideBubble();
             if (act) { this._act(act); return; } // in-place: the answer is on THIS page
+            if (openTask) { try { sessionStorage.setItem('sv-agent-task-id', openTask); } catch (e) { /* storage unavailable */ } }
             if (tab && page === 'costs' && window.CostsPage) CostsPage._pendingTab = tab;
             if (tab && page === 'egress' && window.EgressPage) EgressPage._state.tab = tab;
             if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(page);
@@ -1598,6 +1606,13 @@ const GuardianAssistant = {
         return `active ${Math.round(m / 60)}h ago`;
     },
 
+    /** The governed Agent Sessions task whose harness session id is this one
+     *  (task.session_id, set by the first hook event). Null when none. */
+    _taskFor(sessionId) {
+        if (!sessionId) return null;
+        return (this._govTasks || []).find(t => t.session_id === sessionId) || null;
+    },
+
     /** Which agent this card is talking about. The number comes from the same
      *  activity list the Optimizer's session list numbers from, so one session
      *  never ends up with two names; when that list is not loaded yet the card
@@ -1608,8 +1623,25 @@ const GuardianAssistant = {
         const ids = ((this._activityIds || [])).filter(Boolean);
         const num = ids.indexOf(s.session_id) + 1;
         // The bubble is a transient toast that ends up in screenshots and
-        // recordings: the agent number is enough, the id stays off it.
-        const title = num > 0 ? `Agent #${num}` : 'Live session';
+        // recordings: never the id or a path. The "Agent #N" number only means
+        // something on Costs, where the Optimizer shows it; elsewhere name the
+        // session by its task title, or harness plus folder.
+        let title;
+        if (num > 0 && this._currentPage() === 'costs') {
+            title = `Agent #${num}`;
+        } else {
+            const h = s.harness ? (this.HARNESS_NAMES[s.harness] || String(s.harness)) : '';
+            const task = this._taskFor(s.session_id);
+            // A bare home folder (/Users/name) says nothing useful: skip it.
+            const segs = String(s.workspace || s.cwd || '').split(/[\\/]/).filter(Boolean);
+            const base = segs[segs.length - 1];
+            const isHome = segs.length <= 2
+                || (/^(users|home)$/i.test(segs[0] || '') && base === segs[1]);
+            const ws = isHome ? '' : base;
+            if (task && task.title) title = `"${task.title}"` + (h ? ` (${h})` : '');
+            else if (h && ws) title = `${h} in ${ws}`;
+            else title = h ? `A ${h} session` : 'A live session';
+        }
         const parts = [s.harness, s.model, this._ago(s.last_activity)].filter(Boolean);
         return { title, sub: parts.join(' · ') };
     },
@@ -1771,6 +1803,13 @@ const GuardianAssistant = {
         // actually shrank. A paste on its own is never celebrated.
         st.wins = st.wins || {};
         const win = this._nextWin(live, st);
+        // Task names are only needed when something is about to speak.
+        if (win || toSpeak) {
+            try {
+                const tr = await API.terminalsTasks();
+                this._govTasks = (tr && tr.items) || [];
+            } catch (_) { /* keep the previous task list */ }
+        }
         if (win && (!toSpeak || toSpeak.stage !== 'last_call') && !this._quiet()) {
             const spoke = this._speak({
                 text: this._winText(win), cta: 'See the receipt',
@@ -1798,9 +1837,7 @@ const GuardianAssistant = {
                 act_now: `${who} is ${pct}% full. Compact at the next stopping point or quality will drop before auto-compact forces it.`,
                 last_call: `${who} is ${pct}% full. Auto-compact is imminent and will pick its own moment. Compact now.`,
             };
-            const spoke = this._speak({
-                text: lines[stage], cta: 'See the session', page: 'costs', tab: 'optimizer', mood: 'concerned',
-            });
+            const spoke = this._speakContextAlert(lines[stage], s);
             if (spoke) {
                 st.stages[s.session_id] = stage; // each stage speaks once per session
                 if (stage !== 'heads_up') {
@@ -1838,11 +1875,24 @@ const GuardianAssistant = {
         return wins.find(w => w && w.id && !st.wins[w.id]) || null;
     },
 
+    /** Speak a context alert. A governed task opens on Agent Sessions with
+     *  that task selected; any other session goes to the Cost Optimizer. */
+    _speakContextAlert(text, s) {
+        const gov = this._taskFor(s.session_id);
+        return this._speak({
+            text, mood: 'concerned',
+            ...(gov
+                ? { cta: 'Open the session', page: 'terminals', openTask: gov.id }
+                : { cta: 'See it in Cost Optimizer', page: 'costs', tab: 'optimizer' }),
+        });
+    },
+
     /** Congratulations with the number attached. A win with nothing to show
      *  for it is just noise, so every line names what actually moved. */
     _winText(win) {
         const who = win.session_id
-            ? this._liveWho({ session_id: win.session_id }).title
+            ? this._liveWho(((this._liveData && this._liveData.sessions) || [])
+                .find(x => x.session_id === win.session_id) || { session_id: win.session_id }).title
             : 'that session';
         const before = (win.before || {}).context_tokens;
         const after = (win.after || {}).context_tokens;
