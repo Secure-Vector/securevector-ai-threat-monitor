@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.1] - 2026-10-08
+
+### Changed
+- `@securevector/cli`: reliability and security improvements to how the launcher finds Python and installs its environment.
+
+### Fixed
+- Codex: a tool call that fails is now recorded as failed instead of successful (Codex Guard plugin 5.3.1; reinstall the plugin to pick it up).
+- Agent Runs: the tool-call count on a run row is no longer cut off in the split view.
+- Rules: setting or resetting a community rule override now returns the rule with the change applied.
+- Terminals: calls blocked by the egress check now appear in the session's Tool calls list.
+- Terminals: in single-pane view, the pane strip now shows the name of the attached task.
+- Terminals: after Claude Code `/clear`, the task follows the new session and keeps the earlier session's traces.
+
 ## [6.0.0] - 2026-10-03
 
 ### Added
@@ -19,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The governance column stays on the right and becomes a strip that opens as an overlay on narrow windows. It shows recent verdicts, traces, approvals, context fill and token waste with a Compact now button, and the external hosts the task reached, blocked ones first.
 - Tool approvals can be answered from the governance column: allow for 15 minutes, 1 hour or the rest of the session, or deny.
 - A session summary appears when a session ends, with a Summary toggle while it runs and a JSON export.
-- The Launch form installs a missing Guard in place, and shows a disabled "GovRun harness by SecureVector · Coming soon" option.
+- The Launch form installs a missing Guard in place.
 - A session started in your own terminal appears under Running outside SecureVector once its Guard reports a call. You can add it to the board, continue it in the app, restart it in the same folder, or unlink it. A session that still writes its transcript but sends no governed calls is marked unverified.
 - Completed tasks can be archived off the active list. The task row and its hash-chained events are kept for audit.
 - Closing the window while a task runs hides it instead of quitting. Quit asks before stopping running tasks.

@@ -593,6 +593,10 @@ const AgentRunsPage = {
             .ar-layout.split .ar-run-secondary .ar-compact-meta { display:flex; align-items:center; gap:5px; min-width:0;
                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
             .ar-layout.split .ar-run-secondary > .ar-row-c { display:none; }
+            /* The tool-call count never gives way: the id, runtime, Terminal cue, blocked and cost shrink first. */
+            .ar-layout.split .ar-compact-meta > span { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+            .ar-layout.split .ar-compact-meta > .ar-meta-count { flex:0 0 auto; overflow:visible; }
+            .ar-layout.split .ar-compact-meta > .ar-row-health { flex:0 0 auto; }
             .ar-layout.split .ar-run-primary .ar-row-id { display:none; }
             .ar-layout.split .ar-run-primary .ar-row-health { display:none; }
             .ar-layout.split .ar-run-primary .ar-live { width:8px; height:8px; padding:0; border:0; font-size:0; letter-spacing:0; }
@@ -1719,8 +1723,8 @@ const AgentRunsPage = {
             // align under the header. Zero-count cells render a dim dash so
             // the eye catches the non-zero (colored) cells instantly.
             const dash = '<span class="ar-dim0">—</span>';
-            const signals = [r.spans ? `${Number(r.spans)} tool call${Number(r.spans) === 1 ? '' : 's'}` : '',
-                r.blocked ? `${Number(r.blocked)} blocked` : '',
+            const toolCount = r.spans ? `${Number(r.spans)} tool call${Number(r.spans) === 1 ? '' : 's'}` : '';
+            const signals = [r.blocked ? `${Number(r.blocked)} blocked` : '',
                 Number(r.cost) > 0 ? this._costCell(r, '') : ''].filter(Boolean).join(' · ');
             card.innerHTML =
                 `<span class="ar-run-primary"><svg class="ar-row-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
@@ -1735,7 +1739,8 @@ const AgentRunsPage = {
                 `<span>· ${this._esc(r.runtime_kind || 'unknown')}</span>` +
                 (r.terminal_task && r.terminal_task.id ? '<span class="ar-terminal-cue" title="Linked Terminal task">· Terminal ↗</span>' : '') +
                 (window.TraceSteps && TraceSteps.badgesHtml(r.health) ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
-                (signals ? `<span>· ${signals}</span>` : '') + `</span>` +
+                (toolCount ? `<span class="ar-meta-count">· ${toolCount}</span>` : '') +
+                (signals ? `<span class="ar-meta-signals">· ${signals}</span>` : '') + `</span>` +
                 `<span class="ar-row-c col-tools"><span class="ar-num">${r.spans}</span></span>` +
                 `<span class="ar-row-c col-blk">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
                 `<span class="ar-row-c col-det" title="threats detected in this trace">${r.detections ? `${AR_VIRUS_SVG('#ef4444', 12)}<span class="ar-num" style="color:#ef4444"> ${r.detections}</span>` : dash}</span>` +

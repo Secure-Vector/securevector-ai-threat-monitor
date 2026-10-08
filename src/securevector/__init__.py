@@ -49,7 +49,7 @@ from .types import (  # Type definitions for better IDE support
 
 # Defined before the MCP imports below: securevector.mcp reads it while this
 # module is still initialising, and a later definition makes that import fail.
-__version__ = "6.0.0"
+__version__ = "6.0.1"
 
 # MCP Server imports (optional - only if MCP dependencies available)
 try:
