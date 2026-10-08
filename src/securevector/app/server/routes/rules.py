@@ -572,6 +572,38 @@ async def delete_custom_rule(rule_id: str) -> None:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _community_rule_response(rule, override) -> RuleResponse:
+    """A community rule as the API reports it, with ``override`` applied.
+
+    Same precedence as ``list_rules``: each override field wins only when set.
+    """
+    enabled = override.enabled if (override and override.enabled is not None) else rule.enabled
+    severity = override.severity if (override and override.severity) else rule.severity
+    patterns = override.patterns if (override and override.patterns) else rule.patterns
+    # created_at as list_rules derives it: synced_at, then loaded_at, then the
+    # legacy metadata value.
+    rule_meta = rule.metadata or {}
+    created_at = (
+        rule_meta.get("synced_at")
+        or (rule.loaded_at.isoformat() if getattr(rule, "loaded_at", None) else None)
+        or rule_meta.get("created_at")
+    )
+    return RuleResponse(
+        id=rule.id,
+        name=rule.name,
+        category=rule.category,
+        description=rule.description,
+        severity=severity,
+        patterns=patterns,
+        enabled=enabled,
+        source="community",
+        has_override=override is not None,
+        metadata=rule.metadata,
+        created_at=created_at,
+        updated_at=override.updated_at.isoformat() if (override and override.updated_at) else None,
+    )
+
+
 @router.put("/rules/{rule_id}/override", response_model=RuleResponse)
 async def set_rule_override(rule_id: str, request: RuleOverrideRequest) -> RuleResponse:
     """
@@ -588,8 +620,12 @@ async def set_rule_override(rule_id: str, request: RuleOverrideRequest) -> RuleR
             patterns=request.patterns,
         )
 
-        # TODO: Return the effective rule with override applied
-        # For now, return a placeholder
+        rule = await repo.get_community_rule(rule_id)
+        if rule is not None:
+            return _community_rule_response(rule, override)
+
+        # No cached community rule under this id: answer from the override
+        # alone rather than inventing rule fields.
         return RuleResponse(
             id=rule_id,
             name=f"Rule {rule_id}",
@@ -625,7 +661,10 @@ async def reset_rule_override(rule_id: str) -> RuleResponse:
         if not deleted:
             raise HTTPException(status_code=404, detail="Override not found")
 
-        # TODO: Return the original community rule
+        rule = await repo.get_community_rule(rule_id)
+        if rule is not None:
+            return _community_rule_response(rule, None)
+
         return RuleResponse(
             id=rule_id,
             name=f"Rule {rule_id}",

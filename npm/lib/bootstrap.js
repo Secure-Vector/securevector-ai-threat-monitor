@@ -23,6 +23,75 @@ const path = require('node:path');
 
 const PYPI_PACKAGE = 'securevector-ai-monitor';
 
+// The only index this launcher installs from unless the user says otherwise.
+const DEFAULT_PIP_INDEX = 'https://pypi.org/simple';
+
+// The pip the venv is upgraded to before the install. 24.0 is the floor that
+// handles every wheel tag the app's dependencies publish for Python 3.10 to
+// 3.13; the cap at the next major keeps an unreviewed pip release out of a
+// security tool's install path. Revisit when pip 27 ships.
+const PIP_SELF_SPEC = 'pip>=24.0,<27';
+
+// Variables that can point pip at another index or local wheels. Any one of
+// them in the user's shell turns `pip install securevector-ai-monitor` into
+// "install whatever that index serves under this name" (dependency confusion).
+const PIP_INDEX_VARS = ['PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL', 'PIP_FIND_LINKS', 'PIP_NO_INDEX', 'PIP_TRUSTED_HOST'];
+
+/**
+ * The index to install from: PyPI, unless SECUREVECTOR_PIP_INDEX names another.
+ * pip's own PIP_INDEX_URL and pip.conf are deliberately not honoured; a mirror
+ * has to be chosen for this product on purpose, not inherited from the shell.
+ */
+function pipIndex(env = process.env) {
+  const own = env.SECUREVECTOR_PIP_INDEX;
+  if (!own || !own.trim()) return DEFAULT_PIP_INDEX;
+  const value = own.trim();
+  let url = null;
+  try {
+    url = new URL(value);
+  } catch {
+    url = null;
+  }
+  // Packages from a plain http index can be swapped in transit.
+  if (!url || url.protocol !== 'https:') {
+    throw new Error(`SECUREVECTOR_PIP_INDEX must be an https:// URL, got: ${value}`);
+  }
+  return value;
+}
+
+/** The environment pip runs with: no config files, no inherited index settings. */
+function pipEnv(env = process.env) {
+  const out = { ...env };
+  const banned = new Set(PIP_INDEX_VARS.concat('PIP_CONFIG_FILE'));
+  for (const key of Object.keys(out)) {
+    if (banned.has(key.toUpperCase())) delete out[key];
+  }
+  // os.devnull as the config file is pip's documented way to load no pip.conf
+  // at all, user, global or site.
+  out.PIP_CONFIG_FILE = os.devnull;
+  return out;
+}
+
+/** pip arguments for installing `spec` from the chosen index, and only that. */
+function pipInstallArgs(spec, env = process.env) {
+  return ['-I', '-m', 'pip', 'install', '--index-url', pipIndex(env), spec];
+}
+
+/**
+ * Where install children run. Python puts the current directory first on
+ * sys.path for `-m`, so a checkout carrying `venv/` or `pip/` could run its
+ * own code; `-I` (isolated mode, Python 3.4+) already stops that, and a
+ * working directory we own is the second guard.
+ */
+function childCwd() {
+  try {
+    fs.mkdirSync(envRoot(), { recursive: true });
+    return envRoot();
+  } catch {
+    return os.homedir();
+  }
+}
+
 /**
  * Where the managed environment lives.
  *
@@ -39,7 +108,11 @@ function envRoot() {
   if (os.platform() === 'darwin') {
     return path.join(home, 'Library', 'Application Support', 'SecureVector', 'npm-runtime');
   }
-  return path.join(process.env.XDG_DATA_HOME || path.join(home, '.local', 'share'), 'securevector', 'npm-runtime');
+  // The XDG spec says a relative XDG_DATA_HOME is invalid and must be ignored;
+  // honouring "." would put the environment inside whatever folder this runs in.
+  const xdg = process.env.XDG_DATA_HOME;
+  const dataHome = xdg && path.isAbsolute(xdg) ? xdg : path.join(home, '.local', 'share');
+  return path.join(dataHome, 'securevector', 'npm-runtime');
 }
 
 /** One environment per version, so upgrading never half-migrates an old one. */
@@ -92,8 +165,16 @@ function install(python, version, { extras = 'app', quiet = false } = {}) {
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
 
+  let index;
+  try {
+    index = pipIndex();
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+  const cwd = childCwd();
+
   const { command, args } = splitPython(python);
-  if (!run(command, [...args, '-m', 'venv', target])) {
+  if (!run(command, [...args, '-I', '-m', 'venv', target], { cwd })) {
     return { ok: false, reason: 'Could not create the virtual environment.' };
   }
 
@@ -101,16 +182,29 @@ function install(python, version, { extras = 'app', quiet = false } = {}) {
   // Upgrade pip inside the venv first: an old pip on the system Python is a
   // common cause of a wheel resolving wrongly, and this keeps that out of the
   // failure surface. Failure here is not fatal; the install may still work.
-  run(pip, ['-m', 'pip', 'install', '--upgrade', 'pip'], { stdio: 'ignore' });
+  // Its output is shown: it is a network install like the one below.
+  const childEnv = pipEnv();
+  if (index !== DEFAULT_PIP_INDEX) say(`  using package index           ${index}  (SECUREVECTOR_PIP_INDEX)`);
+  run(pip, ['-I', '-m', 'pip', 'install', '--index-url', index, '--upgrade', PIP_SELF_SPEC], {
+    cwd,
+    env: childEnv,
+    stdio: quiet ? 'ignore' : 'inherit',
+  });
 
-  if (!run(pip, ['-m', 'pip', 'install', spec])) {
+  if (!run(pip, pipInstallArgs(spec), { cwd, env: childEnv })) {
     return {
       ok: false,
       reason: [
         `Could not install ${spec} from PyPI.`,
         '',
         'Common causes: no network, a proxy that needs configuring, or this',
-        'version not being published yet. The environment was left at',
+        'version not being published yet.',
+        '',
+        'pip.conf is ignored for this install. If it set a certificate or a',
+        'proxy, set PIP_CERT or HTTPS_PROXY, or point SECUREVECTOR_PIP_INDEX at',
+        'your https mirror.',
+        '',
+        'The environment was left at',
         `  ${target}`,
         'so you can look, or delete it and try again.',
       ].join('\n'),
@@ -120,8 +214,25 @@ function install(python, version, { extras = 'app', quiet = false } = {}) {
 }
 
 function splitPython(candidate) {
+  // findPython hands back an absolute command (which may contain spaces);
+  // only a bare string is split.
+  if (candidate && typeof candidate === 'object') return { command: candidate.command, args: candidate.args || [] };
   const parts = candidate.split(' ');
   return { command: parts[0], args: parts.slice(1) };
 }
 
-module.exports = { envRoot, venvPath, venvBin, isReady, install, splitPython, PYPI_PACKAGE };
+module.exports = {
+  envRoot,
+  venvPath,
+  venvBin,
+  isReady,
+  install,
+  splitPython,
+  pipIndex,
+  pipEnv,
+  pipInstallArgs,
+  childCwd,
+  PYPI_PACKAGE,
+  DEFAULT_PIP_INDEX,
+  PIP_SELF_SPEC,
+};

@@ -291,6 +291,56 @@ function pickMatch(candidates, overrides) {
   return null;
 }
 
+// The audit reason a failed call carries; the app reads the "tool error"
+// prefix as an error (run health, custom tools), same as the Claude Code plugin.
+const TOOL_ERROR_REASON = 'tool error';
+
+function nonZeroCode(v) {
+  if (typeof v === 'number') return Number.isFinite(v) && v !== 0;
+  if (typeof v === 'string' && /^-?\d+$/.test(v.trim())) return Number(v.trim()) !== 0;
+  return false;
+}
+
+/**
+ * Did the tool run and fail? Codex has no PostToolUseFailure event: one
+ * PostToolUse fires for every call, failed or not (for Bash, also after a
+ * non-zero exit), and the outcome is only in `tool_response`. Without this
+ * check every failed Codex call was recorded as a plain success.
+ *
+ * Shapes recognised:
+ *   - MCP CallToolResult: { isError: true }
+ *   - structured output: { exit_code | exitCode: N≠0 }, { metadata: { exit_code: N≠0 } },
+ *     { success: false }, { is_error: true }
+ *   - Codex's model-facing shell text: a header line "Exit code: N" or
+ *     "Process exited with code N" before the "Output:" section (the
+ *     command's own output is never read, so it cannot fake an outcome;
+ *     text with no "Output:" line has no header and is never parsed)
+ *   - a JSON string carrying any of the above.
+ */
+function isToolFailure(toolResponse, depth = 0) {
+  if (toolResponse == null || depth > 2) return false;
+  if (typeof toolResponse === 'string') {
+    const t = toolResponse.trim();
+    if (t.startsWith('{')) {
+      try { return isToolFailure(JSON.parse(t), depth + 1); } catch { /* not JSON, read as text */ }
+    }
+    // Only Codex's shell format has a header: lines, then an "Output:" line.
+    // Text without that separator is tool output, never read as a header.
+    const sep = t.search(/\r?\n(?:Output|output):/);
+    if (sep < 0) return false;
+    const header = t.slice(0, sep).slice(0, 2000);
+    const m = header.match(/^(?:Exit code:|Process exited with code)\s*(-?\d+)\s*$/m);
+    return Boolean(m && Number(m[1]) !== 0);
+  }
+  if (typeof toolResponse !== 'object' || Array.isArray(toolResponse)) return false;
+  const r = toolResponse;
+  if (r.isError === true || r.is_error === true || r.success === false) return true;
+  if (nonZeroCode(r.exit_code) || nonZeroCode(r.exitCode)) return true;
+  if (r.metadata && typeof r.metadata === 'object' && (nonZeroCode(r.metadata.exit_code) || nonZeroCode(r.metadata.exitCode))) return true;
+  if (typeof r.output === 'string') return isToolFailure(r.output, depth + 1);
+  return false;
+}
+
 async function audit(event, baseUrl) {
   const toolName = (event && (event.tool_name || event.toolName)) || '';
   const candidates = normalize(toolName);
@@ -300,8 +350,12 @@ async function audit(event, baseUrl) {
   const match = pickMatch(candidates, overrides);
 
   const toolId = match ? match.tool_id : candidates[0];
-  const reason = match && typeof match.reason === 'string' ? match.reason : null;
+  const matchReason = match && typeof match.reason === 'string' && match.reason ? match.reason : null;
   const action = match ? effectToAction(match.effect) : 'allow';
+  // A failed call keeps its row and its policy action; the reason carries the
+  // error marker the app reads (no schema change), as with Claude Code.
+  const failed = action !== 'block' && isToolFailure(event && (event.tool_response !== undefined ? event.tool_response : event.toolResponse));
+  const reason = failed ? (matchReason ? `${TOOL_ERROR_REASON}; ${matchReason}` : TOOL_ERROR_REASON) : matchReason;
 
   let argsPreview = '';
   try {
@@ -453,4 +507,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { redact, redactForScan, hasCredentialMarkers, extractScanText, extractScanTextFromResponse, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, THREAT_SCAN_RESPONSE_TOOLS, THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS, RUNTIME_KIND };
+module.exports = { isToolFailure, TOOL_ERROR_REASON, redact, redactForScan, hasCredentialMarkers, extractScanText, extractScanTextFromResponse, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, THREAT_SCAN_RESPONSE_TOOLS, THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS, RUNTIME_KIND };
