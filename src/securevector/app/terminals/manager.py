@@ -33,6 +33,7 @@ from securevector.app.terminals.session_cwd import resolve_session_cwd, session_
 from securevector.app.terminals import live_runs
 from securevector.app.terminals.store import (
     RUNNING,
+    SESSION_RELINKED,
     TerminalStore,
     _plausible_cwd,
     age_seconds,
@@ -112,6 +113,13 @@ class ManagerSettings:
     parent_env: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))
     default_rows: int = 30
     default_cols: int = 120
+
+
+def _log_value(value: object, limit: int = 128) -> str:
+    """A value for a log line: control characters (CR, LF and the rest)
+    replaced, length capped, so one value is always one log field."""
+    text = "".join(ch if ch.isprintable() else "?" for ch in str(value))
+    return text[:limit]
 
 
 def status_from_hook(event: Mapping) -> Tuple[Optional[str], Optional[str]]:
@@ -954,6 +962,32 @@ class TerminalManager:
             task = await self.store.get_task(task_id)
             if task and not task.get("session_id"):
                 await self.store.set_session(task_id, str(session_id))
+            elif (
+                task
+                and event.get("hook_event_name") == "SessionStart"
+                and str(session_id) != task.get("session_id")
+                and SESSION_ID_RE.match(str(session_id))
+            ):
+                # The harness started a new session inside this same task
+                # (Claude Code /clear). Only SessionStart may move the task,
+                # and only through its own per-task token. The id it left stays on the
+                # task's trail, so its traces and verdicts remain its own.
+                old = str(task.get("session_id"))
+                # A session id already held (now, or before a re-link) by
+                # another task on the board stays with that task.
+                others = await self.store.tasks_claiming_session(
+                    str(session_id), exclude_task_id=task_id
+                )
+                if others:
+                    logger.warning(
+                        "refused session re-link for task %s: session is held by task %s",
+                        _log_value(task_id), _log_value(others[0].get("id")),
+                    )
+                else:
+                    await self.store.set_session(task_id, str(session_id))
+                    await self.store.add_event(
+                        task_id, kind=SESSION_RELINKED, origin="hook", detail=old,
+                    )
         status, activity = status_from_hook(event)
         if status is None:
             return True

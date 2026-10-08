@@ -327,7 +327,48 @@ async def list_verdicts(task_id: str, manager: TerminalManager = Depends(get_man
     if not task.get("session_id"):
         return {"items": [], "session_id": None}
     items = await manager.store.list_verdicts(task["session_id"])
-    return {"items": items, "session_id": task["session_id"]}
+    return {
+        "items": items,
+        "session_id": task["session_id"],
+        "session_history": await manager.store.session_history(task_id),
+        "egress_blocks": await _egress_blocks(manager, task["session_id"]),
+    }
+
+
+async def _egress_blocks(manager: TerminalManager, session_id: str) -> list:
+    """Calls the egress check refused in this session, shaped like a verdict
+    row (action block, source egress) so the Tool calls list can show them.
+
+    Read from egress_audit, one row per refused call, never copied into
+    tool_call_audit: the egress row is the record and is not written twice.
+    Kept apart from `items` so the counts that already add egress denies from
+    the destinations read do not count them a second time. Best effort.
+    """
+    try:
+        from securevector.app.database.repositories.egress import EgressRepository
+
+        rows = await EgressRepository(manager.store.db).blocked_calls([session_id], limit=200)
+    except Exception:  # noqa: BLE001 - the list must render without them
+        logger.debug("could not read egress blocks for the verdict list", exc_info=True)
+        return []
+    out = []
+    for r in rows:
+        hosts = r.get("hosts") or []
+        rules = r.get("rule_ids") or []
+        tool = r.get("tool_name") or "network call"
+        out.append({
+            "tool_id": tool,
+            "function_name": tool,
+            "action": "block",
+            "source": "egress",
+            "risk": None,
+            "hosts": hosts,
+            "rule_ids": rules,
+            "reason": "Egress blocked: " + ", ".join(hosts)
+                      + (f" ({', '.join(rules)})" if rules else ""),
+            "called_at": r.get("called_at"),
+        })
+    return out
 
 
 @router.post("/tasks/{task_id}/events", status_code=204)
