@@ -163,7 +163,6 @@ const AgentRunsPage = {
         const changed = JSON.stringify(this.runs) !== JSON.stringify(data.runs) || liveKey !== (this._liveIds || '');
         if (changed) {
             this.runs = data.runs;
-            this._computeAgentNums();
             // The list scrolls with the page, so restore BOTH scroll owners —
             // a live re-sort (a running agent bubbles up) must not move the view.
             const keepScroll = list.scrollTop;

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@securevector/cli`: reliability and security improvements to how the launcher finds Python and installs its environment.
 
 ### Fixed
+- Agent Runs: the run list updates live again while agents are running.
 - Codex: a tool call that fails is now recorded as failed instead of successful (Codex Guard plugin 5.3.1; reinstall the plugin to pick it up).
 - Agent Runs: the tool-call count on a run row is no longer cut off in the split view.
 - Rules: setting or resetting a community rule override now returns the rule with the change applied.
