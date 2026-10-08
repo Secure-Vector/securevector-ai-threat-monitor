@@ -585,12 +585,12 @@ const API = {
         }
         return this._jitToken;
     },
-    async _jitDecision(endpoint, body) {
+    async _jitDecision(endpoint, body, method = 'POST') {
         // NB: request() replaces the whole headers object when options.headers
         // is set (the ...options spread wins), so Content-Type must be
         // restated here or FastAPI 422s on an unparseable body.
         const call = async () => this.request(endpoint, {
-            method: 'POST',
+            method,
             headers: {
                 'Content-Type': 'application/json',
                 'X-SV-UI-Token': await this._getJitToken(),
@@ -971,14 +971,23 @@ const API = {
         return this.request('/api/egress/presets').catch(() => null);
     },
     async patchEgressPolicy(patch) {
-        return this.request('/api/egress/policy', {
-            method: 'PATCH', body: JSON.stringify(patch || {}),
-        });
+        // Human-only, like a JIT decision: carries the per-run UI token.
+        return this._jitDecision('/api/egress/policy', patch || {}, 'PATCH');
+    },
+    // Session-scoped host approval and denylist edits: human-only, so they
+    // carry the same per-run UI token as JIT decisions.
+    async grantEgressHost(host, sessionId, duration) {
+        return this._jitDecision('/api/egress/grants', { host, session_id: sessionId, duration });
+    },
+    async addEgressDeniedHost(host) {
+        return this._jitDecision('/api/egress/denylist', { host });
+    },
+    async removeEgressDeniedHost(host) {
+        return this._jitDecision('/api/egress/denylist/remove', { host });
     },
     async promoteEgressHost(host) {
-        return this.request('/api/egress/promote', {
-            method: 'POST', body: JSON.stringify({ host }),
-        });
+        // Device-wide and permanent, so human-only: carries the UI token.
+        return this._jitDecision('/api/egress/promote', { host });
     },
     async getEgressBlastRadius(days = 30) {
         return this.request(`/api/egress/blast-radius?days=${days}`).catch(() => null);

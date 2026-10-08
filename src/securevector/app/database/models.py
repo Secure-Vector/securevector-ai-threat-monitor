@@ -293,7 +293,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 54
+CURRENT_SCHEMA_VERSION = 55
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -333,7 +333,8 @@ SCHEMA_DESCRIPTION = (
     "lifecycle rows for the fleet destination); "
     "v53: external_forward_outbox.kind accepts 'generation' (metadata-only model turn rows "
     "for the fleet destination) and fleet_generation_sent dedupe markers; "
-    "v54: terminal_tasks.status accepts 'stopped' (a task the user stopped from the app)"
+    "v54: terminal_tasks.status accepts 'stopped' (a task the user stopped from the app); "
+    "v55: egress_audit.session_verified marks rows bound to a session with the task's hook token"
 )
 
 # Migration SQL for v34 — redaction_events table.

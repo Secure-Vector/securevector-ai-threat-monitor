@@ -33,6 +33,7 @@ from securevector.app.terminals.session_cwd import resolve_session_cwd, session_
 from securevector.app.terminals import live_runs
 from securevector.app.terminals.store import (
     RUNNING,
+    SESSION_RELINKED,
     TerminalStore,
     _plausible_cwd,
     age_seconds,
@@ -540,8 +541,27 @@ class TerminalManager:
         """Take a finished task off the board (the store keeps its audit)."""
         archived = await self.store.archive_task(task_id)
         if archived:
+            await self._revoke_host_grants(task_id)
             await self._emit_archived(task_id, origin=origin)
         return archived
+
+    async def _revoke_host_grants(self, task_id: str) -> None:
+        """A task's egress host grants end with it: its current session and
+        every session it held before a re-link. Best effort; the 24h cap on
+        the grant rows remains the backstop."""
+        try:
+            from securevector.app.database.repositories.jit_access import (
+                JitAccessRepository,
+            )
+
+            task = await self.store.get_task(task_id)
+            sids = [task.get("session_id")] if task else []
+            sids += await self.store.session_history(task_id)
+            n = await JitAccessRepository(self.store.db).revoke_session_host_grants(sids)
+            if n:
+                logger.info("revoked %s egress host grant(s) for ended task %s", n, task_id)
+        except Exception:
+            logger.debug("could not revoke host grants for %s", task_id, exc_info=True)
 
     async def _emit_archived(self, task_id: str, *, origin: str) -> None:
         self._live_status.pop(task_id, None)
@@ -874,6 +894,7 @@ class TerminalManager:
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
+        await self._revoke_host_grants(task_id)
         self._live_status.pop(task_id, None)
         if live_runs.has_sink():
             try:
@@ -954,6 +975,35 @@ class TerminalManager:
             task = await self.store.get_task(task_id)
             if task and not task.get("session_id"):
                 await self.store.set_session(task_id, str(session_id))
+            elif (
+                task
+                and event.get("hook_event_name") == "SessionStart"
+                and str(session_id) != task.get("session_id")
+                and SESSION_ID_RE.match(str(session_id))
+            ):
+                # The harness started a new session inside this same task
+                # (Claude Code /clear). Only SessionStart may move the task,
+                # and only through its own per-task token, so a stray id on
+                # another hook cannot re-point it. The id it left stays on the
+                # task's trail, so its traces and verdicts remain its own.
+                old = str(task.get("session_id"))
+                # A session id already held (now, or before a re-link) by
+                # another task on the board is not this task's to take: a
+                # relayed id is the harness's claim, and a crafted one must
+                # not pull another session's verdicts, inbox and grants here.
+                others = await self.store.tasks_claiming_session(
+                    str(session_id), exclude_task_id=task_id
+                )
+                if others:
+                    logger.warning(
+                        "refused session re-link for task %s: session is held by task %s",
+                        task_id, others[0].get("id"),
+                    )
+                else:
+                    await self.store.set_session(task_id, str(session_id))
+                    await self.store.add_event(
+                        task_id, kind=SESSION_RELINKED, origin="hook", detail=old,
+                    )
         status, activity = status_from_hook(event)
         if status is None:
             return True

@@ -1318,9 +1318,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const ago = this._approvalAgo(r.requested_at);
         const noSession = !r.session_id;
         const sid = noSession ? 'no session' : 'session ' + String(r.session_id).slice(0, 8);
+        // A blocked egress host: tool_id is `egress:<host>`, function_name the
+        // rule that fired. Every scope is this session only.
+        const host = String(r.tool_id || '').startsWith('egress:') ? String(r.tool_id).slice(7) : null;
+        const label = host ? `Connect to ${host}` : (r.function_name || r.tool_id);
         return `
               <div class="terminals-approval" data-id="${this._esc(r.id)}">
-                <div class="terminals-approval-tool">${this._esc(r.function_name || r.tool_id)}${ago ? ` <span class="terminals-approval-when">${this._esc(ago)}</span>` : ''}</div>
+                <div class="terminals-approval-tool">${this._esc(label)}${ago ? ` <span class="terminals-approval-when">${this._esc(ago)}</span>` : ''}</div>
+                ${host && r.function_name ? `<div class="terminals-approval-when">Rule <code>${this._esc(r.function_name)}</code> · approval applies to this session only</div>` : ''}
                 <div class="terminals-approval-why">${this._esc(r.justification || 'No justification given')}</div>
                 ${other ? `<div class="terminals-approval-when">${this._esc(sid)}</div>` : ''}
                 <div class="terminals-approval-actions">
@@ -4601,6 +4606,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._bindPaneActs(head.querySelector('#terminals-head-pane-acts'), soloId);
             this._placeSoloGov(soloId);
         }
+        // The tabs are newest first in a strip that scrolls sideways with no
+        // scrollbar, so in single-pane view the visible name was the newest
+        // launch, not the attached task. Bring the attached tab into view.
+        this._revealActiveTab(head);
         const showAllTasks = () => this.showAllTasks();
         const allTasksBtn = head.querySelector('#terminals-all-tasks-btn');
         if (allTasksBtn) allTasksBtn.onclick = showAllTasks;
@@ -5114,24 +5123,33 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // Guard reported in, which is what the banner and the hero need.
             this._sessionReported = rows.length > 0;
             const items = rows.filter(i => !this._isBoundaryRow(i));
-            vEl.innerHTML = items.length ? items.map(i => {
+            // Calls the egress check refused, read from the egress audit (never
+            // copied into the tool-call audit). Listed here with the tool
+            // calls, but kept out of _govCounts: the footer already adds the
+            // session's egress denies from the destinations read.
+            const egressRows = Array.isArray(v.egress_blocks) ? v.egress_blocks : [];
+            const listed = egressRows.length
+                ? items.concat(egressRows).sort((a, b) => this._epochMs(b.called_at) - this._epochMs(a.called_at))
+                : items;
+            vEl.innerHTML = listed.length ? listed.map(i => {
                 const kind = i.action === 'block' ? 'block' : (i.risk === 'amber' ? 'amber' : 'allow');
                 const dot = kind === 'block' ? 'red' : (kind === 'amber' ? 'amber' : 'green');
                 return `
               <div class="terminals-verdict terminals-verdict-${kind}">
                 <span class="terminals-dot sv-status-${dot}"></span>
                 <span class="terminals-verdict-main">
-                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}</span></span>
+                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}</span></span>
                   ${i.reason ? `<span class="terminals-verdict-reason">${this._esc(i.reason)}</span>` : ''}
                 </span>
               </div>`;
             }).join('') : '<span class="terminals-empty">No tool calls yet.</span>';
-            setCount('terminals-verdicts-count', items.length);
-            this._govHas.verdicts = items.length > 0;
+            setCount('terminals-verdicts-count', listed.length);
+            this._govHas.verdicts = listed.length > 0;
             this._govCounts = { governed: items.length, blocked: items.filter(i => i.action === 'block').length };
             // A refused call is a security state, and the rule is that a
             // security state is never the thing hidden behind a closed drawer.
             if (this._govCounts.blocked) this._forceGovSection('terminals-gov-verdicts');
+            if (egressRows.length) this._forceGovSection('terminals-gov-verdicts');
             this._renderPaneFoot();
             const sessionId = v.session_id;
             let traceRuns = [];
@@ -5199,8 +5217,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
                             this._tracesCache = null;
                             fetchFailed = true;
                         } else {
+                            // A task re-linked after /clear keeps its earlier
+                            // sessions' runs: they are still this task's.
+                            const ownSids = new Set([sessionId].concat(Array.isArray(v.session_history) ? v.session_history : []));
                             traceRuns = (tr.runs || [])
-                                .filter(r => r.session_id === sessionId)
+                                .filter(r => ownSids.has(r.session_id))
                                 .sort((a, b) => String(b.started_at || '').localeCompare(String(a.started_at || '')))
                                 .slice(0, 6);
                             this._tracesCache = { taskId: id, sessionId, at: Date.now(), runs: traceRuns };
@@ -5636,7 +5657,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             ? '<div class="terminals-egress-note">Codex\'s built-in web search is not hookable; its activity is listed here after the fact from the local transcript.</div>'
             : '<div class="terminals-egress-note">Turn on transcript reading in Cost &amp; Tokens to list Codex web activity.</div>');
         const sig = [t.session_id, rows.length, blocked, failed, isCodex, consent,
-            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}:${r.observed}`).join('|')].join('~');
+            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}:${r.observed}:${r.rule_id || ''}:${r.grant ? r.grant.id : ''}`).join('|')].join('~');
         if (sig === this._egressSig) return;
         this._egressSig = sig;
         const stale = failed
@@ -5662,17 +5683,93 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 + (isObserved ? ' · observed, not governed' : '');
             const cls = isBlocked ? 'blocked' : (isObserved ? 'observed' : 'allowed');
             const dot = isObserved ? '' : ` sv-status-${isBlocked ? 'red' : 'green'}`;
+            const grant = r.grant;
+            const grantLine = grant
+                ? (grant.duration === 'session'
+                    ? 'Approved for the rest of this session'
+                    : `Approved for this session until ${this._esc(this._grantUntil(grant.expires_at))}`)
+                : '';
+            // The rule that fired, named on the row; its id, the reason and the
+            // approval scopes sit behind Details (progressive disclosure).
+            const details = !isBlocked || !r.rule_id ? '' : `
+                <details class="terminals-egress-details">
+                  <summary>Details</summary>
+                  <div class="terminals-egress-detail-line">Rule <code>${this._esc(r.rule_id)}</code></div>
+                  ${r.reason ? `<div class="terminals-egress-detail-line">${this._esc(r.reason)}</div>` : ''}
+                  ${grant ? `<div class="terminals-egress-detail-line">${grantLine}. Other sessions stay blocked.</div>`
+                    : (t.origin === 'linked'
+                        ? '<div class="terminals-egress-detail-line">A linked session cannot be approved from here. Allow the host on the Agent Egress page if it is right for every session.</div>'
+                    : (r.promotable
+                        ? `<div class="terminals-egress-detail-line">Approve for this session only; other sessions stay blocked.</div>
+                  <div class="terminals-approval-actions" data-egress-host="${this._esc(r.host)}">
+                    <button type="button" class="btn btn-sm" data-egress-dur="15m">15 min</button>
+                    <button type="button" class="btn btn-sm" data-egress-dur="1h">1 hour</button>
+                    <button type="button" class="btn btn-sm" data-egress-dur="session">Rest of session</button>
+                  </div>`
+                        : '<div class="terminals-egress-detail-line">This rule cannot be approved from a session; it needs a policy edit.</div>'))}
+                </details>`;
             return `
               <div class="terminals-egress-row terminals-egress-${cls}">
                 <span class="terminals-dot${dot}"></span>
                 <span class="terminals-egress-host" title="${this._esc(r.host)}">${this._esc(host)}</span>
                 <span class="terminals-egress-meta">${this._esc(meta)}</span>
+                ${isBlocked && (r.rule_title || r.rule_id) ? `<span class="terminals-egress-rule">${this._esc(r.rule_title || r.rule_id)}${grant ? ` · ${this._esc(grantLine.toLowerCase())}` : ''}</span>` : ''}
+                ${details}
               </div>`;
         }).join('') + stale + note + (more > 0
             ? `<button type="button" class="terminals-egress-more" id="terminals-egress-more">+${more} more</button>`
             : '');
         const moreBtn = document.getElementById('terminals-egress-more');
         if (moreBtn) moreBtn.onclick = () => { if (window.Sidebar?.navigate) Sidebar.navigate('egress'); };
+        if (el.querySelectorAll) el.querySelectorAll('[data-egress-dur]').forEach(b => {
+            b.onclick = async () => {
+                const box = b.closest('[data-egress-host]');
+                const hostName = box ? box.dataset.egressHost : '';
+                const sid = t.session_id;
+                const btns = box ? Array.from(box.querySelectorAll('button')) : [b];
+                btns.forEach(x => { x.disabled = true; });
+                try {
+                    await API.grantEgressHost(hostName, sid, b.dataset.egressDur);
+                } catch (e) {
+                    btns.forEach(x => { x.disabled = false; });
+                    this._banner(e.message);
+                    return;
+                }
+                // Read the session again so the row shows the grant now.
+                this._egressAt = 0;
+                this._egressSig = null;
+                this._renderEgress();
+                this._refreshRail();
+            };
+        });
+    },
+
+    /** A timestamp as epoch ms: ISO with a zone, or SQLite's bare UTC
+     *  'YYYY-MM-DD HH:MM:SS'. Unparseable sorts last (0). */
+    _epochMs(v) {
+        const s = String(v || '');
+        if (!s) return 0;
+        const iso = /(Z|[+-]\d\d:?\d\d)$/.test(s) ? s : s.replace(' ', 'T') + 'Z';
+        const t = Date.parse(iso);
+        return Number.isFinite(t) ? t : 0;
+    },
+
+    /** Scroll the strip (never the page) so the attached task's tab shows. */
+    _revealActiveTab(head) {
+        const strip = head && head.querySelector ? head.querySelector('.terminals-pane-tabs') : null;
+        const tab = strip && strip.querySelector ? strip.querySelector('.terminals-pane-tab.is-active') : null;
+        if (!tab || !strip.getBoundingClientRect || !tab.getBoundingClientRect) return;
+        const s = strip.getBoundingClientRect();
+        const r = tab.getBoundingClientRect();
+        if (r.left < s.left) strip.scrollLeft -= (s.left - r.left);
+        else if (r.right > s.right) strip.scrollLeft += (r.right - s.right);
+    },
+
+    /** A grant's expiry (bare UTC from SQLite) as a local clock time. */
+    _grantUntil(iso) {
+        const v = String(iso || '');
+        const d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v : v.replace(' ', 'T') + 'Z');
+        return isNaN(d.getTime()) ? 'it expires' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     },
 
     // --- helpers --------------------------------------------------------

@@ -201,6 +201,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         52: migrate_to_v52,
         53: migrate_to_v53,
         54: migrate_to_v54,
+        55: migrate_to_v55,
     }
 
     if version in migrations:
@@ -2843,3 +2844,28 @@ async def migrate_to_v54(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v54: terminal_tasks status 'stopped'")
+
+
+async def migrate_to_v55(db: DatabaseConnection) -> None:
+    """v54 -> v55: egress_audit.session_verified.
+
+    A session id on an egress audit row is a claim the Guard made. A task the
+    app launched proves it with its hook token; a row written without that
+    proof keeps its session id (the per-session counts and Egress list still
+    work with a Guard plugin from before 6.1.0) but is marked unverified: it
+    never files an approval request, is never grantable, and no grant clears
+    it. Idempotent: an existing column is left alone.
+    """
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(egress_audit)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+    if "session_verified" not in existing_columns:
+        await conn.execute(
+            "ALTER TABLE egress_audit ADD COLUMN session_verified INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (55, CURRENT_TIMESTAMP, 'egress_audit.session_verified')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v55: egress_audit.session_verified")

@@ -844,6 +844,11 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                 # would lift policy denies too, not just the run cap.
                 if g["tool_id"] == "*":
                     continue
+                # Host approvals for a blocked egress destination are read by
+                # the egress evaluator only; as a tool allow row they would
+                # name a "tool" that does not exist, or worse, its suffix.
+                if str(g["tool_id"]).startswith("egress:"):
+                    continue
                 grant_base = {
                     "effect": "allow",
                     "priority": 150,  # above synced (100) — see note above
