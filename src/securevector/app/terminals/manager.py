@@ -115,13 +115,6 @@ class ManagerSettings:
     default_cols: int = 120
 
 
-def _log_value(value: object, limit: int = 128) -> str:
-    """A value for a log line: control characters (CR, LF and the rest)
-    replaced, length capped, so one value is always one log field."""
-    text = "".join(ch if ch.isprintable() else "?" for ch in str(value))
-    return text[:limit]
-
-
 def status_from_hook(event: Mapping) -> Tuple[Optional[str], Optional[str]]:
     """Map a relayed hook payload to (status, activity). None = no change."""
     name = event.get("hook_event_name")
@@ -980,8 +973,7 @@ class TerminalManager:
                 )
                 if others:
                     logger.warning(
-                        "refused session re-link for task %s: session is held by task %s",
-                        _log_value(task_id), _log_value(others[0].get("id")),
+                        "refused session re-link: the session is held by another task"
                     )
                 else:
                     await self.store.set_session(task_id, str(session_id))
