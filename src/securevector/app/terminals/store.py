@@ -29,6 +29,11 @@ RUNTIME_TO_EXECUTOR = {
 }
 
 
+# terminal_events.kind for a task that moved to a new harness session; the
+# event's detail is the session id it left.
+SESSION_RELINKED = "session_relinked"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
@@ -310,6 +315,13 @@ class TerminalStore:
             "AND a.session_id NOT IN ("
             " SELECT session_id FROM terminal_tasks "
             " WHERE session_id IS NOT NULL AND archived_at IS NULL) "
+            # A task re-linked to a new harness session (Claude Code /clear)
+            # still owns the session it left; it is history, not an offer.
+            "AND a.session_id NOT IN ("
+            " SELECT e.detail FROM terminal_events e "
+            " JOIN terminal_tasks t ON t.id = e.task_id "
+            f" WHERE e.kind = '{SESSION_RELINKED}' AND t.archived_at IS NULL "
+            " AND e.detail IS NOT NULL) "
             "GROUP BY a.session_id ORDER BY last_at DESC LIMIT ?",
             (
                 *SESSION_BOUNDARY,
@@ -388,6 +400,31 @@ class TerminalStore:
         await self.db.execute(
             "UPDATE terminal_tasks SET session_id = ? WHERE id = ?", (session_id, task_id)
         )
+
+    async def tasks_claiming_session(
+        self, session_id: str, *, exclude_task_id: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        """Non-archived tasks that hold `session_id` now or held it before a
+        re-link. Used to refuse a second task taking a session that is
+        already someone's, and to tell a launched task's session apart."""
+        rows = await self.db.fetch_all(
+            "SELECT * FROM terminal_tasks WHERE archived_at IS NULL AND id != ? AND ("
+            " session_id = ? OR id IN (SELECT task_id FROM terminal_events "
+            " WHERE kind = ? AND detail = ?))",
+            (exclude_task_id or "", session_id, SESSION_RELINKED, session_id),
+        )
+        return [dict(r) for r in rows]
+
+    async def session_history(self, task_id: str) -> list[str]:
+        """Harness session ids this task held before its current one, oldest
+        first. Each re-link writes one SESSION_RELINKED event whose detail is
+        the id it left, on the task's hash-chained trail."""
+        rows = await self.db.fetch_all(
+            "SELECT detail FROM terminal_events WHERE task_id = ? AND kind = ? "
+            "AND detail IS NOT NULL ORDER BY seq ASC",
+            (task_id, SESSION_RELINKED),
+        )
+        return list(dict.fromkeys(str(r["detail"]) for r in rows))
 
     async def update_workspace(self, task_id: str, workspace: str) -> None:
         await self.db.execute(

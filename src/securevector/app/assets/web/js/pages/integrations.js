@@ -486,6 +486,16 @@ def chat_with_protection(user_input):
         refNote.appendChild(backLink);
         container.appendChild(refNote);
 
+        // Setup trust: this harness's config files, MCP servers with per-tool
+        // state and, on Claude Code, the mods. Read-only; filled in async.
+        const trustHarness = this.currentIntegration;
+        if (window.ConfigTrust && ['claude-code', 'codex', 'copilot-cli', 'opencode', 'cursor', 'openclaw'].includes(trustHarness)) {
+            const trustHost = document.createElement('div');
+            trustHost.className = 'ct-host';
+            container.appendChild(trustHost);
+            ConfigTrust.mountHarness(trustHost, trustHarness);
+        }
+
         // Runtime posture: the page adapts to HOW this app runs. Endpoint mode =
         // this process is itself a self-hosted engine (container OR a configured
         // public URL), so local-desktop install steps don't apply — we lead with

@@ -103,8 +103,29 @@ TASK_FIELD_ALLOWLIST = frozenset(
         "last_activity_at",
         "ended_at",
         "archived_at",
+        # Session Drift Score, defined here for the heartbeat and exit
+        # payloads; the cloud half ships them. Both come from the
+        # session_drift row through drift_fields() only: an integer and up to
+        # three ids from DRIFT_FEATURE_IDS. Never labels, hosts, tool names,
+        # paths or argument text.
+        "drift_score",
+        "drift_top",
     }
 )
+
+# The fixed feature-id enum (services/session_drift.FEATURE_IDS). A test
+# keeps the two in step.
+DRIFT_FEATURE_IDS = frozenset(
+    {
+        "tool_novelty",
+        "errors_after_block",
+        "enumeration",
+        "secrets_reach",
+        "new_hosts",
+        "persistence",
+    }
+)
+DRIFT_TOP_MAX = 3
 
 # Caps on the two sanitised labels that leave (title, workspace folder name).
 TITLE_MAX_CHARS = 80
@@ -472,6 +493,22 @@ def build_payload(
         "ended_at": _timestamp(row.get("ended_at")),
         "archived_at": _timestamp(row.get("archived_at")),
     }
+
+
+def drift_fields(score: Any, top: Any) -> dict:
+    """The two drift fields as they may leave: `drift_score` an int 0 to 100
+    or None, `drift_top` up to three feature ids from the closed enum joined
+    by commas (the outbox takes scalars only), or None. Anything else is
+    dropped, never passed through. Not yet added to build_payload."""
+    value = _int(score)
+    if value is not None and not 0 <= value <= 100:
+        value = None
+    ids = []
+    for item in top if isinstance(top, (list, tuple)) else []:
+        fid = item.get("id") if isinstance(item, Mapping) else item
+        if isinstance(fid, str) and fid in DRIFT_FEATURE_IDS and fid not in ids:
+            ids.append(fid)
+    return {"drift_score": value, "drift_top": ",".join(ids[:DRIFT_TOP_MAX]) or None}
 
 
 # -- transport seam --------------------------------------------------------

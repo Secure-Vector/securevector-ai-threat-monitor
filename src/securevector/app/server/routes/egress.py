@@ -11,16 +11,20 @@ The evidence path is `POST /api/egress/proof`: run the containment self-test
 and return a signed, chained verdict.
 """
 
+import ipaddress
 import logging
 import re
+import secrets
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.egress import EgressRepository
+from securevector.app.database.repositories.jit_access import JitAccessRepository
+from securevector.app.server.routes.jit_access import _require_ui_token
 from securevector.app.services import (
     codex_web_observer,
     egress_attestation,
@@ -96,7 +100,7 @@ class EvaluateRequest(BaseModel):
 
 
 @router.post("/egress/evaluate")
-async def evaluate_egress(request: EvaluateRequest):
+async def evaluate_egress(request: EvaluateRequest, http_request: Request = None):
     """Decide a tool call's network destinations.
 
     Returns `{action, network_capable, verdicts, coverage}`. When
@@ -109,15 +113,30 @@ async def evaluate_egress(request: EvaluateRequest):
         repo = EgressRepository(db)
         policy = await _load_policy(repo)
 
+        # A task the app launched binds its session with its own hook
+        # token; see _session_binding.
+        audit_session, verified = await _session_binding(http_request, request.session_id)
         ctx = EgressContext(
             origin_git_host=request.origin_git_host,
             runtime_kind=request.runtime_kind,
-            session_id=request.session_id,
+            session_id=audit_session,
+            local_app_port=_app_port(http_request),
         )
         # First-seen detection only matters under the hardened preset, and the
         # query is not free, so it is loaded only when it will be read.
         if policy.preset == "hardened":
             ctx.known_hosts = await repo.known_hosts()
+        # Session host grants: only for a local policy and a well-formed
+        # session id, and scoped to this harness + session by the query.
+        jit = JitAccessRepository(db)
+        grantable = verified and _grantable_session(policy, audit_session)
+        if grantable:
+            try:
+                grants = await jit.active_host_grants(
+                    request.session_id, request.runtime_kind)
+                ctx.host_grants = {h: g["id"] for h, g in grants.items()}
+            except Exception as e:  # noqa: BLE001 - no grants, never an allow
+                logger.warning("Host grant lookup failed; none applied: %s", e)
 
         evaluation = evaluate_tool_call(
             request.tool_name, request.tool_input or {}, policy, ctx,
@@ -129,9 +148,16 @@ async def evaluate_egress(request: EvaluateRequest):
                 evaluation.verdicts,
                 tool_name=request.tool_name,
                 runtime_kind=request.runtime_kind,
-                session_id=request.session_id,
+                session_id=audit_session,
                 request_id=request.request_id,
+                session_verified=verified,
             )
+
+        # A blocked promotable host files a request in that session's
+        # Approval inbox, the same queue tool-level denies use. Best effort:
+        # the block stands whether or not the request could be filed.
+        if grantable and evaluation.blocked:
+            await _file_host_requests(jit, evaluation.verdicts, policy, request)
 
         return {
             "action": evaluation.action,
@@ -178,6 +204,226 @@ async def evaluate_egress(request: EvaluateRequest):
         }
 
 
+# ========================================================== host grants ===
+
+# Fixed rule titles for the rules the engine writes itself; baseline titles
+# come from the pack. Stored audit rows carry the rule id only.
+_FIXED_RULE_TITLES = {
+    "policy.denylist": "Explicitly denied destination",
+    "preset.contained": "Not on the contained-run allowlist",
+    "preset.hardened_write": "Unapproved write destination",
+    "grant.session_host": "Approved for this session",
+}
+
+
+def _rule_title(rule_id: Optional[str]) -> Optional[str]:
+    if not rule_id:
+        return None
+    if rule_id in _FIXED_RULE_TITLES:
+        return _FIXED_RULE_TITLES[rule_id]
+    for rule in _pack():
+        if rule.get("id") == rule_id:
+            return rule.get("title")
+    return None
+
+
+_HOST_LABEL_RE = re.compile(r"^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?$")
+
+
+def _normalize_host(raw: Optional[str]) -> Optional[str]:
+    """A bare host name or IP literal, lowercased, or None when it is not one.
+
+    No scheme, path, port, wildcard or whitespace: a list entry already
+    covers its subdomains, and anything else would be matched as a literal
+    string that no real host ever equals.
+    """
+    host = (raw or "").strip().lower().rstrip(".")
+    if not host or len(host) > 253:
+        return None
+    candidate = host[1:-1] if host.startswith("[") and host.endswith("]") else host
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        pass
+    labels = host.split(".")
+    if all(_HOST_LABEL_RE.match(label) for label in labels):
+        return host
+    return None
+
+
+def _app_port(http_request) -> Optional[int]:
+    """The port this app is serving on, for the control-API self check."""
+    try:
+        return int(http_request.url.port) if http_request is not None and http_request.url.port else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _session_binding(http_request, session_id: Optional[str]):
+    """(session id to record, verified) for an evaluate call.
+
+    The body's session_id alone is not verified, so it is recorded but not
+    treated as bound to a session. A task the app
+    launched carries SV_TERMINAL_TASK_ID / SV_TERMINAL_HOOK_TOKEN, which the
+    Guard hooks send as X-SV-Terminal-Task / X-SV-Terminal-Hook:
+
+    - token valid and that task's session is this session: verified; host
+      grants apply and blocks file inbox requests.
+    - a token is sent but it is not this session's: the claim is refused
+      and the row is recorded with no session binding.
+    - no token (a Guard plugin from before 6.1.0, or a linked or external
+      session, which has none): the row keeps its session id as in 6.0.0,
+      so the per-session counts, Egress list and Tool calls still work, but
+      it is unverified: no grant applies, no inbox request is filed, and it
+      can never be granted from.
+    """
+    if not session_id or not _SESSION_ID_RE.match(session_id):
+        return None, False
+    manager = None
+    headers = {}
+    if http_request is not None:
+        manager = getattr(getattr(http_request.app, "state", None), "terminal_manager", None)
+        headers = http_request.headers
+    if manager is None:
+        return session_id, False
+    task_id = headers.get("x-sv-terminal-task") or ""
+    token = headers.get("x-sv-terminal-hook") or ""
+    if not task_id and not token:
+        return session_id, False
+    try:
+        expected = manager.hook_token(task_id) if task_id else None
+        if expected and token and secrets.compare_digest(
+            token.encode("utf-8", "surrogateescape"), expected.encode("utf-8")
+        ):
+            task = await manager.store.get_task(task_id)
+            if task and task.get("session_id") == session_id:
+                return session_id, True
+            if task and not task.get("session_id"):
+                # The task's own token, before the hook relay has recorded
+                # its session (first PreToolUse racing the start event):
+                # keep the claim as unverified rather than drop the binding.
+                return session_id, False
+    except Exception as e:  # noqa: BLE001 - unverified is the safe answer
+        logger.warning("Egress session binding check failed: %s", e)
+        return None, False
+    logger.warning("Egress call claimed session %s with a token that is not that "
+                   "session's; recorded unbound", session_id)
+    return None, False
+
+
+def _grantable_session(policy: EgressPolicy, session_id: Optional[str]) -> bool:
+    """Host grants exist only for a local policy and a real session id.
+
+    A synced policy is an organization decision; like a synced tool deny
+    without `requestable`, it is not overridable from this device.
+    """
+    return bool(
+        session_id and _SESSION_ID_RE.match(session_id)
+        and (policy.source or "local") == "local"
+    )
+
+
+async def _file_host_requests(jit, verdicts, policy, request) -> None:
+    seen = set()
+    for v in verdicts:
+        host = _normalize_host(v.attempt.host) or ""
+        if v.action != BLOCK or not v.promotable or not host or host in seen:
+            continue
+        seen.add(host)
+        try:
+            await jit.create_host_request(
+                host, v.rule_id, v.reason, request.runtime_kind,
+                request.session_id, rule_source="local",
+            )
+        except Exception as e:  # noqa: BLE001 - the block stands regardless
+            logger.warning("Could not file host approval request: %s", e)
+
+
+class HostGrantRequest(BaseModel):
+    host: str = Field(..., min_length=1, max_length=253)
+    session_id: str = Field(..., min_length=1, max_length=128)
+    duration: str = Field(..., pattern="^(15m|1h|session)$")
+
+
+async def _grant_owner(http_request, session_id: str) -> dict:
+    """The launched, non-archived task whose current session this is, or a
+    403. A grant is keyed to a session the app can hold its Guard to; a
+    linked or external session has no hook token, so a grant for it could
+    never apply and must not be minted."""
+    manager = None
+    if http_request is not None:
+        manager = getattr(getattr(http_request.app, "state", None), "terminal_manager", None)
+    task = None
+    if manager is not None:
+        try:
+            task = await manager.store.task_for_session(session_id)
+        except Exception as e:  # noqa: BLE001 - no owner, no grant
+            logger.warning("Grant owner lookup failed: %s", e)
+            task = None
+    if not task or task.get("origin") == "linked" or task.get("archived_at"):
+        raise HTTPException(
+            status_code=403,
+            detail="A host can be approved only for a session launched from "
+                   "this app and still on the board.",
+        )
+    return task
+
+
+@router.post("/egress/grants")
+async def grant_host(
+    body: HostGrantRequest,
+    http_request: Request = None,
+    x_sv_ui_token: Optional[str] = Header(None),
+):
+    """Approve a blocked host for one session: 15 min, 1 hour or the rest of
+    the session. Never device-wide (that is /egress/promote).
+
+    Human-only (the same per-run UI token as JIT decisions), only for a
+    session a launched task owns right now, and only for a host that task's
+    Guard actually had blocked by a promotable rule. The harness comes from
+    that audit row, not from the client.
+    """
+    _require_ui_token(x_sv_ui_token)
+    host = _normalize_host(body.host)
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid host")
+    if not _SESSION_ID_RE.match(body.session_id):
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    await _grant_owner(http_request, body.session_id)
+    db = get_database()
+    repo = EgressRepository(db)
+    policy = await _load_policy(repo)
+    if not _grantable_session(policy, body.session_id):
+        raise HTTPException(
+            status_code=403,
+            detail="This egress policy is managed by your organization; "
+                   "a host cannot be approved from this device.",
+        )
+    block = await repo.session_block(body.session_id, host)
+    if not block:
+        raise HTTPException(
+            status_code=404, detail="No blocked call to this host in this session")
+    if block.get("rule_id") in EgressRepository.NON_PROMOTABLE_RULES:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{block.get('rule_id')} cannot be approved; it needs a policy edit.",
+        )
+    try:
+        grant = await JitAccessRepository(db).grant_host(
+            host, block.get("rule_id"), block.get("reason"),
+            block.get("runtime_kind"), body.session_id, body.duration,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=422, detail=str(ve))
+    if not grant:
+        raise HTTPException(status_code=409, detail="Could not create the grant")
+    logger.info(
+        "Egress host grant %s: %s for session %s (%s, rule %s, by local-user)",
+        grant["id"], host, body.session_id, body.duration, block.get("rule_id"),
+    )
+    return {"grant": grant}
+
+
 # ================================================================= policy ===
 
 
@@ -200,7 +446,9 @@ async def get_policy():
 
 
 @router.patch("/egress/policy")
-async def patch_policy(patch: PolicyPatch):
+async def patch_policy(patch: PolicyPatch, x_sv_ui_token: Optional[str] = Header(None)):
+    # A preset or list change is a person's decision, like a JIT approval.
+    _require_ui_token(x_sv_ui_token)
     if patch.preset is not None and patch.preset not in VALID_PRESETS:
         raise HTTPException(
             status_code=400,
@@ -218,23 +466,74 @@ async def patch_policy(patch: PolicyPatch):
     return await repo.get_active_policy()
 
 
+class DenyHostRequest(BaseModel):
+    host: str = Field(..., min_length=1, max_length=253)
+
+
+@router.post("/egress/denylist")
+async def add_denied_host(
+    body: DenyHostRequest,
+    x_sv_ui_token: Optional[str] = Header(None),
+):
+    """Add one host to Denied destinations. Validated, then deny-everywhere:
+    the next call from any session to it (or a subdomain) is blocked."""
+    _require_ui_token(x_sv_ui_token)
+    host = _normalize_host(body.host)
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid host")
+    repo = EgressRepository(get_database())
+    row = await repo.get_active_policy()
+    if not row:
+        raise HTTPException(status_code=404, detail="No active egress policy")
+    await repo.add_denied_host(row["id"], host)
+    return await repo.get_active_policy()
+
+
+@router.post("/egress/denylist/remove")
+async def remove_denied_host(
+    body: DenyHostRequest,
+    x_sv_ui_token: Optional[str] = Header(None),
+):
+    """Remove one host from Denied destinations."""
+    _require_ui_token(x_sv_ui_token)
+    host = _normalize_host(body.host)
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid host")
+    repo = EgressRepository(get_database())
+    row = await repo.get_active_policy()
+    if not row:
+        raise HTTPException(status_code=404, detail="No active egress policy")
+    if not await repo.remove_denied_host(row["id"], host):
+        raise HTTPException(status_code=404, detail="Host is not on the denylist")
+    return await repo.get_active_policy()
+
+
 class PromoteRequest(BaseModel):
     host: str
 
 
 @router.post("/egress/promote")
-async def promote_destination(request: PromoteRequest):
+async def promote_destination(
+    request: PromoteRequest, x_sv_ui_token: Optional[str] = Header(None),
+):
     """Allow a previously-blocked destination. The deny-time promotion path.
 
     This is the mechanism that keeps the policy maintainable. Nobody authors an
     allowlist from a blank page; everybody clicks allow when something they
     recognise gets stopped.
+
+    Device-wide and permanent, so human-only: the same UI token as JIT
+    decisions.
     """
+    _require_ui_token(x_sv_ui_token)
+    host = _normalize_host(request.host)
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid host")
     repo = EgressRepository(get_database())
     row = await repo.get_active_policy()
     if not row:
         raise HTTPException(status_code=404, detail="No active egress policy")
-    if not await repo.promote_host(row["id"], request.host):
+    if not await repo.promote_host(row["id"], host):
         raise HTTPException(status_code=400, detail="Invalid host")
     return {"ok": True, "policy": await repo.get_active_policy()}
 
@@ -275,8 +574,32 @@ async def get_session_destinations(session_id: str, limit: int = 50):
     """
     if not _SESSION_ID_RE.match(session_id or ""):
         raise HTTPException(status_code=400, detail="Invalid session id")
-    repo = EgressRepository(get_database())
+    db = get_database()
+    repo = EgressRepository(db)
     rows = await repo.session_destinations(session_id, limit=limit)
+    # The rule behind each blocked host, and whether this session may approve
+    # it (with any grant already in force). A failed grant read leaves the
+    # rows without one rather than failing the panel.
+    try:
+        grants = await JitAccessRepository(db).active_host_grants(
+            session_id, any_runtime=True)
+    except Exception:  # noqa: BLE001
+        grants = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("rule_id"):
+            row["rule_title"] = _rule_title(row.get("rule_id"))
+        # Grantable only from a block the launched task's Guard wrote with
+        # its hook token; a Guard from before 6.1.0 or a linked session is
+        # listed, never approved from here.
+        row["promotable"] = bool((row.get("blocked") or 0) > 0
+                                 and row.get("verified_blocked")
+                                 and not row.get("hard_blocked")
+                                 and row.get("rule_id") not in EgressRepository.NON_PROMOTABLE_RULES)
+        grant = grants.get(str(row.get("host") or "").lower())
+        if grant:
+            row["grant"] = {k: grant.get(k) for k in ("id", "duration", "expires_at", "granted_at")}
     # `observed` rows were reached without passing the evaluator (a harness's
     # own web tool fires no hook). They are counted separately, and the
     # consent flag travels with them: with transcript reading off the list is

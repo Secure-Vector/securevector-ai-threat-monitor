@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**Agent Sessions approvals**
+- A host blocked under Contained or Hardened can be approved for one session only (15 minutes, 1 hour or the rest of the session) from that session's Approval inbox or from the Egress section of its pane. Other sessions stay blocked for the same host; the grant expires on its own, is revoked when the task exits, and is audited with its scope, session id and actor.
+- The Egress section names the rule that fired for each blocked host, with the rule id and reason behind a Details toggle.
+- A blocked egress call is listed under the session's Tool calls with verdict BLOCK.
+- Denied destinations can be added and removed on the Agent Egress page.
+
+**Guard**
+- The Guard plugins (Claude Code 5.4.0, Codex 5.4.0, Cursor 5.4.0, GitHub Copilot CLI 5.4.0, Antigravity 1.1.0, OpenCode 1.2.0, OpenClaw 1.2.0) send the task's hook token with each egress check, which binds the call to the session it names. A plugin from 6.0.0 still works: its calls keep their session counts and Egress list, but a host it had blocked cannot be approved for that session until the plugin is reinstalled from Integrations.
+
+### Fixed
+- The single-pane strip names the attached task, not the most recently launched one.
+- Reliability and security improvements.
+
 ## [6.0.0] - 2026-10-03
 
 ### Added
@@ -19,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The governance column stays on the right and becomes a strip that opens as an overlay on narrow windows. It shows recent verdicts, traces, approvals, context fill and token waste with a Compact now button, and the external hosts the task reached, blocked ones first.
 - Tool approvals can be answered from the governance column: allow for 15 minutes, 1 hour or the rest of the session, or deny.
 - A session summary appears when a session ends, with a Summary toggle while it runs and a JSON export.
-- The Launch form installs a missing Guard in place, and shows a disabled "GovRun harness by SecureVector · Coming soon" option.
+- The Launch form installs a missing Guard in place.
 - A session started in your own terminal appears under Running outside SecureVector once its Guard reports a call. You can add it to the board, continue it in the app, restart it in the same folder, or unlink it. A session that still writes its transcript but sends no governed calls is marked unverified.
 - Completed tasks can be archived off the active list. The task row and its hash-chained events are kept for audit.
 - Closing the window while a task runs hides it instead of quitting. Quit asks before stopping running tasks.

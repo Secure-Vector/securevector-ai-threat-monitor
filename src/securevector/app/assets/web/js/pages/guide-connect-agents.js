@@ -195,6 +195,15 @@ const GuideConnectAgentsPage = {
         lede.textContent = 'See what is connected and covered on this device, then connect more: the guided one-click way or by copying commands.';
         root.appendChild(lede);
 
+        // Your agent setup: what every harness on this device is configured
+        // with, risky items first, before anything changes. Read-only.
+        if (window.ConfigTrust && !endpointMode) {
+            const setupHost = document.createElement('div');
+            setupHost.className = 'ct-host';
+            root.appendChild(setupHost);
+            ConfigTrust.mountSetup(setupHost);
+        }
+
         // Guided-setup CTA — the old "Connect Wizard" is no longer a separate
         // nav row (it read as a duplicate of this page). Its guided one-click
         // flow lives here as the recommended path; the manual commands are

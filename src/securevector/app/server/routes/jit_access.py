@@ -29,7 +29,7 @@ import logging
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -55,7 +55,9 @@ _UI_TOKEN = secrets.token_hex(16)
 
 
 def _require_ui_token(token: Optional[str]) -> None:
-    if not token or not secrets.compare_digest(token, _UI_TOKEN):
+    if not isinstance(token, str) or not token or not secrets.compare_digest(
+        token.encode("utf-8", "surrogateescape"), _UI_TOKEN.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=403,
             detail="JIT decisions require the local web UI (missing/invalid UI token)",
@@ -109,15 +111,53 @@ async def _denying_rule(db, tool_id: str) -> Optional[dict]:
     return None
 
 
+_LOOPBACK_NAMES = ("127.0.0.1", "localhost", "[::1]")
+_DESKTOP_UA_TOKEN = "SecureVectorDesktop"  # desktop_shell.DESKTOP_USER_AGENT_TOKEN
+
+
+def _browser_same_origin(request: Request) -> bool:
+    """True when the request looks like the app's own page asking.
+
+    A same-origin browser fetch carries `Sec-Fetch-Site: same-origin`, or an
+    Origin / Referer on the app's own loopback origin; the desktop shell's
+    web view is recognised by its user-agent token. The Guard's
+    `sv.self.control_api` egress rule applies to agent tool calls that name
+    the control API on loopback as well.
+    """
+    h = request.headers
+    if h.get("sec-fetch-site") == "same-origin":
+        return True
+    port = request.url.port
+    origins = {f"http://{n}:{port}" for n in _LOOPBACK_NAMES} if port else set()
+    origin = h.get("origin")
+    if origin and origin in origins:
+        return True
+    referer = h.get("referer") or ""
+    if any(referer == o or referer.startswith(o + "/") for o in origins):
+        return True
+    return _DESKTOP_UA_TOKEN in (h.get("user-agent") or "")
+
+
 @router.get("/jit/ui-token")
-async def get_ui_token():
+async def get_ui_token(request: Request):
     """Per-run token the web UI attaches to decision calls."""
+    if not _browser_same_origin(request):
+        raise HTTPException(status_code=403, detail="The UI token is for the local web UI only")
     return {"token": _UI_TOKEN}
 
 
 @router.post("/jit/requests")
 async def create_request(body: JitRequestCreate):
     """File a JIT access request (the agent-facing surface)."""
+    # Host approvals are filed by the egress evaluator itself, for a block it
+    # just decided.
+    if body.tool_id.startswith("egress:"):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "not_requestable",
+                    "message": "Egress host approvals are filed by the egress check, "
+                               "not requested directly."},
+        )
     try:
         db = get_database()
 

@@ -64,7 +64,7 @@ function doctor() {
   lines.push(`platform        ${process.platform} ${process.arch}`);
   lines.push(`python floor    ${MIN_MAJOR}.${MIN_MINOR}`);
   if (best) {
-    lines.push(`python found    ${best.candidate} (${best.version.join('.')})`);
+    lines.push(`python found    ${best.candidate} (${best.version.join('.')})  ${best.command}`);
   } else {
     lines.push('python found    none usable');
   }
@@ -117,7 +117,7 @@ function main(argv) {
   }
 
   if (!isReady(VERSION, entryPoint)) {
-    const result = install(best.candidate, VERSION);
+    const result = install(best, VERSION);
     if (!result.ok) {
       process.stderr.write('\n' + result.reason + '\n\n');
       return 1;

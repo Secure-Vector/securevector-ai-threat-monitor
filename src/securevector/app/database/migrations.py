@@ -201,6 +201,9 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         52: migrate_to_v52,
         53: migrate_to_v53,
         54: migrate_to_v54,
+        55: migrate_to_v55,
+        56: migrate_to_v56,
+        57: migrate_to_v57,
     }
 
     if version in migrations:
@@ -2137,6 +2140,11 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     logger.info("Initializing database schema...")
     version = await run_migrations(db)
 
+    # Session Drift Score and Agent Config Trust tables. Idempotent; run at
+    # startup, outside any request, as a safety net after the migrations.
+    await ensure_session_drift_table(db)
+    await ensure_config_trust_tables(db)
+
     # Load community rules after schema is ready
     await load_community_rules(db)
 
@@ -2233,6 +2241,17 @@ async def cleanup_old_event_records(db: DatabaseConnection) -> None:
     except Exception as e:  # noqa: BLE001 — settings unreadable: skip, never block startup
         logger.debug(f"Event records cleanup skipped (no settings): {e}")
         return
+
+    # Session Drift rows age out on the same knob as the audit rows they are
+    # derived from. computed_at is ISO with an offset, so compare through
+    # datetime() rather than as text.
+    try:
+        await db.execute(
+            "DELETE FROM session_drift WHERE datetime(computed_at) < datetime('now', ?)",
+            (f"-{int(retention_days)} days",),
+        )
+    except Exception as e:  # noqa: BLE001 - table missing on an older schema
+        logger.debug(f"Cleanup skipped for session_drift: {e}")
 
     for table, ts_col in _EVENT_RETENTION_TABLES:
         try:
@@ -2843,3 +2862,194 @@ async def migrate_to_v54(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v54: terminal_tasks status 'stopped'")
+
+
+async def migrate_to_v55(db: DatabaseConnection) -> None:
+    """v54 -> v55: egress_audit.session_verified.
+
+    A session id on an egress audit row is a claim the Guard made. A task the
+    app launched proves it with its hook token; a row written without that
+    proof keeps its session id (the per-session counts and Egress list still
+    work with a Guard plugin from before 6.1.0) but is marked unverified: it
+    never files an approval request, is never grantable, and no grant clears
+    it. Idempotent: an existing column is left alone.
+    """
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(egress_audit)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+    if "session_verified" not in existing_columns:
+        await conn.execute(
+            "ALTER TABLE egress_audit ADD COLUMN session_verified INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (55, CURRENT_TIMESTAMP, 'egress_audit.session_verified')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v55: egress_audit.session_verified")
+
+
+# Plain statements run one at a time with conn.execute: executescript would
+# COMMIT any transaction another coroutine holds open on the shared connection.
+SESSION_DRIFT_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS session_drift (
+        session_id        TEXT PRIMARY KEY,
+        task_id           TEXT,
+        harness           TEXT,
+        workspace         TEXT,
+        score             INTEGER,
+        band              TEXT CHECK (band IS NULL OR band IN ('calm', 'watch', 'high')),
+        status            TEXT NOT NULL,
+        features_json     TEXT,
+        baseline_sessions INTEGER NOT NULL DEFAULT 0,
+        baseline_calls    INTEGER NOT NULL DEFAULT 0,
+        feedback          TEXT CHECK (feedback IS NULL OR feedback = 'normal'),
+        computed_at       TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_drift_task ON session_drift (task_id)",
+)
+
+
+async def ensure_session_drift_table(db: DatabaseConnection) -> None:
+    """Create ``session_drift`` if it is missing. Idempotent.
+
+    Called by migrate_to_v56 and once at startup right after run_migrations
+    (init_database_schema). Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in SESSION_DRIFT_DDL:
+        await conn.execute(stmt)
+    await conn.commit()
+
+
+async def migrate_to_v56(db: DatabaseConnection) -> None:
+    """v55 -> v56: ``session_drift``, one Session Drift Score row per session.
+
+    One row per governed session, overwritten on each compute; baselines are
+    derived from audit rows and never stored. ``features_json`` holds feature
+    ids, values, weights and counts only, never argument text, hosts or
+    paths. ``feedback`` is the "looks normal" mark, kept across recomputes.
+    Observe only: nothing reads this table to decide a verdict. Idempotent.
+    """
+    await ensure_session_drift_table(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (56, CURRENT_TIMESTAMP, 'Session Drift Score rows')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v56: session_drift")
+# Plain statements run one at a time with conn.execute: executescript would
+# COMMIT any transaction another coroutine holds open on the shared connection.
+CONFIG_TRUST_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS config_pins (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        harness            TEXT NOT NULL,
+        scope              TEXT NOT NULL CHECK (scope IN ('user', 'project')),
+        workspace_hash     TEXT NOT NULL DEFAULT '',
+        workspace_name     TEXT,
+        surface            TEXT NOT NULL,
+        surface_type       TEXT NOT NULL,
+        path_hint          TEXT,
+        hash               TEXT,
+        normaliser_version INTEGER NOT NULL,
+        alerted_hash       TEXT,
+        pinned_at          TEXT NOT NULL,
+        UNIQUE (harness, scope, workspace_hash, surface)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS config_checks (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id     TEXT,
+        task_id        TEXT,
+        harness        TEXT NOT NULL,
+        workspace_hash TEXT NOT NULL DEFAULT '',
+        phase          TEXT NOT NULL,
+        setup_hash     TEXT NOT NULL,
+        state          TEXT NOT NULL,
+        diff_json      TEXT,
+        checked_at     TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_config_checks_task ON config_checks (task_id, checked_at)",
+    "CREATE INDEX IF NOT EXISTS idx_config_checks_session ON config_checks (session_id, checked_at)",
+    """
+    CREATE TABLE IF NOT EXISTS mcp_pins (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        harness         TEXT NOT NULL,
+        server          TEXT NOT NULL,
+        scope           TEXT NOT NULL CHECK (scope IN ('user', 'project')),
+        workspace_hash  TEXT NOT NULL DEFAULT '',
+        definition_hash TEXT,
+        tools_json      TEXT,
+        observed_json   TEXT,
+        source          TEXT,
+        state           TEXT NOT NULL DEFAULT 'pinned',
+        probe_opt_in    INTEGER NOT NULL DEFAULT 0,
+        probe_definition_hash TEXT,
+        probed_at       TEXT,
+        alerted_hash    TEXT,
+        pinned_at       TEXT,
+        UNIQUE (harness, scope, workspace_hash, server)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS mod_inventory (
+        mod_key          TEXT PRIMARY KEY,
+        version          TEXT,
+        managed          INTEGER NOT NULL DEFAULT 0,
+        enabled_json     TEXT,
+        handlers_json    TEXT,
+        permissions_json TEXT,
+        manifest_hash    TEXT,
+        tree_hash        TEXT,
+        first_seen       TEXT NOT NULL,
+        last_seen        TEXT NOT NULL
+    )
+    """,
+)
+
+
+async def ensure_config_trust_tables(db: DatabaseConnection) -> None:
+    """Create the Agent Config Trust tables if missing. Idempotent.
+
+    Called by migrate_to_v57 and once at startup right after run_migrations
+    (init_database_schema). Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in CONFIG_TRUST_DDL:
+        await conn.execute(stmt)
+    await _ensure_mcp_pins_columns(conn)
+    await conn.commit()
+
+
+async def _ensure_mcp_pins_columns(conn) -> None:
+    """Columns added to mcp_pins after its first CREATE: a DB that already
+    has the table never gets them from CREATE IF NOT EXISTS. Idempotent via
+    PRAGMA table_info."""
+    cur = await conn.execute("PRAGMA table_info(mcp_pins)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "probe_definition_hash" not in existing:
+        await conn.execute("ALTER TABLE mcp_pins ADD COLUMN probe_definition_hash TEXT")
+
+
+async def migrate_to_v57(db: DatabaseConnection) -> None:
+    """v56 -> v57: Agent Config Trust pins, checks, MCP pins, mod inventory.
+
+    Hashes, key names, counts and basenames only. ``mcp_pins.tools_json`` and
+    ``observed_json`` keep tool description text locally for the approval
+    diff; it never leaves the device. Idempotent.
+    """
+    await ensure_config_trust_tables(db)
+    conn = await db.connect()
+    await _ensure_mcp_pins_columns(conn)
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (57, CURRENT_TIMESTAMP, 'Agent Config Trust')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v57: config trust")

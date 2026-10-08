@@ -127,6 +127,8 @@ def test_allowlist_matches_the_published_shape():
         "last_activity_at",
         "ended_at",
         "archived_at",
+        "drift_score",
+        "drift_top",
     }
     for forbidden in ("workspace", "activity", "pid", "session_id"):
         assert forbidden not in live_runs.TASK_FIELD_ALLOWLIST

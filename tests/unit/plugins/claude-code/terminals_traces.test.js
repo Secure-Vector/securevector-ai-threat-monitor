@@ -56,7 +56,10 @@ test('terminals.js template has the traces section ids', () => {
 
 test('terminals.js filters trace runs by session_id', () => {
   const src = read('js/pages/terminals.js');
-  assert.match(src, /\.filter\(\s*r\s*=>\s*r\.session_id === sessionId\)/);
+  // The attached session, plus the sessions this task held before a
+  // re-link (Claude Code /clear), and nothing else.
+  assert.match(src, /const ownSids = new Set\(\[sessionId\]\.concat\(Array\.isArray\(v\.session_history\) \? v\.session_history : \[\]\)\);/);
+  assert.match(src, /\.filter\(\s*r\s*=>\s*ownSids\.has\(r\.session_id\)\)/);
 });
 
 test('terminals.js deep-links trace details into the Traces page', () => {
@@ -257,4 +260,12 @@ test('each governance section collapses on its own, and rows are cards not glyph
     'the drawer summary must not carry a hash glyph');
   assert.match(src, /tracesAll\.onclick = \(e\) => \{\s*e\.preventDefault\(\);/,
     'the All traces link must not toggle the section it sits in');
+});
+
+test('terminals.js offers no session approval for a linked task', () => {
+  const src = read('js/pages/terminals.js');
+  // A linked session has no hook token, so a grant for it could never apply:
+  // the pane says so instead of showing the 15 min / 1 hour / session buttons.
+  assert.match(src, /t\.origin === 'linked'\s*\?\s*'<div class="terminals-egress-detail-line">A linked session cannot be approved from here\./);
+  assert.match(src, /: \(r\.promotable\s*\?\s*`<div class="terminals-egress-detail-line">Approve for this session only/);
 });

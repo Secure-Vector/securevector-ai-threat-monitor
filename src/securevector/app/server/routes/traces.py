@@ -698,6 +698,24 @@ async def run_health_warmer(interval: float = run_health.WARM_INTERVAL_SECONDS,
             raise
         except Exception:  # noqa: BLE001
             logger.debug("fleet generation pass failed", exc_info=True)
+        # Same cadence: rescore running governed sessions' Session Drift Score.
+        # Observe only; the stored row is read by the board and the summary.
+        try:
+            from securevector.app.services import session_drift
+            await session_drift.warm_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("session drift pass failed", exc_info=True)
+        # Agent Config Trust: stat-gated setup recheck for running sessions
+        # and user scope, relay-observed MCP tools, due opt-in probes.
+        try:
+            from securevector.app.services import config_trust
+            await config_trust.recheck_once(get_database())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("config trust recheck failed", exc_info=True)
 
 
 @router.get("/run-health")

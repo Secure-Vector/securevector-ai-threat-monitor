@@ -30,6 +30,13 @@ MAX_JUSTIFICATION_CHARS = 500
 
 _DURATION_MINUTES = {"15m": 15, "1h": 60}
 
+# tool_id prefix of a host approval for a blocked egress destination.
+EGRESS_TOOL_PREFIX = "egress:"
+# Host requests have their own caps, separate from the tool-request queue
+# (whose cap ignores host rows), with a per-session limit.
+MAX_PENDING_HOST_REQUESTS_PER_SESSION = 10
+MAX_PENDING_HOST_REQUESTS = 50
+
 
 class JitAccessRepository:
     """Repository for JIT access request/grant lifecycle rows."""
@@ -64,7 +71,9 @@ class JitAccessRepository:
             return dict(dup)
 
         row = await self.db.fetch_one(
-            "SELECT COUNT(*) AS n FROM jit_access_requests WHERE status = 'pending'"
+            "SELECT COUNT(*) AS n FROM jit_access_requests WHERE status = 'pending' "
+            "AND tool_id NOT LIKE ?",
+            (f"{EGRESS_TOOL_PREFIX}%",),
         )
         if row and row["n"] >= MAX_PENDING_REQUESTS:
             logger.warning("JIT request rejected: pending queue full (%s)", row["n"])
@@ -253,3 +262,157 @@ class JitAccessRepository:
             (grant_id,),
         )
         return bool(cur and cur.rowcount)
+
+    # ---------------------------------------------------------- host grants
+    #
+    # A blocked egress host reuses the request/grant lifecycle above rather
+    # than a parallel table: the row is a JIT request whose tool_id is
+    # ``egress:<host>`` (function_name carries the rule that fired, the
+    # justification its reason). Two things differ from a tool grant, both on
+    # the side of less reach:
+    #
+    # - Every host grant is scoped to one session, whatever its duration. A
+    #   15m or 1h host grant is time-boxed *inside* that session, never
+    #   device-wide; the egress evaluator matches host + harness + session.
+    # - /synced-overrides never emits these rows as tool allows (the prefix is
+    #   skipped there); only the egress evaluator reads them.
+
+    async def create_host_request(
+        self,
+        host: str,
+        rule_id: Optional[str],
+        reason: Optional[str],
+        runtime_kind: Optional[str],
+        session_id: Optional[str],
+        rule_source: str = "local",
+    ) -> Optional[dict]:
+        """File (or return the pending duplicate of) a host approval request.
+
+        Returns None when there is no session to scope to, or the pending
+        queue is full. Callers decide promotability before calling: a
+        non-promotable rule must never reach this method.
+        """
+        if not host or not session_id:
+            return None
+        tool_id = f"{EGRESS_TOOL_PREFIX}{host}"
+        # One pending request per (session, host, rule), whatever the harness.
+        dup = await self.db.fetch_one(
+            "SELECT * FROM jit_access_requests WHERE status = 'pending' "
+            "AND tool_id = ? AND session_id = ? "
+            "AND COALESCE(function_name,'') = COALESCE(?,'')",
+            (tool_id, session_id, rule_id),
+        )
+        if dup:
+            return dict(dup)
+        mine = await self.db.fetch_one(
+            "SELECT COUNT(*) AS n FROM jit_access_requests WHERE status = 'pending' "
+            "AND tool_id LIKE ? AND session_id = ?",
+            (f"{EGRESS_TOOL_PREFIX}%", session_id),
+        )
+        if mine and mine["n"] >= MAX_PENDING_HOST_REQUESTS_PER_SESSION:
+            logger.warning("Host request rejected: session queue full (%s)", mine["n"])
+            return None
+        total = await self.db.fetch_one(
+            "SELECT COUNT(*) AS n FROM jit_access_requests WHERE status = 'pending' "
+            "AND tool_id LIKE ?",
+            (f"{EGRESS_TOOL_PREFIX}%",),
+        )
+        if total and total["n"] >= MAX_PENDING_HOST_REQUESTS:
+            logger.warning("Host request rejected: host queue full (%s)", total["n"])
+            return None
+        rid = f"jitreq_{uuid.uuid4().hex[:20]}"
+        just = (reason or "").strip()[:MAX_JUSTIFICATION_CHARS] or None
+        await self.db.execute(
+            "INSERT INTO jit_access_requests "
+            "(id, tool_id, function_name, runtime_kind, session_id, trace_id, "
+            " justification, rule_source) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+            (rid, tool_id, rule_id, runtime_kind, session_id, just, rule_source),
+        )
+        return await self.get_request(rid)
+
+    async def revoke_session_host_grants(self, session_ids) -> int:
+        """Revoke the host grants of sessions whose task ended or was archived.
+        "Rest of this session" ends with the task; the 24h cap stays as the
+        backstop for a session the app never saw end."""
+        ids = [str(s) for s in dict.fromkeys(session_ids or []) if s][:500]
+        if not ids:
+            return 0
+        marks = ",".join("?" for _ in ids)
+        cur = await self.db.execute(
+            "UPDATE jit_access_grants SET revoked_at = CURRENT_TIMESTAMP "
+            f"WHERE revoked_at IS NULL AND tool_id LIKE ? AND session_id IN ({marks})",
+            (f"{EGRESS_TOOL_PREFIX}%", *ids),
+        )
+        return cur.rowcount if cur else 0
+
+    async def grant_host(
+        self,
+        host: str,
+        rule_id: Optional[str],
+        reason: Optional[str],
+        runtime_kind: Optional[str],
+        session_id: str,
+        duration: str,
+        rule_source: str = "local",
+    ) -> Optional[dict]:
+        """Approve a blocked host for one session straight from the pane.
+
+        A pending inbox request for the same host and session is approved
+        (so the inbox clears with it); otherwise a request row is written and
+        approved in the same way, keeping one audit trail for both surfaces.
+        The pending-queue cap is not applied: this is the human acting, not an
+        agent asking.
+        """
+        if not host or not session_id:
+            raise ValueError("a host grant requires a host and a session_id")
+        if duration not in ("15m", "1h", "session"):
+            raise ValueError(f"invalid duration: {duration}")
+        tool_id = f"{EGRESS_TOOL_PREFIX}{host}"
+        row = await self.db.fetch_one(
+            "SELECT id FROM jit_access_requests WHERE status = 'pending' "
+            "AND tool_id = ? AND COALESCE(runtime_kind,'') = COALESCE(?,'') "
+            "AND session_id = ?",
+            (tool_id, runtime_kind, session_id),
+        )
+        if row:
+            return await self.approve_request(row["id"], duration)
+        rid = f"jitreq_{uuid.uuid4().hex[:20]}"
+        just = (reason or "").strip()[:MAX_JUSTIFICATION_CHARS] or None
+        await self.db.execute(
+            "INSERT INTO jit_access_requests "
+            "(id, tool_id, function_name, runtime_kind, session_id, trace_id, "
+            " justification, rule_source) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+            (rid, tool_id, rule_id, runtime_kind, session_id, just, rule_source),
+        )
+        return await self.approve_request(rid, duration)
+
+    async def active_host_grants(
+        self,
+        session_id: Optional[str],
+        runtime_kind: Optional[str] = None,
+        any_runtime: bool = False,
+    ) -> dict:
+        """Hosts approved for this session right now: {host: grant row}.
+
+        Enforcement passes the harness and gets an exact match on it; the
+        pane's read passes ``any_runtime`` because it already names the one
+        session. No session, no grants: there is no device-wide host grant.
+        """
+        if not session_id:
+            return {}
+        sql = (
+            "SELECT * FROM jit_access_grants WHERE tool_id LIKE ? "
+            "AND session_id = ? AND revoked_at IS NULL "
+            "AND (expires_at IS NULL OR expires_at > datetime('now'))"
+        )
+        params: tuple = (f"{EGRESS_TOOL_PREFIX}%", session_id)
+        if not any_runtime:
+            sql += " AND COALESCE(runtime_kind,'') = COALESCE(?,'')"
+            params = params + (runtime_kind,)
+        rows = await self.db.fetch_all(sql + " ORDER BY granted_at DESC", params)
+        out: dict = {}
+        for r in rows or []:
+            host = str(r["tool_id"])[len(EGRESS_TOOL_PREFIX):].lower()
+            if host and host not in out:
+                out[host] = dict(r)
+        return out
