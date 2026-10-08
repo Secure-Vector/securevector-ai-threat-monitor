@@ -31,6 +31,7 @@ from securevector.app.terminals.executors import EXECUTORS, UnknownExecutor, bui
 from securevector.app.terminals.pty_host import PtyHost, Subscriber
 from securevector.app.terminals.session_cwd import resolve_session_cwd, session_last_write
 from securevector.app.terminals import live_runs
+from securevector.app.services import session_drift
 from securevector.app.terminals.store import (
     RUNNING,
     TerminalStore,
@@ -874,6 +875,9 @@ class TerminalManager:
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
+        # Score the session once at exit, in the background. Observe only: it
+        # writes a session_drift row and never touches this exit path.
+        session_drift.schedule_for_task(self.store.db, task_id)
         self._live_status.pop(task_id, None)
         if live_runs.has_sink():
             try:

@@ -932,6 +932,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (typeof t.blocked_calls === 'number') {
             parts.push(`<span class="terminals-task-blocked${t.blocked_calls > 0 ? ' is-danger' : ''}">${this._esc(t.blocked_calls)} blocked</span>`);
         }
+        // Session Drift Score: neutral at calm, amber at watch, red at high
+        // (the band is a security state). Observe only.
+        if (typeof t.drift_score === 'number') {
+            const band = t.drift_band === 'high' || t.drift_band === 'watch' ? t.drift_band : 'calm';
+            parts.push(`<span class="terminals-task-drift is-${band}" title="Session drift ${this._esc(t.drift_score)}, ${band}">drift ${this._esc(t.drift_score)}</span>`);
+        }
         const age = this._compactAge(t.created_at);
         if (age) parts.push(`<span class="terminals-task-age">${this._esc(age)}</span>`);
         if (!parts.length) return '';
@@ -2742,6 +2748,19 @@ ${this.CLI_BIN} stop &lt;id&gt;
             approved: jit.filter(r => r.status === 'approved').length,
             denied: jit.filter(r => r.status === 'denied').length,
         };
+        const dr = d.drift && typeof d.drift === 'object' ? d.drift : null;
+        const drift = dr && dr.status && dr.status !== 'no_session' ? {
+            score: typeof dr.score === 'number' ? dr.score : null,
+            band: ['calm', 'watch', 'high'].includes(dr.band) ? dr.band : null,
+            status: String(dr.status),
+            top: (Array.isArray(dr.top) ? dr.top : []).slice(0, 3)
+                .map(f => ({ label: String(f.label || ''), detail: String(f.detail || '') })).filter(f => f.label),
+            sessions: (dr.baseline && dr.baseline.sessions) || 0,
+            needed: (dr.baseline && dr.baseline.needed_sessions) || 5,
+            feedback: dr.feedback === 'normal' ? 'normal' : null,
+            // "Looks normal" is offered only once the session has ended.
+            ended: dr.ended === true || (dr.ended === undefined && !!task.ended_at),
+        } : null;
         const start = Date.parse(task.created_at);
         const end = task.ended_at ? Date.parse(task.ended_at) : Date.now();
         const folder = String(task.workspace || '').split(/[\\/]/).filter(Boolean).pop() || '';
@@ -2760,6 +2779,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             findings,
             findings_total: all.length,
             approvals,
+            drift,
         };
     },
 
@@ -2787,11 +2807,30 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(f.title)}</li>`).join('');
             out.push(row('Agent Health', `<ul class="terminals-summary-list">${list}</ul><a href="#" class="terminals-summary-all" data-summary-findings aria-label="All findings in Observability">All findings</a>`));
         }
+        if (s.drift) out.push(row('Drift', this._driftHtml(s.drift)));
         if (s.approvals.approved + s.approvals.denied > 0) {
             out.push(row('Approvals', `${s.approvals.approved} approved, ${s.approvals.denied} denied`));
         }
         return `<section class="terminals-summary" aria-label="Session summary"><dl>${out.join('')}</dl>`
             + '<button type="button" class="btn btn-sm" data-summary-export aria-label="Export session summary as JSON">Export</button></section>';
+    },
+
+    /** The Drift row: number, band word and the top three features in plain
+     *  words, or the baseline still building. Only the number and band carry
+     *  colour; "Looks normal" is the one action, and it changes no verdict. */
+    _driftHtml(d) {
+        if (d.score === null || d.status === 'building_baseline') {
+            return `building baseline, ${this._esc(Math.min(d.sessions, d.needed))} of ${this._esc(d.needed)} sessions`;
+        }
+        const band = d.band || 'calm';
+        const top = d.top.map(f => `${this._esc(f.label)}${f.detail ? ` (${this._esc(f.detail)})` : ''}`).join(', ');
+        const partial = d.status === 'partial' ? ' <span class="terminals-summary-more">(partial baseline)</span>' : '';
+        const action = d.feedback === 'normal'
+            ? ' <span class="terminals-summary-more" data-drift-marked>Marked normal</span>'
+            : d.ended
+                ? ' <a href="#" class="terminals-summary-all" data-drift-normal aria-label="Mark this session as looking normal">Looks normal</a>'
+                : '';
+        return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${band}</span>${top ? `: ${top}` : ''}${partial}${action}`;
     },
 
     /** The summary fields only: no prompts, no output, and the working folder
@@ -2808,10 +2847,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
     async _summaryLoad(task) {
         const sid = task.session_id;
         const soft = (f) => { try { return Promise.resolve(f()).catch(() => null); } catch (e) { return Promise.resolve(null); } };
-        const [verdicts, egress, jit] = await Promise.all([
+        const [verdicts, egress, jit, drift] = await Promise.all([
             soft(() => API.terminalsVerdicts(task.id)),
             sid && API.getEgressSessionDestinations ? soft(() => API.getEgressSessionDestinations(sid)) : null,
             sid && API.getJitRequests ? soft(() => API.getJitRequests()) : null,
+            sid && API.terminalsDrift ? soft(() => API.terminalsDrift(task.id)) : null,
         ]);
         let health = null;
         if (sid && API.getTraceHealth) {
@@ -2824,7 +2864,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (run && run.trace_id) health = await soft(() => API.getTraceHealth(run.trace_id));
         }
         const live = sid ? ((this._optLive && this._optLive.sessions) || []).find(x => x.session_id === sid) : null;
-        return this._summaryBuild(task, { verdicts, egress, health, jit, model: live && live.model });
+        return this._summaryBuild(task, { verdicts, egress, health, jit, drift, model: live && live.model });
     },
 
     /** Fill `host` with the task's summary and wire its Export and findings link. */
@@ -2847,6 +2887,17 @@ ${this.CLI_BIN} stop &lt;id&gt;
         };
         const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
         if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
+        const normal = host.querySelector ? host.querySelector('[data-drift-normal]') : null;
+        if (normal) normal.onclick = async (ev) => {
+            ev.preventDefault();
+            try {
+                await API.terminalsDriftFeedback(task.id);
+                if (s.drift) s.drift.feedback = 'normal';
+                normal.outerHTML = '<span class="terminals-summary-more" data-drift-marked>Marked normal</span>';
+            } catch (e) {
+                normal.textContent = 'Could not save, try again';
+            }
+        };
     },
 
     /** The status line's Summary toggle: a panel laid over the pane's stage. */

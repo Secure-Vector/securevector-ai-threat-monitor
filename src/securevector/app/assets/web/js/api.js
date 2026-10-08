@@ -1116,6 +1116,17 @@ const API = {
     async terminalsVerdicts(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/verdicts`);
     },
+    // Session Drift Score: observe only. The per-task read scores the session
+    // now; the batch read returns stored scores; feedback records "looks normal".
+    async terminalsDrift(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/drift`);
+    },
+    async terminalsDriftBatch(ids) {
+        return this._terminalsRead(`/api/terminals/drift?task_ids=${encodeURIComponent((ids || []).join(','))}`);
+    },
+    async terminalsDriftFeedback(id) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/drift/feedback`, { feedback: 'normal' });
+    },
     async terminalsEvents(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);
     },

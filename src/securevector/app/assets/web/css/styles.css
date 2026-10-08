@@ -10093,6 +10093,10 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .nav-task-facts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .nav-task-facts .terminals-task-spend { font-size: inherit; }
 .nav-task-facts .terminals-task-blocked.is-danger { color: var(--danger); }
+/* Session Drift Score: the band is a security state, so watch is amber and
+   high is red; calm stays neutral. */
+.terminals-task-drift.is-watch, .terminals-drift-band.is-watch { color: var(--warning, #f59e0b); }
+.terminals-task-drift.is-high, .terminals-drift-band.is-high { color: var(--danger, #ef4444); }
 .sidebar.collapsed .nav-task-facts { display: none; }
 
 /* Session summary: the ended panel and the running-pane overlay. Colour is

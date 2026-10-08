@@ -1534,7 +1534,7 @@ const Sidebar = {
                             group: task.workspace || '',
                             folder: window.TerminalsPage && TerminalsPage._folderName ? TerminalsPage._folderName(task) : '',
                             facts: window.TerminalsPage && TerminalsPage._factsHtml ? TerminalsPage._factsHtml(task) : '',
-                            factsSig: [task.spend_usd, task.tool_calls, task.blocked_calls].join(','),
+                            factsSig: [task.spend_usd, task.tool_calls, task.blocked_calls, task.drift_score, task.drift_band].join(','),
                             tooltip: `${task.executor_id} · ${task.workspace}`,
                         };
                     }),

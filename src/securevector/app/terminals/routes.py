@@ -27,6 +27,8 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
+from securevector.app.database.repositories.session_drift import SessionDriftRepository
+from securevector.app.services import session_drift
 from securevector.app.terminals.auth import TerminalAuth, get_auth, retry_terminals_init
 from securevector.app.terminals.executors import ExecutorUnavailable, UnknownExecutor
 from securevector.app.terminals.gitinfo import workspace_branch
@@ -101,7 +103,27 @@ async def _decorate(manager: TerminalManager, items):
         item["governed_at_launch"] = not (item["id"] in ungoverned or item["id"] in audited)
     await _with_spend(manager, items)
     await _with_counts(manager, items)
+    await _with_drift(manager, items)
     return items
+
+
+async def _with_drift(manager: TerminalManager, items) -> None:
+    """The stored Session Drift Score and band for the facts line. One read
+    of stored rows for the page, no scoring here; a failure leaves the
+    fields off. Observe only: nothing on the board acts on it."""
+    ids = [i.get("session_id") for i in items if i.get("session_id")]
+    if not ids:
+        return
+    try:
+        rows = await SessionDriftRepository(manager.store.db).for_sessions(ids)
+    except Exception:  # noqa: BLE001 - the board must render without drift
+        logger.debug("could not read drift rows for the board", exc_info=True)
+        return
+    for item in items:
+        row = rows.get(item.get("session_id") or "")
+        if row and row.get("score") is not None:
+            item["drift_score"] = int(row["score"])
+            item["drift_band"] = row.get("band")
 
 
 async def _with_counts(manager: TerminalManager, items) -> None:
@@ -328,6 +350,88 @@ async def list_verdicts(task_id: str, manager: TerminalManager = Depends(get_man
         return {"items": [], "session_id": None}
     items = await manager.store.list_verdicts(task["session_id"])
     return {"items": items, "session_id": task["session_id"]}
+
+
+# -- Session Drift Score (observe only) ---------------------------------------
+#
+# Two reads and one write. The write records "looks normal" and nothing else:
+# no route here blocks, stops or prompts, and the score changes no verdict.
+
+DRIFT_BATCH_MAX = 200
+
+
+@router.get("/tasks/{task_id}/drift", dependencies=[Depends(require_read)])
+async def task_drift(task_id: str, manager: TerminalManager = Depends(get_manager)):
+    """Score the task's session now (summary open) and return the number,
+    band, top three features in plain words and the baseline behind it.
+
+    A GET that writes: it rescores and overwrites the session's
+    `session_drift` row (keeping its "looks normal" mark), the same derived
+    write the warm loop makes every 60 s. Derived state only, never a new
+    fact and never a verdict, which is why it sits under the read token.
+    The response also carries `ended` so the page offers "Looks normal" only
+    for a session that has finished."""
+    task = await manager.store.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Unknown task")
+    sid = task.get("session_id")
+    if not sid:
+        return session_drift.payload(
+            session_drift.DriftResult(None, None, session_drift.STATUS_NO_SESSION, [], False, "")
+        )
+    result = await session_drift.score_for(sid, db=manager.store.db, task=task)
+    row = await SessionDriftRepository(manager.store.db).get(sid)
+    return {**session_drift.payload(result, (row or {}).get("feedback")), "ended": bool(task.get("ended_at"))}
+
+
+@router.get("/drift", dependencies=[Depends(require_read)])
+async def drift_batch(task_ids: str = "", manager: TerminalManager = Depends(get_manager)):
+    """Stored score and band per task, for the sidebar. Reads stored rows only."""
+    ids = [i for i in (task_ids or "").split(",") if i][:DRIFT_BATCH_MAX]
+    tasks = [t for t in [await manager.store.get_task(i) for i in ids] if t]
+    rows = await SessionDriftRepository(manager.store.db).for_sessions(
+        [t["session_id"] for t in tasks if t.get("session_id")]
+    )
+    items = {}
+    for t in tasks:
+        row = rows.get(t.get("session_id") or "")
+        if row:
+            items[t["id"]] = {"score": row.get("score"), "band": row.get("band"), "status": row.get("status")}
+    return {"items": items}
+
+
+class DriftFeedback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    feedback: str = Field(default=session_drift.FEEDBACK_NORMAL, pattern="^normal$")
+
+
+@router.post("/tasks/{task_id}/drift/feedback", dependencies=[Depends(require_write)])
+async def drift_feedback(
+    task_id: str,
+    body: Optional[DriftFeedback] = None,
+    manager: TerminalManager = Depends(get_manager),
+):
+    """Record "looks normal": the session joins the baseline for later
+    sessions and counts toward the published false-flag rate."""
+    task = await manager.store.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Unknown task")
+    sid = task.get("session_id")
+    if not sid:
+        raise HTTPException(status_code=409, detail="This task has no governed session")
+    # Only a finished session can be marked normal. A running agent that
+    # could reach this route must not be able to fold its own session into
+    # the baseline that scores it.
+    if not task.get("ended_at") or await manager.store.db.fetch_one(
+        "SELECT 1 FROM terminal_tasks WHERE session_id = ? AND ended_at IS NULL LIMIT 1", (sid,)
+    ):
+        raise HTTPException(status_code=409, detail="Session is still running; mark it normal after it ends")
+    repo = SessionDriftRepository(manager.store.db)
+    if await repo.get(sid) is None:
+        await session_drift.score_for(sid, db=manager.store.db, task=task)
+    await repo.set_feedback(sid, session_drift.FEEDBACK_NORMAL)
+    session_drift.clear_cache()
+    return {"ok": True, "feedback": session_drift.FEEDBACK_NORMAL}
 
 
 @router.post("/tasks/{task_id}/events", status_code=204)

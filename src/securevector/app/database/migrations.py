@@ -201,6 +201,11 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         52: migrate_to_v52,
         53: migrate_to_v53,
         54: migrate_to_v54,
+        # v55 is reserved for egress_audit.session_verified, which lands from
+        # another branch. v56 is registered now; CURRENT_SCHEMA_VERSION moves
+        # to 56 only once v55 is in this map, because the runner applies
+        # versions strictly in sequence.
+        56: migrate_to_v56,
     }
 
     if version in migrations:
@@ -2137,6 +2142,10 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     logger.info("Initializing database schema...")
     version = await run_migrations(db)
 
+    # Session Drift Score table. Created here, at startup and outside any
+    # request, until migration v56 is reachable in the strict sequence.
+    await ensure_session_drift_table(db)
+
     # Load community rules after schema is ready
     await load_community_rules(db)
 
@@ -2233,6 +2242,17 @@ async def cleanup_old_event_records(db: DatabaseConnection) -> None:
     except Exception as e:  # noqa: BLE001 — settings unreadable: skip, never block startup
         logger.debug(f"Event records cleanup skipped (no settings): {e}")
         return
+
+    # Session Drift rows age out on the same knob as the audit rows they are
+    # derived from. computed_at is ISO with an offset, so compare through
+    # datetime() rather than as text.
+    try:
+        await db.execute(
+            "DELETE FROM session_drift WHERE datetime(computed_at) < datetime('now', ?)",
+            (f"-{int(retention_days)} days",),
+        )
+    except Exception as e:  # noqa: BLE001 - table missing on an older schema
+        logger.debug(f"Cleanup skipped for session_drift: {e}")
 
     for table, ts_col in _EVENT_RETENTION_TABLES:
         try:
@@ -2843,3 +2863,59 @@ async def migrate_to_v54(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v54: terminal_tasks status 'stopped'")
+
+
+# Plain statements run one at a time with conn.execute: executescript would
+# COMMIT any transaction another coroutine holds open on the shared connection.
+SESSION_DRIFT_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS session_drift (
+        session_id        TEXT PRIMARY KEY,
+        task_id           TEXT,
+        harness           TEXT,
+        workspace         TEXT,
+        score             INTEGER,
+        band              TEXT CHECK (band IS NULL OR band IN ('calm', 'watch', 'high')),
+        status            TEXT NOT NULL,
+        features_json     TEXT,
+        baseline_sessions INTEGER NOT NULL DEFAULT 0,
+        baseline_calls    INTEGER NOT NULL DEFAULT 0,
+        feedback          TEXT CHECK (feedback IS NULL OR feedback = 'normal'),
+        computed_at       TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_drift_task ON session_drift (task_id)",
+)
+
+
+async def ensure_session_drift_table(db: DatabaseConnection) -> None:
+    """Create ``session_drift`` if it is missing. Idempotent.
+
+    Called by migrate_to_v56 and once at startup right after run_migrations
+    (init_database_schema), so the table exists while the recorded version
+    has not reached 56 (the runner is strictly sequential and v55 lands
+    separately). Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in SESSION_DRIFT_DDL:
+        await conn.execute(stmt)
+    await conn.commit()
+
+
+async def migrate_to_v56(db: DatabaseConnection) -> None:
+    """v55 -> v56: ``session_drift``, one Session Drift Score row per session.
+
+    One row per governed session, overwritten on each compute; baselines are
+    derived from audit rows and never stored. ``features_json`` holds feature
+    ids, values, weights and counts only, never argument text, hosts or
+    paths. ``feedback`` is the "looks normal" mark, kept across recomputes.
+    Observe only: nothing reads this table to decide a verdict. Idempotent.
+    """
+    await ensure_session_drift_table(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (56, CURRENT_TIMESTAMP, 'Session Drift Score rows')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v56: session_drift")
