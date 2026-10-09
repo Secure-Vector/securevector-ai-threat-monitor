@@ -306,8 +306,7 @@ async def _session_binding(http_request, session_id: Optional[str]):
     except Exception as e:  # noqa: BLE001 - unverified is the safe answer
         logger.warning("Egress session binding check failed: %s", e)
         return None, False
-    logger.warning("Egress call claimed session %s with a token that is not that "
-                   "session's; recorded unbound", session_id)
+    logger.warning("Egress call session token did not match; recorded unbound")
     return None, False
 
 
@@ -417,10 +416,7 @@ async def grant_host(
         raise HTTPException(status_code=422, detail=str(ve))
     if not grant:
         raise HTTPException(status_code=409, detail="Could not create the grant")
-    logger.info(
-        "Egress host grant %s: %s for session %s (%s, rule %s, by local-user)",
-        grant["id"], host, body.session_id, body.duration, block.get("rule_id"),
-    )
+    logger.info("Egress host grant recorded by local-user")
     return {"grant": grant}
 
 

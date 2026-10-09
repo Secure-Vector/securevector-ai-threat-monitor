@@ -564,9 +564,9 @@ class TerminalManager:
             sids += await self.store.session_history(task_id)
             n = await JitAccessRepository(self.store.db).revoke_session_host_grants(sids)
             if n:
-                logger.info("revoked %s egress host grant(s) for ended task %s", n, task_id)
+                logger.info("revoked %d egress host grant(s) for an ended task", n)
         except Exception:
-            logger.debug("could not revoke host grants for %s", task_id, exc_info=True)
+            logger.debug("could not revoke host grants for an ended task", exc_info=True)
 
     async def _emit_archived(self, task_id: str, *, origin: str) -> None:
         self._live_status.pop(task_id, None)

@@ -141,6 +141,17 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
 const EGRESS_TIMEOUT_MS = 400;
 
 /**
+ * Inside a task launched by Agent Sessions, the app hands the session its task
+ * id and hook token. Sending them lets the egress check bind this call to the
+ * session it claims; without them the call is still evaluated, just not bound.
+ */
+function terminalHeaderFields() {
+  const task = (process.env.SV_TERMINAL_TASK_ID || '').trim();
+  const token = (process.env.SV_TERMINAL_HOOK_TOKEN || '').trim();
+  return task && token ? { 'x-sv-terminal-task': task, 'x-sv-terminal-hook': token } : {};
+}
+
+/**
  * Domain helper: POST a tool call to the local app's egress evaluator.
  *
  * Destination extraction and policy evaluation deliberately live server-side
@@ -151,17 +162,6 @@ const EGRESS_TIMEOUT_MS = 400;
  * fail-closed is enforced server-side, where the policy actually lives — the
  * hook cannot know that intent when it cannot reach the app at all.
  */
-/**
- * Inside a task launched by Agent Sessions, the app hands the session its task
- * id and hook token. Sending them lets the egress check bind this call to the
- * session it claims; without them the call is still evaluated, just not bound.
- */
-function terminalHeaders() {
-  const task = (process.env.SV_TERMINAL_TASK_ID || '').trim();
-  const token = (process.env.SV_TERMINAL_HOOK_TOKEN || '').trim();
-  return task && token ? { 'x-sv-terminal-task': task, 'x-sv-terminal-hook': token } : {};
-}
-
 async function evaluateEgress(baseUrl, body, opts = {}) {
   const timeoutMs = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : EGRESS_TIMEOUT_MS;
   const controller = new AbortController();
@@ -169,7 +169,7 @@ async function evaluateEgress(baseUrl, body, opts = {}) {
   try {
     const resp = await fetch(`${baseUrl}/api/egress/evaluate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders(), ...terminalHeaders() },
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...terminalHeaderFields() },
       body: JSON.stringify(body),
       signal: controller.signal,
     });

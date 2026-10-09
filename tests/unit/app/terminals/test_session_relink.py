@@ -127,4 +127,4 @@ async def test_exit_revokes_the_tasks_host_grants(tmp_path):
         await asyncio.sleep(0.02)
     assert await jit.active_host_grants("sess-new-00002", "claude-code") == {}
     assert await jit.active_host_grants("sess-old-00001", "claude-code") == {}
-    assert "h.example.com" in await jit.active_host_grants("sess-else-0003", "claude-code")
+    assert set(await jit.active_host_grants("sess-else-0003", "claude-code")) == {"h.example.com"}

@@ -326,7 +326,7 @@ class TestDenylistEditing:
     async def test_add_then_block_from_any_session_then_remove(self, db):
         body = egress_routes.DenyHostRequest(host=" Paste.Example.ORG. ")
         policy = await egress_routes.add_denied_host(body, x_sv_ui_token=TOKEN)
-        assert "paste.example.org" in policy["denylist"]
+        assert policy["denylist"] == ["paste.example.org"]
         for sid in ("sess-aaaa1111", "sess-bbbb2222", None):
             out = await _call(sid, host="files.paste.example.org")
             assert out["action"] == BLOCK
@@ -349,7 +349,7 @@ class TestDenylistEditing:
     async def test_ip_literals_are_accepted(self, db):
         policy = await egress_routes.add_denied_host(
             egress_routes.DenyHostRequest(host="203.0.113.7"), x_sv_ui_token=TOKEN)
-        assert "203.0.113.7" in policy["denylist"]
+        assert policy["denylist"] == ["203.0.113.7"]
 
     @pytest.mark.asyncio
     async def test_remove_unlisted_is_404_and_token_required(self, db):
@@ -589,7 +589,7 @@ class TestHumanOnlyRoutes:
                 assert exc.value.status_code == 403
         out = await egress_routes.promote_destination(
             egress_routes.PromoteRequest(host="Evil.COM."), x_sv_ui_token=TOKEN)
-        assert "evil.com" in out["policy"]["allowlist"]
+        assert out["policy"]["allowlist"] == ["evil.com"]
         with pytest.raises(HTTPException) as exc:
             await egress_routes.promote_destination(
                 egress_routes.PromoteRequest(host="http://x/y"), x_sv_ui_token=TOKEN)
