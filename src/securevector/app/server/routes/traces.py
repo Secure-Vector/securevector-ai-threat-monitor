@@ -147,11 +147,21 @@ async def _add_terminal_tasks(db, runs: list[dict]) -> None:
             "ORDER BY created_at DESC, rowid DESC",
             tuple(sessions),
         )
+        # A session the task held before a re-link (after /clear) is still
+        # the task's: match it through the task's re-link events.
+        hist_rows = await db.fetch_all(
+            "SELECT t.id, t.title, t.workspace, t.origin, t.executor_id, "
+            "e.detail AS session_id FROM terminal_events e "
+            "JOIN terminal_tasks t ON t.id = e.task_id "
+            "WHERE e.kind = 'session_relinked' AND t.archived_at IS NULL "
+            f"AND e.detail IN ({marks}) ORDER BY e.seq DESC",
+            tuple(sessions),
+        )
     except Exception:  # noqa: BLE001 - optional board data cannot hide traces
         logger.debug("Terminal task lookup unavailable for trace list", exc_info=True)
         return
     matched = {}
-    for raw in rows:
+    for raw in list(rows) + list(hist_rows):
         task = dict(raw)
         matched.setdefault((task["session_id"], task["executor_id"]), task)
     for run in runs:
