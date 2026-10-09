@@ -12,13 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Agent Sessions approvals**
 - A host blocked under Contained or Hardened can be approved for one session only (15 minutes, 1 hour or the rest of the session) from that session's Approval inbox or from the Egress section of its pane. Other sessions stay blocked for the same host; the grant expires on its own, is revoked when the task exits, and is audited with its scope, session id and actor.
 - The Egress section names the rule that fired for each blocked host, with the rule id and reason behind a Details toggle.
-- A blocked egress call is listed under the session's Tool calls with verdict BLOCK.
 - Denied destinations can be added and removed on the Agent Egress page.
+
+**Session Drift Score**
+- Each governed session gets a Drift Score from 0 to 100 against what the same harness normally does in the same folder, with the top reasons in plain words on the session and in its summary. Observe only: it never changes a verdict.
+- "Looks normal" feedback on ended sessions.
+
+**Agent Config Trust**
+- Integrations opens with a scan of your agent setup per harness: MCP servers, hooks, rules files and mods, with items that need attention listed first.
+- Changes to that setup show as plain-words cards with a side-by-side view and Approve.
+- Launching a task shows the folder's trust state with its top reasons before the first prompt.
+- Optional, per-server check of an HTTP MCP server's tool list.
 
 **Guard**
 - The Guard plugins (Claude Code 5.4.0, Codex 5.4.0, Cursor 5.4.0, GitHub Copilot CLI 5.4.0, Antigravity 1.1.0, OpenCode 1.2.0, OpenClaw 1.2.0) send the task's hook token with each egress check, which binds the call to the session it names. A plugin from 6.0.0 still works: its calls keep their session counts and Egress list, but a host it had blocked cannot be approved for that session until the plugin is reinstalled from Integrations.
 
-### Fixed
+### Changed
+- Database schema 57.
 - Reliability and security improvements.
 
 ## [6.0.1] - 2026-10-08
