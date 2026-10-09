@@ -143,7 +143,7 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 
 </div>
 
-> **What's new in v6.0.0**
+> **What's new in 6.0**
 > - **Agent Sessions**: launch Claude Code, Codex, GitHub Copilot CLI or OpenCode from inside SecureVector and watch every tool call get checked beside the terminal. [Guide](docs/AGENT_SESSIONS.md)
 > - **Bring your own sessions**: an agent you started in your own terminal appears in the app as soon as it makes a tool call. Add it to the board, continue it in the app, or leave it where it is.
 > - **Unchecked, not just quiet**: an agent that is still running but no longer reporting tool calls is marked **unverified**, so it never looks the same as an idle one.

@@ -85,4 +85,5 @@ def test_reset_override_returns_the_original_rule(tmp_path, monkeypatch):
 
 def test_reset_without_an_override_is_404(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:
-        assert client.delete(f"/api/v1/rules/{RULE_ID}/override").status_code == 404
+        resp = client.delete(f"/api/v1/rules/{RULE_ID}/override")
+        assert resp.status_code == 404

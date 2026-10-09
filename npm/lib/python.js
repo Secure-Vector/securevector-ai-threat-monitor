@@ -35,7 +35,7 @@ function splitCommand(candidate) {
 }
 
 // Where Windows installs the per-machine and per-user `py.exe` launcher. These
-// are asked first, before any project folder.
+// are asked first, before anything on PATH.
 function windowsLaunchers(env) {
   const out = [];
   for (const root of [env.SystemRoot, env.windir]) {
@@ -96,11 +96,10 @@ function pathEntries(env, platform) {
 /**
  * Is this PATH entry somewhere we are willing to take an interpreter from?
  *
- * `npx` inside a project puts that project's `node_modules/.bin` first on
- * PATH, and Windows searches the current directory before PATH at all. The
- * interpreter comes from a system location instead: no empty or relative entries (both
- * mean "the current directory"), not the current directory itself, and no
- * `node_modules/.bin` anywhere.
+ * Only absolute entries outside the current directory and outside any
+ * `node_modules/.bin`, so the interpreter used is the one installed on the
+ * machine, wherever the command is run from. Empty and relative entries both
+ * mean "the current directory" and are skipped.
  */
 function isTrustedDir(dir, cwd, platform) {
   const p = platform === 'win32' ? path.win32 : path.posix;

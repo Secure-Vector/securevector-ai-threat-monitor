@@ -1018,8 +1018,7 @@ class TerminalManager:
                 )
                 if others:
                     logger.warning(
-                        "refused session re-link for task %s: session is held by task %s",
-                        task_id, others[0].get("id"),
+                        "refused session re-link: the session is held by another task"
                     )
                 else:
                     await self.store.set_session(task_id, str(session_id))

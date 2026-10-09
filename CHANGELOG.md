@@ -19,8 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Guard plugins (Claude Code 5.4.0, Codex 5.4.0, Cursor 5.4.0, GitHub Copilot CLI 5.4.0, Antigravity 1.1.0, OpenCode 1.2.0, OpenClaw 1.2.0) send the task's hook token with each egress check, which binds the call to the session it names. A plugin from 6.0.0 still works: its calls keep their session counts and Egress list, but a host it had blocked cannot be approved for that session until the plugin is reinstalled from Integrations.
 
 ### Fixed
-- The single-pane strip names the attached task, not the most recently launched one.
 - Reliability and security improvements.
+
+## [6.0.1] - 2026-10-08
+
+### Changed
+- `@securevector/cli`: reliability and security improvements to how the launcher finds Python and installs its environment.
+
+### Fixed
+- Agent Runs: the run list updates live again while agents are running.
+- Codex: a tool call that fails is now recorded as failed instead of successful (Codex Guard plugin 5.3.1; reinstall the plugin to pick it up).
+- Agent Runs: the tool-call count on a run row is no longer cut off in the split view.
+- Rules: setting or resetting a community rule override now returns the rule with the change applied.
+- Terminals: calls blocked by the egress check now appear in the session's Tool calls list.
+- Terminals: in single-pane view, the pane strip now shows the name of the attached task.
+- Terminals: after Claude Code `/clear`, the task follows the new session and keeps the earlier session's traces.
 
 ## [6.0.0] - 2026-10-03
 

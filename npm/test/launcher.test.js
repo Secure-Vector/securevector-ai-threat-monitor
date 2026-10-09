@@ -159,7 +159,7 @@ test('the bin file is executable and has a shebang', () => {
   assert.ok(fs.statSync(p).mode & 0o111, 'bin/securevector.js is not executable');
 });
 
-// --- interpreter lookup uses system locations, not the project folder -------
+// --- interpreter lookup uses trusted PATH directories only ----------------------
 
 const os = require('node:os');
 
@@ -171,13 +171,13 @@ function fakePython(dir, name, version) {
   return file;
 }
 
-test('a python3 in the cwd or node_modules/.bin is never chosen', { skip: process.platform === 'win32' }, () => {
+test('only trusted PATH directories are used to find python', { skip: process.platform === 'win32' }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sv-npm-path-'));
   try {
     const project = path.join(root, 'project');
     const bin = path.join(project, 'node_modules', '.bin');
     const real = path.join(root, 'usr', 'bin');
-    // The project-local ones report a newer version, so if they were reachable they would win.
+    // The local ones report a newer version, so they would win if they were considered.
     fakePython(project, 'python3', '3.13');
     fakePython(bin, 'python3', '3.13');
     const good = fakePython(real, 'python3', '3.12');
@@ -190,7 +190,7 @@ test('a python3 in the cwd or node_modules/.bin is never chosen', { skip: proces
     assert.strictEqual(best.command, good);
     assert.deepStrictEqual(best.version, [3, 12]);
 
-    // With only project-local entries there is nothing to run.
+    // With only skipped entries there is nothing to run.
     const none = python.findPython({ ...opts, env: { PATH: [bin, '', project].join(':') } });
     assert.strictEqual(none.best, null);
     assert.strictEqual(none.seen.length, 0);
@@ -199,7 +199,7 @@ test('a python3 in the cwd or node_modules/.bin is never chosen', { skip: proces
   }
 });
 
-test('project-local PATH entries are recognised on both platforms', () => {
+test('skipped PATH entries are recognised on both platforms', () => {
   assert.ok(!python.isTrustedDir('', '/p', 'linux'));
   assert.ok(!python.isTrustedDir('.', '/p', 'linux'));
   assert.ok(!python.isTrustedDir('bin', '/p', 'linux'));
@@ -305,11 +305,11 @@ test('a Windows app execution alias (reparse point stat cannot follow) still cou
   }
 });
 
-test('install uses an isolated python, ignoring modules in the current directory', { skip: process.platform === 'win32', timeout: 180000 }, () => {
+test('install runs python in isolated mode from the environment root', { skip: process.platform === 'win32', timeout: 180000 }, () => {
   const { best } = python.findPython();
   if (!best) return; // no interpreter on this machine
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sv-npm-cwd-'));
-  const marker = path.join(root, 'CWD_MODULE_RAN');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sv-npm-isolated-'));
+  const marker = path.join(root, 'LOCAL_MODULE_RAN');
   const project = path.join(root, 'project');
   for (const mod of ['venv', 'pip']) {
     fs.mkdirSync(path.join(project, mod), { recursive: true });
@@ -318,7 +318,7 @@ test('install uses an isolated python, ignoring modules in the current directory
   }
   const saved = { cwd: process.cwd(), env: { ...process.env } };
   try {
-    // Without isolation the cwd module runs, so the test can fail.
+    // Without isolated mode the local package would load, so the test can fail.
     require('node:child_process').spawnSync(best.command, [...(best.args || []), '-m', 'venv', '--help'], { cwd: project, stdio: 'ignore' });
     assert.ok(fs.existsSync(marker), 'sanity: a bare -m imports from the current directory');
     fs.rmSync(marker);

@@ -32,8 +32,8 @@ const DEFAULT_PIP_INDEX = 'https://pypi.org/simple';
 // security tool's install path. Revisit when pip 27 ships.
 const PIP_SELF_SPEC = 'pip>=24.0,<27';
 
-// Variables that can point pip at another index or local wheels. They are
-// cleared so the install always comes from the chosen index.
+// Variables that can point pip at another index or local wheels. The launcher
+// always installs from the index it names, so these are cleared for the child.
 const PIP_INDEX_VARS = ['PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL', 'PIP_FIND_LINKS', 'PIP_NO_INDEX', 'PIP_TRUSTED_HOST'];
 
 /**
@@ -51,7 +51,7 @@ function pipIndex(env = process.env) {
   } catch {
     url = null;
   }
-  // Packages from a plain http index can be swapped in transit.
+  // The index must be served over https.
   if (!url || url.protocol !== 'https:') {
     throw new Error(`SECUREVECTOR_PIP_INDEX must be an https:// URL, got: ${value}`);
   }
@@ -77,9 +77,9 @@ function pipInstallArgs(spec, env = process.env) {
 }
 
 /**
- * Where install children run. Python puts the current directory first on
- * sys.path for `-m`; install children run with `-I` (isolated mode, Python
- * 3.4+) from a working directory the launcher owns.
+ * Where install children run: the launcher's own environment folder, so
+ * installs behave the same wherever the command is started. Children also
+ * run with `-I` (isolated mode, Python 3.4+).
  */
 function childCwd() {
   try {
