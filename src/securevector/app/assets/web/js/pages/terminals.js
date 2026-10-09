@@ -968,6 +968,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const band = t.drift_band === 'high' || t.drift_band === 'watch' ? t.drift_band : 'calm';
             parts.push(`<span class="terminals-task-drift is-${band}" title="Session drift ${this._esc(t.drift_score)}, ${band}">drift ${this._esc(t.drift_score)}</span>`);
         }
+        // Response rung: neutral at observe, amber at flag, red at step-up.
+        const rung = window.ResponseRungs ? ResponseRungs.chipHtml(t) : '';
+        if (rung) parts.push(rung);
         // Agent setup trust: red when it changed, amber when not approved.
         const setup = window.ConfigTrust ? ConfigTrust.factsPart(t) : '';
         if (setup) parts.push(setup);
@@ -2842,6 +2845,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             findings_total: all.length,
             approvals,
             drift,
+            rung: window.ResponseRungs ? ResponseRungs.summaryData(d.rung) : null,
             setup: d.setup && typeof d.setup === 'object' && d.setup.state && d.setup.state !== 'unchecked' ? d.setup : null,
         };
     },
@@ -2871,6 +2875,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             out.push(row('Agent Health', `<ul class="terminals-summary-list">${list}</ul><a href="#" class="terminals-summary-all" data-summary-findings aria-label="All findings in Observability">All findings</a>`));
         }
         if (s.drift) out.push(row('Drift', this._driftHtml(s.drift)));
+        if (s.rung && window.ResponseRungs) out.push(row('Response', `<span data-rung-cell>${ResponseRungs.summaryHtml(s.rung, !!s.ended_at)}</span>`));
         if (s.setup && window.ConfigTrust) out.push(row('Setup', ConfigTrust.summaryHtml(s.setup)));
         if (s.approvals.approved + s.approvals.denied > 0) {
             out.push(row('Approvals', `${s.approvals.approved} approved, ${s.approvals.denied} denied`));
@@ -2911,12 +2916,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
     async _summaryLoad(task) {
         const sid = task.session_id;
         const soft = (f) => { try { return Promise.resolve(f()).catch(() => null); } catch (e) { return Promise.resolve(null); } };
-        const [verdicts, egress, jit, drift, setup] = await Promise.all([
+        const [verdicts, egress, jit, drift, setup, rung] = await Promise.all([
             soft(() => API.terminalsVerdicts(task.id)),
             sid && API.getEgressSessionDestinations ? soft(() => API.getEgressSessionDestinations(sid)) : null,
             sid && API.getJitRequests ? soft(() => API.getJitRequests()) : null,
             sid && API.terminalsDrift ? soft(() => API.terminalsDrift(task.id)) : null,
             API.configTrustSession ? soft(() => API.configTrustSession(task.id)) : null,
+            sid && API.terminalsRung ? soft(() => API.terminalsRung(task.id)) : null,
         ]);
         let health = null;
         if (sid && API.getTraceHealth) {
@@ -2929,7 +2935,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (run && run.trace_id) health = await soft(() => API.getTraceHealth(run.trace_id));
         }
         const live = sid ? ((this._optLive && this._optLive.sessions) || []).find(x => x.session_id === sid) : null;
-        return this._summaryBuild(task, { verdicts, egress, health, jit, drift, setup, model: live && live.model });
+        return this._summaryBuild(task, { verdicts, egress, health, jit, drift, setup, rung, model: live && live.model });
     },
 
     /** Fill `host` with the task's summary and wire its Export and findings link. */
@@ -2952,6 +2958,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
         };
         const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
         if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
+        if (s.rung && window.ResponseRungs) {
+            ResponseRungs.wire(host, task, s.rung, API, async (tk) => {
+                await (API.terminalsStopFromRung || API.terminalsStop).call(API, tk.id);
+                this._summaryFill(host, tk);
+            });
+        }
         const normal = host.querySelector ? host.querySelector('[data-drift-normal]') : null;
         if (normal) normal.onclick = async (ev) => {
             ev.preventDefault();

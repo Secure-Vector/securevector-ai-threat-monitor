@@ -373,6 +373,8 @@ def decide_from_overrides(candidates: list, rows: list, session_id: Optional[str
             continue
         if row.get("source") == "jit_grant" and row.get("session_id") and row.get("session_id") != session_id:
             continue
+        if row.get("source") == "rung_marker":  # read by its own check, never a rule
+            continue
         by_id.setdefault(row["tool_id"].lower(), row)
     run_row = by_id.get("*")
     if run_row:
@@ -383,6 +385,10 @@ def decide_from_overrides(candidates: list, rows: list, session_id: Optional[str
         match = by_id.get(cand.lower())
         if not match:
             continue
+        # A response rung row holds an allowed call for approval. Not
+        # explicit, so the registry tier below still applies to the tool.
+        if match.get("source") == "rung":
+            return NEEDS_APPROVAL, False
         mapped = _EFFECT_TO_DECISION.get(match.get("effect"))
         if not mapped:
             return ALLOW, True
@@ -513,6 +519,15 @@ async def decide(db, tool_name: str, tool_input: dict, *, harness: Optional[str]
 
     candidates = tool_candidates(tool_name)
     tool_decision, explicit = decide_from_overrides(candidates, rows, harness_session_id)
+    # Response rung 3, active mode: the per-call marker check the Guard hook
+    # runs on an allowed call (dangerous path or key in the input, a tool the
+    # baseline has not seen that no row names). Same function, same rows.
+    if candidates and tool_decision == ALLOW:
+        from securevector.app.services import response_rungs
+
+        marker = response_rungs.find_marker(rows, harness_session_id)
+        if marker and response_rungs.marker_kind(tool_name, tool_input, marker, explicit):
+            tool_decision = NEEDS_APPROVAL
     if await _enforcement_on(db):
         if _last_resort(candidates):
             tool_decision = DENY
@@ -532,6 +547,16 @@ async def decide(db, tool_name: str, tool_input: dict, *, harness: Optional[str]
     evaluation = evaluate_tool_call(tool_name, tool_input or {}, egress_policy, ctx,
                                     mcp_endpoint=endpoint, pack=_pack())
     egress_decision = DENY if evaluation.action == BLOCK else ALLOW
+    # Response rung 3, active mode: the same step-up check the Guard's
+    # egress path runs, without filing a request (a check is a question).
+    if tool_decision == ALLOW and egress_decision == ALLOW and evaluation.network_capable:
+        from securevector.app.services import response_rungs
+
+        if await response_rungs.check_call(
+            db, tool_name, tool_input or {}, harness, harness_session_id,
+            [v.attempt.host for v in evaluation.verdicts], file=False,
+        ):
+            egress_decision = NEEDS_APPROVAL
     return _strictest(tool_decision, egress_decision), version
 
 

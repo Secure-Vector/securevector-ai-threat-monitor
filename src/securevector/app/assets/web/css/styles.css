@@ -10105,6 +10105,22 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
    high is red; calm stays neutral. */
 .terminals-task-drift.is-watch, .terminals-drift-band.is-watch { color: var(--warning, #f59e0b); }
 .terminals-task-drift.is-high, .terminals-drift-band.is-high { color: var(--danger, #ef4444); }
+/* Response rungs: observe neutral, flag amber, step-up red; a step-up that
+   only ran in shadow is a muted red outline. */
+.terminals-task-rung.is-flag, .terminals-rung-word.is-flag { color: var(--warning, #f59e0b); }
+.terminals-task-rung.is-stepup, .terminals-rung-word.is-stepup { color: var(--danger, #ef4444); }
+.terminals-task-rung.is-stepup-shadow, .terminals-rung-word.is-stepup-shadow {
+    color: var(--danger, #ef4444); opacity: 0.75; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px;
+}
+.terminals-rung-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.rung-mode-row { padding: 12px 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.25)); }
+.rung-mode-row:last-child { border-bottom: 0; }
+.rung-mode-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rung-mode-state, .rung-mode-progress, .rung-mode-empty { font-size: 13px; color: var(--text-secondary); }
+.rung-mode-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.rung-mode-confirm { margin-top: 8px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rung-mode-confirm[hidden] { display: none; }
+.rung-mode-error { color: var(--danger, #ef4444); }
 /* Pre-flight checks under Context & cost: colour only on deny and on an
    action attempted after a deny; allow and indeterminate stay neutral. */
 .terminals-preflight { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 11.5px; }

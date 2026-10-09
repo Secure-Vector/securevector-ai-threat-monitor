@@ -28,7 +28,7 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from securevector.app.database.repositories.session_drift import SessionDriftRepository
-from securevector.app.services import session_drift
+from securevector.app.services import response_rungs, session_drift
 from securevector.app.terminals.auth import TerminalAuth, get_auth, retry_terminals_init
 from securevector.app.terminals.executors import ExecutorUnavailable, UnknownExecutor
 from securevector.app.terminals.gitinfo import workspace_branch
@@ -104,8 +104,28 @@ async def _decorate(manager: TerminalManager, items):
     await _with_spend(manager, items)
     await _with_counts(manager, items)
     await _with_drift(manager, items)
+    await _with_rung(manager, items)
     await _with_setup(manager, items)
     return items
+
+
+async def _with_rung(manager: TerminalManager, items) -> None:
+    """The stored response rung word and mode for the facts line. One read
+    of stored rows, no evaluation here; a failure leaves the fields off."""
+    ids = [i.get("session_id") for i in items if i.get("session_id")]
+    if not ids:
+        return
+    try:
+        from securevector.app.database.repositories.response_rungs import ResponseRungsRepository
+        rows = await ResponseRungsRepository(manager.store.db).for_sessions(ids)
+    except Exception:  # noqa: BLE001 - the board must render without it
+        logger.debug("could not read rung rows for the board", exc_info=True)
+        return
+    for item in items:
+        row = rows.get(item.get("session_id") or "")
+        if row:
+            item["rung_word"] = response_rungs.RUNG_WORDS.get(int(row["rung"]), "observe")
+            item["rung_mode"] = row.get("mode")
 
 
 async def _with_drift(manager: TerminalManager, items) -> None:
@@ -204,7 +224,7 @@ async def _with_spend(manager: TerminalManager, items) -> None:
 # session started from the CLI is still a launch. An allowlist rather than a
 # free string, because the value is written verbatim into the tamper-evident
 # event chain and read back into the UI.
-ACTORS = frozenset({"ui", "cli"})
+ACTORS = frozenset({"ui", "cli", "rung"})
 
 
 def _actor(value: Optional[str]) -> str:
@@ -514,6 +534,117 @@ async def drift_feedback(
     await repo.set_feedback(sid, session_drift.FEEDBACK_NORMAL)
     session_drift.clear_cache()
     return {"ok": True, "feedback": session_drift.FEEDBACK_NORMAL}
+
+
+@router.get("/tasks/{task_id}/rung", dependencies=[Depends(require_read)])
+async def task_rung(task_id: str, manager: TerminalManager = Depends(get_manager)):
+    """The task's response rung as last recorded. Read only: the warm loop
+    and the exit pass write it; in shadow mode nothing here is applied."""
+    from securevector.app.database.repositories.response_rungs import ResponseRungsRepository
+
+    task = await manager.store.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Unknown task")
+    repo = ResponseRungsRepository(manager.store.db)
+    row = await repo.get_for_task(task_id)
+    if row is None and task.get("session_id"):
+        row = await repo.get(task["session_id"])
+    return response_rungs.payload(row)
+
+
+@router.get("/rungs/modes", dependencies=[Depends(require_read)])
+async def rung_modes(manager: TerminalManager = Depends(get_manager)):
+    """Mode and shadow progress for every harness seen so far."""
+    from securevector.app.database.repositories.response_rungs import ResponseRungsRepository
+
+    out = []
+    for row in await ResponseRungsRepository(manager.store.db).all_modes():
+        out.append(await response_rungs.shadow_progress(manager.store.db, row["harness"], read_only=True))
+    return {"modes": out}
+
+
+@router.get("/rungs/modes/{harness}", dependencies=[Depends(require_read)])
+async def rung_mode(harness: str, manager: TerminalManager = Depends(get_manager)):
+    """One harness: mode, shadow progress and what shadow would have stepped up."""
+    from securevector.app.services.config_trust_scan import HARNESS_LABELS
+
+    if harness not in HARNESS_LABELS:
+        raise HTTPException(status_code=404, detail="Unknown harness")
+    db = manager.store.db
+    return {**await response_rungs.shadow_progress(db, harness, read_only=True),
+            "would_have": await response_rungs.shadow_would_have(db, harness, read_only=True)}
+
+
+async def _task_session(manager: TerminalManager, task_id: str) -> str:
+    task = await manager.store.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Unknown task")
+    sid = task.get("session_id")
+    if not sid:
+        raise HTTPException(status_code=409, detail="This task has no governed session")
+    return sid
+
+
+def _require_ui_token(request: Request) -> None:
+    """The per-run UI token the approval routes use, on top of require_write."""
+    from securevector.app.server.routes.jit_access import _require_ui_token as check
+
+    check(request.headers.get("x-sv-ui-token"))
+
+
+@router.post("/tasks/{task_id}/rung/release", dependencies=[Depends(require_write)])
+async def task_rung_release(task_id: str, request: Request, manager: TerminalManager = Depends(get_manager)):
+    """Back to observe for this session: pinned to rung 1, its rung grants
+    revoked and its pending rung requests cancelled. One call."""
+    _require_ui_token(request)
+    sid = await _task_session(manager, task_id)
+    row = await response_rungs.release_session(manager.store.db, sid, origin="ui")
+    if row is None:
+        raise HTTPException(status_code=409, detail="No rung is recorded for this session yet")
+    return response_rungs.payload(row)
+
+
+class RungFeedback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    feedback: Optional[str] = Field(default=None, pattern="^not_needed$")
+
+
+@router.post("/tasks/{task_id}/rung/feedback", dependencies=[Depends(require_write)])
+async def task_rung_feedback(task_id: str, body: RungFeedback, request: Request,
+                             manager: TerminalManager = Depends(get_manager)):
+    """Mark a step-up "Not needed" (or clear the mark)."""
+    _require_ui_token(request)
+    sid = await _task_session(manager, task_id)
+    await response_rungs.set_feedback(manager.store.db, sid, body.feedback)
+    return {"ok": True, "feedback": body.feedback}
+
+
+class RungModeChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Optional[str] = Field(default=None, pattern="^(shadow|active)$")
+    end_shadow_early: Optional[bool] = None
+
+
+@router.post("/rungs/modes/{harness}", dependencies=[Depends(require_write)])
+async def set_rung_mode(harness: str, body: RungModeChange, request: Request,
+                        manager: TerminalManager = Depends(get_manager)):
+    """Switch one harness between shadow and active, or end shadow early.
+    Also needs the per-run UI token the approval routes use. Active is
+    refused until the shadow period is complete or ended early."""
+    from securevector.app.services.config_trust_scan import HARNESS_LABELS
+
+    _require_ui_token(request)
+    if harness not in HARNESS_LABELS:
+        raise HTTPException(status_code=404, detail="Unknown harness")
+    if (body.mode is None) == (not body.end_shadow_early):
+        raise HTTPException(status_code=422, detail="Send either a mode or end_shadow_early")
+    db = manager.store.db
+    if body.end_shadow_early:
+        return await response_rungs.end_shadow_early(db, harness)
+    try:
+        return await response_rungs.set_mode(db, harness, body.mode)
+    except response_rungs.ModeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @router.post("/tasks/{task_id}/events", status_code=204)

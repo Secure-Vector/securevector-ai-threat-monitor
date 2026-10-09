@@ -171,6 +171,19 @@ async def create_request(body: JitRequestCreate):
 
         rule = await _denying_rule(db, body.tool_id)
         if rule is None:
+            # A tool no rule denies may still be held by the session's
+            # response rung (rung 3, active mode); the rung files it.
+            from securevector.app.services import response_rungs
+            if body.session_id and await response_rungs.holds_tool(db, body.session_id, body.tool_id):
+                req = await response_rungs.file_request(
+                    db, body.tool_id, body.function_name, body.runtime_kind, body.session_id)
+                if req is not None:
+                    return {"request": req}
+                raise HTTPException(
+                    status_code=429,
+                    detail={"error": "queue_full",
+                            "message": "The approval queue is full; try again later."},
+                )
             raise HTTPException(
                 status_code=409,
                 detail={"error": "not_denied",
