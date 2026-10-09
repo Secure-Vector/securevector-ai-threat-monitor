@@ -65,6 +65,8 @@ const App = {
         // into its own Cloud-section page. Always reachable (it's the funnel),
         // not enrollment-gated.
         governance:          GovernancePage,
+        // Agent Detection & Response: detect, harden, respond, pre-flight.
+        'detection-response': DetectionResponsePage,
         'mcp-policies':      McpPoliciesPage,
         // Cloud Activity (story #113) — full in/out visibility for enrolled
         // devices. Sidebar gates its visibility on enrollment; the page also

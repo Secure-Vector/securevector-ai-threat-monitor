@@ -111,6 +111,7 @@ const TerminalsPage = {
         this._adoptReviewOpen = false;
         this._governingId = null;
         this._adoptError = null;
+        this._drAt = 0;
         this._container = container;
         container.innerHTML = `
           <div class="terminals-page">
@@ -121,6 +122,7 @@ const TerminalsPage = {
                   <button class="btn btn-primary btn-sm terminals-launch-button" id="terminals-launch-btn">+ Launch</button>
                 </div>
               </div>
+              <div class="terminals-dr-slot" id="terminals-dr-slot"></div>
               <form class="terminals-launch" id="terminals-launch" hidden>
                 <div class="terminals-launch-modes" role="group" aria-label="Launch mode">
                   <button type="button" class="terminals-launch-mode is-active" id="terminals-mode-launch" aria-pressed="true">Launch a task</button>
@@ -817,6 +819,78 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
     },
 
+    DR_CALLOUT_KEY: 'sv-dr-callout-dismissed',
+    DR_OPENED_KEY: 'sv-dr-page-opened',
+    DR_REFRESH_MS: 15000,
+    _drAt: 0,
+    _drData: null,
+
+    _drStore(op, key, val) {
+        try {
+            if (op === 'get') return localStorage.getItem(key);
+            localStorage.setItem(key, val);
+        } catch (e) { /* storage unavailable */ }
+        return null;
+    },
+
+    /** Agent Detection & Response entry points on this page: a chip with the
+     *  count of sessions to review, and a one-time inline callout. Both read
+     *  the page's summary; either hides quietly when it cannot be read. */
+    _drChipHtml(n) {
+        n = Number(n) || 0;
+        if (n <= 0) return '';
+        return `<a href="#" class="terminals-dr-chip" data-dr-chip>Agent Detection &amp; Response: ${n} ${n === 1 ? 'session' : 'sessions'} to review</a>`;
+    },
+
+    _drCalloutDue(data) {
+        if (!data) return false;
+        if (this._drStore('get', this.DR_CALLOUT_KEY) === '1' || this._drStore('get', this.DR_OPENED_KEY) === '1') return false;
+        const b = (data.detect && data.detect.baseline) || {};
+        const scored = !!b.state && b.state !== 'building';
+        const changes = !!(data.harden && data.harden.changes > 0);
+        return scored || changes;
+    },
+
+    _drCalloutHtml() {
+        return '<div class="terminals-dr-callout" role="note"><span>Your sessions now have a Drift Score. See what Agent Detection &amp; Response found.</span> '
+            + '<a href="#" class="terminals-dr-link" data-dr-callout-open>Open the page</a>'
+            + '<button type="button" class="terminals-dr-dismiss" data-dr-callout-dismiss aria-label="Dismiss this note">Dismiss</button></div>';
+    },
+
+    _drRender(data) {
+        const slot = document.getElementById('terminals-dr-slot');
+        if (!slot) return;
+        const n = data && data.detect ? data.detect.to_review : 0;
+        slot.innerHTML = this._drChipHtml(n) + (this._drCalloutDue(data) ? this._drCalloutHtml() : '');
+        const go = (ev) => {
+            if (ev) ev.preventDefault();
+            if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
+        };
+        const chip = slot.querySelector ? slot.querySelector('[data-dr-chip]') : null;
+        if (chip) chip.onclick = go;
+        const open = slot.querySelector ? slot.querySelector('[data-dr-callout-open]') : null;
+        if (open) open.onclick = (ev) => { this._drStore('set', this.DR_OPENED_KEY, '1'); go(ev); };
+        const dismiss = slot.querySelector ? slot.querySelector('[data-dr-callout-dismiss]') : null;
+        if (dismiss) dismiss.onclick = () => {
+            this._drStore('set', this.DR_CALLOUT_KEY, '1');
+            this._drRender(this._drData);
+        };
+    },
+
+    /** Rides the existing task refresh; the summary itself is fetched at most
+     *  every DR_REFRESH_MS. A failed read hides both and logs nothing. */
+    async _refreshDr() {
+        const now = Date.now();
+        if (this._drAt && now - this._drAt < this.DR_REFRESH_MS) return;
+        this._drAt = now;
+        const gen = this._gen;
+        let data = null;
+        try { data = await (API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API); } catch (e) { data = null; }
+        if (gen !== this._gen) return;
+        this._drData = data && data.detect ? data : null;
+        this._drRender(this._drData);
+    },
+
     async _refreshTasks() {
         const gen = this._gen;
         try {
@@ -846,6 +920,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._pendingApprovalKinds = new Set();
         }
         if (gen !== this._gen) return;
+        this._refreshDr();
         this._renderTaskList();
         this._renderPaneHeads();
         this._checkDragAlive();
@@ -1087,6 +1162,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
                     ? `<span class="terminals-task-stuck" title="Working, with no new tool call or transcript write">no activity for ${this._esc(String(stuckMin))} min</span>`
                     : '';
                 const facts = this._factsHtml(t);
+                // Beside the drift and setup facts (which sit inside the card
+                // button, so the link lives in the actions row instead).
+                const drLink = this._drLinkHtml(t, 'terminals-task-dr');
                 const branch = typeof t.branch === 'string' && t.branch
                     ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
                 const grp = cardsOf(t);
@@ -1102,7 +1180,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       ${facts}
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
-                    ${relaunch || removable ? `<div class="terminals-task-actions">${relaunch}${removable}</div>` : ''}
+                    ${relaunch || removable || drLink ? `<div class="terminals-task-actions">${drLink}${relaunch}${removable}</div>` : ''}
                   </article>`);
             }
         }
@@ -1153,6 +1231,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // pane is on screen to drop onto, so one card drops onto another.
         el.querySelectorAll('.terminals-task[data-id]').forEach(card => {
             card.onpointerdown = (ev) => this._onCardPointerDown(ev, card.dataset.id);
+        });
+        el.querySelectorAll('[data-dr-session]').forEach(a => {
+            a.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); this._openDetectionResponse(a.dataset.drSession); };
         });
         el.querySelectorAll('[data-relaunch-id]').forEach(b => {
             b.onclick = async (ev) => {
@@ -2784,6 +2865,18 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return this._isToolError(i) ? r.replace(/^tool error;?\s*/, '') : r;
     },
 
+    /** A small link to Agent Detection & Response for one session, shown
+     *  when the session has a drift score or a setup state. '' otherwise. */
+    _drLinkHtml(t, cls) {
+        if (!t || !t.id || (typeof t.drift_score !== 'number' && !t.setup_state)) return '';
+        return ` <a href="/detection-response" class="${cls}" data-dr-session="${this._esc(t.id)}" title="Open this session in Agent Detection &amp; Response" aria-label="Review in Agent Detection &amp; Response">Review</a>`;
+    },
+
+    _openDetectionResponse(taskId) {
+        if (window.DetectionResponsePage && DetectionResponsePage.openFor) DetectionResponsePage.openFor(taskId);
+        else if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
+    },
+
     _summaryBuild(task, d) {
         d = d || {};
         const rows = ((d.verdicts && d.verdicts.items) || []).filter(i => !this._isBoundaryRow(i));
@@ -2828,6 +2921,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const folder = String(task.workspace || '').split(/[\\/]/).filter(Boolean).pop() || '';
         return {
             id: String(task.id || '').slice(0, 8),
+            task_id: String(task.id || ''),
             harness: this._label(task.executor_id),
             folder,
             model: d.model || '',
@@ -2870,8 +2964,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(f.title)}</li>`).join('');
             out.push(row('Agent Health', `<ul class="terminals-summary-list">${list}</ul><a href="#" class="terminals-summary-all" data-summary-findings aria-label="All findings in Observability">All findings</a>`));
         }
-        if (s.drift) out.push(row('Drift', this._driftHtml(s.drift)));
-        if (s.setup && window.ConfigTrust) out.push(row('Setup', ConfigTrust.summaryHtml(s.setup)));
+        const dr = this._drLinkHtml({ id: s.task_id, drift_score: 0 }, 'terminals-summary-dr');
+        if (s.drift) out.push(row('Drift', this._driftHtml(s.drift) + (typeof s.drift.score === 'number' ? dr : '')));
+        if (s.setup && window.ConfigTrust) out.push(row('Setup', ConfigTrust.summaryHtml(s.setup) + dr));
         if (s.approvals.approved + s.approvals.denied > 0) {
             out.push(row('Approvals', `${s.approvals.approved} approved, ${s.approvals.denied} denied`));
         }
@@ -2952,6 +3047,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         };
         const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
         if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
+        if (host.querySelectorAll) host.querySelectorAll('[data-dr-session]').forEach(a => {
+            a.onclick = (ev) => { ev.preventDefault(); this._openDetectionResponse(a.dataset.drSession); };
+        });
         const normal = host.querySelector ? host.querySelector('[data-drift-normal]') : null;
         if (normal) normal.onclick = async (ev) => {
             ev.preventDefault();

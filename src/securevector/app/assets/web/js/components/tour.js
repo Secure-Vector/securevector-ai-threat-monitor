@@ -97,6 +97,12 @@ const Tour = {
                     `<b>Cost & Tokens</b>. Blocked actions and secret detections are facets of <b>Threat Monitor</b>.`,
             },
             {
+                nav: 'detection-response', go: 'detection-response',
+                badge: 'Operate', title: 'Agent Detection & Response',
+                body: `<b>Agent Detection & Response</b> answers one question: how are my agents behaving? ` +
+                    `It runs four steps: <b>Detect</b>, <b>Harden</b>, <b>Respond</b> and <b>Pre-flight</b>.`,
+            },
+            {
                 nav: 'guide', go: 'guide', expand: 'guide',
                 badgeSvg: '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" ' +
                     'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:-1px"><path d="M20 6 9 17l-5-5"/></svg>',
