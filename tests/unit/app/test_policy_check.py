@@ -1061,3 +1061,26 @@ class TestEnforcementContext:
         policy_tools._origin_cache.clear()
         assert policy_tools.origin_git_host(str(tmp_path)) == "github.com"
         assert policy_tools.origin_git_host(str(tmp_path / "missing")) is None
+
+
+def test_registration_requires_a_server_that_accepts_tools(monkeypatch):
+    from types import SimpleNamespace
+    from securevector.app.services import mcp_registration as m
+
+    monkeypatch.setattr(m, "_available", None)
+    monkeypatch.setattr(m.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(returncode=0, stdout="usage: --transport"))
+    assert m.available() is False
+    monkeypatch.setattr(m, "_available", None)
+    monkeypatch.setattr(m.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(returncode=0, stdout="usage: --tools TOOLS"))
+    assert m.available() is True
+
+
+def test_source_checkout_registers_its_own_path(monkeypatch):
+    from securevector.app.services import mcp_registration as m
+
+    monkeypatch.setattr(m, "_source_root", lambda: m.Path("/checkout/src"))
+    assert m._env("claude-code")["PYTHONPATH"] == "/checkout/src"
+    monkeypatch.setattr(m, "_source_root", lambda: None)
+    assert "PYTHONPATH" not in m._env("claude-code")
