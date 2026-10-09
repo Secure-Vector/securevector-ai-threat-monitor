@@ -539,6 +539,10 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     from securevector.app.server.routes import config_trust as config_trust_routes
 
     app.include_router(config_trust_routes.router, prefix="/api")
+    # Agent Detection & Response summary: same token scope, read only.
+    from securevector.app.server.routes import detection_response as detection_response_routes
+
+    app.include_router(detection_response_routes.router, prefix="/api")
     app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
     # Pre-flight policy checks for the SecureVector MCP tools.
     from securevector.app.server.routes import policy as policy_routes

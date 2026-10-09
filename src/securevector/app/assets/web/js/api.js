@@ -1200,6 +1200,29 @@ const API = {
     async configTrustProbe(body) {
         return this._terminalsWrite('/api/terminals/config-trust/probe', body);
     },
+    // Agent Detection & Response: one read for the page's tiles and list.
+    async detectionResponseSummary() {
+        return this._terminalsRead('/api/terminals/detection-response/summary');
+    },
+    // Response modes may not be served by this install. A missing route
+    // returns the page shell, so anything but JSON reads as null (shadow)
+    // without logging an API error.
+    async terminalsRungModes() {
+        await this.terminalsSession();
+        const r = await fetch('/api/terminals/rungs/modes', { headers: { 'X-SV-Terminals': '1' }, credentials: 'same-origin' });
+        if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) return null;
+        return r.json();
+    },
+    // Same read without the shared error log, for the entry points on Agent
+    // Sessions that hide themselves when the summary is unavailable.
+    async detectionResponseSummaryQuiet() {
+        try {
+            await this.terminalsSession();
+            const r = await fetch('/api/terminals/detection-response/summary', { headers: { 'X-SV-Terminals': '1' }, credentials: 'same-origin' });
+            if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) return null;
+            return await r.json();
+        } catch (e) { return null; }
+    },
     terminalsSocketUrl(id) {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${proto}//${location.host}/api/terminals/tasks/${encodeURIComponent(id)}/ws`;
