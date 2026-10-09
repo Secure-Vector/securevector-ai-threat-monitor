@@ -1030,7 +1030,7 @@ class TerminalManager:
             if task:
                 cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else None
                 self._config_check(task_id, task.get("executor_id"), cwd or task.get("workspace"), "start",
-                                   str(session_id) if session_id else task.get("session_id"))
+                                   task.get("session_id"))
         status, activity = status_from_hook(event)
         if status is None:
             return True

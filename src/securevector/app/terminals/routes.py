@@ -153,15 +153,21 @@ async def _with_counts(manager: TerminalManager, items) -> None:
     if not ids:
         return
     try:
-        counts = await manager.store.verdict_counts(ids)
+        # A task re-linked after /clear counts every session it has held.
+        hist = await manager.store.session_histories([i["id"] for i in items if i.get("id")])
+        every = ids + [h for v in hist.values() for h in v]
+        counts = await manager.store.verdict_counts(list(dict.fromkeys(every)))
     except Exception:  # noqa: BLE001 - the board must render without counts
         logger.debug("could not read verdict counts for the board", exc_info=True)
         return
     for item in items:
-        row = counts.get(item.get("session_id") or "")
-        if row:
-            item["tool_calls"] = row["calls"]
-            item["blocked_calls"] = row["blocked"]
+        sids = list(dict.fromkeys(
+            [item.get("session_id") or ""] + hist.get(item.get("id"), [])
+        ))
+        rows = [counts[s] for s in sids if s in counts]
+        if rows:
+            item["tool_calls"] = sum(r["calls"] for r in rows)
+            item["blocked_calls"] = sum(r["blocked"] for r in rows)
 
 
 async def _with_spend(manager: TerminalManager, items) -> None:
@@ -368,16 +374,19 @@ async def list_verdicts(task_id: str, manager: TerminalManager = Depends(get_man
         raise HTTPException(status_code=404, detail="Unknown task")
     if not task.get("session_id"):
         return {"items": [], "session_id": None}
-    items = await manager.store.list_verdicts(task["session_id"])
+    history = await manager.store.session_history(task_id)
+    # Current id plus the ids it held before a re-link, newest first.
+    sids = list(dict.fromkeys([task["session_id"], *reversed(history)]))
+    items = await manager.store.list_verdicts(sids)
     return {
         "items": items,
         "session_id": task["session_id"],
-        "session_history": await manager.store.session_history(task_id),
-        "egress_blocks": await _egress_blocks(manager, task["session_id"]),
+        "session_history": history,
+        "egress_blocks": await _egress_blocks(manager, sids),
     }
 
 
-async def _egress_blocks(manager: TerminalManager, session_id: str) -> list:
+async def _egress_blocks(manager: TerminalManager, session_ids) -> list:
     """Calls the egress check refused in this session, shaped like a verdict
     row (action block, source egress) so the Tool calls list can show them.
 
@@ -389,7 +398,9 @@ async def _egress_blocks(manager: TerminalManager, session_id: str) -> list:
     try:
         from securevector.app.database.repositories.egress import EgressRepository
 
-        rows = await EgressRepository(manager.store.db).blocked_calls([session_id], limit=200)
+        rows = await EgressRepository(manager.store.db).blocked_calls(
+            [session_ids] if isinstance(session_ids, str) else list(session_ids), limit=200
+        )
     except Exception:  # noqa: BLE001 - the list must render without them
         logger.debug("could not read egress blocks for the verdict list", exc_info=True)
         return []
