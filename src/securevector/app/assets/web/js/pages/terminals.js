@@ -2760,13 +2760,37 @@ ${this.CLI_BIN} stop &lt;id&gt;
     SUMMARY_HOSTS_MAX: 5,
     SUMMARY_FINDINGS_MAX: 3,
 
+    /** A call whose tool ran and failed: the Guard marks the audit row's
+     *  reason with a "tool error" prefix, for every harness alike. */
+    _isToolError(i) {
+        return /^tool error\b/.test(String((i && i.reason) || ''));
+    },
+
+    /** Whether a pending request still holds the task. The request stays
+     *  listed and approvable either way; the task is shown as paused only
+     *  when the harness says it is blocked, or has had no hook activity since
+     *  the request was filed. */
+    _approvalPausesTask(task, r) {
+        if (!task) return true;
+        if (task.status === 'blocked') return true;
+        const utc = (v) => { const x = String(v || ''); return Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(x) ? x : x.replace(' ', 'T') + 'Z'); };
+        const asked = utc(r && r.requested_at), last = utc(task.last_activity_at);
+        return !(Number.isFinite(asked) && Number.isFinite(last) && last > asked);
+    },
+
+    /** The reason text without the leading "tool error" marker. */
+    _verdictReason(i) {
+        const r = String((i && i.reason) || '');
+        return this._isToolError(i) ? r.replace(/^tool error;?\s*/, '') : r;
+    },
+
     _summaryBuild(task, d) {
         d = d || {};
         const rows = ((d.verdicts && d.verdicts.items) || []).filter(i => !this._isBoundaryRow(i));
         const calls = { allowed: 0, flagged: 0, blocked: 0, failed: 0 };
         rows.forEach(i => {
             if (i.action === 'block') calls.blocked++;
-            else if (i.status === 'failed' || i.status === 'error' || i.success === false) calls.failed++;
+            else if (i.status === 'failed' || i.status === 'error' || i.success === false || this._isToolError(i)) calls.failed++;
             else if (i.risk === 'amber') calls.flagged++;
             else calls.allowed++;
         });
@@ -5230,8 +5254,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
               <div class="terminals-verdict terminals-verdict-${kind}">
                 <span class="terminals-dot sv-status-${dot}"></span>
                 <span class="terminals-verdict-main">
-                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}</span></span>
-                  ${i.reason ? `<span class="terminals-verdict-reason">${this._esc(i.reason)}</span>` : ''}
+                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}${this._isToolError(i) && i.action !== 'block' ? ' · tool error' : ''}</span></span>
+                  ${this._verdictReason(i) ? `<span class="terminals-verdict-reason">${this._esc(this._verdictReason(i))}</span>` : ''}
                 </span>
               </div>`;
             }).join('') : '<span class="terminals-empty">No tool calls yet.</span>';
@@ -5341,12 +5365,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             }
             const jit = await API.getJitRequests('pending');
             if (this._attached !== id) return;
-            const mine = (jit.items || []).filter(r => !sessionId || r.session_id === sessionId);
+            const mineSids = new Set([sessionId].concat(Array.isArray(v.session_history) ? v.session_history : []));
+            const mine = (jit.items || []).filter(r => !sessionId || mineSids.has(r.session_id));
             const attachedTask = (this._tasks || []).find(t => t.id === id);
             const otherSessions = sessionId && attachedTask
-                ? this._unmatchedApprovals(jit.items || []).filter(r => r.runtime_kind === attachedTask.executor_id).slice(0, 5)
+                ? this._unmatchedApprovals(jit.items || []).filter(r => r.runtime_kind === attachedTask.executor_id && !mineSids.has(r.session_id)).slice(0, 5)
                 : [];
             const waiting = mine.concat(otherSessions);
+            const paused = mine.filter(r => this._approvalPausesTask(attachedTask, r)).length + otherSessions.length;
             // An expanded run offers Approve only for a call that is really
             // waiting, so it repaints once the inbox is known.
             this._railApprovals = mine;
@@ -5356,17 +5382,17 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const stuckMin = this._stuckMinutes((this._tasks || []).find(t => t.id === id));
             const summaryParts = [
                 stuckMin != null ? `no activity for ${stuckMin} min` : null,
-                `${items.length} call${items.length === 1 ? '' : 's'} checked`,
+                `${listed.length} call${listed.length === 1 ? '' : 's'} checked`,
                 fetchFailed ? null : `${traceRuns.length} trace${traceRuns.length === 1 ? '' : 's'}`,
                 waiting.length ? `${waiting.length} approval waiting` : 'no approvals waiting',
             ].filter(Boolean);
             if (summary) summary.textContent = summaryParts.join(' · ');
             if (attention) {
-                attention.hidden = !waiting.length;
+                attention.hidden = !paused;
                 // The session is paused until this is answered, so the inbox
                 // opens itself rather than waiting to be found.
                 if (waiting.length) this._forceGovSection('terminals-gov-approvals');
-                attention.innerHTML = waiting.length
+                attention.innerHTML = paused
                     ? `<span><strong>Approval needed</strong> · This task is paused until you decide.</span><button class="btn btn-sm btn-primary" id="terminals-review-approval">Review</button>`
                     : '';
                 const review = attention.querySelector('#terminals-review-approval');

@@ -1479,7 +1479,7 @@ def chat_with_protection(user_input):
         // --- Capabilities grid ---
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -1822,7 +1822,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2075,7 +2075,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v5.2)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2285,7 +2285,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.7)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2504,7 +2504,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v6.0)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2789,7 +2789,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');

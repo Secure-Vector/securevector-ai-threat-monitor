@@ -1208,7 +1208,8 @@ const GuardianAssistant = {
         // the Optimizer report. Join the two on session_id and rank.
         let sums = null;
         try {
-            const rep = await API.request('/api/cost-optimizer/report');
+            const st = await API.getOptimizerStatus();
+            const rep = st && st.has_report ? await API.getOptimizerReport() : null;
             sums = new Map((rep && rep.session_summaries || []).map(
                 (x) => [x.session_id, (x.prompt_tokens || 0) + (x.output_tokens || 0)]));
         } catch (_) { /* no scan yet */ }
