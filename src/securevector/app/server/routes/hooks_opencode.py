@@ -60,6 +60,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from . import _hooks_common
+from securevector.app.services import mcp_registration
 from securevector.app.terminals.guardrail import block_uninstall
 from ._plugin_guard import ForceBody, require_local_origin
 
@@ -422,6 +423,10 @@ async def install_plugin():
             ),
         )
 
+    # The SecureVector MCP tools (check_policy, session_burn) at user scope.
+    # Agent Config Trust treats it as the app's own entry. Best effort.
+    mcp_registration.register("opencode")
+
     if _opencode_detected():
         try:
             cfg_file = _register_with_opencode()
@@ -492,6 +497,7 @@ async def _uninstall_plugin():
     """Remove the plugin everywhere we wrote it: the staged tree and the
     registry entry in OpenCode's config. Idempotent — safe to call with nothing
     installed."""
+    mcp_registration.unregister("opencode")
     # 1. Deregister FIRST, while the staged path is still the thing config
     #    points at. (Order matters only for readability; both steps are safe.)
     cfg_file = _opencode_config_file()

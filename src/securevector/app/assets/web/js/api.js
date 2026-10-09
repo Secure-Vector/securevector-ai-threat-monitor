@@ -1130,6 +1130,10 @@ const API = {
     async terminalsDrift(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/drift`);
     },
+    // Pre-flight checks (check_policy) for a task's sessions: counts only.
+    async terminalsPreflight(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/preflight`);
+    },
     async terminalsDriftBatch(ids) {
         return this._terminalsRead(`/api/terminals/drift?task_ids=${encodeURIComponent((ids || []).join(','))}`);
     },

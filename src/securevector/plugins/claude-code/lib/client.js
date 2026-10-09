@@ -191,6 +191,40 @@ async function evaluateEgress(baseUrl, body, opts = {}) {
 }
 
 
+/**
+ * Fire-and-forget report of a PreToolUse decision the egress check did not
+ * see (a name-based deny or ask, or a call that cannot reach the network),
+ * so the app can match it against the session's recent pre-flight checks.
+ * Metrics only: it never changes the verdict and nothing waits on it. Short
+ * timeout; skipped when the tool input is too large to send.
+ */
+const ATTEMPT_TIMEOUT_MS = 150;
+const ATTEMPT_MAX_BYTES = 256 * 1024;
+
+function reportAttempt(baseUrl, body) {
+  try {
+    const payload = JSON.stringify(body);
+    if (payload.length > ATTEMPT_MAX_BYTES) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+    const p = fetch(`${baseUrl}/api/policy/attempt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...terminalHeaderFields() },
+      body: payload,
+      signal: controller.signal,
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {}).finally(() => clearTimeout(timer));
+    } else {
+      clearTimeout(timer);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
 /** The local app. Every plugin defaults here; only an env var moves it. */
 const DEFAULT_ENGINE_URL = 'http://127.0.0.1:8741';
 
@@ -240,6 +274,6 @@ function resolveBaseUrl() {
 
 module.exports = {
   resolveBaseUrl,
-  getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress,
-  authHeaders, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS,
+  getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress, reportAttempt,
+  authHeaders, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS,
 };

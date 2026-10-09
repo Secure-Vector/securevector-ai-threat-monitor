@@ -456,6 +456,18 @@ async def task_drift(task_id: str, manager: TerminalManager = Depends(get_manage
     return {**session_drift.payload(result, (row or {}).get("feedback")), "ended": bool(task.get("ended_at"))}
 
 
+@router.get("/tasks/{task_id}/preflight", dependencies=[Depends(require_read)])
+async def task_preflight(task_id: str, manager: TerminalManager = Depends(get_manager)):
+    """Pre-flight checks for the task's sessions: counts, match rate and the
+    last ten checks (kind, decision, age). No targets."""
+    from securevector.app.services import policy_check
+
+    task = await manager.store.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Unknown task")
+    return await policy_check.preflight_summary(manager.store.db, task)
+
+
 @router.get("/drift", dependencies=[Depends(require_read)])
 async def drift_batch(task_ids: str = "", manager: TerminalManager = Depends(get_manager)):
     """Stored score and band per task, for the sidebar. Reads stored rows only."""

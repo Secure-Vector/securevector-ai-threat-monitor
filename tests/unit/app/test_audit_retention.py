@@ -104,11 +104,11 @@ async def test_schema_version_advances_to_45(tmp_path):
     # rows for the fleet destination) plus the fleet_generation_sent markers.
     # v55: egress_audit.session_verified marks rows a launched task's Guard
     # wrote with its hook token; only those are grantable.
-    assert CURRENT_SCHEMA_VERSION == 57
+    assert CURRENT_SCHEMA_VERSION == 58
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 57
+    assert row["v"] == 58
     exists = await db.fetch_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
     )

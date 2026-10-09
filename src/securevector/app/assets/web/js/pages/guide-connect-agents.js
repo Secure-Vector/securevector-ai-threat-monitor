@@ -806,6 +806,8 @@ const GuideConnectAgentsPage = {
                 wrap.appendChild(warn);
             } else { sum.style.marginBottom = '8px'; }
 
+            // Whether each harness has the SecureVector MCP tools registered.
+            const mcpReg = fetch('/api/policy/mcp-registration').then(r => (r.ok ? r.json() : null)).catch(() => null);
             (d.harnesses || []).forEach(h => {
                 const present = h.detected || h.plugin_connected;
                 const row = document.createElement('div');
@@ -844,6 +846,15 @@ const GuideConnectAgentsPage = {
                     sessTxt.textContent = h.detected ? 'installed' : 'not detected';
                 }
                 row.appendChild(sessTxt);
+                if (present) {
+                    mcpReg.then(m => {
+                        if (!m || !m.harnesses || !Object.prototype.hasOwnProperty.call(m.harnesses, h.slug)) return;
+                        const mt = document.createElement('span');
+                        const st = m.harnesses[h.slug];
+                        mt.textContent = ' · ' + (st && typeof st.text === 'string' ? st.text : 'MCP tools: not registered');
+                        sessTxt.appendChild(mt);
+                    });
+                }
 
                 if (present) { row.title = 'Open the ' + h.label + ' install page'; name.style.cursor = 'pointer'; name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
                 wrap.appendChild(row);
