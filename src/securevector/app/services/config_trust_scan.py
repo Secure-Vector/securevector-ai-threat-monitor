@@ -330,7 +330,7 @@ def tree_signature(root: str) -> Tuple[int, int]:
             try:
                 newest = max(newest, os.lstat(os.path.join(dirpath, name)).st_mtime_ns)
             except OSError:
-                pass
+                pass  # entry vanished or is unreadable; skip it
             if count >= MAX_SIG_ENTRIES:
                 return count, newest
     return count, newest
@@ -536,7 +536,7 @@ def workspace_id(workspace: Optional[str]) -> Tuple[str, str]:
     try:
         p = p.resolve()
     except OSError:
-        pass
+        pass  # keep the unresolved path
     return sha256_hex(str(p).encode("utf-8"))[:16], p.name
 
 
@@ -964,7 +964,7 @@ def _mod_handlers(reader: _Reader, root: Path, manifest: Any) -> List[str]:
             if (root / sub).is_dir():
                 handlers.add(sub)
         except OSError:
-            pass
+            pass  # unreadable directory: treat as absent
     return sorted(handlers)
 
 
@@ -1108,7 +1108,7 @@ def scan_scope(harness: str, workspace: Optional[str] = None) -> ScopeScan:
         try:
             ws = ws.resolve()
         except OSError:
-            pass
+            pass  # keep the unresolved path
     reader = _Reader(ws if ws is not None else home())
     scope = "user" if ws is None else "project"
     base, prefix = (home(), "~/") if ws is None else (ws, "")

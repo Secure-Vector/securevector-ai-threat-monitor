@@ -61,8 +61,7 @@ TYPE_WORDS = {
 # Stat-gated recheck state, per (harness, workspace or "").
 _last_sig: Dict[Tuple[str, str], str] = {}
 _last_scan: Dict[Tuple[str, str], ScopeScan] = {}
-_audit_cursor: Optional[int] = None
-_status_cache: Tuple[float, Optional[dict]] = (0.0, None)
+_state: Dict[str, Any] = {"audit_cursor": None, "status_cache": (0.0, None)}
 
 
 def h8(value: Optional[str]) -> str:
@@ -600,14 +599,12 @@ async def session_summary(db, task_id: Optional[str], session_id: Optional[str] 
 
 
 def _invalidate_status() -> None:
-    global _status_cache
-    _status_cache = (0.0, None)
+    _state["status_cache"] = (0.0, None)
 
 
 async def status(db, *, fresh: bool = False, max_age: float = 60.0) -> dict:
     """Every harness at user scope, for "Your agent setup"."""
-    global _status_cache
-    at, cached = _status_cache
+    at, cached = _state["status_cache"]
     if cached is not None and not fresh and time.monotonic() - at < max_age:
         return cached
     harnesses = []
@@ -635,7 +632,7 @@ async def status(db, *, fresh: bool = False, max_age: float = 60.0) -> dict:
         },
         "checked_at": _now(),
     }
-    _status_cache = (time.monotonic(), out)
+    _state["status_cache"] = (time.monotonic(), out)
     return out
 
 
@@ -749,22 +746,21 @@ def _changed_since(key: Tuple[str, str]) -> bool:
 
 async def recheck_once(db) -> dict:
     """Stat-gated recheck: re-hash only when an mtime or size moved."""
-    global _audit_cursor
     done = {"tasks": 0, "user": 0, "probes": 0, "relay": 0}
     # Relay-observed MCP tools and Guard session starts since the last pass.
     try:
-        if _audit_cursor is None:
+        if _state["audit_cursor"] is None:
             row = await db.fetch_one("SELECT MAX(id) AS m FROM tool_call_audit")
-            _audit_cursor = max(0, int((row or {})["m"] or 0) - 5000) if row else 0
+            _state["audit_cursor"] = max(0, int((row or {})["m"] or 0) - 5000) if row else 0
         rows = await db.fetch_all(
             "SELECT id, tool_id, function_name, runtime_kind, session_id, args_preview FROM tool_call_audit "
             "WHERE id > ? AND (function_name LIKE 'mcp\\_\\_%' ESCAPE '\\' OR tool_id LIKE '%:%' "
             "OR function_name = '__session_start__') ORDER BY id ASC LIMIT 5000",
-            (_audit_cursor,),
+            (_state["audit_cursor"],),
         )
         rows = [dict(r) for r in rows]
         if rows:
-            _audit_cursor = rows[-1]["id"]
+            _state["audit_cursor"] = rows[-1]["id"]
             done["relay"] = await observe_relay(db, [r for r in rows if r["function_name"] != "__session_start__"])
             for r in rows:
                 if r["function_name"] != "__session_start__" or not r.get("session_id"):

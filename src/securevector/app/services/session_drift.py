@@ -508,10 +508,10 @@ async def score_for(session_id: str, *, db=None, task: Optional[Mapping[str, Any
         jit = await repo.session_jit(session_id)
         locs = locations_in(_governed(calls))
         if locs:
-            routine = await repo.location_sessions(locs, list(baseline.session_ids))
+            routine = await repo.location_sessions(locs, list(baseline.session_ids), location_probe, location_matches)
     result = compute(calls, egress, known, jit, baseline, routine, progress=progress)
     if store:
-        await repo.upsert(session_id, task.get("id"), harness, workspace, result)
+        await repo.upsert(session_id, task.get("id"), harness, workspace, result, features_json(result))
     return result
 
 

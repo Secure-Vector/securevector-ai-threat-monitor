@@ -11,7 +11,6 @@ feedback changing the next compute. Plus the 100k-row timing budget.
 
 import asyncio
 import json
-import re
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone

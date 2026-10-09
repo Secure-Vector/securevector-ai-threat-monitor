@@ -71,7 +71,7 @@ def _check_peer(sock: socket.socket, pinned_ip: str) -> None:
         try:
             sock.close()
         except OSError:
-            pass
+            pass  # best-effort close of a failed connection
         raise ProbeError("The probe never calls loopback, link-local or metadata addresses.")
 
 
@@ -88,7 +88,7 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
         try:
             self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except OSError:
-            pass
+            pass  # TCP_NODELAY is an optimisation only
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection, _PinnedHTTPConnection):

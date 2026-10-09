@@ -168,15 +168,15 @@ class SessionDriftRepository:
                 out[r["session_id"]]["hosts"].add(str(r["host"]).lower())
         return out
 
-    async def location_sessions(self, locations: Iterable[str], session_ids: list) -> dict:
+    async def location_sessions(self, locations: Iterable[str], session_ids: list,
+                                probe: Any, matches: Any) -> dict:
         """For each credential location the scored session reached, how many
         baseline sessions reached it too with an allowed call. Only the few
-        locations hit are probed, so this stays cheap on a large baseline."""
-        from securevector.app.services import session_drift as drift
-
+        locations hit are probed, so this stays cheap on a large baseline.
+        `probe` and `matches` are the service's location helpers."""
         out: dict = {}
         for loc in locations:
-            kind, frags = drift.location_probe(loc)
+            kind, frags = probe(loc)
             if not frags or not session_ids:
                 out[loc] = 0
                 continue
@@ -190,7 +190,7 @@ class SessionDriftRepository:
                     f"WHERE session_id IN ({ph}) AND action != 'block' AND ({like})",
                     (*batch, *frags),
                 ):
-                    if r["session_id"] not in seen and loc in drift.location_matches(r["args_preview"]):
+                    if r["session_id"] not in seen and loc in matches(r["args_preview"]):
                         seen.add(r["session_id"])
             out[loc] = len(seen)
         return out
@@ -198,11 +198,9 @@ class SessionDriftRepository:
     # --- the stored row -----------------------------------------------------------
 
     async def upsert(self, session_id: str, task_id: Optional[str], harness: str,
-                     workspace: Optional[str], result: Any) -> None:
+                     workspace: Optional[str], result: Any, features_json: str) -> None:
         """One row per session, overwritten on each compute. The feedback mark
         survives the overwrite."""
-        from securevector.app.services import session_drift as drift
-
         await self.db.execute(
             """
             INSERT INTO session_drift (session_id, task_id, harness, workspace, score, band, status,
@@ -216,7 +214,7 @@ class SessionDriftRepository:
             """,
             (
                 session_id, task_id, harness, workspace, result.score, result.band, result.status,
-                drift.features_json(result), int(result.baseline.get("sessions") or 0),
+                features_json, int(result.baseline.get("sessions") or 0),
                 int(result.baseline.get("calls") or 0), result.computed_at,
             ),
         )

@@ -62,7 +62,7 @@ def home(tmp_path, monkeypatch):
     ct._last_scan.clear()
     ct._last_sig.clear()
     ct._invalidate_status()
-    monkeypatch.setattr(ct, "_audit_cursor", None)
+    monkeypatch.setitem(ct._state, "audit_cursor", None)
     return h
 
 
@@ -79,8 +79,8 @@ def db(tmp_path):
     yield conn
     try:
         asyncio.run(conn.close())
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        pass  # best-effort fixture cleanup
 
 
 def run(coro):
