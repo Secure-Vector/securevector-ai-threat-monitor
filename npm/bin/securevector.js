@@ -23,8 +23,8 @@ const { isReady, install, venvBin, venvPath, envRoot } = require('../lib/bootstr
 
 // The npm version and the PyPI version are the same product, so the launcher
 // pins to its own version rather than resolving "latest". Installing
-// @securevector/cli@6.0.0 must never give you a different SecureVector than
-// pip install securevector-ai-monitor==6.0.0 does.
+// @securevector/cli@6.0.1 must never give you a different SecureVector than
+// pip install securevector-ai-monitor==6.0.1 does.
 const VERSION = pkg.version;
 
 // Which Python entry point each verb runs. Names must match setup.py's
@@ -64,7 +64,7 @@ function doctor() {
   lines.push(`platform        ${process.platform} ${process.arch}`);
   lines.push(`python floor    ${MIN_MAJOR}.${MIN_MINOR}`);
   if (best) {
-    lines.push(`python found    ${best.candidate} (${best.version.join('.')})`);
+    lines.push(`python found    ${best.candidate} (${best.version.join('.')})  ${best.command}`);
   } else {
     lines.push('python found    none usable');
   }
@@ -117,7 +117,7 @@ function main(argv) {
   }
 
   if (!isReady(VERSION, entryPoint)) {
-    const result = install(best.candidate, VERSION);
+    const result = install(best, VERSION);
     if (!result.ok) {
       process.stderr.write('\n' + result.reason + '\n\n');
       return 1;

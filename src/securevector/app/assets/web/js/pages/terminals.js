@@ -4601,6 +4601,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._bindPaneActs(head.querySelector('#terminals-head-pane-acts'), soloId);
             this._placeSoloGov(soloId);
         }
+        // The tabs are newest first in a strip that scrolls sideways with no
+        // scrollbar, so in single-pane view the visible name was the newest
+        // launch, not the attached task. Bring the attached tab into view.
+        this._revealActiveTab(head);
         const showAllTasks = () => this.showAllTasks();
         const allTasksBtn = head.querySelector('#terminals-all-tasks-btn');
         if (allTasksBtn) allTasksBtn.onclick = showAllTasks;
@@ -5114,24 +5118,33 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // Guard reported in, which is what the banner and the hero need.
             this._sessionReported = rows.length > 0;
             const items = rows.filter(i => !this._isBoundaryRow(i));
-            vEl.innerHTML = items.length ? items.map(i => {
+            // Calls the egress check refused, read from the egress audit (never
+            // copied into the tool-call audit). Listed here with the tool
+            // calls, but kept out of _govCounts: the footer already adds the
+            // session's egress denies from the destinations read.
+            const egressRows = Array.isArray(v.egress_blocks) ? v.egress_blocks : [];
+            const listed = egressRows.length
+                ? items.concat(egressRows).sort((a, b) => this._epochMs(b.called_at) - this._epochMs(a.called_at))
+                : items;
+            vEl.innerHTML = listed.length ? listed.map(i => {
                 const kind = i.action === 'block' ? 'block' : (i.risk === 'amber' ? 'amber' : 'allow');
                 const dot = kind === 'block' ? 'red' : (kind === 'amber' ? 'amber' : 'green');
                 return `
               <div class="terminals-verdict terminals-verdict-${kind}">
                 <span class="terminals-dot sv-status-${dot}"></span>
                 <span class="terminals-verdict-main">
-                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}</span></span>
+                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}</span></span>
                   ${i.reason ? `<span class="terminals-verdict-reason">${this._esc(i.reason)}</span>` : ''}
                 </span>
               </div>`;
             }).join('') : '<span class="terminals-empty">No tool calls yet.</span>';
-            setCount('terminals-verdicts-count', items.length);
-            this._govHas.verdicts = items.length > 0;
+            setCount('terminals-verdicts-count', listed.length);
+            this._govHas.verdicts = listed.length > 0;
             this._govCounts = { governed: items.length, blocked: items.filter(i => i.action === 'block').length };
             // A refused call is a security state, and the rule is that a
             // security state is never the thing hidden behind a closed drawer.
             if (this._govCounts.blocked) this._forceGovSection('terminals-gov-verdicts');
+            if (egressRows.length) this._forceGovSection('terminals-gov-verdicts');
             this._renderPaneFoot();
             const sessionId = v.session_id;
             let traceRuns = [];
@@ -5199,8 +5212,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
                             this._tracesCache = null;
                             fetchFailed = true;
                         } else {
+                            // A task re-linked after /clear keeps its earlier
+                            // sessions' runs: they are still this task's.
+                            const ownSids = new Set([sessionId].concat(Array.isArray(v.session_history) ? v.session_history : []));
                             traceRuns = (tr.runs || [])
-                                .filter(r => r.session_id === sessionId)
+                                .filter(r => ownSids.has(r.session_id))
                                 .sort((a, b) => String(b.started_at || '').localeCompare(String(a.started_at || '')))
                                 .slice(0, 6);
                             this._tracesCache = { taskId: id, sessionId, at: Date.now(), runs: traceRuns };
@@ -5675,6 +5691,27 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (moreBtn) moreBtn.onclick = () => { if (window.Sidebar?.navigate) Sidebar.navigate('egress'); };
     },
 
+    /** A timestamp as epoch ms: ISO with a zone, or SQLite's bare UTC
+     *  'YYYY-MM-DD HH:MM:SS'. Unparseable sorts last (0). */
+    _epochMs(v) {
+        const s = String(v || '');
+        if (!s) return 0;
+        const iso = /(Z|[+-]\d\d:?\d\d)$/.test(s) ? s : s.replace(' ', 'T') + 'Z';
+        const t = Date.parse(iso);
+        return Number.isFinite(t) ? t : 0;
+    },
+
+    /** Scroll the strip (never the page) so the attached task's tab shows. */
+    _revealActiveTab(head) {
+        const strip = head && head.querySelector ? head.querySelector('.terminals-pane-tabs') : null;
+        const tab = strip && strip.querySelector ? strip.querySelector('.terminals-pane-tab.is-active') : null;
+        if (!tab || !strip.getBoundingClientRect || !tab.getBoundingClientRect) return;
+        const s = strip.getBoundingClientRect();
+        const r = tab.getBoundingClientRect();
+        if (r.left < s.left) strip.scrollLeft -= (s.left - r.left);
+        else if (r.right > s.right) strip.scrollLeft += (r.right - s.right);
+    },
+
     // --- helpers --------------------------------------------------------
 
     // API.getTraces() swallows its own errors and returns { runs: [] } on
@@ -5933,7 +5970,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const selectable = e.installed !== false;
             const suffix = ok ? '' : (e.installed === false ? ' (not installed)' : ' (Guard not enabled)');
             return `<option value="${this._esc(e.id)}"${selectable ? '' : ' disabled'}>${this._esc(e.label + suffix)}</option>`;
-        }).join('') + '<option value="" disabled>GovRun harness by SecureVector \u00b7 Coming soon</option>';
+        }).join('');
         // Prefer a fully governed executor by default; fall back to any
         // installed one so the form still opens on something the user can
         // launch (ungoverned) rather than nothing.

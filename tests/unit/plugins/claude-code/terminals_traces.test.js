@@ -56,7 +56,10 @@ test('terminals.js template has the traces section ids', () => {
 
 test('terminals.js filters trace runs by session_id', () => {
   const src = read('js/pages/terminals.js');
-  assert.match(src, /\.filter\(\s*r\s*=>\s*r\.session_id === sessionId\)/);
+  // The attached session, plus the sessions this task held before a
+  // re-link (Claude Code /clear), and nothing else.
+  assert.match(src, /const ownSids = new Set\(\[sessionId\]\.concat\(Array\.isArray\(v\.session_history\) \? v\.session_history : \[\]\)\);/);
+  assert.match(src, /\.filter\(\s*r\s*=>\s*ownSids\.has\(r\.session_id\)\)/);
 });
 
 test('terminals.js deep-links trace details into the Traces page', () => {

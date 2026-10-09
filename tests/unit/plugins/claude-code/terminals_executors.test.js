@@ -107,7 +107,7 @@ test('_renderExecutorOptions: all launchable selects the first option and enable
   const hint = container.els['#terminals-executor-hint'];
   assert.strictEqual(sel.value, 'claude-code');
   assert.strictEqual(submit.disabled, false);
-  assert.ok(!sel.innerHTML.replace(/<option value="" disabled>GovRun[^<]*<\/option>/, '').includes('disabled'), 'no harness option should be disabled');
+  assert.ok(!sel.innerHTML.includes('disabled'), 'no harness option should be disabled');
   assert.strictEqual(hint.hidden, true, 'no hint text means the hint stays hidden');
 });
 
@@ -315,14 +315,12 @@ test('an empty value stays empty rather than becoming two quote marks', () => {
   assert.strictEqual(Page._cliQuote(undefined), '');
 });
 
-test('the picker ends with a disabled, non-selectable GovRun placeholder', () => {
+test('the picker lists only installed harness options, no placeholder', () => {
   const Page = loadTerminalsPage();
   const container = makeContainer();
   Page._executors = [{ id: 'claude-code', label: 'Claude Code', installed: true, governed: true, hint: '' }];
   Page._renderExecutorOptions(container);
   const sel = container.els['#terminals-executor'];
-  assert.match(sel.innerHTML, /<option value="" disabled>GovRun harness by SecureVector · Coming soon<\/option>$/);
-  assert.strictEqual(sel.value, 'claude-code', 'the placeholder never becomes the selection');
-  const mentions = read('js/pages/terminals.js').match(/GovRun/g) || [];
-  assert.strictEqual(mentions.length, 1, 'no other GovRun mention in the page');
+  assert.ok(!sel.innerHTML.includes('value=""'), 'no empty-value placeholder option');
+  assert.strictEqual(sel.value, 'claude-code');
 });
