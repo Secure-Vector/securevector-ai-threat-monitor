@@ -195,7 +195,7 @@ EVENT_KINDS = frozenset(
 # stop_all actually passes; both were missing, so the two most common ways a
 # task ever gets stopped -- the app closing -- exported a null event_origin.
 EVENT_ORIGINS = frozenset(
-    {"ui", "cli", "api", "hook", "linked", "process", "startup", "shutdown", "quit"}
+    {"ui", "cli", "rung", "api", "hook", "linked", "process", "startup", "shutdown", "quit"}
 )
 
 

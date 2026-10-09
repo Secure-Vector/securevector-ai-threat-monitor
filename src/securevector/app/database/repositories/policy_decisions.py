@@ -131,7 +131,8 @@ class PolicyDecisionsRepository:
 
     async def mark_attempted_after_deny(self, jti: str) -> bool:
         cur = await self.db.execute(
-            "UPDATE policy_decisions SET attempted_after_deny = 1 "
+            "UPDATE policy_decisions SET attempted_after_deny = 1, "
+            "attempted_at = strftime('%Y-%m-%dT%H:%M:%S', 'now') "
             "WHERE jti = ? AND decision = 'deny' AND attempted_after_deny = 0",
             (jti,),
         )
@@ -145,7 +146,10 @@ class PolicyDecisionsRepository:
             "SELECT 1 FROM jit_access_grants WHERE revoked_at IS NULL "
             "AND (session_id IS NULL OR session_id = ?) "
             "AND (runtime_kind IS NULL OR ? IS NULL OR runtime_kind = ?) "
-            "AND granted_at >= ? LIMIT 1",
+            "AND granted_at >= ? "
+            # A response rung's approval lifts only its own hold, never a deny.
+            "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'rung') "
+            "LIMIT 1",
             (harness_session_id, harness, harness, since.replace("T", " ")),
         )
         return row is not None
@@ -184,5 +188,20 @@ class PolicyDecisionsRepository:
             f"SELECT COUNT(*) AS n FROM policy_decisions WHERE session IN ({marks}) "
             "AND attempted_after_deny = 1",
             tuple(handles[:_CHUNK]),
+        )
+        return int(row["n"] or 0) if row else 0
+
+    async def recent_attempts_after_deny(self, harness_session_id: Optional[str], task_id: Optional[str],
+                                         since: str) -> int:
+        """Denied pre-flight checks attempted anyway at or after
+        `since` (UTC, second precision, the attempt time), for the session's linked handles."""
+        handles = (await self.handles_for_view(task_id, harness_session_id))[:_CHUNK]
+        if not handles:
+            return 0
+        marks = ",".join("?" for _ in handles)
+        row = await self.db.fetch_one(
+            f"SELECT COUNT(*) AS n FROM policy_decisions WHERE session IN ({marks}) "
+            "AND attempted_after_deny = 1 AND attempted_at >= ?",
+            (*handles, since),
         )
         return int(row["n"] or 0) if row else 0

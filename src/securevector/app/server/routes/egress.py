@@ -31,6 +31,7 @@ from securevector.app.services import (
     egress_scope,
 )
 from securevector.app.services import policy_check
+from securevector.app.services import response_rungs
 from securevector.app.services.containment_drift import diff_proofs
 from securevector.app.services.containment_proof import (
     preflight_manifest,
@@ -164,10 +165,28 @@ async def evaluate_egress(request: EvaluateRequest, http_request: Request = None
         # Metrics only: the verdict above always stands (no fast path).
         await _match_preflight(http_request, request, audit_session, verified)
 
+        # Response rung 3, active mode: a call this check allows that is in
+        # the step-up class waits for a human approval (filed here). Shadow
+        # mode only counts it. Never turns a block into anything else.
+        action, reason = evaluation.action, evaluation.reason
+        if evaluation.network_capable and action == ALLOW and audit_session:
+            try:
+                kind = await response_rungs.check_call(
+                    db, request.tool_name, request.tool_input or {}, request.runtime_kind,
+                    audit_session, [v.attempt.host for v in evaluation.verdicts], file=True,
+                )
+            except Exception as e:  # noqa: BLE001 - the verdict above stands
+                logger.warning("Response rung check skipped: %s", e)
+                kind = None
+            if kind:
+                action = BLOCK
+                reason = ("This session is at step-up: this call needs a human approval. "
+                          "A request was filed in SecureVector, Tool Permissions.")
+
         return {
-            "action": evaluation.action,
+            "action": action,
             "network_capable": evaluation.network_capable,
-            "reason": evaluation.reason,
+            "reason": reason,
             "coverage": evaluation.coverage,
             "verdicts": [
                 {

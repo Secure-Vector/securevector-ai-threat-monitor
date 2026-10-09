@@ -205,6 +205,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         56: migrate_to_v56,
         57: migrate_to_v57,
         58: migrate_to_v58,
+        59: migrate_to_v59,
     }
 
     if version in migrations:
@@ -2146,6 +2147,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_session_drift_table(db)
     await ensure_config_trust_tables(db)
     await ensure_policy_check_tables(db)
+    await ensure_response_rung_tables(db)
     await cleanup_old_policy_decisions(db)
 
     # Load community rules after schema is ready
@@ -3150,3 +3152,150 @@ async def migrate_to_v58(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v58: policy checks")
+
+
+RESPONSE_RUNG_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS session_rungs (
+        session_id TEXT PRIMARY KEY,
+        task_id TEXT,
+        harness TEXT NOT NULL DEFAULT '',
+        rung INTEGER NOT NULL DEFAULT 1,
+        mode TEXT NOT NULL DEFAULT 'shadow',
+        reasons_json TEXT NOT NULL DEFAULT '[]',
+        since TEXT,
+        last_eval_at TEXT,
+        released_at TEXT,
+        feedback TEXT,
+        last_drift_at TEXT,
+        streak_watch INTEGER NOT NULL DEFAULT 0,
+        streak_high INTEGER NOT NULL DEFAULT 0,
+        last_r2_at TEXT,
+        last_r3_at TEXT,
+        cooldown_until TEXT,
+        cooldown_kinds TEXT NOT NULL DEFAULT '[]',
+        pinned INTEGER NOT NULL DEFAULT 0,
+        peak_rung INTEGER NOT NULL DEFAULT 1,
+        counted_at TEXT,
+        would_ask INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_rungs_harness ON session_rungs (harness, counted_at)",
+    "CREATE INDEX IF NOT EXISTS idx_session_rungs_task ON session_rungs (task_id)",
+    """
+    CREATE TABLE IF NOT EXISTS rung_modes (
+        harness TEXT PRIMARY KEY,
+        mode TEXT NOT NULL DEFAULT 'shadow',
+        shadow_started_at TEXT NOT NULL,
+        shadow_sessions INTEGER NOT NULL DEFAULT 0,
+        unintended INTEGER NOT NULL DEFAULT 0,
+        activated_at TEXT,
+        early_ended INTEGER NOT NULL DEFAULT 0,
+        config_sig TEXT
+    )
+    """,
+)
+
+
+async def ensure_response_rung_tables(db: DatabaseConnection) -> None:
+    """Create ``session_rungs`` and ``rung_modes`` if missing. Idempotent.
+
+    Called by migrate_to_v59 and once at startup (init_database_schema).
+    Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in RESPONSE_RUNG_DDL:
+        await conn.execute(stmt)
+    cursor = await conn.execute("PRAGMA table_info(session_rungs)")
+    if "would_ask" not in [r[1] for r in await cursor.fetchall()]:
+        await conn.execute("ALTER TABLE session_rungs ADD COLUMN would_ask INTEGER NOT NULL DEFAULT 0")
+    await conn.commit()
+    await ensure_rung_rule_source(db)
+
+
+_RULE_SOURCE_CHECK = "CHECK (rule_source IN ('synced', 'local'))"
+
+
+async def ensure_rung_rule_source(db: DatabaseConnection) -> None:
+    """Allow ``rule_source = 'rung'`` on jit_access_requests (approvals a
+    response rung files). SQLite cannot change a CHECK in place, so the
+    table is rebuilt once with the same columns and rows, in one
+    transaction. Idempotent, and a rerun after an interrupted earlier run
+    finishes from whatever it left: a staged copy is restored when the main
+    table is missing or empty, and dropped otherwise."""
+    conn = await db.connect()
+
+    async def table_sql(name: str):
+        cur = await conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (name,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+    main_sql = await table_sql("jit_access_requests")
+    staged_sql = await table_sql("jit_access_requests_v59")
+    if staged_sql is None and (main_sql is None or "'rung'" in main_sql):
+        return
+    if main_sql and staged_sql is None and _RULE_SOURCE_CHECK not in main_sql:
+        logger.warning("jit_access_requests has an unexpected shape; rung requests stay off")
+        return
+    await conn.commit()
+    await conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            if staged_sql is not None:
+                rows = 0
+                if main_sql is not None:
+                    cur = await conn.execute("SELECT COUNT(*) FROM jit_access_requests")
+                    rows = (await cur.fetchone())[0]
+                if main_sql is None or rows == 0:
+                    if main_sql is not None:
+                        await conn.execute("DROP TABLE jit_access_requests")
+                    await conn.execute("ALTER TABLE jit_access_requests_v59 RENAME TO jit_access_requests")
+                else:
+                    await conn.execute("DROP TABLE jit_access_requests_v59")
+                main_sql = await table_sql("jit_access_requests")
+            if main_sql and "'rung'" not in main_sql and _RULE_SOURCE_CHECK in main_sql:
+                staged = main_sql.replace(
+                    _RULE_SOURCE_CHECK, "CHECK (rule_source IN ('synced', 'local', 'rung'))"
+                ).replace("jit_access_requests (", "jit_access_requests_v59 (", 1)
+                cur = await conn.execute("PRAGMA table_info(jit_access_requests)")
+                cols = ", ".join(r[1] for r in await cur.fetchall())
+                await conn.execute(staged)
+                await conn.execute(
+                    f"INSERT INTO jit_access_requests_v59 ({cols}) SELECT {cols} FROM jit_access_requests"
+                )
+                await conn.execute("DROP TABLE jit_access_requests")
+                await conn.execute("ALTER TABLE jit_access_requests_v59 RENAME TO jit_access_requests")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jit_requests_status ON jit_access_requests (status, requested_at)"
+            )
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+    finally:
+        await conn.execute("PRAGMA foreign_keys = ON")
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    problems = await cur.fetchall()
+    if problems:
+        logger.warning("jit_access tables: %d rows fail the foreign key check after the v59 rebuild", len(problems))
+
+
+async def migrate_to_v59(db: DatabaseConnection) -> None:
+    """v58 -> v59: response rung state per session and mode per harness.
+
+    Rung number, mode, signal ids and counters only. No request text.
+    Idempotent.
+    """
+    await ensure_policy_check_tables(db)
+    await ensure_response_rung_tables(db)
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(policy_decisions)")
+    if "attempted_at" not in [r[1] for r in await cursor.fetchall()]:
+        await conn.execute("ALTER TABLE policy_decisions ADD COLUMN attempted_at TEXT")
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (59, CURRENT_TIMESTAMP, 'Response rungs')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v59: response rungs")

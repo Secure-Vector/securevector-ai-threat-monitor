@@ -838,7 +838,17 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                 await jit_repo.active_grants(runtime_kind=jit_runtime)
                 if jit_runtime else []
             )
+            # Grants a response rung filed only lift that rung's own row
+            # (see step_up_rows below); they are never an allow row.
+            from securevector.app.database.repositories.response_rungs import (
+                ResponseRungsRepository,
+            )
+            rung_ids = await ResponseRungsRepository(db).rung_request_ids(
+                [g.get("request_id") for g in grants]
+            ) if grants else set()
             for g in grants:
+                if g.get("request_id") in rung_ids:
+                    continue
                 # Run exemptions (tool_id='*', #203) are consumed server-side
                 # by run_limits and must NOT be emitted: a wildcard allow row
                 # would lift policy denies too, not just the run cap.
@@ -948,6 +958,18 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                 # the JIT request is the same human who authored the rule.
                 "requestable": effect == "deny",
             })
+
+        # Response rung 3, active mode only: the session's step-up rows go
+        # first so the hooks' first-seen-wins scan reads them. Each is a
+        # requestable deny for a tool the rows above allow; a tool they
+        # deny or prompt for gets no rung row. Fail-quiet: a rung read error
+        # leaves the rows as they were.
+        if _rt and _sid:
+            try:
+                from securevector.app.services import response_rungs
+                merged[0:0] = await response_rungs.step_up_rows(db, _sid, merged)
+            except Exception as e:
+                logger.warning("Response rung rows skipped in /synced-overrides: %s", e)
         return {"synced": merged, "total": len(merged)}
 
     except Exception as e:
@@ -1270,6 +1292,12 @@ async def record_call_audit(request: AuditLogRequest):
             span_id=request.span_id,
             parent_span_id=request.parent_span_id,
         )
+        if request.session_id:
+            from securevector.app.services import response_rungs
+            await response_rungs.note_call(
+                db, request.function_name or request.tool_id, request.session_id, request.action,
+                request.args_preview,
+            )
         return {"ok": True}
 
     except Exception as e:

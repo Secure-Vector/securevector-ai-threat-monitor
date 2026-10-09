@@ -161,6 +161,12 @@ class JitAccessRepository:
             return None  # denied / expired — nothing to grant
         if duration not in ("15m", "1h", "session"):
             raise ValueError(f"invalid duration: {duration}")
+        # A response rung's approval lasts the rest of that session only.
+        if req.get("rule_source") == "rung":
+            duration = "session"
+            tid = str(req.get("tool_id") or "")
+            if not tid or "*" in tid or tid.lower().startswith(EGRESS_TOOL_PREFIX):
+                raise ValueError("this request cannot be granted")
         # A session grant needs a session to scope to — without one it would
         # degrade into an unbounded runtime-wide allow, which is exactly the
         # "until I revoke" shape the review ruled out.
@@ -403,7 +409,9 @@ class JitAccessRepository:
         sql = (
             "SELECT * FROM jit_access_grants WHERE tool_id LIKE ? "
             "AND session_id = ? AND revoked_at IS NULL "
-            "AND (expires_at IS NULL OR expires_at > datetime('now'))"
+            "AND (expires_at IS NULL OR expires_at > datetime('now')) "
+            # A response rung's approval only lifts that rung's own hold.
+            "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'rung')"
         )
         params: tuple = (f"{EGRESS_TOOL_PREFIX}%", session_id)
         if not any_runtime:

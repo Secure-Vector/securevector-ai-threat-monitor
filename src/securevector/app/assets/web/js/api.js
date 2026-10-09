@@ -1119,6 +1119,10 @@ const API = {
     async terminalsStop(id) {
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`);
     },
+    // Stop from a step-up card: the audit records the origin as "rung".
+    async terminalsStopFromRung(id) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop?origin=rung`);
+    },
     async terminalsStopAll() {
         return this._terminalsWrite('/api/terminals/stop-all');
     },
@@ -1139,6 +1143,40 @@ const API = {
     },
     async terminalsDriftFeedback(id) {
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/drift/feedback`, { feedback: 'normal' });
+    },
+    // Response rungs: reads under the terminals token; writes also carry the
+    // per-run UI token, refetched once if the app restarted.
+    async terminalsRung(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/rung`);
+    },
+    async terminalsRungModes() {
+        return this._terminalsRead('/api/terminals/rungs/modes');
+    },
+    async terminalsRungHarness(harness) {
+        return this._terminalsRead(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`);
+    },
+    async _terminalsUiWrite(endpoint, body) {
+        const call = async () => this._terminalsCall(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1', 'X-SV-UI-Token': await this._getJitToken() },
+            body: JSON.stringify(body || {}),
+        });
+        try {
+            return await call();
+        } catch (e) {
+            if (!/UI token|HTTP 403/.test((e && e.message) || '')) throw e;
+            this._jitToken = null;
+            return call();
+        }
+    },
+    async terminalsRungRelease(id) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/rung/release`, {});
+    },
+    async terminalsRungFeedback(id, feedback) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/rung/feedback`, { feedback });
+    },
+    async terminalsRungMode(harness, body) {
+        return this._terminalsUiWrite(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`, body);
     },
     async terminalsEvents(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);

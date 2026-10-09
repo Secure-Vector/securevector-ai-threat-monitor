@@ -590,6 +590,16 @@ WARM_MAX_SESSIONS = 20
 _pending: set = set()
 
 
+async def _rung_pass(db, session_id: str, task: Mapping[str, Any], result: DriftResult) -> None:
+    """Record the session's response rung after a compute. Observe only."""
+    try:
+        from securevector.app.services import response_rungs
+
+        await response_rungs.evaluate(db, session_id, task=task, result=result)
+    except Exception:  # noqa: BLE001 - never breaks the drift pass
+        logger.debug("response rung pass failed", exc_info=True)
+
+
 async def warm_once(db=None) -> list:
     """Rescore running sessions. Rides the run-health warm loop (every 60 s).
     One bad session never stops the pass. Returns the session ids scored."""
@@ -602,7 +612,8 @@ async def warm_once(db=None) -> list:
     done = []
     for task in await SessionDriftRepository(db).running_tasks(WARM_MAX_SESSIONS):
         try:
-            await score_for(task["session_id"], db=db, task=task)
+            result = await score_for(task["session_id"], db=db, task=task)
+            await _rung_pass(db, task["session_id"], task, result)
             done.append(task["session_id"])
         except Exception:  # noqa: BLE001 - observe only; never break the loop
             logger.debug("drift warm-up failed for %s", task.get("session_id"), exc_info=True)
@@ -619,7 +630,8 @@ def schedule_for_task(db, task_id: str) -> None:
 
             task = await SessionDriftRepository(db).task(task_id)
             if task and task.get("session_id"):
-                await score_for(task["session_id"], db=db, task=task)
+                result = await score_for(task["session_id"], db=db, task=task)
+                await _rung_pass(db, task["session_id"], task, result)
         except Exception:  # noqa: BLE001
             logger.debug("drift at exit failed for %s", task_id, exc_info=True)
 

@@ -122,14 +122,14 @@ async def _evaluate(world, tool_input, *, verified=True):
 class TestMigration:
     @pytest.mark.asyncio
     async def test_v58_tables_and_idempotent(self, world):
-        assert CURRENT_SCHEMA_VERSION == 58
+        assert CURRENT_SCHEMA_VERSION == 59
         names = {r["name"] for r in await world.db.fetch_all(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"logical_sessions", "policy_decisions"} <= names
         await ensure_policy_check_tables(world.db)
         await migrate_to_v58(world.db)
         row = await world.db.fetch_one("SELECT MAX(version) AS v FROM schema_version")
-        assert row["v"] == 58
+        assert row["v"] == 59
 
 
 # --- 1. canonicalisation --------------------------------------------------------------

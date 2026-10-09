@@ -72,6 +72,8 @@ function decideFromOverrides(candidates, overrides, sessionId = null) {
       // the deny it overrides — silently allowing other sessions.
       if (row.source === 'jit_grant' && row.session_id
           && row.session_id !== sessionId) continue;
+      // The response rung marker is read by its own check, never as a rule.
+      if (row.source === RUNG_MARKER_SOURCE) continue;
       const key = row.tool_id.toLowerCase();
       if (!byToolId.has(key)) byToolId.set(key, row);
     }
@@ -251,6 +253,117 @@ function toHookOutput(d) {
  * @param {string} baseUrl   Local app base URL.
  * @returns {Promise<{permissionDecision: 'allow'|'deny'|'ask', message?: string}>}
  */
+// --- Response rung step-up marker -------------------------------------------
+//
+// Mirrors marker_kind in securevector/app/services/response_rungs.py, which
+// check_policy uses; keep the two in step.
+
+const RUNG_MARKER_SOURCE = 'rung_marker';
+
+function findRungMarker(overrides, sessionId) {
+  if (!sessionId || !overrides || !Array.isArray(overrides.synced)) return null;
+  for (const row of overrides.synced) {
+    if (row && row.source === RUNG_MARKER_SOURCE && row.session_id === sessionId
+        && row.step_up && typeof row.step_up === 'object' && !Array.isArray(row.step_up)) {
+      return row;
+    }
+  }
+  return null;
+}
+
+function rungIneligible(name) {
+  if (typeof name !== 'string') return true;
+  const low = name.trim().toLowerCase();
+  return !low || low.includes('*') || low.startsWith('egress:') || low.startsWith('sv.')
+    || low.startsWith('securevector:') || low.startsWith('mcp__securevector__');
+}
+
+// The spellings that name one tool exactly: the full id, lower case, and
+// for `mcp__s__t` also `s:t`. Never the bare `t`: a tool on another server
+// with the same short name is a different tool.
+function nameForms(name) {
+  const low = String(name).trim().toLowerCase();
+  const forms = new Set([low]);
+  if (low.startsWith('mcp__')) {
+    const rest = low.slice(5);
+    const idx = rest.indexOf('__');
+    if (idx > 0 && rest.slice(idx + 2)) forms.add(`${rest.slice(0, idx)}:${rest.slice(idx + 2)}`);
+  }
+  return forms;
+}
+
+function collectStrings(value, out, depth) {
+  if (depth > 8 || out.length > 2000) return;
+  if (typeof value === 'string') {
+    out.push(value);
+  } else if (Array.isArray(value)) {
+    for (const v of value) collectStrings(v, out, depth + 1);
+  } else if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      out.push(String(k));
+      collectStrings(v, out, depth + 1);
+    }
+  }
+}
+
+function inputText(toolInput) {
+  const out = [];
+  collectStrings(toolInput, out, 0);
+  return out.join('\n').slice(0, 65536);
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasRuleRow(candidates, overrides, sessionId) {
+  if (!overrides || !Array.isArray(overrides.synced)) return false;
+  const keys = new Set();
+  for (const row of overrides.synced) {
+    if (!row || typeof row.tool_id !== 'string') continue;
+    if (row.source === 'jit_grant' && row.session_id && row.session_id !== sessionId) continue;
+    if (row.source === RUNG_MARKER_SOURCE) continue;
+    keys.add(row.tool_id.toLowerCase());
+  }
+  return candidates.some((c) => keys.has(String(c).toLowerCase()));
+}
+
+/**
+ * Why an allowed call waits for approval under the marker, or null: a
+ * dangerous path or environment key in the input, or a tool the session's
+ * baseline has not seen that no rule row names. Never for the app's own
+ * tools, and never for a tool this session already has a rung grant for.
+ */
+function stepUpFromMarker(toolName, toolInput, marker, matchedRow) {
+  if (!marker || typeof marker !== 'object' || rungIneligible(toolName)) return null;
+  const sp = marker.step_up;
+  if (!sp || typeof sp !== 'object' || Array.isArray(sp)) return null;
+  const strs = (key) => (Array.isArray(sp[key])
+    ? sp[key].filter((x) => typeof x === 'string' && x) : null);
+  const forms = nameForms(toolName);
+  const granted = new Set();
+  for (const g of strs('granted') || []) for (const f of nameForms(g)) granted.add(f);
+  for (const f of forms) if (granted.has(f)) return null;
+  const text = inputText(toolInput);
+  if (text) {
+    const low = text.toLowerCase();
+    if ((strs('paths') || []).some((p) => low.includes(p.toLowerCase()))) return 'sensitive_path';
+    for (const k of strs('env_keys') || []) {
+      if (new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(k)}(?![A-Za-z0-9_])`).test(text)) return 'sensitive_env';
+    }
+  }
+  const known = strs('known_tools');
+  if (known !== null && !matchedRow) {
+    const knownForms = new Set();
+    for (const k of known) for (const f of nameForms(k)) knownForms.add(f);
+    let seen = false;
+    for (const f of forms) if (knownForms.has(f)) seen = true;
+    if (!seen) return 'new_tool';
+  }
+  return null;
+}
+
+
 /**
  * Tools that can reach the network. Everything else short-circuits before any
  * egress round-trip. Kept in sync with NETWORK_CAPABLE_BUILTINS in
@@ -281,6 +394,28 @@ async function decide(toolName, baseUrl, sessionId = null, toolInput = null) {
     // A name-based deny already stops the call; evaluating egress on top would
     // add latency and a duplicate audit row for a call that never happens.
     if (decision.decision !== 'allow') return decision;
+    // Response rung 3 (active mode): the app sends this session a marker row
+    // with the checks that need the call in hand. An allowed call it matches
+    // waits for a human approval through the usual request flow.
+    // A malformed marker is ignored; the rest of the decision still runs.
+    let held = false;
+    let marker = null;
+    try {
+      marker = findRungMarker(overrides, sessionId);
+      held = Boolean(marker && stepUpFromMarker(
+        toolName, toolInput, marker, hasRuleRow(candidates, overrides, sessionId)));
+    } catch {
+      held = false;
+    }
+    if (held) {
+      return {
+        decision: 'deny',
+        reason: typeof marker.reason === 'string' && marker.reason
+          ? marker.reason : 'This session is at step-up: this call needs a human approval',
+        toolId: candidates[0],
+        requestable: true,
+      };
+    }
   }
   return decideEgress(toolName, toolInput, baseUrl, sessionId);
 }
@@ -390,6 +525,8 @@ if (require.main === module) {
 module.exports = {
   decide,
   decideFromOverrides,
+  stepUpFromMarker,
+  findRungMarker,
   toHookOutput,
   decisionToAuditAction,
   buildAuditBody,
