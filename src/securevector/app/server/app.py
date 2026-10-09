@@ -540,6 +540,10 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
 
     app.include_router(config_trust_routes.router, prefix="/api")
     app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
+    # Pre-flight policy checks for the SecureVector MCP tools.
+    from securevector.app.server.routes import policy as policy_routes
+
+    app.include_router(policy_routes.router, prefix="/api")
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_claude_code.router, prefix="/api", tags=["Hooks"])

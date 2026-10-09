@@ -212,6 +212,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 <details class="terminals-gov-section terminals-gov-context" id="terminals-gov-context">
                   <summary><h3>Context &amp; cost</h3><span class="terminals-gov-stage" id="terminals-context-stage"></span></summary>
                   <div id="terminals-context" class="terminals-context"><span class="terminals-empty">No task attached.</span></div>
+                  <div id="terminals-preflight" class="terminals-preflight" hidden></div>
                 </details>
                 <details class="terminals-gov-section" id="terminals-gov-traces"><summary class="terminals-traces-head"><h3>Traces</h3><a href="#" class="terminals-traces-all" id="terminals-traces-all">All traces</a><span class="terminals-gov-count" id="terminals-traces-count"></span></summary><div id="terminals-traces" class="terminals-traces"><span class="terminals-empty">No task attached.</span></div></details>
                 <details class="terminals-gov-section" id="terminals-gov-egress"><summary><h3>Egress</h3><span class="terminals-gov-count" id="terminals-egress-count"></span></summary><div id="terminals-egress" class="terminals-egress"><span class="terminals-empty">No task attached.</span></div></details>
@@ -4555,6 +4556,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const egCount = document.getElementById('terminals-egress-count');
         if (egCount) { egCount.textContent = ''; egCount.className = 'terminals-gov-count'; }
         if (this._govHas) { this._govHas.context = false; this._govHas.egress = false; }
+        this._preflightAt = 0;
+        this._preflightTask = null;
+        const pf = document.getElementById('terminals-preflight');
+        if (pf) { pf.hidden = true; pf.innerHTML = ''; }
     },
 
     /** Close every pane. The tasks keep running; only the workspace goes. */
@@ -5178,6 +5183,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const setCount = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n > 0 ? String(n) : ''; };
         if (!this._govHas) this._govHas = {};
         this._renderContextCost();
+        this._renderPreflight();
         this._renderEgress();
         if (!id) {
             vEl.innerHTML = '<span class="terminals-empty">No task attached.</span>';
@@ -5546,6 +5552,49 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  worth having here. Everything it shows comes from the Cost Optimizer's
      *  live advisor, so the terminal and the Cost & Tokens page agree.
      */
+    /** Pre-flight checks under Context & cost: what the agent asked
+     *  check_policy before acting. Counts, match rate and the last ten checks
+     *  (kind, decision, age). Colour only on deny and attempted after deny. */
+    async _renderPreflight() {
+        const el = document.getElementById('terminals-preflight');
+        if (!el || !API.terminalsPreflight) return;
+        const t = (this._tasks || []).find(x => x.id === this._attached);
+        if (!t) { el.hidden = true; el.innerHTML = ''; return; }
+        const now = Date.now();
+        if (this._preflightTask === t.id && now - (this._preflightAt || 0) < 10000) return;
+        this._preflightTask = t.id;
+        this._preflightAt = now;
+        let d = null;
+        try { d = await API.terminalsPreflight(t.id); } catch (e) { d = null; }
+        if (this._attached !== t.id) return;
+        if (!d || !d.checked) { el.hidden = true; el.innerHTML = ''; return; }
+        const n = (v) => this._esc(String(Number(v) || 0));
+        const age = (s) => {
+            const v = Number(s) || 0;
+            if (v < 60) return `${v}s`;
+            if (v < 3600) return `${Math.floor(v / 60)}m`;
+            return `${Math.floor(v / 3600)}h`;
+        };
+        const kinds = { shell: 'Shell', file_read: 'File read', file_write: 'File write', network: 'Network', mcp: 'MCP', other: 'Other' };
+        const words = { allow: 'allow', deny: 'deny', needs_approval: 'needs approval', indeterminate: 'indeterminate' };
+        const rate = typeof d.match_rate === 'number' ? `${Math.round(d.match_rate * 100)}%` : 'n/a';
+        const attempted = Number(d.attempted_after_deny) || 0;
+        const rows = (d.recent || []).map(r => {
+            const cls = r.decision === 'deny' ? ' is-deny' : '';
+            return `<li><span>${this._esc(kinds[r.kind] || 'Other')}</span><span class="terminals-preflight-decision${cls}">${this._esc(words[r.decision] || 'indeterminate')}</span><span class="terminals-preflight-age">${this._esc(age(r.age_s))}</span></li>`;
+        }).join('');
+        el.innerHTML = `<h4 class="terminals-preflight-title">Pre-flight checks</h4>
+            <dl class="terminals-preflight-stats">
+              <div><dt>Checked</dt><dd>${n(d.checked)}</dd></div>
+              <div><dt>Avoided denials</dt><dd>${n(d.avoided_denials)}</dd></div>
+              <div><dt>Attempted after deny</dt><dd class="${attempted > 0 ? 'is-deny' : ''}">${n(attempted)}</dd></div>
+              <div><dt>Match rate</dt><dd>${this._esc(rate)}</dd></div>
+              <div><dt>Stale</dt><dd>${n(d.stale)}</dd></div>
+            </dl>
+            <ul class="terminals-preflight-recent" aria-label="Last ten pre-flight checks">${rows}</ul>`;
+        el.hidden = false;
+    },
+
     async _renderContextCost() {
         const el = document.getElementById('terminals-context');
         const badge = document.getElementById('terminals-context-stage');

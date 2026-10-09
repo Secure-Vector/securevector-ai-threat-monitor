@@ -51,6 +51,7 @@ from pydantic import BaseModel
 
 from . import _hooks_common
 from ._plugin_guard import require_local_origin
+from securevector.app.services import mcp_registration
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +332,10 @@ async def install_plugin():
             ),
         )
 
+    # The SecureVector MCP tools (check_policy, session_burn) at user scope.
+    # Agent Config Trust treats it as the app's own entry. Best effort.
+    mcp_registration.register("antigravity")
+
     if GEMINI_HOME.is_dir():
         try:
             install_path = _auto_install_to_antigravity()
@@ -391,6 +396,7 @@ async def uninstall_plugin():
     tests/unit/app/terminals/test_plugin_routes_auth.py will fail until it
     does.
     """
+    mcp_registration.unregister("antigravity")
     # 1. Staged source-of-truth tree.
     if STAGING_DIR.is_dir():
         shutil.rmtree(STAGING_DIR, ignore_errors=True)

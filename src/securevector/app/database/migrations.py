@@ -204,6 +204,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         55: migrate_to_v55,
         56: migrate_to_v56,
         57: migrate_to_v57,
+        58: migrate_to_v58,
     }
 
     if version in migrations:
@@ -2144,6 +2145,8 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     # startup, outside any request, as a safety net after the migrations.
     await ensure_session_drift_table(db)
     await ensure_config_trust_tables(db)
+    await ensure_policy_check_tables(db)
+    await cleanup_old_policy_decisions(db)
 
     # Load community rules after schema is ready
     await load_community_rules(db)
@@ -3053,3 +3056,97 @@ async def migrate_to_v57(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v57: config trust")
+
+
+# Plain statements run one at a time with conn.execute, for the same reason
+# as CONFIG_TRUST_DDL.
+POLICY_CHECK_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS logical_sessions (
+        handle             TEXT PRIMARY KEY,
+        harness            TEXT,
+        cwd_hash           TEXT,
+        task_id            TEXT,
+        harness_session_id TEXT,
+        binding            TEXT NOT NULL CHECK (binding IN ('verified', 'observed', 'unlinked')),
+        created_at         TEXT NOT NULL,
+        last_seen_at       TEXT NOT NULL,
+        closed_at          TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_logical_sessions_task ON logical_sessions (task_id)",
+    "CREATE INDEX IF NOT EXISTS idx_logical_sessions_harness_session ON logical_sessions (harness_session_id)",
+    """
+    CREATE TABLE IF NOT EXISTS policy_decisions (
+        jti                  TEXT PRIMARY KEY,
+        session              TEXT NOT NULL,
+        task_id              TEXT,
+        action_kind          TEXT NOT NULL,
+        tool_name            TEXT,
+        action_hash          TEXT NOT NULL,
+        target_hash          TEXT NOT NULL,
+        decision             TEXT NOT NULL CHECK (decision IN ('allow', 'deny', 'needs_approval', 'indeterminate')),
+        reason               TEXT NOT NULL,
+        policy_version       TEXT,
+        issued_at            TEXT NOT NULL,
+        expires_at           TEXT,
+        consumed_at          TEXT,
+        consume_result       TEXT,
+        attempted_after_deny INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_policy_decisions_session ON policy_decisions (session, issued_at)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_decisions_task ON policy_decisions (task_id, action_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_decisions_issued ON policy_decisions (issued_at)",
+)
+
+POLICY_DECISION_RETENTION_DAYS = 30
+
+
+async def ensure_policy_check_tables(db: DatabaseConnection) -> None:
+    """Create ``logical_sessions`` and ``policy_decisions`` if missing.
+    Idempotent.
+
+    Called by migrate_to_v58 and once at startup right after run_migrations
+    (init_database_schema). Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in POLICY_CHECK_DDL:
+        await conn.execute(stmt)
+    await conn.commit()
+
+
+async def cleanup_old_policy_decisions(db: DatabaseConnection) -> None:
+    """Drop pre-flight decision rows and closed or idle session handles
+    older than the 30-day retention. Best effort, startup only."""
+    try:
+        conn = await db.connect()
+        window = f"-{POLICY_DECISION_RETENTION_DAYS} days"
+        await conn.execute(
+            "DELETE FROM policy_decisions WHERE issued_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)",
+            (window,),
+        )
+        await conn.execute(
+            "DELETE FROM logical_sessions WHERE last_seen_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)",
+            (window,),
+        )
+        await conn.commit()
+    except Exception as e:  # noqa: BLE001 - retention never blocks startup
+        logger.warning("Pre-flight decision cleanup skipped: %s", e)
+
+
+async def migrate_to_v58(db: DatabaseConnection) -> None:
+    """v57 -> v58: ``logical_sessions`` and ``policy_decisions``.
+
+    One row per pre-flight check: hashes of the action and its target, the
+    decision, a coarse reason and the policy version. No argument text, no
+    paths, no hosts. Idempotent.
+    """
+    await ensure_policy_check_tables(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (58, CURRENT_TIMESTAMP, 'Pre-flight policy checks')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v58: policy checks")

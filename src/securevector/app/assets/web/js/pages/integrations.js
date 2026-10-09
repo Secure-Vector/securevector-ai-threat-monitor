@@ -615,6 +615,32 @@ def chat_with_protection(user_input):
             container.appendChild(localWrap);
             if (remoteSection) container.appendChild(remoteSection);
         }
+        this._showMcpTools(container, this.currentIntegration);
+    },
+
+    // The SecureVector MCP server (check_policy, session_burn) state beside a
+    // harness's Guard status: registered, not registered, not available on
+    // this install, or an existing entry left unchanged. Read-only.
+    MCP_TOOL_HARNESSES: ['claude-code', 'codex', 'copilot-cli', 'cursor', 'opencode', 'antigravity'],
+
+    async _showMcpTools(container, harness) {
+        if (!container || !this.MCP_TOOL_HARNESSES.includes(harness)) return;
+        let data = null;
+        try {
+            const r = await fetch('/api/policy/mcp-registration');
+            if (r.ok) data = await r.json();
+        } catch (e) { data = null; }
+        const pill = container.querySelector ? container.querySelector('#' + harness + '-plugin-status') : null;
+        if (!data || !data.harnesses || !pill || !pill.parentNode) return;
+        let line = container.querySelector('#' + harness + '-mcp-tools-status');
+        if (!line) {
+            line = document.createElement('span');
+            line.id = harness + '-mcp-tools-status';
+            line.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+            pill.parentNode.insertBefore(line, pill.nextSibling);
+        }
+        const st = data.harnesses[harness];
+        line.textContent = st && typeof st.text === 'string' ? st.text : 'MCP tools: not registered';
     },
 
     // Standalone "Option N · Title" header row — pairs the local install card with

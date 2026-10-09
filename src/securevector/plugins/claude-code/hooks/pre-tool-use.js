@@ -29,7 +29,9 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
-const { resolveBaseUrl, fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
+const {
+  resolveBaseUrl, fetchSyncedOverrides, postJsonAndForget, evaluateEgress, reportAttempt,
+} = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
 
 /**
@@ -368,6 +370,31 @@ async function main() {
     }
   }
   process.stdout.write(JSON.stringify(toHookOutput(decision)));
+  // Calls the egress check did not see are reported for pre-flight
+  // matching. After the verdict is written; never changes it.
+  if (shouldReportAttempt(toolName, decision)) {
+    reportAttempt(baseUrl, buildAttemptBody(toolName, toolInput, decision, sessionId));
+  }
+}
+
+/**
+ * True when the egress check did not evaluate this call: a name-based deny
+ * or ask stops before it, and a call that cannot reach the network never
+ * goes there. Network-capable calls the egress check saw are matched there.
+ */
+function shouldReportAttempt(toolName, decision) {
+  if (!toolName || !decision || decision.egress) return false;
+  return !(decision.decision === 'allow' && isNetworkCapable(toolName));
+}
+
+function buildAttemptBody(toolName, toolInput, decision, sessionId) {
+  return {
+    tool_name: toolName,
+    tool_input: toolInput && typeof toolInput === 'object' ? toolInput : {},
+    decision: decision && decision.decision ? decision.decision : 'allow',
+    runtime_kind: RUNTIME_KIND,
+    session_id: sessionId || null,
+  };
 }
 
 if (require.main === module) {
@@ -375,6 +402,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  shouldReportAttempt,
+  buildAttemptBody,
   decide,
   decideFromOverrides,
   toHookOutput,

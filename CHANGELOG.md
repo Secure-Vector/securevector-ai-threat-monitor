@@ -24,11 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Launching a task shows the folder's trust state with its top reasons before the first prompt.
 - Optional, per-server check of an HTTP MCP server's tool list.
 
+**SecureVector MCP**
+- Two MCP tools for the agent itself: `check_policy` answers whether a tool call will be allowed before it is made (allow, deny, needs approval or indeterminate), and `session_burn` reports the session's tokens and estimated cost so far.
+- The Guard installers register the tools at user scope in each harness and remove them on uninstall, when the `mcp` extra is installed. An existing `securevector` entry is left unchanged. Claude Code sessions with the tools registered get one line at session start naming `check_policy` (set `SECUREVECTOR_MCP_GUIDANCE_LINE=0` to turn it off).
+- Every check is in the audit chain. Each call is still checked in full when it is made.
+- Agent Sessions shows a Pre-flight checks section under Context & cost, and the harness pages show whether the MCP tools are registered.
+
 **Guard**
 - The Guard plugins (Claude Code 5.4.0, Codex 5.4.0, Cursor 5.4.0, GitHub Copilot CLI 5.4.0, Antigravity 1.1.0, OpenCode 1.2.0, OpenClaw 1.2.0) send the task's hook token with each egress check, which binds the call to the session it names. A plugin from 6.0.0 still works: its calls keep their session counts and Egress list, but a host it had blocked cannot be approved for that session until the plugin is reinstalled from Integrations.
 
 ### Changed
-- Database schema 57.
+- Database schema 58.
 - Reliability and security improvements.
 
 ## [6.0.1] - 2026-10-08

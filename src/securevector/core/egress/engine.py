@@ -428,6 +428,7 @@ SELF_CONTROL_RULE_ID = "sv.self.control_api"
 DEFAULT_APP_PORT = 8741
 SELF_CONTROL_PREFIXES = (
     "jit", "egress", "tool-permissions", "skill-permissions", "settings", "terminals",
+    "policy",
 )
 _SELF_CONTROL_RE = re.compile(
     r"(?P<host>[^\s'\"<>\\/]{0,253}?)"

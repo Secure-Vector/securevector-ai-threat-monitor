@@ -10105,6 +10105,18 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
    high is red; calm stays neutral. */
 .terminals-task-drift.is-watch, .terminals-drift-band.is-watch { color: var(--warning, #f59e0b); }
 .terminals-task-drift.is-high, .terminals-drift-band.is-high { color: var(--danger, #ef4444); }
+/* Pre-flight checks under Context & cost: colour only on deny and on an
+   action attempted after a deny; allow and indeterminate stay neutral. */
+.terminals-preflight { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 11.5px; }
+.terminals-preflight-title { margin: 0 0 6px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.terminals-preflight-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 10px; margin: 0 0 6px; }
+.terminals-preflight-stats div { display: flex; justify-content: space-between; gap: 6px; }
+.terminals-preflight-stats dt { color: var(--text-muted); }
+.terminals-preflight-stats dd { margin: 0; font-variant-numeric: tabular-nums; }
+.terminals-preflight-recent { list-style: none; margin: 0; padding: 0; }
+.terminals-preflight-recent li { display: grid; grid-template-columns: 1fr auto 40px; gap: 8px; padding: 2px 0; color: var(--text-secondary); }
+.terminals-preflight-age { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.terminals-preflight .is-deny { color: var(--danger, #ef4444); }
 .sidebar.collapsed .nav-task-facts { display: none; }
 
 /* Session summary: the ended panel and the running-pane overlay. Colour is

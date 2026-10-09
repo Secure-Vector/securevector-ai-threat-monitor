@@ -293,7 +293,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 57
+CURRENT_SCHEMA_VERSION = 58
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -336,7 +336,8 @@ SCHEMA_DESCRIPTION = (
     "v54: terminal_tasks.status accepts 'stopped' (a task the user stopped from the app); "
     "v55: egress_audit.session_verified marks rows bound to a session with the task's hook token; "
     "v56: session_drift, one Session Drift Score row per governed session; "
-    "v57: Agent Config Trust pins, checks, MCP pins and mod inventory"
+    "v57: Agent Config Trust pins, checks, MCP pins and mod inventory; "
+    "v58: logical_sessions and policy_decisions for pre-flight policy checks"
 )
 
 # Migration SQL for v34 — redaction_events table.

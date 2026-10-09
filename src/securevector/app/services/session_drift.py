@@ -391,7 +391,7 @@ def feature_new_hosts(egress: Mapping[str, Any], baseline: Baseline, known_host_
     return _feature(F_HOSTS, n / NEW_HOSTS_FULL, {"hosts": n})
 
 
-def feature_persistence(rows: list, jit: Iterable[Mapping[str, Any]]) -> dict:
+def feature_persistence(rows: list, jit: Iterable[Mapping[str, Any]], preflight_repeats: int = 0) -> dict:
     blocks: dict = {}
     for r in rows:
         if r.get("action") == "block":
@@ -408,6 +408,8 @@ def feature_persistence(rows: list, jit: Iterable[Mapping[str, Any]]) -> dict:
             repeats += 1
         if req.get("status") == "denied":
             denied_at.setdefault(tool, req.get("requested_at"))
+    # An action attempted after a pre-flight check denied it.
+    repeats += max(0, int(preflight_repeats or 0))
     return _feature(F_PERSIST, repeats / PERSIST_FULL, {"repeats": repeats})
 
 
@@ -418,7 +420,7 @@ def _now_iso(now: Optional[datetime] = None) -> str:
 def compute(calls: list, egress: Mapping[str, Any], known_host_count: int, jit: list,
             baseline: Optional[Baseline], routine_locations: Mapping[str, int], *,
             progress: Optional[Mapping[str, int]] = None,
-            now: Optional[datetime] = None) -> DriftResult:
+            now: Optional[datetime] = None, preflight_repeats: int = 0) -> DriftResult:
     """Score one session from its rows. Pure: no I/O, no clock unless `now`
     is omitted. Returns `building_baseline` with no number below the
     minimums, `partial` when a feature had to be skipped."""
@@ -442,7 +444,7 @@ def compute(calls: list, egress: Mapping[str, Any], known_host_count: int, jit: 
         feature_enumeration(rows, egress, known_host_count),
         feature_secrets_reach(locations_in(rows), routine_locations),
         feature_new_hosts(egress, baseline, known_host_count),
-        feature_persistence(rows, jit),
+        feature_persistence(rows, jit, preflight_repeats),
     ]
     live = [f for f in feats if not f["skipped"]]
     total = sum(f["weight"] for f in live)
@@ -476,6 +478,18 @@ async def _harness_sessions(repo, harness: str) -> dict:
     return data
 
 
+async def _preflight_repeats(db, session_id: str, task_id: Optional[str]) -> int:
+    """Pre-flight denials attempted anyway in this session. Zero when the
+    table is unreadable, so drift never fails on it."""
+    try:
+        from securevector.app.database.repositories.policy_decisions import PolicyDecisionsRepository
+
+        return await PolicyDecisionsRepository(db).attempts_after_deny(session_id, task_id)
+    except Exception:  # noqa: BLE001 - observe only
+        logger.debug("pre-flight repeats unavailable", exc_info=True)
+        return 0
+
+
 async def score_for(session_id: str, *, db=None, task: Optional[Mapping[str, Any]] = None,
                     store: bool = True) -> DriftResult:
     """Load one session's rows, score it and (by default) store the row.
@@ -502,14 +516,17 @@ async def score_for(session_id: str, *, db=None, task: Optional[Mapping[str, Any
     known = 0
     jit: list = []
     routine: dict = {}
+    preflight = 0
     if baseline is not None:
         egress = await repo.session_egress(session_id)
         known = await repo.known_host_count()
         jit = await repo.session_jit(session_id)
+        preflight = await _preflight_repeats(db, session_id, task.get("id"))
         locs = locations_in(_governed(calls))
         if locs:
             routine = await repo.location_sessions(locs, list(baseline.session_ids), location_probe, location_matches)
-    result = compute(calls, egress, known, jit, baseline, routine, progress=progress)
+    result = compute(calls, egress, known, jit, baseline, routine, progress=progress,
+                     preflight_repeats=preflight)
     if store:
         await repo.upsert(session_id, task.get("id"), harness, workspace, result, features_json(result))
     return result

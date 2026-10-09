@@ -30,6 +30,7 @@ from securevector.app.services import (
     egress_attestation,
     egress_scope,
 )
+from securevector.app.services import policy_check
 from securevector.app.services.containment_drift import diff_proofs
 from securevector.app.services.containment_proof import (
     preflight_manifest,
@@ -158,6 +159,10 @@ async def evaluate_egress(request: EvaluateRequest, http_request: Request = None
         # the block stands whether or not the request could be filed.
         if grantable and evaluation.blocked:
             await _file_host_requests(jit, evaluation.verdicts, policy, request)
+
+        # Match the call against this session's recent pre-flight checks.
+        # Metrics only: the verdict above always stands (no fast path).
+        await _match_preflight(http_request, request, audit_session, verified)
 
         return {
             "action": evaluation.action,
@@ -308,6 +313,20 @@ async def _session_binding(http_request, session_id: Optional[str]):
         return None, False
     logger.warning("Egress call session token did not match; recorded unbound")
     return None, False
+
+
+async def _match_preflight(http_request, request, audit_session, verified) -> None:
+    try:
+        task_id = None
+        if verified and http_request is not None:
+            task_id = http_request.headers.get("x-sv-terminal-task") or None
+        await policy_check.consume_for_call(
+            get_database(), request.tool_name, request.tool_input or {},
+            task_id=task_id, verified=verified, harness=request.runtime_kind,
+            harness_session_id=audit_session,
+        )
+    except Exception as e:  # noqa: BLE001 - metrics only, never the verdict
+        logger.warning("Pre-flight match skipped: %s", type(e).__name__)
 
 
 def _grantable_session(policy: EgressPolicy, session_id: Optional[str]) -> bool:
