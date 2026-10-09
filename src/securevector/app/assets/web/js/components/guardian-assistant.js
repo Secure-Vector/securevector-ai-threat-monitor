@@ -799,12 +799,13 @@ const GuardianAssistant = {
 
     async _sentinelTick() {
         const st = this._sentinelState();
-        const [threats, red, blocked, act, egress] = await Promise.all([
+        const [threats, red, blocked, act, egress, setup] = await Promise.all([
             API.request('/api/threat-intel?page=1&page_size=1').catch(() => null),
             API.getRedactions(1).catch(() => null),
             API.getBlockedLedger({ window_days: 1 }).catch(() => null),
             API.getOptimizerSessions(1).catch(() => null),
             API.request('/api/egress/destinations?days=1').catch(() => null),
+            API.configTrustStatus ? API.configTrustStatus(false).catch(() => null) : null,
         ]);
         const totals = {
             threats: threats && threats.total != null ? threats.total : null,
@@ -815,6 +816,8 @@ const GuardianAssistant = {
             // or known-bad host is the one event worth interrupting for.
             egress: egress && Array.isArray(egress.destinations)
                 ? egress.destinations.reduce((a, d) => a + (d.blocked || 0), 0) : null,
+            // Agent setup changes since the user approved it (setup trust).
+            setup: setup && setup.totals && setup.totals.changed != null ? setup.totals.changed : null,
         };
 
         // Agent numbering also works when the live advisor is switched off:
@@ -871,6 +874,14 @@ const GuardianAssistant = {
                 cta: 'See the destinations', page: 'egress', mood: 'alert',
             });
             if (spoke) bump('egress');
+        } else if (grew('setup') && ready('setup')) {
+            const n = totals.setup - st.totals.setup;
+            spoke = this._speak({
+                text: n === 1 ? 'Your agent setup changed since you approved it. Have a look before the next session.'
+                    : `Your agent setup changed in ${n} places since you approved it. Have a look before the next session.`,
+                cta: 'See what changed', page: 'guide-connect-agents', mood: 'alert',
+            });
+            if (spoke) bump('setup');
         }
 
         // live context too high: the one alert that can still save THIS run
@@ -1197,7 +1208,8 @@ const GuardianAssistant = {
         // the Optimizer report. Join the two on session_id and rank.
         let sums = null;
         try {
-            const rep = await API.request('/api/cost-optimizer/report');
+            const st = await API.getOptimizerStatus();
+            const rep = st && st.has_report ? await API.getOptimizerReport() : null;
             sums = new Map((rep && rep.session_summaries || []).map(
                 (x) => [x.session_id, (x.prompt_tokens || 0) + (x.output_tokens || 0)]));
         } catch (_) { /* no scan yet */ }

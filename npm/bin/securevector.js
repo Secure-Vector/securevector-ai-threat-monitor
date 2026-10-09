@@ -23,8 +23,8 @@ const { isReady, install, venvBin, venvPath, envRoot } = require('../lib/bootstr
 
 // The npm version and the PyPI version are the same product, so the launcher
 // pins to its own version rather than resolving "latest". Installing
-// @securevector/cli@6.0.1 must never give you a different SecureVector than
-// pip install securevector-ai-monitor==6.0.1 does.
+// @securevector/cli@6.1.0 must never give you a different SecureVector than
+// pip install securevector-ai-monitor==6.1.0 does.
 const VERSION = pkg.version;
 
 // Which Python entry point each verb runs. Names must match setup.py's

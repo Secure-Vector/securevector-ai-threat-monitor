@@ -36,6 +36,16 @@ class SVClient {
     this.baseUrl = url.replace(/\/+$/, "");
     this.headers = { "Content-Type": "application/json" };
     if (apiKey) this.headers["Authorization"] = `Bearer ${apiKey}`;
+    // Inside a session launched by Agent Sessions, the app hands the process
+    // its task id and hook token. Sending them lets the egress check bind a
+    // call to the session it claims; without them the call is still
+    // evaluated, just not bound (same wire shape as the Guard plugins).
+    const task = (process.env.SV_TERMINAL_TASK_ID || "").trim();
+    const token = (process.env.SV_TERMINAL_HOOK_TOKEN || "").trim();
+    if (task && token) {
+      this.headers["x-sv-terminal-task"] = task;
+      this.headers["x-sv-terminal-hook"] = token;
+    }
   }
 
   /** Send text to SecureVector for threat analysis. */

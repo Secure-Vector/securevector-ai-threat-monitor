@@ -585,12 +585,12 @@ const API = {
         }
         return this._jitToken;
     },
-    async _jitDecision(endpoint, body) {
+    async _jitDecision(endpoint, body, method = 'POST') {
         // NB: request() replaces the whole headers object when options.headers
         // is set (the ...options spread wins), so Content-Type must be
         // restated here or FastAPI 422s on an unparseable body.
         const call = async () => this.request(endpoint, {
-            method: 'POST',
+            method,
             headers: {
                 'Content-Type': 'application/json',
                 'X-SV-UI-Token': await this._getJitToken(),
@@ -971,14 +971,23 @@ const API = {
         return this.request('/api/egress/presets').catch(() => null);
     },
     async patchEgressPolicy(patch) {
-        return this.request('/api/egress/policy', {
-            method: 'PATCH', body: JSON.stringify(patch || {}),
-        });
+        // Human-only, like a JIT decision: carries the per-run UI token.
+        return this._jitDecision('/api/egress/policy', patch || {}, 'PATCH');
+    },
+    // Session-scoped host approval and denylist edits: human-only, so they
+    // carry the same per-run UI token as JIT decisions.
+    async grantEgressHost(host, sessionId, duration) {
+        return this._jitDecision('/api/egress/grants', { host, session_id: sessionId, duration });
+    },
+    async addEgressDeniedHost(host) {
+        return this._jitDecision('/api/egress/denylist', { host });
+    },
+    async removeEgressDeniedHost(host) {
+        return this._jitDecision('/api/egress/denylist/remove', { host });
     },
     async promoteEgressHost(host) {
-        return this.request('/api/egress/promote', {
-            method: 'POST', body: JSON.stringify({ host }),
-        });
+        // Device-wide and permanent, so human-only: carries the UI token.
+        return this._jitDecision('/api/egress/promote', { host });
     },
     async getEgressBlastRadius(days = 30) {
         return this.request(`/api/egress/blast-radius?days=${days}`).catch(() => null);
@@ -1110,14 +1119,109 @@ const API = {
     async terminalsStop(id) {
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`);
     },
+    // Stop from a step-up card: the audit records the origin as "rung".
+    async terminalsStopFromRung(id) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop?origin=rung`);
+    },
     async terminalsStopAll() {
         return this._terminalsWrite('/api/terminals/stop-all');
     },
     async terminalsVerdicts(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/verdicts`);
     },
+    // Session Drift Score: observe only. The per-task read scores the session
+    // now; the batch read returns stored scores; feedback records "looks normal".
+    async terminalsDrift(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/drift`);
+    },
+    // Pre-flight checks (check_policy) for a task's sessions: counts only.
+    async terminalsPreflight(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/preflight`);
+    },
+    async terminalsDriftBatch(ids) {
+        return this._terminalsRead(`/api/terminals/drift?task_ids=${encodeURIComponent((ids || []).join(','))}`);
+    },
+    async terminalsDriftFeedback(id) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/drift/feedback`, { feedback: 'normal' });
+    },
+    // Response rungs: reads under the terminals token; writes also carry the
+    // per-run UI token, refetched once if the app restarted.
+    async terminalsRung(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/rung`);
+    },
+    async terminalsRungModes() {
+        return this._terminalsRead('/api/terminals/rungs/modes');
+    },
+    async terminalsRungHarness(harness) {
+        return this._terminalsRead(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`);
+    },
+    async _terminalsUiWrite(endpoint, body) {
+        const call = async () => this._terminalsCall(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1', 'X-SV-UI-Token': await this._getJitToken() },
+            body: JSON.stringify(body || {}),
+        });
+        try {
+            return await call();
+        } catch (e) {
+            if (!/UI token|HTTP 403/.test((e && e.message) || '')) throw e;
+            this._jitToken = null;
+            return call();
+        }
+    },
+    async terminalsRungRelease(id) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/rung/release`, {});
+    },
+    async terminalsRungFeedback(id, feedback) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/rung/feedback`, { feedback });
+    },
+    async terminalsRungMode(harness, body) {
+        return this._terminalsUiWrite(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`, body);
+    },
     async terminalsEvents(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);
+    },
+    // --- Agent Config Trust (setup trust), under the terminals token ------
+    async configTrustStatus(fresh) {
+        return this._terminalsRead(`/api/terminals/config-trust/status${fresh ? '?fresh=true' : ''}`);
+    },
+    async configTrustHarness(harness) {
+        return this._terminalsRead(`/api/terminals/config-trust/harness/${encodeURIComponent(harness)}`);
+    },
+    async configTrustSession(taskId) {
+        return this._terminalsRead(`/api/terminals/config-trust/sessions/${encodeURIComponent(taskId)}`);
+    },
+    async configTrustRepoCheck(harness, workspace) {
+        return this._terminalsWrite('/api/terminals/config-trust/repo-check', { harness, workspace });
+    },
+    async configTrustApprove(body) {
+        return this._terminalsWrite('/api/terminals/config-trust/pins', body);
+    },
+    async configTrustProbe(body) {
+        return this._terminalsWrite('/api/terminals/config-trust/probe', body);
+    },
+    // Agent Detection & Response: one read for the page's tiles and list.
+    async detectionResponseSummary() {
+        return this._terminalsRead('/api/terminals/detection-response/summary');
+    },
+    // Response modes may not be served by this install. A missing route
+    // returns the page shell, so anything but JSON reads as null (shadow)
+    // without logging an API error.
+    async terminalsRungModes() {
+        await this.terminalsSession();
+        const r = await fetch('/api/terminals/rungs/modes', { headers: { 'X-SV-Terminals': '1' }, credentials: 'same-origin' });
+        if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) return null;
+        return r.json();
+    },
+    // Same read without the shared error log, for the entry points on Agent
+    // Sessions that hide themselves when the summary is unavailable.
+    async detectionResponseSummaryQuiet() {
+        try {
+            await this.terminalsSession();
+            const r = await fetch('/api/terminals/detection-response/summary', { headers: { 'X-SV-Terminals': '1' }, credentials: 'same-origin' });
+            if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) return null;
+            return await r.json();
+        } catch (e) { return null; }
     },
     terminalsSocketUrl(id) {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';

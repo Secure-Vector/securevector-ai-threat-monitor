@@ -81,6 +81,7 @@ async def init_agent_terminals(app: FastAPI, db) -> bool:
                 codex_plugin_enabled=_codex_hooks.terminal_guard_enabled,
                 copilot_cli_plugin_enabled=_copilot_hooks.terminal_guard_enabled,
                 opencode_plugin_enabled=_opencode_hooks.terminal_guard_enabled,
+                config_trust=True,
             ),
         )
         await _manager.start(asyncio.get_running_loop())
@@ -534,7 +535,19 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     from securevector.app.terminals import routes as terminals_routes
 
     app.include_router(terminals_routes.router, prefix="/api")
+    # Agent Config Trust: under /api/terminals so the UI token cookie reaches it.
+    from securevector.app.server.routes import config_trust as config_trust_routes
+
+    app.include_router(config_trust_routes.router, prefix="/api")
+    # Agent Detection & Response summary: same token scope, read only.
+    from securevector.app.server.routes import detection_response as detection_response_routes
+
+    app.include_router(detection_response_routes.router, prefix="/api")
     app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
+    # Pre-flight policy checks for the SecureVector MCP tools.
+    from securevector.app.server.routes import policy as policy_routes
+
+    app.include_router(policy_routes.router, prefix="/api")
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_claude_code.router, prefix="/api", tags=["Hooks"])

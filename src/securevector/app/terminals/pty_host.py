@@ -1,7 +1,7 @@
 """PtyHost: the one seam between Agent Terminals and process ownership.
 
 Phase 1 (6.0.0) owns the PTY inside the app process (``InProcessPtyHost``).
-The 6.0.1 daemon implements the same Protocol over a unix socket; nothing
+A later daemon implements the same Protocol over a unix socket; nothing
 above this module may depend on ptyprocess or threads.
 """
 

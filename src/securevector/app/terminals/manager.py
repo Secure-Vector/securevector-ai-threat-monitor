@@ -31,6 +31,7 @@ from securevector.app.terminals.executors import EXECUTORS, UnknownExecutor, bui
 from securevector.app.terminals.pty_host import PtyHost, Subscriber
 from securevector.app.terminals.session_cwd import resolve_session_cwd, session_last_write
 from securevector.app.terminals import live_runs
+from securevector.app.services import session_drift
 from securevector.app.terminals.store import (
     RUNNING,
     SESSION_RELINKED,
@@ -113,6 +114,9 @@ class ManagerSettings:
     parent_env: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))
     default_rows: int = 30
     default_cols: int = 120
+    # Agent Config Trust setup checks at start, on SessionStart and at exit.
+    # Off unless the app turns it on, so a bare manager never scans a home.
+    config_trust: bool = False
 
 
 def status_from_hook(event: Mapping) -> Tuple[Optional[str], Optional[str]]:
@@ -481,6 +485,7 @@ class TerminalManager:
         task = await self.store.get_task(task_id)
         if task is None:
             raise RuntimeError(f"terminal task {task_id} vanished immediately after spawn")
+        self._config_check(task_id, executor_id, str(launch.cwd), "start")
         # Metadata only, and never awaited on this path: a cloud that is slow
         # or gone must not hold up a local launch. No `detail` is passed, and
         # the emitter takes none: the audit detail above carries the working
@@ -541,8 +546,27 @@ class TerminalManager:
         """Take a finished task off the board (the store keeps its audit)."""
         archived = await self.store.archive_task(task_id)
         if archived:
+            await self._revoke_host_grants(task_id)
             await self._emit_archived(task_id, origin=origin)
         return archived
+
+    async def _revoke_host_grants(self, task_id: str) -> None:
+        """A task's egress host grants end with it: its current session and
+        every session it held before a re-link. Best effort; the 24h cap on
+        the grant rows remains the backstop."""
+        try:
+            from securevector.app.database.repositories.jit_access import (
+                JitAccessRepository,
+            )
+
+            task = await self.store.get_task(task_id)
+            sids = [task.get("session_id")] if task else []
+            sids += await self.store.session_history(task_id)
+            n = await JitAccessRepository(self.store.db).revoke_session_host_grants(sids)
+            if n:
+                logger.info("revoked %d egress host grant(s) for an ended task", n)
+        except Exception:
+            logger.debug("could not revoke host grants for an ended task", exc_info=True)
 
     async def _emit_archived(self, task_id: str, *, origin: str) -> None:
         self._live_status.pop(task_id, None)
@@ -875,6 +899,15 @@ class TerminalManager:
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
+        await self._revoke_host_grants(task_id)
+        # Score the session once at exit, in the background. Observe only: it
+        # writes a session_drift row and never touches this exit path.
+        session_drift.schedule_for_task(self.store.db, task_id)
+        if self.settings.config_trust:
+            exited_task = await self.store.get_task(task_id)
+            if exited_task:
+                self._config_check(task_id, exited_task.get("executor_id"), exited_task.get("workspace"),
+                                   "exit", exited_task.get("session_id"))
         self._live_status.pop(task_id, None)
         if live_runs.has_sink():
             try:
@@ -942,6 +975,18 @@ class TerminalManager:
 
     # -- hook events --------------------------------------------------------
 
+    def _config_check(self, task_id: str, executor_id: Optional[str], workspace: Optional[str],
+                      phase: str, session_id: Optional[str] = None) -> None:
+        """Agent Config Trust: one read-only setup check, scheduled off this
+        path so a launch or a hook never waits on it. Observe only."""
+        if not self.settings.config_trust or not executor_id:
+            return
+        from securevector.app.services import config_trust
+        config_trust.schedule(config_trust.session_check(
+            self.store.db, harness=executor_id, workspace=workspace, phase=phase,
+            task_id=task_id, session_id=session_id,
+        ))
+
     async def handle_hook_event(self, task_id: str, token: str, event: Mapping) -> bool:
         expected = self._hook_tokens.get(task_id)
         # A header value can carry non-ASCII bytes (Starlette decodes headers
@@ -980,6 +1025,12 @@ class TerminalManager:
                     await self.store.add_event(
                         task_id, kind=SESSION_RELINKED, origin="hook", detail=old,
                     )
+        if event.get("hook_event_name") == "SessionStart":
+            task = await self.store.get_task(task_id)
+            if task:
+                cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else None
+                self._config_check(task_id, task.get("executor_id"), cwd or task.get("workspace"), "start",
+                                   task.get("session_id"))
         status, activity = status_from_hook(event)
         if status is None:
             return True

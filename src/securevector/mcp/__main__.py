@@ -136,6 +136,13 @@ Environment Variables:
     )
 
     parser.add_argument(
+        "--tools",
+        type=str,
+        help="Comma-separated tool names to expose (for example check_policy,session_burn); "
+             "when set, only these tools are served and resources and prompts are off"
+    )
+
+    parser.add_argument(
         "--direct-mode",
         action="store_true",
         help="Use FastMCP direct mode (simpler, for stdio only)"
@@ -163,6 +170,11 @@ def get_config_from_args(args):
     config.host = args.host
     config.port = args.port
     config.transport = args.transport
+
+    if getattr(args, "tools", None):
+        config.enabled_tools = [n.strip() for n in args.tools.split(",") if n.strip()]
+        config.enable_resources = False
+        config.enable_prompts = False
 
     return config
 

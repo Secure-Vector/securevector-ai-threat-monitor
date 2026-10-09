@@ -247,7 +247,7 @@ def _register_plugin_in_config(install_path: str) -> bool:
             "source": "path",
             "sourcePath": install_path,
             "installPath": install_path,
-            "version": "1.0.0",
+            "version": "1.2.0",
             "installedAt": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -567,7 +567,7 @@ async def uninstall_plugin():
 _PLUGIN_JSON = """{
   "id": "securevector-guard",
   "name": "SecureVector Guard",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents",
   "entry": "index.ts",
   "kind": "security",
@@ -599,7 +599,7 @@ _PLUGIN_JSON = """{
 
 _PACKAGE_JSON = """{
   "name": "securevector-guard",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents — powered by SecureVector",
   "license": "MIT",
   "author": "Secure Vector <hello@securevector.io>",
@@ -659,6 +659,16 @@ class SVClient {
     this.baseUrl = url.replace(/\/+$/, "");
     this.headers = { "Content-Type": "application/json" };
     if (apiKey) this.headers["Authorization"] = `Bearer ${apiKey}`;
+    // Inside a session launched by Agent Sessions, the app hands the process
+    // its task id and hook token. Sending them lets the egress check bind a
+    // call to the session it claims; without them the call is still
+    // evaluated, just not bound (same wire shape as the Guard plugins).
+    const task = (process.env.SV_TERMINAL_TASK_ID || "").trim();
+    const token = (process.env.SV_TERMINAL_HOOK_TOKEN || "").trim();
+    if (task && token) {
+      this.headers["x-sv-terminal-task"] = task;
+      this.headers["x-sv-terminal-hook"] = token;
+    }
   }
 
   /** Send text to SecureVector for threat analysis. */

@@ -165,6 +165,17 @@ const SettingsPage = {
         refreshSection.appendChild(refreshCard);
         container.appendChild(refreshSection);
 
+        // Response rungs (Agent Sessions): per-harness mode and shadow progress
+        if (window.ResponseRungs && API.terminalsRungModes) {
+            const rungSection = this.createSection('Response rungs', 'Agent Sessions: how a session that drifts is handled. Each harness starts in shadow, where rungs only record.');
+            const rungCard = Card.create({ gradient: true });
+            const rungBody = rungCard.querySelector('.card-body');
+            rungBody.setAttribute('data-rung-settings', '');
+            rungSection.appendChild(rungCard);
+            container.appendChild(rungSection);
+            ResponseRungs.renderCard(rungBody, API);
+        }
+
         // Uninstall Section
         const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from your system');
         const uninstallCard = Card.create({ gradient: true });
