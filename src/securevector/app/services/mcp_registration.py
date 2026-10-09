@@ -29,6 +29,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -59,8 +60,11 @@ _available: Optional[bool] = None
 
 
 def available() -> bool:
-    """True when `python -m securevector.mcp` can start from this install:
-    not the frozen desktop build, and the MCP server package is present."""
+    """True when the registered command starts an MCP server that offers the
+    pre-flight tools: not the frozen desktop build, the MCP server package is
+    present, and `python -m securevector.mcp` (with the same environment the
+    harness will use) accepts ``--tools``. The last check catches an older
+    installed copy shadowing the one this app runs from."""
     global _available
     if getattr(sys, "frozen", False):
         return False
@@ -70,7 +74,42 @@ def available() -> bool:
                           and importlib.util.find_spec("mcp.server.fastmcp") is not None)
         except (ImportError, ValueError):
             _available = False
+        if _available:
+            _available = _server_accepts_tools()
     return _available
+
+
+def _server_accepts_tools() -> bool:
+    env = dict(os.environ)
+    env.update(_source_env())
+    try:
+        out = subprocess.run(
+            [sys.executable, "-m", "securevector.mcp", "--help"],
+            env=env, capture_output=True, text=True, timeout=20,
+            cwd=str(_home()),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0 and "--tools" in (out.stdout or "")
+
+
+def _source_root() -> Optional[Path]:
+    """The folder that holds the ``securevector`` package this app imported,
+    when the app runs from a source checkout rather than an installed copy."""
+    try:
+        import securevector
+
+        root = Path(securevector.__file__).resolve().parents[1]
+    except Exception:  # noqa: BLE001
+        return None
+    if "site-packages" in root.parts or "dist-packages" in root.parts:
+        return None
+    return root
+
+
+def _source_env() -> dict:
+    root = _source_root()
+    return {"PYTHONPATH": str(root)} if root else {}
 
 
 def _home() -> Path:
@@ -102,6 +141,8 @@ def _env(harness: str) -> dict:
         # Absolute, so the server's audit log never lands in the harness's
         # working folder.
         "SECUREVECTOR_AUDIT_LOG": str(_home() / ".securevector" / "logs" / "mcp-audit.log"),
+        # Running from a source checkout: start the server from the same code.
+        **_source_env(),
     }
 
 
