@@ -111,6 +111,7 @@ const TerminalsPage = {
         this._adoptReviewOpen = false;
         this._governingId = null;
         this._adoptError = null;
+        this._drAt = 0;
         this._container = container;
         container.innerHTML = `
           <div class="terminals-page">
@@ -121,6 +122,7 @@ const TerminalsPage = {
                   <button class="btn btn-primary btn-sm terminals-launch-button" id="terminals-launch-btn">+ Launch</button>
                 </div>
               </div>
+              <div class="terminals-dr-slot" id="terminals-dr-slot"></div>
               <form class="terminals-launch" id="terminals-launch" hidden>
                 <div class="terminals-launch-modes" role="group" aria-label="Launch mode">
                   <button type="button" class="terminals-launch-mode is-active" id="terminals-mode-launch" aria-pressed="true">Launch a task</button>
@@ -143,6 +145,7 @@ const TerminalsPage = {
                   <button type="button" class="btn btn-sm" id="terminals-launch-cancel">Cancel</button>
                 </div>
                 <div class="terminals-launch-error" id="terminals-launch-error" hidden></div>
+                <div class="terminals-trust-verdict" id="terminals-trust-verdict" hidden></div>
                 <div class="terminals-executor-hint" id="terminals-executor-hint" hidden></div>
                 <div class="terminals-guard-row" id="terminals-guard-row" hidden>
                   <span class="terminals-guard-text" id="terminals-guard-text"></span>
@@ -211,6 +214,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 <details class="terminals-gov-section terminals-gov-context" id="terminals-gov-context">
                   <summary><h3>Context &amp; cost</h3><span class="terminals-gov-stage" id="terminals-context-stage"></span></summary>
                   <div id="terminals-context" class="terminals-context"><span class="terminals-empty">No task attached.</span></div>
+                  <div id="terminals-preflight" class="terminals-preflight" hidden></div>
                 </details>
                 <details class="terminals-gov-section" id="terminals-gov-traces"><summary class="terminals-traces-head"><h3>Traces</h3><a href="#" class="terminals-traces-all" id="terminals-traces-all">All traces</a><span class="terminals-gov-count" id="terminals-traces-count"></span></summary><div id="terminals-traces" class="terminals-traces"><span class="terminals-empty">No task attached.</span></div></details>
                 <details class="terminals-gov-section" id="terminals-gov-egress"><summary><h3>Egress</h3><span class="terminals-gov-count" id="terminals-egress-count"></span></summary><div id="terminals-egress" class="terminals-egress"><span class="terminals-empty">No task attached.</span></div></details>
@@ -316,7 +320,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const form = container.querySelector('#terminals-launch');
         container.querySelector('#terminals-launch-btn').onclick = () => {
             form.hidden = !form.hidden;
-            if (!form.hidden) container.querySelector('#terminals-workspace').focus();
+            if (!form.hidden) {
+                container.querySelector('#terminals-workspace').focus();
+                this._checkFolderTrust(container);
+            }
         };
         container.querySelector('#terminals-launch-cancel').onclick = () => { form.hidden = true; };
         const modeLaunch = container.querySelector('#terminals-mode-launch');
@@ -333,7 +340,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // one handler per node, replaced rather than stacked if the form is
             // ever rebound.
             node.oninput = () => this._renderCliHint(container);
-            node.onchange = () => this._renderCliHint(container);
+            node.onchange = () => { this._renderCliHint(container); this._checkFolderTrust(container); };
         }
         this._renderCliHint(container);
         const guardInstall = container.querySelector('#terminals-guard-install');
@@ -368,6 +375,31 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 err.hidden = false;
             }
         };
+    },
+
+    /** Repo trust before the first prompt: the folder's setup state and its
+     *  top three reasons, read from config files only. Amber listing only, no
+     *  extra confirm (owner decision): Launch stays as it is. */
+    async _checkFolderTrust(container) {
+        const host = container && container.querySelector ? container.querySelector('#terminals-trust-verdict') : null;
+        if (!host || !window.ConfigTrust || !API.configTrustRepoCheck) return;
+        const sel = container.querySelector('#terminals-executor');
+        const ws = container.querySelector('#terminals-workspace');
+        const harness = sel && sel.value;
+        const workspace = ws && ws.value ? ws.value.trim() : '';
+        const seq = (this._trustSeq = (this._trustSeq || 0) + 1);
+        if (!harness || !workspace || this._mode === 'link') { host.hidden = true; host.innerHTML = ''; return; }
+        let v = null;
+        let failed = false;
+        try { v = await API.configTrustRepoCheck(harness, workspace); } catch (e) { failed = !/Folder not found/.test((e && e.message) || ''); }
+        if (seq !== this._trustSeq) return;
+        // A check that failed is shown as such, never hidden.
+        if (!v && failed) v = ConfigTrust.unparsedVerdict(harness);
+        if (!v) { host.hidden = true; host.innerHTML = ''; return; }
+        v.workspace = workspace;
+        host.innerHTML = ConfigTrust.verdictHtml(v);
+        host.hidden = false;
+        ConfigTrust.bind(host, () => this._checkFolderTrust(container));
     },
 
     // --- link a session that runs outside the app -----------------------
@@ -787,6 +819,78 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
     },
 
+    DR_CALLOUT_KEY: 'sv-dr-callout-dismissed',
+    DR_OPENED_KEY: 'sv-dr-page-opened',
+    DR_REFRESH_MS: 15000,
+    _drAt: 0,
+    _drData: null,
+
+    _drStore(op, key, val) {
+        try {
+            if (op === 'get') return localStorage.getItem(key);
+            localStorage.setItem(key, val);
+        } catch (e) { /* storage unavailable */ }
+        return null;
+    },
+
+    /** Agent Detection & Response entry points on this page: a chip with the
+     *  count of sessions to review, and a one-time inline callout. Both read
+     *  the page's summary; either hides quietly when it cannot be read. */
+    _drChipHtml(n) {
+        n = Number(n) || 0;
+        if (n <= 0) return '';
+        return `<a href="#" class="terminals-dr-chip" data-dr-chip>Agent Detection &amp; Response: ${n} ${n === 1 ? 'session' : 'sessions'} to review</a>`;
+    },
+
+    _drCalloutDue(data) {
+        if (!data) return false;
+        if (this._drStore('get', this.DR_CALLOUT_KEY) === '1' || this._drStore('get', this.DR_OPENED_KEY) === '1') return false;
+        const b = (data.detect && data.detect.baseline) || {};
+        const scored = !!b.state && b.state !== 'building';
+        const changes = !!(data.harden && data.harden.changes > 0);
+        return scored || changes;
+    },
+
+    _drCalloutHtml() {
+        return '<div class="terminals-dr-callout" role="note"><span>Your sessions now have a Drift Score. See what Agent Detection &amp; Response found.</span> '
+            + '<a href="#" class="terminals-dr-link" data-dr-callout-open>Open the page</a>'
+            + '<button type="button" class="terminals-dr-dismiss" data-dr-callout-dismiss aria-label="Dismiss this note">Dismiss</button></div>';
+    },
+
+    _drRender(data) {
+        const slot = document.getElementById('terminals-dr-slot');
+        if (!slot) return;
+        const n = data && data.detect ? data.detect.to_review : 0;
+        slot.innerHTML = this._drChipHtml(n) + (this._drCalloutDue(data) ? this._drCalloutHtml() : '');
+        const go = (ev) => {
+            if (ev) ev.preventDefault();
+            if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
+        };
+        const chip = slot.querySelector ? slot.querySelector('[data-dr-chip]') : null;
+        if (chip) chip.onclick = go;
+        const open = slot.querySelector ? slot.querySelector('[data-dr-callout-open]') : null;
+        if (open) open.onclick = (ev) => { this._drStore('set', this.DR_OPENED_KEY, '1'); go(ev); };
+        const dismiss = slot.querySelector ? slot.querySelector('[data-dr-callout-dismiss]') : null;
+        if (dismiss) dismiss.onclick = () => {
+            this._drStore('set', this.DR_CALLOUT_KEY, '1');
+            this._drRender(this._drData);
+        };
+    },
+
+    /** Rides the existing task refresh; the summary itself is fetched at most
+     *  every DR_REFRESH_MS. A failed read hides both and logs nothing. */
+    async _refreshDr() {
+        const now = Date.now();
+        if (this._drAt && now - this._drAt < this.DR_REFRESH_MS) return;
+        this._drAt = now;
+        const gen = this._gen;
+        let data = null;
+        try { data = await (API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API); } catch (e) { data = null; }
+        if (gen !== this._gen) return;
+        this._drData = data && data.detect ? data : null;
+        this._drRender(this._drData);
+    },
+
     async _refreshTasks() {
         const gen = this._gen;
         try {
@@ -816,6 +920,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._pendingApprovalKinds = new Set();
         }
         if (gen !== this._gen) return;
+        this._refreshDr();
         this._renderTaskList();
         this._renderPaneHeads();
         this._checkDragAlive();
@@ -932,6 +1037,18 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (typeof t.blocked_calls === 'number') {
             parts.push(`<span class="terminals-task-blocked${t.blocked_calls > 0 ? ' is-danger' : ''}">${this._esc(t.blocked_calls)} blocked</span>`);
         }
+        // Session Drift Score: neutral at calm, amber at watch, red at high
+        // (the band is a security state). Observe only.
+        if (typeof t.drift_score === 'number') {
+            const band = t.drift_band === 'high' || t.drift_band === 'watch' ? t.drift_band : 'calm';
+            parts.push(`<span class="terminals-task-drift is-${band}" title="Session drift ${this._esc(t.drift_score)}, ${band}">drift ${this._esc(t.drift_score)}</span>`);
+        }
+        // Response rung: neutral at observe, amber at flag, red at step-up.
+        const rung = window.ResponseRungs ? ResponseRungs.chipHtml(t) : '';
+        if (rung) parts.push(rung);
+        // Agent setup trust: red when it changed, amber when not approved.
+        const setup = window.ConfigTrust ? ConfigTrust.factsPart(t) : '';
+        if (setup) parts.push(setup);
         const age = this._compactAge(t.created_at);
         if (age) parts.push(`<span class="terminals-task-age">${this._esc(age)}</span>`);
         if (!parts.length) return '';
@@ -1048,6 +1165,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
                     ? `<span class="terminals-task-stuck" title="Working, with no new tool call or transcript write">no activity for ${this._esc(String(stuckMin))} min</span>`
                     : '';
                 const facts = this._factsHtml(t);
+                // Beside the drift and setup facts (which sit inside the card
+                // button, so the link lives in the actions row instead).
+                const drLink = this._drLinkHtml(t, 'terminals-task-dr');
                 const branch = typeof t.branch === 'string' && t.branch
                     ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
                 const grp = cardsOf(t);
@@ -1063,7 +1183,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       ${facts}
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
-                    ${relaunch || removable ? `<div class="terminals-task-actions">${relaunch}${removable}</div>` : ''}
+                    ${relaunch || removable || drLink ? `<div class="terminals-task-actions">${drLink}${relaunch}${removable}</div>` : ''}
                   </article>`);
             }
         }
@@ -1114,6 +1234,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // pane is on screen to drop onto, so one card drops onto another.
         el.querySelectorAll('.terminals-task[data-id]').forEach(card => {
             card.onpointerdown = (ev) => this._onCardPointerDown(ev, card.dataset.id);
+        });
+        el.querySelectorAll('[data-dr-session]').forEach(a => {
+            a.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); this._openDetectionResponse(a.dataset.drSession); };
         });
         el.querySelectorAll('[data-relaunch-id]').forEach(b => {
             b.onclick = async (ev) => {
@@ -1318,9 +1441,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const ago = this._approvalAgo(r.requested_at);
         const noSession = !r.session_id;
         const sid = noSession ? 'no session' : 'session ' + String(r.session_id).slice(0, 8);
+        // A blocked egress host: tool_id is `egress:<host>`, function_name the
+        // rule that fired. Every scope is this session only.
+        const host = String(r.tool_id || '').startsWith('egress:') ? String(r.tool_id).slice(7) : null;
+        const label = host ? `Connect to ${host}` : (r.function_name || r.tool_id);
         return `
               <div class="terminals-approval" data-id="${this._esc(r.id)}">
-                <div class="terminals-approval-tool">${this._esc(r.function_name || r.tool_id)}${ago ? ` <span class="terminals-approval-when">${this._esc(ago)}</span>` : ''}</div>
+                <div class="terminals-approval-tool">${this._esc(label)}${ago ? ` <span class="terminals-approval-when">${this._esc(ago)}</span>` : ''}</div>
+                ${host && r.function_name ? `<div class="terminals-approval-when">Rule <code>${this._esc(r.function_name)}</code> · approval applies to this session only</div>` : ''}
                 <div class="terminals-approval-why">${this._esc(r.justification || 'No justification given')}</div>
                 ${other ? `<div class="terminals-approval-when">${this._esc(sid)}</div>` : ''}
                 <div class="terminals-approval-actions">
@@ -2716,13 +2844,49 @@ ${this.CLI_BIN} stop &lt;id&gt;
     SUMMARY_HOSTS_MAX: 5,
     SUMMARY_FINDINGS_MAX: 3,
 
+    /** A call whose tool ran and failed: the Guard marks the audit row's
+     *  reason with a "tool error" prefix, for every harness alike. */
+    _isToolError(i) {
+        return /^tool error\b/.test(String((i && i.reason) || ''));
+    },
+
+    /** Whether a pending request still holds the task. The request stays
+     *  listed and approvable either way; the task is shown as paused only
+     *  when the harness says it is blocked, or has had no hook activity since
+     *  the request was filed. */
+    _approvalPausesTask(task, r) {
+        if (!task) return true;
+        if (task.status === 'blocked') return true;
+        const utc = (v) => { const x = String(v || ''); return Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(x) ? x : x.replace(' ', 'T') + 'Z'); };
+        const asked = utc(r && r.requested_at), last = utc(task.last_activity_at);
+        return !(Number.isFinite(asked) && Number.isFinite(last) && last > asked);
+    },
+
+    /** The reason text without the leading "tool error" marker. */
+    _verdictReason(i) {
+        const r = String((i && i.reason) || '');
+        return this._isToolError(i) ? r.replace(/^tool error;?\s*/, '') : r;
+    },
+
+    /** A small link to Agent Detection & Response for one session, shown
+     *  when the session has a drift score or a setup state. '' otherwise. */
+    _drLinkHtml(t, cls) {
+        if (!t || !t.id || (typeof t.drift_score !== 'number' && !t.setup_state)) return '';
+        return ` <a href="/detection-response" class="${cls}" data-dr-session="${this._esc(t.id)}" title="Open this session in Agent Detection &amp; Response" aria-label="Review in Agent Detection &amp; Response">Review</a>`;
+    },
+
+    _openDetectionResponse(taskId) {
+        if (window.DetectionResponsePage && DetectionResponsePage.openFor) DetectionResponsePage.openFor(taskId);
+        else if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
+    },
+
     _summaryBuild(task, d) {
         d = d || {};
         const rows = ((d.verdicts && d.verdicts.items) || []).filter(i => !this._isBoundaryRow(i));
         const calls = { allowed: 0, flagged: 0, blocked: 0, failed: 0 };
         rows.forEach(i => {
             if (i.action === 'block') calls.blocked++;
-            else if (i.status === 'failed' || i.status === 'error' || i.success === false) calls.failed++;
+            else if (i.status === 'failed' || i.status === 'error' || i.success === false || this._isToolError(i)) calls.failed++;
             else if (i.risk === 'amber') calls.flagged++;
             else calls.allowed++;
         });
@@ -2742,11 +2906,25 @@ ${this.CLI_BIN} stop &lt;id&gt;
             approved: jit.filter(r => r.status === 'approved').length,
             denied: jit.filter(r => r.status === 'denied').length,
         };
+        const dr = d.drift && typeof d.drift === 'object' ? d.drift : null;
+        const drift = dr && dr.status && dr.status !== 'no_session' ? {
+            score: typeof dr.score === 'number' ? dr.score : null,
+            band: ['calm', 'watch', 'high'].includes(dr.band) ? dr.band : null,
+            status: String(dr.status),
+            top: (Array.isArray(dr.top) ? dr.top : []).slice(0, 3)
+                .map(f => ({ label: String(f.label || ''), detail: String(f.detail || '') })).filter(f => f.label),
+            sessions: (dr.baseline && dr.baseline.sessions) || 0,
+            needed: (dr.baseline && dr.baseline.needed_sessions) || 5,
+            feedback: dr.feedback === 'normal' ? 'normal' : null,
+            // "Looks normal" is offered only once the session has ended.
+            ended: dr.ended === true || (dr.ended === undefined && !!task.ended_at),
+        } : null;
         const start = Date.parse(task.created_at);
         const end = task.ended_at ? Date.parse(task.ended_at) : Date.now();
         const folder = String(task.workspace || '').split(/[\\/]/).filter(Boolean).pop() || '';
         return {
             id: String(task.id || '').slice(0, 8),
+            task_id: String(task.id || ''),
             harness: this._label(task.executor_id),
             folder,
             model: d.model || '',
@@ -2760,6 +2938,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
             findings,
             findings_total: all.length,
             approvals,
+            drift,
+            rung: window.ResponseRungs ? ResponseRungs.summaryData(d.rung) : null,
+            setup: d.setup && typeof d.setup === 'object' && d.setup.state && d.setup.state !== 'unchecked' ? d.setup : null,
         };
     },
 
@@ -2787,11 +2968,33 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(f.title)}</li>`).join('');
             out.push(row('Agent Health', `<ul class="terminals-summary-list">${list}</ul><a href="#" class="terminals-summary-all" data-summary-findings aria-label="All findings in Observability">All findings</a>`));
         }
+        const dr = this._drLinkHtml({ id: s.task_id, drift_score: 0 }, 'terminals-summary-dr');
+        if (s.drift) out.push(row('Drift', this._driftHtml(s.drift) + (typeof s.drift.score === 'number' ? dr : '')));
+        if (s.rung && window.ResponseRungs) out.push(row('Response', `<span data-rung-cell>${ResponseRungs.summaryHtml(s.rung, !!s.ended_at)}</span>`));
+        if (s.setup && window.ConfigTrust) out.push(row('Setup', ConfigTrust.summaryHtml(s.setup) + dr));
         if (s.approvals.approved + s.approvals.denied > 0) {
             out.push(row('Approvals', `${s.approvals.approved} approved, ${s.approvals.denied} denied`));
         }
         return `<section class="terminals-summary" aria-label="Session summary"><dl>${out.join('')}</dl>`
             + '<button type="button" class="btn btn-sm" data-summary-export aria-label="Export session summary as JSON">Export</button></section>';
+    },
+
+    /** The Drift row: number, band word and the top three features in plain
+     *  words, or the baseline still building. Only the number and band carry
+     *  colour; "Looks normal" is the one action, and it changes no verdict. */
+    _driftHtml(d) {
+        if (d.score === null || d.status === 'building_baseline') {
+            return `building baseline, ${this._esc(Math.min(d.sessions, d.needed))} of ${this._esc(d.needed)} sessions`;
+        }
+        const band = d.band || 'calm';
+        const top = d.top.map(f => `${this._esc(f.label)}${f.detail ? ` (${this._esc(f.detail)})` : ''}`).join(', ');
+        const partial = d.status === 'partial' ? ' <span class="terminals-summary-more">(partial baseline)</span>' : '';
+        const action = d.feedback === 'normal'
+            ? ' <span class="terminals-summary-more" data-drift-marked>Marked normal</span>'
+            : d.ended
+                ? ' <a href="#" class="terminals-summary-all" data-drift-normal aria-label="Mark this session as looking normal">Looks normal</a>'
+                : '';
+        return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${band}</span>${top ? `: ${top}` : ''}${partial}${action}`;
     },
 
     /** The summary fields only: no prompts, no output, and the working folder
@@ -2808,10 +3011,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
     async _summaryLoad(task) {
         const sid = task.session_id;
         const soft = (f) => { try { return Promise.resolve(f()).catch(() => null); } catch (e) { return Promise.resolve(null); } };
-        const [verdicts, egress, jit] = await Promise.all([
+        const [verdicts, egress, jit, drift, setup, rung] = await Promise.all([
             soft(() => API.terminalsVerdicts(task.id)),
             sid && API.getEgressSessionDestinations ? soft(() => API.getEgressSessionDestinations(sid)) : null,
             sid && API.getJitRequests ? soft(() => API.getJitRequests()) : null,
+            sid && API.terminalsDrift ? soft(() => API.terminalsDrift(task.id)) : null,
+            API.configTrustSession ? soft(() => API.configTrustSession(task.id)) : null,
+            sid && API.terminalsRung ? soft(() => API.terminalsRung(task.id)) : null,
         ]);
         let health = null;
         if (sid && API.getTraceHealth) {
@@ -2824,7 +3030,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (run && run.trace_id) health = await soft(() => API.getTraceHealth(run.trace_id));
         }
         const live = sid ? ((this._optLive && this._optLive.sessions) || []).find(x => x.session_id === sid) : null;
-        return this._summaryBuild(task, { verdicts, egress, health, jit, model: live && live.model });
+        return this._summaryBuild(task, { verdicts, egress, health, jit, drift, setup, rung, model: live && live.model });
     },
 
     /** Fill `host` with the task's summary and wire its Export and findings link. */
@@ -2847,6 +3053,26 @@ ${this.CLI_BIN} stop &lt;id&gt;
         };
         const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
         if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
+        if (s.rung && window.ResponseRungs) {
+            ResponseRungs.wire(host, task, s.rung, API, async (tk) => {
+                await (API.terminalsStopFromRung || API.terminalsStop).call(API, tk.id);
+                this._summaryFill(host, tk);
+            });
+        }
+        if (host.querySelectorAll) host.querySelectorAll('[data-dr-session]').forEach(a => {
+            a.onclick = (ev) => { ev.preventDefault(); this._openDetectionResponse(a.dataset.drSession); };
+        });
+        const normal = host.querySelector ? host.querySelector('[data-drift-normal]') : null;
+        if (normal) normal.onclick = async (ev) => {
+            ev.preventDefault();
+            try {
+                await API.terminalsDriftFeedback(task.id);
+                if (s.drift) s.drift.feedback = 'normal';
+                normal.outerHTML = '<span class="terminals-summary-more" data-drift-marked>Marked normal</span>';
+            } catch (e) {
+                normal.textContent = 'Could not save, try again';
+            }
+        };
     },
 
     /** The status line's Summary toggle: a panel laid over the pane's stage. */
@@ -4464,6 +4690,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const egCount = document.getElementById('terminals-egress-count');
         if (egCount) { egCount.textContent = ''; egCount.className = 'terminals-gov-count'; }
         if (this._govHas) { this._govHas.context = false; this._govHas.egress = false; }
+        this._preflightAt = 0;
+        this._preflightTask = null;
+        const pf = document.getElementById('terminals-preflight');
+        if (pf) { pf.hidden = true; pf.innerHTML = ''; }
     },
 
     /** Close every pane. The tasks keep running; only the workspace goes. */
@@ -5087,6 +5317,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const setCount = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n > 0 ? String(n) : ''; };
         if (!this._govHas) this._govHas = {};
         this._renderContextCost();
+        this._renderPreflight();
         this._renderEgress();
         if (!id) {
             vEl.innerHTML = '<span class="terminals-empty">No task attached.</span>';
@@ -5133,8 +5364,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
               <div class="terminals-verdict terminals-verdict-${kind}">
                 <span class="terminals-dot sv-status-${dot}"></span>
                 <span class="terminals-verdict-main">
-                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}</span></span>
-                  ${i.reason ? `<span class="terminals-verdict-reason">${this._esc(i.reason)}</span>` : ''}
+                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}${this._isToolError(i) && i.action !== 'block' ? ' · tool error' : ''}</span></span>
+                  ${this._verdictReason(i) ? `<span class="terminals-verdict-reason">${this._esc(this._verdictReason(i))}</span>` : ''}
                 </span>
               </div>`;
             }).join('') : '<span class="terminals-empty">No tool calls yet.</span>';
@@ -5244,12 +5475,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             }
             const jit = await API.getJitRequests('pending');
             if (this._attached !== id) return;
-            const mine = (jit.items || []).filter(r => !sessionId || r.session_id === sessionId);
+            const mineSids = new Set([sessionId].concat(Array.isArray(v.session_history) ? v.session_history : []));
+            const mine = (jit.items || []).filter(r => !sessionId || mineSids.has(r.session_id));
             const attachedTask = (this._tasks || []).find(t => t.id === id);
             const otherSessions = sessionId && attachedTask
-                ? this._unmatchedApprovals(jit.items || []).filter(r => r.runtime_kind === attachedTask.executor_id).slice(0, 5)
+                ? this._unmatchedApprovals(jit.items || []).filter(r => r.runtime_kind === attachedTask.executor_id && !mineSids.has(r.session_id)).slice(0, 5)
                 : [];
             const waiting = mine.concat(otherSessions);
+            const paused = mine.filter(r => this._approvalPausesTask(attachedTask, r)).length + otherSessions.length;
             // An expanded run offers Approve only for a call that is really
             // waiting, so it repaints once the inbox is known.
             this._railApprovals = mine;
@@ -5259,17 +5492,17 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const stuckMin = this._stuckMinutes((this._tasks || []).find(t => t.id === id));
             const summaryParts = [
                 stuckMin != null ? `no activity for ${stuckMin} min` : null,
-                `${items.length} call${items.length === 1 ? '' : 's'} checked`,
+                `${listed.length} call${listed.length === 1 ? '' : 's'} checked`,
                 fetchFailed ? null : `${traceRuns.length} trace${traceRuns.length === 1 ? '' : 's'}`,
                 waiting.length ? `${waiting.length} approval waiting` : 'no approvals waiting',
             ].filter(Boolean);
             if (summary) summary.textContent = summaryParts.join(' · ');
             if (attention) {
-                attention.hidden = !waiting.length;
+                attention.hidden = !paused;
                 // The session is paused until this is answered, so the inbox
                 // opens itself rather than waiting to be found.
                 if (waiting.length) this._forceGovSection('terminals-gov-approvals');
-                attention.innerHTML = waiting.length
+                attention.innerHTML = paused
                     ? `<span><strong>Approval needed</strong> · This task is paused until you decide.</span><button class="btn btn-sm btn-primary" id="terminals-review-approval">Review</button>`
                     : '';
                 const review = attention.querySelector('#terminals-review-approval');
@@ -5455,6 +5688,49 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  worth having here. Everything it shows comes from the Cost Optimizer's
      *  live advisor, so the terminal and the Cost & Tokens page agree.
      */
+    /** Pre-flight checks under Context & cost: what the agent asked
+     *  check_policy before acting. Counts, match rate and the last ten checks
+     *  (kind, decision, age). Colour only on deny and attempted after deny. */
+    async _renderPreflight() {
+        const el = document.getElementById('terminals-preflight');
+        if (!el || !API.terminalsPreflight) return;
+        const t = (this._tasks || []).find(x => x.id === this._attached);
+        if (!t) { el.hidden = true; el.innerHTML = ''; return; }
+        const now = Date.now();
+        if (this._preflightTask === t.id && now - (this._preflightAt || 0) < 10000) return;
+        this._preflightTask = t.id;
+        this._preflightAt = now;
+        let d = null;
+        try { d = await API.terminalsPreflight(t.id); } catch (e) { d = null; }
+        if (this._attached !== t.id) return;
+        if (!d || !d.checked) { el.hidden = true; el.innerHTML = ''; return; }
+        const n = (v) => this._esc(String(Number(v) || 0));
+        const age = (s) => {
+            const v = Number(s) || 0;
+            if (v < 60) return `${v}s`;
+            if (v < 3600) return `${Math.floor(v / 60)}m`;
+            return `${Math.floor(v / 3600)}h`;
+        };
+        const kinds = { shell: 'Shell', file_read: 'File read', file_write: 'File write', network: 'Network', mcp: 'MCP', other: 'Other' };
+        const words = { allow: 'allow', deny: 'deny', needs_approval: 'needs approval', indeterminate: 'indeterminate' };
+        const rate = typeof d.match_rate === 'number' ? `${Math.round(d.match_rate * 100)}%` : 'n/a';
+        const attempted = Number(d.attempted_after_deny) || 0;
+        const rows = (d.recent || []).map(r => {
+            const cls = r.decision === 'deny' ? ' is-deny' : '';
+            return `<li><span>${this._esc(kinds[r.kind] || 'Other')}</span><span class="terminals-preflight-decision${cls}">${this._esc(words[r.decision] || 'indeterminate')}</span><span class="terminals-preflight-age">${this._esc(age(r.age_s))}</span></li>`;
+        }).join('');
+        el.innerHTML = `<h4 class="terminals-preflight-title">Pre-flight checks</h4>
+            <dl class="terminals-preflight-stats">
+              <div><dt>Checked</dt><dd>${n(d.checked)}</dd></div>
+              <div><dt>Avoided denials</dt><dd>${n(d.avoided_denials)}</dd></div>
+              <div><dt>Attempted after deny</dt><dd class="${attempted > 0 ? 'is-deny' : ''}">${n(attempted)}</dd></div>
+              <div><dt>Match rate</dt><dd>${this._esc(rate)}</dd></div>
+              <div><dt>Stale</dt><dd>${n(d.stale)}</dd></div>
+            </dl>
+            <ul class="terminals-preflight-recent" aria-label="Last ten pre-flight checks">${rows}</ul>`;
+        el.hidden = false;
+    },
+
     async _renderContextCost() {
         const el = document.getElementById('terminals-context');
         const badge = document.getElementById('terminals-context-stage');
@@ -5652,7 +5928,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             ? '<div class="terminals-egress-note">Codex\'s built-in web search is not hookable; its activity is listed here after the fact from the local transcript.</div>'
             : '<div class="terminals-egress-note">Turn on transcript reading in Cost &amp; Tokens to list Codex web activity.</div>');
         const sig = [t.session_id, rows.length, blocked, failed, isCodex, consent,
-            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}:${r.observed}`).join('|')].join('~');
+            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}:${r.observed}:${r.rule_id || ''}:${r.grant ? r.grant.id : ''}`).join('|')].join('~');
         if (sig === this._egressSig) return;
         this._egressSig = sig;
         const stale = failed
@@ -5678,17 +5954,65 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 + (isObserved ? ' · observed, not governed' : '');
             const cls = isBlocked ? 'blocked' : (isObserved ? 'observed' : 'allowed');
             const dot = isObserved ? '' : ` sv-status-${isBlocked ? 'red' : 'green'}`;
+            const grant = r.grant;
+            const grantLine = grant
+                ? (grant.duration === 'session'
+                    ? 'Approved for the rest of this session'
+                    : `Approved for this session until ${this._esc(this._grantUntil(grant.expires_at))}`)
+                : '';
+            // The rule that fired, named on the row; its id, the reason and the
+            // approval scopes sit behind Details (progressive disclosure).
+            const details = !isBlocked || !r.rule_id ? '' : `
+                <details class="terminals-egress-details">
+                  <summary>Details</summary>
+                  <div class="terminals-egress-detail-line">Rule <code>${this._esc(r.rule_id)}</code></div>
+                  ${r.reason ? `<div class="terminals-egress-detail-line">${this._esc(r.reason)}</div>` : ''}
+                  ${grant ? `<div class="terminals-egress-detail-line">${grantLine}. Other sessions stay blocked.</div>`
+                    : (t.origin === 'linked'
+                        ? '<div class="terminals-egress-detail-line">A linked session cannot be approved from here. Allow the host on the Agent Egress page if it is right for every session.</div>'
+                    : (r.promotable
+                        ? `<div class="terminals-egress-detail-line">Approve for this session only; other sessions stay blocked.</div>
+                  <div class="terminals-approval-actions" data-egress-host="${this._esc(r.host)}">
+                    <button type="button" class="btn btn-sm" data-egress-dur="15m">15 min</button>
+                    <button type="button" class="btn btn-sm" data-egress-dur="1h">1 hour</button>
+                    <button type="button" class="btn btn-sm" data-egress-dur="session">Rest of session</button>
+                  </div>`
+                        : '<div class="terminals-egress-detail-line">This rule cannot be approved from a session; it needs a policy edit.</div>'))}
+                </details>`;
             return `
               <div class="terminals-egress-row terminals-egress-${cls}">
                 <span class="terminals-dot${dot}"></span>
                 <span class="terminals-egress-host" title="${this._esc(r.host)}">${this._esc(host)}</span>
                 <span class="terminals-egress-meta">${this._esc(meta)}</span>
+                ${isBlocked && (r.rule_title || r.rule_id) ? `<span class="terminals-egress-rule">${this._esc(r.rule_title || r.rule_id)}${grant ? ` · ${this._esc(grantLine.toLowerCase())}` : ''}</span>` : ''}
+                ${details}
               </div>`;
         }).join('') + stale + note + (more > 0
             ? `<button type="button" class="terminals-egress-more" id="terminals-egress-more">+${more} more</button>`
             : '');
         const moreBtn = document.getElementById('terminals-egress-more');
         if (moreBtn) moreBtn.onclick = () => { if (window.Sidebar?.navigate) Sidebar.navigate('egress'); };
+        if (el.querySelectorAll) el.querySelectorAll('[data-egress-dur]').forEach(b => {
+            b.onclick = async () => {
+                const box = b.closest('[data-egress-host]');
+                const hostName = box ? box.dataset.egressHost : '';
+                const sid = t.session_id;
+                const btns = box ? Array.from(box.querySelectorAll('button')) : [b];
+                btns.forEach(x => { x.disabled = true; });
+                try {
+                    await API.grantEgressHost(hostName, sid, b.dataset.egressDur);
+                } catch (e) {
+                    btns.forEach(x => { x.disabled = false; });
+                    this._banner(e.message);
+                    return;
+                }
+                // Read the session again so the row shows the grant now.
+                this._egressAt = 0;
+                this._egressSig = null;
+                this._renderEgress();
+                this._refreshRail();
+            };
+        });
     },
 
     /** A timestamp as epoch ms: ISO with a zone, or SQLite's bare UTC
@@ -5710,6 +6034,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const r = tab.getBoundingClientRect();
         if (r.left < s.left) strip.scrollLeft -= (s.left - r.left);
         else if (r.right > s.right) strip.scrollLeft += (r.right - s.right);
+    },
+
+    /** A grant's expiry (bare UTC from SQLite) as a local clock time. */
+    _grantUntil(iso) {
+        const v = String(iso || '');
+        const d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v : v.replace(' ', 'T') + 'Z');
+        return isNaN(d.getTime()) ? 'it expires' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     },
 
     // --- helpers --------------------------------------------------------

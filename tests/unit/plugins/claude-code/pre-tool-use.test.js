@@ -591,3 +591,132 @@ test('claude-code: an egress deny is recorded once, in egress_audit, not again a
   require('node:assert/strict').match(src, /decision\.decision === 'deny' && decision\.toolId && !decision\.egress/);
   require('node:assert/strict').match(src, /tool_name: toolName,[\s\S]{0,120}session_id: sessionId/);
 });
+
+
+// --- response rung step-up marker ---
+
+const { stepUpFromMarker, findRungMarker } = require(
+  '../../../../src/securevector/plugins/claude-code/hooks/pre-tool-use.js');
+
+function markerRow(extra = {}) {
+  return {
+    tool_id: 'rung step-up marker', effect: 'marker', source: 'rung_marker', session_id: 's1',
+    reason: 'This session is at step-up: this call needs a human approval',
+    step_up: { paths: ['/.ssh/', '/etc/shadow'], env_keys: ['KUBE_TOKEN'],
+      known_tools: ['read', 'grep', 'edit', 'srv:known', 'known'], granted: [], ...extra },
+  };
+}
+
+function overridesWith(rows) {
+  return { synced: rows, total: rows.length };
+}
+
+test('marker: a dangerous path in a file tool input asks', () => {
+  assert.equal(stepUpFromMarker('Read', { file_path: '/Users/u/.ssh/id_rsa' }, markerRow(), false), 'sensitive_path');
+  assert.equal(stepUpFromMarker('Grep', { pattern: 'x', path: '/etc/shadow' }, markerRow(), false), 'sensitive_path');
+  assert.equal(stepUpFromMarker('Read', { file_path: 'src/a.py' }, markerRow(), false), null);
+});
+
+test('marker: an environment key asks, a longer name containing it does not', () => {
+  assert.equal(stepUpFromMarker('Edit', { new_string: 'export KUBE_TOKEN=x' }, markerRow(), false), 'sensitive_env');
+  assert.equal(stepUpFromMarker('Edit', { new_string: 'MY_KUBE_TOKEN_NAME' }, markerRow(), false), null);
+});
+
+test('marker: a tool the baseline has not seen asks unless a rule row names it', () => {
+  assert.equal(stepUpFromMarker('mcp__srv__fresh', {}, markerRow(), false), 'new_tool');
+  assert.equal(stepUpFromMarker('mcp__srv__fresh', {}, markerRow(), true), null);
+  assert.equal(stepUpFromMarker('mcp__srv__known', {}, markerRow(), false), null);
+  assert.equal(stepUpFromMarker('mcp__srv__fresh', {}, markerRow({ known_tools: null }), false), null);
+});
+
+test('marker: the app\'s own tools and granted tools are never held', () => {
+  assert.equal(stepUpFromMarker('mcp__securevector__check_policy', {}, markerRow(), false), null);
+  assert.equal(stepUpFromMarker('Read', { file_path: '~/.ssh/id_rsa' }, markerRow({ granted: ['read'] }), false), null);
+});
+
+test('marker: only the session it names reads it', () => {
+  const o = overridesWith([markerRow()]);
+  assert.ok(findRungMarker(o, 's1'));
+  assert.equal(findRungMarker(o, 's2'), null);
+  assert.equal(findRungMarker(o, null), null);
+});
+
+test('decide: marker turns an allowed call into a requestable approval', async () => {
+  const restore = stubFetch(async () => new Response(JSON.stringify(overridesWith([markerRow()])), { status: 200 }));
+  try {
+    const held = await decide('Read', 'http://127.0.0.1:8741', 's1', { file_path: '/home/u/.ssh/id_rsa' });
+    assert.equal(held.decision, 'deny');
+    assert.equal(held.requestable, true);
+    assert.equal(held.toolId, 'Read');
+    const fine = await decide('Read', 'http://127.0.0.1:8741', 's1', { file_path: 'src/a.py' });
+    assert.deepEqual(fine, { decision: 'allow' });
+    const other = await decide('Read', 'http://127.0.0.1:8741', 's2', { file_path: '/home/u/.ssh/id_rsa' });
+    assert.deepEqual(other, { decision: 'allow' });
+  } finally { restore(); }
+});
+
+test('decide: marker never softens a block', async () => {
+  const rows = [{ tool_id: 'Read', effect: 'deny', reason: 'blocked' }, markerRow()];
+  const restore = stubFetch(async () => new Response(JSON.stringify(overridesWith(rows)), { status: 200 }));
+  try {
+    const out = await decide('Read', 'http://127.0.0.1:8741', 's1', { file_path: '/home/u/.ssh/id_rsa' });
+    assert.equal(out.decision, 'deny');
+    assert.match(out.reason, /blocked/);
+    assert.notEqual(out.requestable, true);
+  } finally { restore(); }
+});
+
+
+test('marker: a new server\'s tool never borrows a baseline tool\'s short name', () => {
+  const row = markerRow({ known_tools: ['read'] });
+  assert.equal(stepUpFromMarker('mcp__evil__read', {}, row, false), 'new_tool');
+  assert.equal(stepUpFromMarker('Read', {}, row, false), null);
+  assert.equal(stepUpFromMarker('mcp__srv__x', {}, markerRow({ known_tools: ['mcp__srv__x'] }), false), null);
+  assert.equal(stepUpFromMarker('mcp__srv__x', {}, markerRow({ known_tools: ['srv:x'] }), false), null);
+  assert.equal(stepUpFromMarker('MCP__Srv__X', {}, markerRow({ known_tools: ['SRV:x'] }), false), null);
+  assert.equal(stepUpFromMarker('mcp__srv__x', {}, markerRow({ known_tools: ['x'] }), false), 'new_tool');
+});
+
+test('marker: the marker row is never a rule, whatever a tool is named', () => {
+  const o = overridesWith([markerRow()]);
+  for (const cands of [['x:_rung_step_up', '_rung_step_up'], ['x:rung step-up marker', 'rung step-up marker']]) {
+    assert.deepEqual(decideFromOverrides(cands, o, 's1'), { decision: 'allow' });
+  }
+});
+
+test('decide: a tool named like the marker is held as a new tool, not allowed by it', async () => {
+  const restore = stubFetch(async () => new Response(JSON.stringify(overridesWith([markerRow()])), { status: 200 }));
+  try {
+    const out = await decide('mcp__x___rung_step_up', 'http://127.0.0.1:8741', 's1', {});
+    assert.equal(out.decision, 'deny');
+    assert.equal(out.requestable, true);
+  } finally { restore(); }
+});
+
+test('marker: a malformed marker is ignored', () => {
+  const bad = [
+    { step_up: { paths: '/.ssh/', env_keys: 5, known_tools: 'read', granted: {} } },
+    { step_up: [] }, { step_up: null }, { step_up: { paths: [null, 3, {}], known_tools: [null] } },
+  ];
+  for (const m of bad) {
+    assert.doesNotThrow(() => stepUpFromMarker('Read', { file_path: '/u/.ssh/id' }, m, false));
+  }
+  assert.equal(stepUpFromMarker('Read', { file_path: '/u/.ssh/id' }, bad[0], false), null);
+  assert.equal(stepUpFromMarker('Read', {}, bad[3], false), 'new_tool');
+});
+
+test('decide: with a malformed marker the egress check still runs', async () => {
+  const marker = { tool_id: 'rung step-up marker', effect: 'marker', source: 'rung_marker', session_id: 's1',
+    step_up: { paths: 7, known_tools: { a: 1 } } };
+  const restore = stubFetch(async (url) => {
+    if (String(url).includes('/egress/evaluate')) {
+      return new Response(JSON.stringify({ action: 'block', reason: 'egress says no', verdicts: [] }), { status: 200 });
+    }
+    return new Response(JSON.stringify(overridesWith([marker])), { status: 200 });
+  });
+  try {
+    const out = await decide('Bash', 'http://127.0.0.1:8741', 's1', { command: 'curl https://x.example' });
+    assert.equal(out.decision, 'deny');
+    assert.equal(out.egress, true);
+  } finally { restore(); }
+});

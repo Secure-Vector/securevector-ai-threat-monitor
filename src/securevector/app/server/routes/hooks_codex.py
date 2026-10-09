@@ -51,6 +51,7 @@ from pydantic import BaseModel
 from . import _hooks_common
 from securevector.app.terminals.guardrail import block_uninstall
 from ._plugin_guard import ForceBody, require_local_origin
+from securevector.app.services import mcp_registration
 
 logger = logging.getLogger(__name__)
 
@@ -842,6 +843,10 @@ async def install_plugin():
             ),
         )
 
+    # The SecureVector MCP tools (check_policy, session_burn) at user scope.
+    # Agent Config Trust treats it as the app's own entry. Best effort.
+    mcp_registration.register("codex")
+
     # Auto-install into ~/.codex if Codex is present.
     version = _read_staged_plugin_version()
     install_path: Optional[Path]
@@ -905,6 +910,7 @@ async def _uninstall_plugin():
     """Remove the staged plugin tree + Codex cache entry + config.toml
     sections. All steps are independently best-effort. Idempotent.
     """
+    mcp_registration.unregister("codex")
     if STAGING_DIR.is_dir():
         shutil.rmtree(STAGING_DIR, ignore_errors=True)
         logger.info("Removed staged Codex plugin tree at %s", STAGING_DIR)

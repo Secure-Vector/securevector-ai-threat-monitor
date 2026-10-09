@@ -691,6 +691,19 @@ def test_a_cli_stop_is_recorded_as_cli(env):
     assert stop["origin"] == "cli"
 
 
+def test_a_stop_from_a_rung_card_is_recorded_as_rung(env):
+    client, _, ws, _ = env
+    task = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    ).json()
+    r = client.post(f"/api/terminals/tasks/{task['id']}/stop?origin=rung", headers=AUTH)
+    assert r.status_code == 200
+    events = client.get(f"/api/terminals/tasks/{task['id']}/events", headers=AUTH).json()["items"]
+    assert [e for e in events if e["kind"] == "stop"][0]["origin"] == "rung"
+
+
 def test_an_unknown_actor_on_stop_is_refused_too(env):
     client, _, ws, _ = env
     task = client.post(

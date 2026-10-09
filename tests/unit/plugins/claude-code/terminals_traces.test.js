@@ -106,8 +106,8 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=469/);
-  assert.match(html, /terminals\.js\?v=96/);
+  assert.match(html, /styles\.css\?v=474/);
+  assert.match(html, /terminals\.js\?v=99/);
   assert.match(html, /agent-runs\.js\?v=375/);
 });
 
@@ -260,4 +260,12 @@ test('each governance section collapses on its own, and rows are cards not glyph
     'the drawer summary must not carry a hash glyph');
   assert.match(src, /tracesAll\.onclick = \(e\) => \{\s*e\.preventDefault\(\);/,
     'the All traces link must not toggle the section it sits in');
+});
+
+test('terminals.js offers no session approval for a linked task', () => {
+  const src = read('js/pages/terminals.js');
+  // A linked session has no hook token, so a grant for it could never apply:
+  // the pane says so instead of showing the 15 min / 1 hour / session buttons.
+  assert.match(src, /t\.origin === 'linked'\s*\?\s*'<div class="terminals-egress-detail-line">A linked session cannot be approved from here\./);
+  assert.match(src, /: \(r\.promotable\s*\?\s*`<div class="terminals-egress-detail-line">Approve for this session only/);
 });

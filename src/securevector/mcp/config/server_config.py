@@ -40,7 +40,10 @@ class SecurityConfig:
             self.api_key = os.getenv("SECUREVECTOR_API_KEY")
 
         if self.audit_log_path is None:
-            self.audit_log_path = os.getenv("SECUREVECTOR_AUDIT_LOG", "securevector_mcp.log")
+            # Absolute under the user's SecureVector folder, never the
+            # working folder of whatever started the server.
+            self.audit_log_path = os.getenv("SECUREVECTOR_AUDIT_LOG") or os.path.join(
+                os.path.expanduser("~"), ".securevector", "logs", "securevector_mcp.log")
 
 
 @dataclass
@@ -106,7 +109,9 @@ class MCPServerConfig:
         "analyze_prompt",
         "batch_analyze",
         "get_threat_statistics",
-        "check_tool_permission"
+        "check_tool_permission",
+        "check_policy",
+        "session_burn"
     ])
 
     # Resource settings

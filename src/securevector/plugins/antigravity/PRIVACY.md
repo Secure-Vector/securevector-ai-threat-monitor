@@ -1,7 +1,7 @@
 # Privacy Policy, SecureVector Guard (Antigravity plugin)
 
 **Last updated:** 2026-09-21
-**Applies to:** plugin v1.0.0
+**Applies to:** plugin v1.1.0
 
 The SecureVector Guard plugin runs entirely on your machine. It reads three Antigravity hook events and posts them over **loopback HTTP** to a companion app you installed locally. The plugin itself makes no network calls to SecureVector, to Google, or to any third party.
 

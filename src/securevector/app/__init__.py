@@ -18,7 +18,7 @@ Usage:
 # Keep in sync with __version__ in src/securevector/__init__.py on every
 # release bump. This is the value main.py prints in the startup banner and
 # --version.
-__version__ = "6.0.1"
+__version__ = "6.1.0"
 __app_name__ = "SecureVector Local Threat Monitor"
 
 # Required dependencies for the app

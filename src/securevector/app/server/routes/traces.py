@@ -147,11 +147,21 @@ async def _add_terminal_tasks(db, runs: list[dict]) -> None:
             "ORDER BY created_at DESC, rowid DESC",
             tuple(sessions),
         )
+        # A session the task held before a re-link (after /clear) is still
+        # the task's: match it through the task's re-link events.
+        hist_rows = await db.fetch_all(
+            "SELECT t.id, t.title, t.workspace, t.origin, t.executor_id, "
+            "e.detail AS session_id FROM terminal_events e "
+            "JOIN terminal_tasks t ON t.id = e.task_id "
+            "WHERE e.kind = 'session_relinked' AND t.archived_at IS NULL "
+            f"AND e.detail IN ({marks}) ORDER BY e.seq DESC",
+            tuple(sessions),
+        )
     except Exception:  # noqa: BLE001 - optional board data cannot hide traces
         logger.debug("Terminal task lookup unavailable for trace list", exc_info=True)
         return
     matched = {}
-    for raw in rows:
+    for raw in list(rows) + list(hist_rows):
         task = dict(raw)
         matched.setdefault((task["session_id"], task["executor_id"]), task)
     for run in runs:
@@ -698,6 +708,24 @@ async def run_health_warmer(interval: float = run_health.WARM_INTERVAL_SECONDS,
             raise
         except Exception:  # noqa: BLE001
             logger.debug("fleet generation pass failed", exc_info=True)
+        # Same cadence: rescore running governed sessions' Session Drift Score.
+        # Observe only; the stored row is read by the board and the summary.
+        try:
+            from securevector.app.services import session_drift
+            await session_drift.warm_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("session drift pass failed", exc_info=True)
+        # Agent Config Trust: stat-gated setup recheck for running sessions
+        # and user scope, relay-observed MCP tools, due opt-in probes.
+        try:
+            from securevector.app.services import config_trust
+            await config_trust.recheck_once(get_database())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("config trust recheck failed", exc_info=True)
 
 
 @router.get("/run-health")

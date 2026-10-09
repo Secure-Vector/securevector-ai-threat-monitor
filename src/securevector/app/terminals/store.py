@@ -426,6 +426,25 @@ class TerminalStore:
         )
         return list(dict.fromkeys(str(r["detail"]) for r in rows))
 
+    async def session_histories(self, task_ids: list[str]) -> dict[str, list[str]]:
+        """session_history for many tasks in one query (the board is polled)."""
+        out: dict[str, list[str]] = {}
+        ids = [i for i in dict.fromkeys(task_ids) if i]
+        for start in range(0, len(ids), 500):
+            batch = ids[start : start + 500]
+            placeholders = ",".join("?" for _ in batch)
+            rows = await self.db.fetch_all(
+                "SELECT task_id, detail FROM terminal_events "
+                f"WHERE kind = ? AND detail IS NOT NULL AND task_id IN ({placeholders}) "
+                "ORDER BY seq ASC",
+                (SESSION_RELINKED, *batch),
+            )
+            for r in rows:
+                lst = out.setdefault(r["task_id"], [])
+                if str(r["detail"]) not in lst:
+                    lst.append(str(r["detail"]))
+        return out
+
     async def update_workspace(self, task_id: str, workspace: str) -> None:
         await self.db.execute(
             "UPDATE terminal_tasks SET workspace = ? WHERE id = ?", (workspace, task_id)
@@ -587,11 +606,19 @@ class TerminalStore:
             found.update(r["task_id"] for r in rows)
         return found
 
-    async def list_verdicts(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    async def list_verdicts(self, session_id, limit: int = 200) -> list[dict[str, Any]]:
+        """Newest first. `session_id` is one id or a list (a task's whole
+        session history); duplicates are dropped."""
+        ids = [session_id] if isinstance(session_id, str) else list(session_id or [])
+        ids = [i for i in dict.fromkeys(ids) if i]
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
         rows = await self.db.fetch_all(
             "SELECT tool_id, function_name, action, risk, reason, args_preview, called_at "
-            "FROM tool_call_audit WHERE session_id = ? ORDER BY called_at DESC, rowid DESC LIMIT ?",
-            (session_id, limit),
+            f"FROM tool_call_audit WHERE session_id IN ({placeholders}) "
+            "ORDER BY called_at DESC, rowid DESC LIMIT ?",
+            (*ids, limit),
         )
         return [dict(r) for r in rows]
 
