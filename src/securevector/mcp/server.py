@@ -472,6 +472,12 @@ class SecureVectorMCPServer:
 
             setup_policy_tools(self.mcp, self, policy_tools)
 
+        delegation_tools = [n for n in ("delegate", "delegation_result") if n in self.config.enabled_tools]
+        if delegation_tools:
+            from .tools.delegation_tools import setup_delegation_tools
+
+            setup_delegation_tools(self.mcp, self, delegation_tools)
+
         self.logger.info(f"MCP tools enabled: {self.config.enabled_tools}")
 
     def run_direct(self, transport: str = "stdio"):

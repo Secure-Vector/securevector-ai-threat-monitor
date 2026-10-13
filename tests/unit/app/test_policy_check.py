@@ -122,14 +122,14 @@ async def _evaluate(world, tool_input, *, verified=True):
 class TestMigration:
     @pytest.mark.asyncio
     async def test_v58_tables_and_idempotent(self, world):
-        assert CURRENT_SCHEMA_VERSION == 59
+        assert CURRENT_SCHEMA_VERSION == 60
         names = {r["name"] for r in await world.db.fetch_all(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"logical_sessions", "policy_decisions"} <= names
         await ensure_policy_check_tables(world.db)
         await migrate_to_v58(world.db)
         row = await world.db.fetch_one("SELECT MAX(version) AS v FROM schema_version")
-        assert row["v"] == 59
+        assert row["v"] == 60
 
 
 # --- 1. canonicalisation --------------------------------------------------------------
@@ -791,7 +791,7 @@ class TestRegistration:
         assert mcp_registration.register("claude-code")
         data = json.loads(cfg.read_text())
         entry = data["mcpServers"]["securevector"]
-        assert entry["args"] == ["-m", "securevector.mcp", "--tools", "check_policy,session_burn"]
+        assert entry["args"] == ["-m", "securevector.mcp", "--tools", "check_policy,session_burn,delegate,delegation_result"]
         assert entry["env"]["SECUREVECTOR_APP_URL"].startswith("http://127.0.0.1:")
         assert data["numStartups"] == 3 and "other" in data["mcpServers"]
         assert mcp_registration.status()["claude-code"]["state"] == "registered"
@@ -807,7 +807,7 @@ class TestRegistration:
         cfg.write_text('model = "o3"\n\n[mcp_servers.other]\ncommand = "x"\n')
         assert mcp_registration.register("codex") and mcp_registration.register("codex")
         parsed = tomllib.loads(cfg.read_text())
-        assert parsed["mcp_servers"]["securevector"]["args"][-1] == "check_policy,session_burn"
+        assert parsed["mcp_servers"]["securevector"]["args"][-1] == "check_policy,session_burn,delegate,delegation_result"
         assert parsed["mcp_servers"]["securevector"]["env"]["SECUREVECTOR_MCP_HARNESS"] == "codex"
         assert parsed["mcp_servers"]["other"]["command"] == "x"
         assert mcp_registration.unregister("codex")
@@ -823,7 +823,7 @@ class TestRegistration:
         oc = json.loads((_isolated_home / ".config/opencode/opencode.json").read_text())
         assert oc["mcp"]["securevector"]["type"] == "local"
         assert oc["mcp"]["securevector"]["command"][1:] == ["-m", "securevector.mcp", "--tools",
-                                                           "check_policy,session_burn"]
+                                                           "check_policy,session_burn,delegate,delegation_result"]
         # Not installed: nothing written.
         assert not mcp_registration.register("claude-code")
         assert not (_isolated_home / ".claude.json").exists()

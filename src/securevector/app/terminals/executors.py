@@ -57,6 +57,17 @@ class Executor:
     # recent session rather than a named one, and silently resuming the
     # wrong conversation is worse than not offering it.
     resume_argv: tuple[str, ...] = ()
+    # How this harness takes a first prompt for its interactive session on
+    # the command line, "{prompt}" standing for the text. Each form keeps the
+    # prompt one argv element that cannot be read as a flag: after a "--"
+    # separator, or attached to its option with "=". Empty means the harness
+    # has none, and a delegated prompt is pasted once its first hook arrives.
+    prompt_argv: tuple[str, ...] = ()
+    # The harness's Guard relays a SessionStart (or first idle) when the
+    # session is ready for input. A delegated first prompt is then pasted
+    # after that hook rather than passed in argv, where other local users
+    # could read it in the process list.
+    ready_hook: bool = False
     # Harness-specific auth and config names, admitted only for THIS
     # executor's child. Kept off the global allowlist so a Copilot token or an
     # OpenAI key is never handed to an unrelated harness's process.
@@ -74,6 +85,9 @@ _EXECUTORS: dict[str, Executor] = {
         binary="claude",
         resume_argv=("--resume", "{session_id}"),
         supports_terminal_settings=True,
+        # `claude [options] [prompt]`: starts the interactive session with it.
+        prompt_argv=("--", "{prompt}"),
+        ready_hook=True,
     ),
     "codex": Executor(
         id="codex",
@@ -91,6 +105,9 @@ _EXECUTORS: dict[str, Executor] = {
         # A subcommand, not a flag: `codex resume <id>`.
         resume_argv=("resume", "{session_id}"),
         env_extra=("OPENAI_API_KEY",),
+        # Codex sends SessionStart only with its first turn, after a prompt
+        # is submitted, so it has no ready signal before one: a delegated
+        # prompt is pasted once the TUI is drawn and its output is still.
     ),
     "copilot-cli": Executor(
         id="copilot-cli",
@@ -98,12 +115,19 @@ _EXECUTORS: dict[str, Executor] = {
         binary="copilot",
         resume_argv=("--resume", "{session_id}"),
         env_extra=("COPILOT_HOME", "GH_TOKEN", "GITHUB_TOKEN"),
+        # `-i, --interactive <prompt>`: interactive mode, runs this prompt.
+        prompt_argv=("--interactive={prompt}",),
+        ready_hook=True,
     ),
     "opencode": Executor(
         id="opencode",
         label="OpenCode",
         binary="opencode",
         env_extra=("OPENCODE_CONFIG", "OPENAI_API_KEY"),
+        # No first-prompt argument is used: `--prompt` fills the input box
+        # without sending it. Its Guard relays SessionStart from
+        # session.created, which comes with the first message, so a delegated
+        # prompt is pasted once the TUI is drawn and its output is still.
     ),
 }
 EXECUTORS = types.MappingProxyType(_EXECUTORS)
@@ -295,6 +319,7 @@ def build_launch(
     parent_env: Mapping[str, str],
     plugin_dir: Optional[Path],
     resume_session_id: Optional[str] = None,
+    initial_prompt: Optional[str] = None,
 ) -> Launch:
     executor = EXECUTORS.get(executor_id)
     if executor is None:
@@ -346,4 +371,9 @@ def build_launch(
     argv += [flag for flag in executor.optional_args if supports_flag(resolved, flag, env)]
     if resume_args and not subcommand:
         argv += resume_args
+    if initial_prompt is not None:
+        if not executor.prompt_argv or resume_args:
+            raise ValueError("This harness takes no first prompt on the command line.")
+        # One argv element per part; no shell ever reads it.
+        argv += [part.replace("{prompt}", initial_prompt) for part in executor.prompt_argv]
     return Launch(argv=argv, env=env, cwd=str(workspace))

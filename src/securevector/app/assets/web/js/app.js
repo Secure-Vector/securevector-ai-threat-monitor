@@ -126,6 +126,14 @@ const App = {
             this.loadPage(page, false);
         });
 
+        // Deep link to the Agent Sessions settings panel: the URL is rewritten
+        // while the page loads, so the request is kept in storage first.
+        try {
+            if (/[?&]settings=1(&|$)/.test(String(window.location.search || '').replace(/^\?/, '?') + String(window.location.hash || ''))) {
+                sessionStorage.setItem('sv-sessions-settings', '1');
+            }
+        } catch (e) { /* storage unavailable */ }
+
         // Load initial page from URL or default to the session-first task board.
         let initialPage = this.getPageFromURL();
         initialPage = await this.maybeAutoLaunchWizard(initialPage);

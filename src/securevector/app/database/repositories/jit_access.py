@@ -30,6 +30,10 @@ MAX_JUSTIFICATION_CHARS = 500
 
 _DURATION_MINUTES = {"15m": 15, "1h": 60}
 
+# A delegation request carries its whole prompt (capped at 4000 characters
+# by the delegate route) plus a summary line.
+MAX_DELEGATE_JUSTIFICATION_CHARS = 5000
+
 # tool_id prefix of a host approval for a blocked egress destination.
 EGRESS_TOOL_PREFIX = "egress:"
 # Host requests have their own caps, separate from the tool-request queue
@@ -155,6 +159,10 @@ class JitAccessRepository:
         req = await self.get_request(request_id)
         if not req:
             return None
+        # A delegation request is decided by decide_delegate_request, which
+        # launches the task; it never mints a grant.
+        if req.get("rule_source") == "delegate":
+            raise ValueError("this request cannot be granted")
         if req["status"] != "pending":
             if req["status"] == "approved":
                 return await self._latest_grant(request_id)
@@ -411,7 +419,9 @@ class JitAccessRepository:
             "AND session_id = ? AND revoked_at IS NULL "
             "AND (expires_at IS NULL OR expires_at > datetime('now')) "
             # A response rung's approval only lifts that rung's own hold.
-            "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'rung')"
+            "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'rung') "
+            # A delegation approval launches a task; it is never a grant.
+            "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'delegate')"
         )
         params: tuple = (f"{EGRESS_TOOL_PREFIX}%", session_id)
         if not any_runtime:
@@ -424,3 +434,58 @@ class JitAccessRepository:
             if host and host not in out:
                 out[host] = dict(r)
         return out
+
+    # ----------------------------------------------------------- delegation
+
+    async def create_delegate_request(
+        self,
+        tool_id: str,
+        runtime_kind: Optional[str],
+        session_id: Optional[str],
+        trace_id: Optional[str],
+        justification: Optional[str],
+    ) -> Optional[dict]:
+        """File a delegation approval. Never deduplicated (each delegation
+        is its own decision) and never granted. Returns None when the
+        pending queue is full."""
+        row = await self.db.fetch_one(
+            "SELECT COUNT(*) AS n FROM jit_access_requests WHERE status = 'pending' "
+            "AND tool_id NOT LIKE ?",
+            (f"{EGRESS_TOOL_PREFIX}%",),
+        )
+        if row and row["n"] >= MAX_PENDING_REQUESTS:
+            logger.warning("Delegation request rejected: pending queue full (%s)", row["n"])
+            return None
+        rid = f"jitreq_{uuid.uuid4().hex[:20]}"
+        # The approver reads the whole prompt, so this cap is the delegation
+        # prompt cap plus room for the summary line.
+        just = (justification or "").strip()[:MAX_DELEGATE_JUSTIFICATION_CHARS] or None
+        await self.db.execute(
+            "INSERT INTO jit_access_requests "
+            "(id, tool_id, function_name, runtime_kind, session_id, trace_id, "
+            " justification, rule_source) VALUES (?, ?, ?, ?, ?, ?, ?, 'delegate')",
+            (rid, tool_id, "delegate", runtime_kind, session_id, trace_id, just),
+        )
+        return await self.get_request(rid)
+
+    async def decide_delegate_request(
+        self, request_id: str, approve: bool, reason: Optional[str] = None
+    ) -> bool:
+        """Move a pending delegation request to approved or denied. No grant
+        row is written. True only for the one caller that made the move."""
+        status = "approved" if approve else "denied"
+        cur = await self.db.execute(
+            "UPDATE jit_access_requests SET status = ?, "
+            "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user', "
+            "deny_reason = ? WHERE id = ? AND status = 'pending' AND rule_source = 'delegate'",
+            (status, None if approve else ((reason or "").strip()[:200] or None), request_id),
+        )
+        return bool(getattr(cur, "rowcount", 0))
+
+    async def set_justification(self, request_id: str, justification: Optional[str]) -> None:
+        """Replace a delegation request's justification (the prompt is
+        removed from it once it is no longer needed)."""
+        await self.db.execute(
+            "UPDATE jit_access_requests SET justification = ? WHERE id = ? AND rule_source = 'delegate'",
+            (justification, request_id),
+        )

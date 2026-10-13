@@ -806,7 +806,7 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"Claude Code plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "The bundled plugin assets are missing from the installed package — "
+                "The bundled plugin assets are missing from the installed package. "
                 "for the wheel verify setup.py:package_data + MANIFEST.in include "
                 "plugins/claude-code/**/*; for the binary verify the PyInstaller "
                 "--add-data bundles src/securevector/plugins (build-installers.yml)."

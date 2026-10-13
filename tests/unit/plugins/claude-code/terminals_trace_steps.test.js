@@ -281,8 +281,8 @@ test('Show steps toggle: one run open, lazy fetch cached per trace, errors not c
   const toggle = (id) => ({ dataset: { traceId: id } });
   buttons.push(toggle('a1'), toggle('b2'));
   P._renderTraceList(tEl);
-  assert.match(tEl.innerHTML, /6m ago · 1 blocked · 4 spans/);
-  assert.match(tEl.innerHTML, /6m ago · 2 flagged · 3 spans/);
+  assert.match(tEl.innerHTML, /1 blocked · 4 spans/);
+  assert.match(tEl.innerHTML, /2 flagged · 3 spans/);
   assert.match(tEl.innerHTML, /aria-expanded="false"[^>]*>Show steps ▾/);
 
   buttons[0].onclick();

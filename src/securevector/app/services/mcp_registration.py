@@ -38,7 +38,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 SERVER_NAME = "securevector"
-TOOLS = "check_policy,session_burn"
+TOOLS = "check_policy,session_burn,delegate,delegation_result"
 HARNESSES = ("claude-code", "codex", "copilot-cli", "cursor", "opencode", "antigravity")
 MARKER_ENV = "SECUREVECTOR_MCP_HARNESS"
 BACKUP_SUFFIX = ".securevector.bak"
@@ -407,3 +407,63 @@ def status(harnesses=None) -> Dict[str, dict]:
             s = state(h)
             out[h] = {"state": s, "text": STATUS_TEXT[s]}
     return out
+
+
+def _entry_tools(entry) -> Optional[str]:
+    """The value after --tools in an entry's argv, or None."""
+    if not isinstance(entry, dict):
+        return None
+    argv = entry.get("args") or []
+    if isinstance(entry.get("command"), list):
+        argv = list(entry["command"]) + list(argv if isinstance(argv, list) else [])
+    if not isinstance(argv, list) or "--tools" not in argv:
+        return None
+    i = argv.index("--tools")
+    return argv[i + 1] if i + 1 < len(argv) else None
+
+
+def is_current(harness: str, entry) -> bool:
+    """An entry of ours whose tools list and app URL match what this app
+    writes now. The interpreter and PYTHONPATH are not compared, so running
+    the app from another checkout does not repoint a harness's config."""
+    if not is_ours(entry) or _entry_tools(entry) != TOOLS:
+        return False
+    env = entry.get("env") or entry.get("environment") or {}
+    return isinstance(env, dict) and env.get("SECUREVECTOR_APP_URL") == _app_url()
+
+
+def _stale(harness: str) -> bool:
+    """Our entry is present and differs from the one this app writes now."""
+    path = config_path(harness)
+    if path is None or not path.is_file():
+        return False
+    if harness == "codex":
+        try:
+            _, block = _codex_blocks(path.read_text(encoding="utf-8"))
+        except OSError:
+            return False
+        if not block or not _codex_block_is_ours(block):
+            return False
+        q = json.dumps
+        return q(TOOLS) not in block or f"SECUREVECTOR_APP_URL = {q(_app_url())}" not in block
+    data, _ = _read_json(path)
+    servers = (data or {}).get(_json_key(harness))
+    current = servers.get(SERVER_NAME) if isinstance(servers, dict) else None
+    return current is not None and is_ours(current) and not is_current(harness, current)
+
+
+def refresh_stale() -> list:
+    """Rewrite our own entry for each harness whose entry is ours but out of
+    date (an older tools list, interpreter or app URL). Other entries and
+    harnesses without our entry are left alone. Returns the harnesses
+    rewritten."""
+    stale = []
+    for h in HARNESSES:
+        try:
+            if _stale(h):
+                stale.append(h)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("MCP registration check for %s skipped: %s", h, type(e).__name__)
+    if not stale or not available():
+        return []
+    return [h for h in stale if register(h)]

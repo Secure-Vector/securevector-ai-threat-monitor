@@ -290,6 +290,28 @@ const Sidebar = {
         const nav = document.createElement('nav');
         nav.className = 'sidebar-nav';
 
+        // Agents group: a fixed Settings row above the task tree. It is a nav
+        // item, not a task, and opens the Agent Sessions settings panel.
+        if (activeGroup.id === 'tasks') {
+            const row = document.createElement('div');
+            row.className = 'nav-item nav-sessions-settings';
+            row.dataset.sessionsSettings = '1';
+            row.title = 'Agent Sessions settings';
+            row.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h0a1.6 1.6 0 0 0 1-1.5V5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v0a1.6 1.6 0 0 0 1.5 1H19a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span>Settings</span>';
+            const openSettings = (e) => {
+                if (e && e.stopPropagation) e.stopPropagation();
+                if (this.currentPage === 'terminals' && window.TerminalsPage && TerminalsPage.openSettings) {
+                    TerminalsPage.openSettings();
+                    return;
+                }
+                try { sessionStorage.setItem('sv-sessions-settings', '1'); } catch (err) { /* storage unavailable */ }
+                this.navigate('terminals');
+            };
+            row.addEventListener('click', openSettings);
+            this._makeRowFocusable(row, openSettings, { role: 'button' });
+            nav.appendChild(row);
+        }
+
         // Core features get an orange badge dot overlaid on their icon
 
         // Features that require a SecureVector cloud account — small "Cloud"
@@ -1325,7 +1347,21 @@ const Sidebar = {
         const TP = window.TerminalsPage;
         const grouping = !!(TP && TP._collapsedFolders && item.id === 'terminals' && item.views.some(v => v.taskId));
         let views = item.views;
-        const folderOf = (v) => v.folder || 'Other';
+        // Delegated children sit under their parent, in the parent's folder.
+        const DU = window.DelegationUI;
+        let nested = null;
+        let folded = new Set();
+        let activeTaskId = null;
+        if (DU && item.id === 'terminals') {
+            nested = DU.nest(item.views.filter(v => v.taskId), { id: 'taskId', parent: 'parentId', created: 'created' });
+            folded = DU.collapsed();
+            const act = item.views.find(v => v.taskId && this._viewActive(v));
+            activeTaskId = act ? act.taskId : null;
+        }
+        const folderOf = (v) => {
+            const p = nested && nested.parentOf.get(v.taskId);
+            return (p || v).folder || 'Other';
+        };
         const counts = new Map();
         const openFolders = new Set();
         let collapsed = new Set();
@@ -1335,7 +1371,8 @@ const Sidebar = {
             const order = [];
             tasks.forEach(v => { const f = folderOf(v); if (!counts.has(f)) { counts.set(f, 0); order.push(f); } counts.set(f, counts.get(f) + 1); if (this._viewActive(v)) openFolders.add(f); });
             order.sort((a, b) => (a === 'Other') - (b === 'Other'));
-            views = [...plain, ...order.flatMap(f => tasks.filter(v => folderOf(v) === f))];
+            const ordered = nested ? DU.visible(nested, folded, activeTaskId) : tasks;
+            views = [...plain, ...order.flatMap(f => ordered.filter(v => folderOf(v) === f))];
             collapsed = TP._collapsedFolders();
         }
         const headed = new Set();
@@ -1373,6 +1410,16 @@ const Sidebar = {
             const row = document.createElement('div');
             if (!folderOpen) row.hidden = true;
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
+            const delegParent = nested && view.taskId ? nested.parentOf.get(view.taskId) : null;
+            const delegKids = nested && view.taskId ? (nested.kidsOf.get(view.taskId) || []) : [];
+            if (delegParent) {
+                row.classList.add('nav-view-child', DU.position(nested, view) === 'last' ? 'is-last' : 'is-mid');
+                row.dataset.parentTask = delegParent.taskId;
+            }
+            if (delegKids.length) {
+                row.dataset.childCount = String(delegKids.length);
+                if (delegKids.some(k => k.taskId === activeTaskId)) row.classList.add('is-parent-of-active');
+            }
             row.dataset.page = view.id;
             if (view.taskId) row.dataset.taskId = view.taskId;
             if (view.aliases) row.dataset.aliases = view.aliases.join(',');
@@ -1385,7 +1432,7 @@ const Sidebar = {
             if (view.icon) row.appendChild(this.createIcon(view.icon));
             if (view.taskId) {
                 if (window.TaskAvatar) {
-                    row.appendChild(TaskAvatar.el({ id: view.taskId, harness: view.harness, state: view.state, size: 30 }));
+                    row.appendChild(TaskAvatar.el({ id: view.taskId, harness: view.harness, state: view.state, size: 30, delegated: !!view.parentId, parentTitle: view.fromTitle || (delegParent && delegParent.label) || '', cross: !!delegParent && delegParent.harness !== view.harness }));
                 } else {
                     const agent = document.createElement('span');
                     agent.className = `sv-task-agent sv-task-agent-${view.state || 'active'}`;
@@ -1417,18 +1464,54 @@ const Sidebar = {
                     chip.textContent = 'linked';
                     title.appendChild(chip);
                 }
+                if (delegParent) {
+                    // Status dot for a delegated child: neutral unless it needs attention.
+                    const dot = document.createElement('i');
+                    dot.className = 'nav-deleg-dot is-' + (view.state || 'active');
+                    dot.setAttribute('aria-hidden', 'true');
+                    title.insertBefore(dot, title.firstChild);
+                }
                 const sub = document.createElement('span');
                 sub.className = 'nav-task-sub';
                 sub.textContent = view.sub || '';
                 text.appendChild(title);
                 text.appendChild(sub);
+                if (delegParent && DU.crossAgent(view.harness, delegParent.harness)) {
+                    const x = document.createElement('span');
+                    x.className = 'nav-task-cross';
+                    x.innerHTML = DU.crossHtml();
+                    text.appendChild(x);
+                }
+                if (!delegParent && view.parentId && view.fromTitle) {
+                    const from = document.createElement('span');
+                    from.className = 'nav-task-from';
+                    from.textContent = `from ${view.fromTitle}`;
+                    text.appendChild(from);
+                }
                 if (view.facts) {
                     const facts = document.createElement('span');
                     facts.className = 'nav-task-facts';
                     facts.innerHTML = view.facts;
+                    if (window.ConfigTrust && ConfigTrust.bindChips) ConfigTrust.bindChips(facts);
                     text.appendChild(facts);
                 }
                 row.appendChild(text);
+                if (delegKids.length) {
+                    const fold = document.createElement('button');
+                    fold.type = 'button';
+                    fold.className = 'nav-deleg-toggle';
+                    const isFolded = folded.has(view.taskId);
+                    fold.setAttribute('aria-expanded', isFolded ? 'false' : 'true');
+                    fold.setAttribute('aria-label', `${isFolded ? 'Show' : 'Hide'} ${DU.childrenText(delegKids.length)}`);
+                    fold.innerHTML = '<span class="deleg-caret" aria-hidden="true"></span>';
+                    fold.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        DU.toggle(view.taskId);
+                        this.render();
+                    });
+                    fold.addEventListener('pointerdown', (e) => e.stopPropagation());
+                    row.appendChild(fold);
+                }
             } else {
                 const lbl = document.createElement('span');
                 lbl.textContent = view.label;
@@ -1522,19 +1605,25 @@ const Sidebar = {
                 const parent = this.navItems.find(item => item.id === 'terminals');
                 if (!parent) return;
                 const pendingSessions = new Set((approvals.items || []).map(item => item.session_id).filter(Boolean));
+                const childCount = {};
+                const known = new Set((result.items || []).map(x => x.id));
+                (result.items || []).forEach(x => { if (x.parent_task_id && known.has(x.parent_task_id)) childCount[x.parent_task_id] = (childCount[x.parent_task_id] || 0) + 1; });
                 parent.views = [
                     ...(result.items || []).map(task => {
                         const state = this._agentTaskState(task, pendingSessions.has(task.session_id));
                         return {
                             id: 'terminals', taskId: task.id, harness: task.executor_id,
+                            parentId: task.parent_task_id || null,
+                            created: task.created_at || '',
+                            fromTitle: task.parent_task_id ? ((((result.items || []).find(x => x.id === task.parent_task_id)) || {}).title || '') : '',
                             state,
                             label: task.title || task.executor_id,
                             linked: task.origin === 'linked',
-                            sub: this._taskSubtitle(task, state),
+                            sub: this._taskSubtitle(task, state) + (childCount[task.id] ? ` · ${childCount[task.id] === 1 ? '1 child' : childCount[task.id] + ' children'}` : ''),
                             group: task.workspace || '',
                             folder: window.TerminalsPage && TerminalsPage._folderName ? TerminalsPage._folderName(task) : '',
                             facts: window.TerminalsPage && TerminalsPage._factsHtml ? TerminalsPage._factsHtml(task) : '',
-                            factsSig: [task.spend_usd, task.tool_calls, task.blocked_calls, task.drift_score, task.drift_band].join(','),
+                            factsSig: [task.spend_usd, task.spend_total_usd, task.tool_calls, task.blocked_calls, task.drift_score, task.drift_band, task.parent_task_id, task.setup_state, task.setup_changes].join(','),
                             tooltip: `${task.executor_id} · ${task.workspace}`,
                         };
                     }),
@@ -1592,7 +1681,10 @@ const Sidebar = {
         root.querySelectorAll('.nav-item.nav-view[data-task-id]').forEach(row => {
             const f = row.querySelector('.nav-task-facts');
             const v = tasks.find(x => x.taskId === row.dataset.taskId);
-            if (f && v && v.facts) f.innerHTML = v.facts;
+            if (f && v && v.facts) {
+                f.innerHTML = v.facts;
+                if (window.ConfigTrust && ConfigTrust.bindChips) ConfigTrust.bindChips(f);
+            }
         });
         return true;
     },
@@ -2959,6 +3051,12 @@ const Sidebar = {
                 const isTaskView = !!item.dataset.taskId;
                 const isSelectedTask = page === 'terminals' && sessionStorage.getItem('sv-agent-task-id') === item.dataset.taskId;
                 item.classList.toggle('active', isTaskView ? isSelectedTask : matchesPage);
+                if (isTaskView) {
+                    // A parent of the selected delegated child reads as related.
+                    const sel = page === 'terminals' ? sessionStorage.getItem('sv-agent-task-id') : null;
+                    const selRow = sel ? document.querySelector(`.nav-view[data-task-id="${CSS.escape(sel)}"]`) : null;
+                    item.classList.toggle('is-parent-of-active', !!(selRow && selRow.dataset.parentTask === item.dataset.taskId));
+                }
             } else {
                 const hasSubItems = item.nextElementSibling && item.nextElementSibling.classList.contains('nav-sub-items');
                 const isCollapsible = item.dataset.collapsible === 'true';

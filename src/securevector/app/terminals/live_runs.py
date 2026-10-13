@@ -188,6 +188,12 @@ EVENT_KINDS = frozenset(
         # Periodic "still running" beat for a launched task, so the fleet
         # view's freshness window holds while nothing else changes.
         "heartbeat",
+        # Governed delegation: the delegated prompt was delivered (hash and
+        # length only), a parent's stop reached its child, and delegation
+        # lifecycle notes on the parent and child trails.
+        "delegate_prompt",
+        "parent_stopped",
+        "delegation",
     }
 )
 # `shutdown` (server/app.py's stop_all on a clean web shutdown) and `quit`
@@ -195,7 +201,7 @@ EVENT_KINDS = frozenset(
 # stop_all actually passes; both were missing, so the two most common ways a
 # task ever gets stopped -- the app closing -- exported a null event_origin.
 EVENT_ORIGINS = frozenset(
-    {"ui", "cli", "rung", "api", "hook", "linked", "process", "startup", "shutdown", "quit"}
+    {"ui", "cli", "rung", "delegate", "policy", "api", "hook", "linked", "process", "startup", "shutdown", "quit"}
 )
 
 

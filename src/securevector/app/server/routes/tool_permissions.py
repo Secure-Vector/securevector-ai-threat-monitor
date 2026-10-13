@@ -849,6 +849,9 @@ async def get_synced_overrides(runtime: Optional[str] = None,
             for g in grants:
                 if g.get("request_id") in rung_ids:
                     continue
+                # A delegation approval launches a task; it is never an allow row.
+                if str(g.get("tool_id") or "").startswith("delegate:"):
+                    continue
                 # Run exemptions (tool_id='*', #203) are consumed server-side
                 # by run_limits and must NOT be emitted: a wildcard allow row
                 # would lift policy denies too, not just the run cap.

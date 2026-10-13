@@ -610,9 +610,15 @@ class TestHumanOnlyRoutes:
         ({"user-agent": "Mozilla/5.0 AppleWebKit SecureVectorDesktop/6.0.0"}, True),
     ])
     async def test_ui_token_needs_a_same_origin_signal(self, headers, ok):
-        req = SimpleNamespace(headers=headers, url=SimpleNamespace(port=8741))
+        cookies = {jit_routes.UI_PAGE_COOKIE: jit_routes._UI_PAGE_SECRET}
+        req = SimpleNamespace(headers=headers, url=SimpleNamespace(port=8741), cookies=cookies)
         if ok:
             assert (await jit_routes.get_ui_token(req))["token"] == TOKEN
+            # The same headers without the page cookie are refused.
+            bare = SimpleNamespace(headers=headers, url=SimpleNamespace(port=8741), cookies={})
+            with pytest.raises(HTTPException) as exc:
+                await jit_routes.get_ui_token(bare)
+            assert exc.value.status_code == 403
         else:
             with pytest.raises(HTTPException) as exc:
                 await jit_routes.get_ui_token(req)

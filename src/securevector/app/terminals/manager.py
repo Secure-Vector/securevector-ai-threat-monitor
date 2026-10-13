@@ -98,6 +98,27 @@ class SessionAlreadyLinked(RuntimeError):
     """This harness session already has a live task on the board."""
 
 
+# Delegated prompt delivery: how often the child's screen is looked at,
+# how long a dialog waiting for the person may hold the prompt, and what
+# counts as a drawn, still screen for a harness with no ready hook.
+PROMPT_POLL_S = 0.25
+WAITING_TIMEOUT_S = 600.0
+QUIET_MIN_BYTES = 2048
+QUIET_SECONDS = 1.5
+# A delegated child of a ready-hook harness whose screen has settled at its
+# input with no SessionStart this long after: its Guard is not running there,
+# so the delegation ends and nothing is typed.
+HOOKS_SILENT_S = 20.0
+# After a delegated prompt is delivered, or a launched session's first line
+# is submitted, its Guard should report a hook (SessionStart,
+# UserPromptSubmit or PreToolUse) within this many seconds.
+GUARD_REPORT_S = 30.0
+
+
+class FolderOutOfScope(RuntimeError):
+    """A delegated launch whose folder no longer passes its scope check."""
+
+
 class NotLinkable(RuntimeError):
     """An action the app cannot take on a session it does not own."""
 
@@ -183,6 +204,19 @@ class TerminalManager:
         # current status does not send a second event for it.
         self._live_status: dict = {}
         self._heartbeat: Optional["asyncio.Task"] = None
+        # Delegation: a prompt waiting for its child's first SessionStart or
+        # idle hook (task_id -> text), the fallback timers that deliver it
+        # anyway, and the child task ids this process launched by delegation.
+        self._pending_prompts: dict = {}
+        self._prompt_timers: dict = {}
+        self._delegated: set = set()
+        # Delegated tasks whose ready hook arrived while a dialog waiting for
+        # the person was on screen; their prompt goes once it is answered.
+        self._hook_seen: set = set()
+        # Tasks whose Guard sent no hook after their first prompt: task id
+        # -> the card warning. Cleared by the next hook event.
+        self._guard_silent: dict = {}
+        self._input_checked: set = set()
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -354,6 +388,16 @@ class TerminalManager:
             )
         return rows
 
+    def would_be_governed(self, executor_id: str) -> bool:
+        """The same governed/ungoverned decision spawn makes for a launch of
+        this executor."""
+        if executor_id not in EXECUTORS:
+            return False
+        if executor_id == "claude-code":
+            return True
+        gate, _label = self._guard_gate(executor_id)
+        return bool(gate())
+
     def ungoverned_ids(self) -> set:
         """Task ids that were launched without their Guard plugin relaying."""
         return self._ungoverned
@@ -374,6 +418,9 @@ class TerminalManager:
         title: Optional[str],
         origin: str,
         resume_session_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        folder_check: Optional[Callable[[str], bool]] = None,
+        initial_prompt: Optional[str] = None,
     ) -> dict:
         """Start a governed task. With `resume_session_id` the harness reopens
         that conversation instead of starting a fresh one, which is the only
@@ -400,6 +447,9 @@ class TerminalManager:
             # as the value at all and would be parsed as a flag of its own.
             if resume_session_id.startswith("-"):
                 raise ValueError("Session id must not start with a dash.")
+            # A resumed delegated session stays a child of its parent.
+            if parent_task_id is None:
+                parent_task_id = await self.store.parent_for_session(resume_session_id)
         # A launch is never refused for a missing Guard. It runs ungoverned,
         # writes a guard_missing event, and the session carries a banner until
         # the Guard reports in.
@@ -443,6 +493,7 @@ class TerminalManager:
             parent_env=self.settings.parent_env,
             plugin_dir=inject,
             resume_session_id=resume_session_id,
+            initial_prompt=initial_prompt,
         ))
         self._hook_tokens[task_id] = hook_token
         # The store row is created BEFORE host.spawn() runs, with pid=None.
@@ -455,10 +506,21 @@ class TerminalManager:
         # harmless: _on_exit always finds a row to update.
         created = False
         try:
-            await self.store.create_task(
-                task_id, executor_id=executor_id, workspace=str(launch.cwd), title=title, pid=None
-            )
+            if parent_task_id is not None:
+                await self.store.create_task(
+                    task_id, executor_id=executor_id, workspace=str(launch.cwd), title=title, pid=None,
+                    parent_task_id=parent_task_id,
+                )
+                self._delegated.add(task_id)
+            else:
+                await self.store.create_task(
+                    task_id, executor_id=executor_id, workspace=str(launch.cwd), title=title, pid=None
+                )
             created = True
+            # A delegated launch re-checks its folder scope right before the
+            # process starts, so the folder that runs is the folder approved.
+            if parent_task_id is not None and folder_check is not None and not folder_check(str(launch.cwd)):
+                raise FolderOutOfScope("The folder is no longer inside the approved scope.")
             # Also mark running before spawn, for the same reason: if on_exit
             # fires before this line would otherwise run, _on_exit's discard
             # must not be a no-op followed by a stale add.
@@ -482,6 +544,14 @@ class TerminalManager:
         await self.store.add_event(
             task_id, kind="spawn", origin=origin, detail=f"{executor_id} in {launch.cwd}"
         )
+        if initial_prompt is not None:
+            import hashlib
+
+            data = initial_prompt.encode("utf-8")
+            await self.store.add_event(
+                task_id, kind="delegate_prompt", origin="delegate",
+                detail=f"sha256={hashlib.sha256(data).hexdigest()} length={len(data)} trigger=argv",
+            )
         task = await self.store.get_task(task_id)
         if task is None:
             raise RuntimeError(f"terminal task {task_id} vanished immediately after spawn")
@@ -891,8 +961,15 @@ class TerminalManager:
         self._input_bytes.pop(task_id, None)
         # The audit trail is authoritative for finished tasks; the set is a cache.
         self._ungoverned.discard(task_id)
+        self._guard_silent.pop(task_id, None)
+        self._input_checked.discard(task_id)
         stop_requested = task_id in self._stop_requested
         self._stop_requested.discard(task_id)
+        self._pending_prompts.pop(task_id, None)
+        self._hook_seen.discard(task_id)
+        timer = self._prompt_timers.pop(task_id, None)
+        if timer is not None:
+            timer.cancel()
         await self.store.set_exit(
             task_id, code, stopped=stop_requested and code in _STOP_SIGNAL_EXITS
         )
@@ -900,6 +977,11 @@ class TerminalManager:
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
         await self._revoke_host_grants(task_id)
+        # A parent that exits takes the tasks it delegated with it.
+        try:
+            await self._stop_children(task_id, origin="process")
+        except Exception:
+            logger.warning("stopping delegated tasks failed for %s", task_id)
         # Score the session once at exit, in the background. Observe only: it
         # writes a session_drift row and never touches this exit path.
         session_drift.schedule_for_task(self.store.db, task_id)
@@ -909,6 +991,13 @@ class TerminalManager:
                 self._config_check(task_id, exited_task.get("executor_id"), exited_task.get("workspace"),
                                    "exit", exited_task.get("session_id"))
         self._live_status.pop(task_id, None)
+        self._notify_delegation(task_id)
+        try:
+            from securevector.app.services import delegation
+
+            delegation.forget_task(task_id)
+        except Exception:
+            logger.debug("delegation cleanup failed for %s", task_id, exc_info=True)
         if live_runs.has_sink():
             try:
                 exited = await self.store.get_task(task_id)
@@ -942,6 +1031,8 @@ class TerminalManager:
             raise NotLinkable("This session runs outside SecureVector")
         if task_id not in self._running:
             raise KeyError(task_id)
+        # A parent's stop also stops the tasks it delegated that still run.
+        await self._stop_children(task_id, origin=origin)
         # Audit the stop request before host.stop() runs: host.stop() can
         # trigger on_exit on the host's own thread, which races
         # run_coroutine_threadsafe against this coroutine's own next await.
@@ -965,6 +1056,204 @@ class TerminalManager:
         except BaseException:
             self._stop_requested.discard(task_id)
             raise
+
+    async def _stop_children(self, parent_task_id: str, *, origin: str) -> None:
+        try:
+            children = await self.store.children_of(parent_task_id)
+        except Exception:
+            logger.debug("child lookup failed for %s", parent_task_id, exc_info=True)
+            return
+        for child in children:
+            child_id = child.get("id")
+            if child_id not in self._running:
+                continue
+            # One child's failure never blocks the parent's own stop.
+            try:
+                await self.store.add_event(child_id, kind="parent_stopped", origin=origin, detail=parent_task_id)
+                await self.stop(child_id, origin=origin)
+            except (KeyError, NotLinkable):
+                continue
+            except Exception:
+                logger.warning("stopping delegated task %s failed for %s", child_id, parent_task_id,
+                               exc_info=True)
+
+    # -- delegation -----------------------------------------------------------
+
+    def deliver_prompt(self, task_id: str, text: str, *, ready_timeout_s: Optional[float] = 60.0,
+                       quiet: bool = False) -> None:
+        """Queue `text` for a delegated task. It is pasted into the PTY once,
+        followed by Enter, when the task is ready: its first SessionStart or
+        idle hook, or, with `quiet`, once its screen is drawn and still.
+
+        While the child's screen shows a dialog that waits for the person
+        (a folder trust or update prompt), the delegation is marked waiting
+        for the user and the wait grows to WAITING_TIMEOUT_S. Nothing is typed
+        into such a dialog. With no readiness by the deadline the prompt is
+        dropped and the delegation service is told."""
+        if not isinstance(text, str) or not text:
+            return
+        self._pending_prompts[task_id] = text
+        loop = self._loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+        if loop is not None and ready_timeout_s is not None:
+            watcher = asyncio.ensure_future(self._watch_prompt(task_id, ready_timeout_s, quiet), loop=loop)
+            watcher.add_done_callback(lambda f: f.cancelled() or f.exception())
+            self._prompt_timers[task_id] = watcher
+
+    async def _watch_prompt(self, task_id: str, timeout_s: float, quiet: bool) -> None:
+        from securevector.app.services import delegation
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        waiting = False
+        silent_noted = False
+        settled_at = None
+        last_len, last_change = -1, loop.time()
+        while task_id in self._pending_prompts:
+            now = loop.time()
+            snap = self._screen(task_id)
+            if len(snap) != last_len:
+                last_len, last_change = len(snap), now
+            dialog = delegation.user_dialog(snap)
+            if dialog and not waiting:
+                waiting = True
+                deadline = max(deadline, now + WAITING_TIMEOUT_S)
+                try:
+                    await delegation.on_waiting_for_user(self, task_id, dialog)
+                except Exception:
+                    logger.warning("delegation waiting note failed for %s", task_id)
+            ready_after_dialog = task_id in self._hook_seen
+            if (quiet or ready_after_dialog) and not dialog and len(snap) >= (
+                    QUIET_MIN_BYTES if quiet else 0) and now - last_change >= QUIET_SECONDS:
+                self._prompt_timers.pop(task_id, None)
+                await self._deliver_now(task_id, "quiet" if quiet else "hook")
+                return
+            # Ready-hook harness: settled at its input with no hook. Its Guard
+            # is not running, so nothing is typed and the delegation ends.
+            if settled_at is None and not dialog and len(snap) >= QUIET_MIN_BYTES \
+                    and now - last_change >= QUIET_SECONDS:
+                settled_at = now
+            if dialog:
+                settled_at = None
+            if (not quiet and settled_at is not None and not silent_noted and task_id not in self._hook_seen
+                    and now - settled_at >= HOOKS_SILENT_S):
+                silent_noted = True
+                self._prompt_timers.pop(task_id, None)
+                if self._pending_prompts.pop(task_id, None) is not None:
+                    await delegation.on_prompt_not_ready(
+                        self, task_id, delegation.guard_not_running_reason(await self._executor_of(task_id)))
+                return
+            if now >= deadline:
+                if quiet and not dialog and len(snap) >= QUIET_MIN_BYTES and not waiting:
+                    self._prompt_timers.pop(task_id, None)
+                    await self._deliver_now(task_id, "quiet")
+                    return
+                self._prompt_timers.pop(task_id, None)
+                if self._pending_prompts.pop(task_id, None) is not None:
+                    await self._prompt_not_ready(task_id)
+                return
+            await asyncio.sleep(min(PROMPT_POLL_S, max(0.0, deadline - now)))
+
+    async def _executor_of(self, task_id: str) -> Optional[str]:
+        task = await self.store.get_task(task_id)
+        return task.get("executor_id") if task else None
+
+    def guard_silent(self) -> dict:
+        """Running tasks whose Guard did not report after their first
+        prompt: {task_id: card warning}."""
+        return {t: w for t, w in self._guard_silent.items() if t in self._running}
+
+    def _schedule_guard_check(self, task_id: str, after_seq: Optional[int], *, delegated: bool) -> None:
+        try:
+            fut = asyncio.ensure_future(self._guard_check(task_id, after_seq, delegated))
+            fut.add_done_callback(lambda f: f.cancelled() or f.exception())
+        except RuntimeError:
+            pass
+
+    async def _guard_check(self, task_id: str, after_seq: Optional[int], delegated: bool) -> None:
+        """No hook within GUARD_REPORT_S of the first prompt: the session is
+        running without its Guard reporting. The card says so; a delegated
+        child is also stopped and its delegation fails."""
+        from securevector.app.services import delegation
+
+        await asyncio.sleep(GUARD_REPORT_S)
+        if task_id not in self._running:
+            return
+        events = await self.store.list_events(task_id, limit=2000)
+        if any(e.get("kind") == "hook" and (after_seq is None or int(e.get("seq") or 0) > int(after_seq))
+               for e in events):
+            return
+        warning = delegation.guard_silent_reason(await self._executor_of(task_id))
+        self._guard_silent[task_id] = warning
+        try:
+            await self.store.update_status(task_id, "blocked", activity=warning)
+        except Exception:
+            logger.debug("guard warning status failed for %s", task_id, exc_info=True)
+        if delegated:
+            await delegation.on_guard_silent(self, task_id, warning)
+            try:
+                await self.stop(task_id, origin="policy")
+            except (KeyError, NotLinkable):
+                pass
+
+    def _screen(self, task_id: str) -> bytes:
+        try:
+            return self.host.snapshot(task_id) or b""
+        except Exception:
+            return b""
+
+    async def _prompt_not_ready(self, task_id: str) -> None:
+        from securevector.app.services import delegation
+
+        await delegation.on_prompt_not_ready(self, task_id)
+
+    async def _deliver_now(self, task_id: str, trigger: str) -> bool:
+        text = self._pending_prompts.pop(task_id, None)
+        self._hook_seen.discard(task_id)
+        timer = self._prompt_timers.pop(task_id, None)
+        if timer is not None:
+            timer.cancel()
+        if text is None or task_id not in self._running:
+            return False
+        import hashlib
+
+        from securevector.app.services.delegation import paste_text
+
+        data = paste_text(text).encode("utf-8")
+        # Bracketed paste, so the harness takes the prompt as typed text;
+        # Enter as its own write after it.
+        self.host.write(task_id, b"\x1b[200~" + data + b"\x1b[201~")
+        await asyncio.sleep(0.05)
+        self.host.write(task_id, b"\r")
+        seq = await self.store.add_event(
+            task_id, kind="delegate_prompt", origin="delegate",
+            detail=f"sha256={hashlib.sha256(data).hexdigest()} length={len(data)} trigger={trigger}",
+        )
+        self._schedule_guard_check(task_id, seq, delegated=True)
+        try:
+            from securevector.app.services import delegation
+
+            await delegation.on_prompt_delivered(self, task_id)
+        except Exception:
+            logger.warning("delegation delivery note failed for %s", task_id)
+        return True
+
+    def _notify_delegation(self, task_id: str) -> None:
+        """Tell the delegation service a delegated task went idle or exited.
+        Background and best effort; the hook and exit paths never wait."""
+        if task_id not in self._delegated:
+            return
+        try:
+            from securevector.app.services import delegation
+
+            fut = asyncio.ensure_future(delegation.on_child_event(self, task_id))
+            fut.add_done_callback(lambda f: f.cancelled() or f.exception())
+        except Exception:
+            logger.debug("delegation notify failed for %s", task_id, exc_info=True)
 
     async def stop_all(self, *, origin: str) -> None:
         for task_id in list(self._running):
@@ -1031,6 +1320,22 @@ class TerminalManager:
                 cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else None
                 self._config_check(task_id, task.get("executor_id"), cwd or task.get("workspace"), "start",
                                    task.get("session_id"))
+        self._guard_silent.pop(task_id, None)
+        if task_id in self._pending_prompts and event.get("hook_event_name") in ("SessionStart", "Stop"):
+            try:
+                from securevector.app.services import delegation
+
+                if delegation.user_dialog(self._screen(task_id)):
+                    # Never typed into a dialog; the watcher sends it once
+                    # the person has answered.
+                    self._hook_seen.add(task_id)
+                else:
+                    await self._deliver_now(task_id, str(event.get("hook_event_name")))
+            except Exception:
+                logger.warning("delegated prompt delivery failed for %s", task_id)
+            # Delivery is the event that ends startup, not the end of a turn.
+            if event.get("hook_event_name") == "Stop":
+                return True
         status, activity = status_from_hook(event)
         if status is None:
             return True
@@ -1068,6 +1373,8 @@ class TerminalManager:
             except Exception:
                 current = None
             live_runs.emit_nowait(current, "hook", origin="hook")
+        if status == "idle":
+            self._notify_delegation(task_id)
         return True
 
     # -- attached terminal ----------------------------------------------------
@@ -1093,6 +1400,9 @@ class TerminalManager:
         self._input_bytes[task_id] = self._input_bytes.get(task_id, 0) + len(data)
         if b"\r" in data or b"\n" in data:
             n = self._input_bytes.pop(task_id, 0)
-            await self.store.add_event(
+            seq = await self.store.add_event(
                 task_id, kind="input", origin="ui", detail=f"line submitted, {n} bytes"
             )
+            if task_id not in self._input_checked and task_id not in self._ungoverned:
+                self._input_checked.add(task_id)
+                self._schedule_guard_check(task_id, seq, delegated=False)

@@ -98,6 +98,8 @@ const ResponseRungs = {
 
     // --- Settings card -----------------------------------------------------
 
+    INTRO: "Response steps watch each session's behaviour and react: observe, flag, then ask for approval on risky calls. Each agent starts in shadow, where steps only record.",
+
     harnessLabel(id) { return this.HARNESS_WORDS[id] || String(id || ''); },
 
     progressText(m) {
@@ -107,13 +109,14 @@ const ResponseRungs = {
     modeRowHtml(m) {
         const active = m.mode === 'active';
         const id = this._esc(m.harness);
+        const hl = this._esc(this.harnessLabel(m.harness));
         const state = active ? 'Active' : (m.can_activate ? 'Shadow, ready' : 'Shadow');
         const prog = this.progressText(m) + (m.early_ended && !m.complete ? ', ended early' : '');
         const acts = active
-            ? `<button type="button" class="btn btn-sm" data-rung-shadow="${id}">Back to shadow</button>`
-            : `<button type="button" class="btn btn-sm btn-primary" data-rung-on="${id}"${m.can_activate ? '' : ' disabled'}>Turn on</button>`
-              + (m.can_activate ? '' : `<button type="button" class="btn btn-sm" data-rung-early="${id}">End shadow early</button>`)
-              + `<button type="button" class="btn btn-sm" data-rung-shadow="${id}">Back to shadow</button>`;
+            ? `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to shadow for ${hl}">Back to shadow</button>`
+            : `<button type="button" class="btn btn-sm btn-primary" data-rung-on="${id}"${m.can_activate ? '' : ' disabled'} aria-label="Turn on response steps for ${hl}">Turn on</button>`
+              + (m.can_activate ? '' : `<button type="button" class="btn btn-sm" data-rung-early="${id}" aria-label="End shadow early for ${hl}">End shadow early</button>`)
+              + `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to shadow for ${hl}">Back to shadow</button>`;
         return `<div class="rung-mode-row" data-rung-row="${id}"><div class="rung-mode-head"><strong>${this._esc(this.harnessLabel(m.harness))}</strong>`
             + `<span class="rung-mode-state">${this._esc(state)}</span></div>`
             + `<div class="rung-mode-progress">${this._esc(prog)}</div>`

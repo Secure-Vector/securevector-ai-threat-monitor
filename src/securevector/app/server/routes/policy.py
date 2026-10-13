@@ -142,3 +142,50 @@ async def mcp_registration_status(request: Request, harness: Optional[str] = Non
     registered, not_registered, unavailable or other_entry, with a label."""
     _require_local(request)
     return {"harnesses": mcp_registration.status([harness] if harness else None)}
+
+
+# --- governed delegation -------------------------------------------------------------
+
+_NOT_VERIFIED = "Delegation is available only to a task SecureVector launched."
+
+
+async def _delegation_caller(request: Request):
+    caller = await policy_check.caller_from_headers(_manager(request), request.headers, None, None)
+    if not caller.verified or not caller.task_id:
+        raise HTTPException(status_code=403, detail=_NOT_VERIFIED)
+    return caller
+
+
+@router.post("/delegate")
+async def delegate(request: Request):
+    """Ask SecureVector to start another task on a folder with a prompt.
+    Only an app-launched task, by its own hook token, may ask. Every
+    request that passes the checks starts at once for the same harness and
+    waits for a person's approval for another harness."""
+    _require_local(request, json_body=True)
+    body = await _json(request, _MAX_BODY)
+    caller = await _delegation_caller(request)
+    if body is None:
+        raise HTTPException(status_code=400, detail="Expected a JSON object")
+    from securevector.app.services import delegation
+
+    manager = _manager(request)
+    if manager is None:
+        raise HTTPException(status_code=503, detail="Agent Terminals is not running")
+    return await delegation.request_delegation(
+        get_database(), manager, caller, body.get("folder"), body.get("prompt"), body.get("harness"),
+        app_port=_app_port(request),
+    )
+
+
+@router.get("/delegations/{delegation_id}")
+async def delegation_result(delegation_id: str, request: Request):
+    """The state and, when done, the result of the caller's own delegation."""
+    _require_local(request)
+    caller = await _delegation_caller(request)
+    from securevector.app.services import delegation
+
+    found = await delegation.get_for_caller(get_database(), _manager(request), caller, delegation_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No such delegation")
+    return found

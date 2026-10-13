@@ -580,10 +580,32 @@ const API = {
     _jitToken: null,
     async _getJitToken() {
         if (!this._jitToken) {
-            const r = await this.request('/api/jit/ui-token');
+            let r;
+            try {
+                r = await this.request('/api/jit/ui-token');
+            } catch (e) {
+                // The page was loaded before the app restarted: reload once.
+                if (/local web UI only/i.test(String(e && e.message))) this._reloadForUiToken();
+                throw e;
+            }
             this._jitToken = r.token;
+            try { window.sessionStorage.removeItem('sv_ui_token_reload'); } catch (_) { /* no storage */ }
         }
         return this._jitToken;
+    },
+    _reloadForUiToken() {
+        let reload = false;
+        try {
+            if (window.sessionStorage.getItem('sv_ui_token_reload') !== '1') {
+                window.sessionStorage.setItem('sv_ui_token_reload', '1');
+                reload = true;
+            }
+        } catch (_) { reload = false; }
+        if (reload) {
+            window.location.reload();
+            return;
+        }
+        throw new Error('Reload the page to approve.');
     },
     async _jitDecision(endpoint, body, method = 'POST') {
         // NB: request() replaces the whole headers object when options.headers
@@ -1177,6 +1199,22 @@ const API = {
     },
     async terminalsRungMode(harness, body) {
         return this._terminalsUiWrite(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`, body);
+    },
+    // Governed delegation: reads under the terminals token, decisions with the UI token.
+    async terminalsDelegations(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/delegations`);
+    },
+    async terminalsDelegationRelease(id) {
+        return this._terminalsUiWrite(`/api/terminals/delegations/${encodeURIComponent(id)}/release`, {});
+    },
+    async terminalsDelegationDiscard(id) {
+        return this._terminalsUiWrite(`/api/terminals/delegations/${encodeURIComponent(id)}/discard`, {});
+    },
+    async getDelegationPolicy() {
+        return this.request('/api/settings/delegation');
+    },
+    async setDelegationPolicy(body) {
+        return this._jitDecision('/api/settings/delegation', body, 'PUT');
     },
     async terminalsEvents(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);

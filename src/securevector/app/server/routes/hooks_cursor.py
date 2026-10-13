@@ -384,7 +384,7 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"Cursor plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "Bundled plugin assets are missing from the installed package — verify "
+                "Bundled plugin assets are missing from the installed package. Verify "
                 "setup.py:package_data and MANIFEST.in include plugins/cursor/**/* "
                 "AND plugins/cursor/.cursor-plugin/*."
             ),
@@ -417,7 +417,7 @@ async def install_plugin():
             commands=[],
             next_step=(
                 "Installed as a Cursor plugin. Reload Cursor (Cmd+Shift+P → "
-                "\"Developer: Reload Window\", or restart) — it then appears in "
+                "\"Developer: Reload Window\", or restart). It then appears in "
                 "Settings → Plugins and its hooks activate (Settings → Hooks)."
             ),
         )

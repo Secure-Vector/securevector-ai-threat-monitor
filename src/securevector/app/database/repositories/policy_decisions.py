@@ -149,6 +149,7 @@ class PolicyDecisionsRepository:
             "AND granted_at >= ? "
             # A response rung's approval lifts only its own hold, never a deny.
             "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'rung') "
+            "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'delegate') "
             "LIMIT 1",
             (harness_session_id, harness, harness, since.replace("T", " ")),
         )
