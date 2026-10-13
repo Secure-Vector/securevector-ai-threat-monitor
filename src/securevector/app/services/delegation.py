@@ -279,7 +279,11 @@ def resolve_folder(folder: Any, workspace: Optional[str], allowlist: list) -> Op
         if not workspace:
             return None
         raw = os.path.join(workspace, raw)
-    real = os.path.realpath(raw)
+    # A folder inside a task's worktree is scoped as the same folder in the
+    # source, so a child of a worktree task gets the source folder semantics.
+    from securevector.app.terminals.worktree import source_for
+
+    real = source_for(os.path.realpath(raw))
     if _FOLDER_BAD_RE.search(real) or not os.path.isdir(real):
         return None
     roots = []
@@ -527,6 +531,14 @@ async def request_delegation(db, manager, caller, folder: Any, prompt: Any, harn
             if resolved is None:
                 raise Refusal("The folder must be inside this task's workspace or the delegation allowlist.",
                               "folder")
+            # A worktree task's child runs in that worktree; refused when it is gone.
+            from securevector.app.terminals.worktree import WorktreeError
+
+            try:
+                if hasattr(manager, "child_run_dir"):
+                    manager.child_run_dir(parent, resolved)
+            except WorktreeError as e:
+                raise Refusal(str(e), "folder") from None
             # 6. prompt scan
             try:
                 verdict = await scan_text(db, text, direction="outgoing")
@@ -680,7 +692,10 @@ async def _launch(db, manager, row: dict, *, approver: str) -> dict:
     except Exception as e:  # noqa: BLE001
         from securevector.app.terminals.manager import FolderOutOfScope
 
-        msg = (str(e) if isinstance(e, FolderOutOfScope) else f"The task could not start ({type(e).__name__}).")
+        from securevector.app.terminals.worktree import WorktreeError
+
+        msg = (str(e) if isinstance(e, (FolderOutOfScope, WorktreeError))
+               else f"The task could not start ({type(e).__name__}).")
         row = await _refuse_row(db, manager, row, msg, check="launch", state="failed")
         return view(row)
     child_id = child["id"]

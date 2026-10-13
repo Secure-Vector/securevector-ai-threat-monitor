@@ -23,7 +23,7 @@ import signal
 import subprocess
 import sys
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Tuple
 
@@ -31,6 +31,7 @@ from securevector.app.terminals.executors import EXECUTORS, UnknownExecutor, bui
 from securevector.app.terminals.pty_host import PtyHost, Subscriber
 from securevector.app.terminals.session_cwd import resolve_session_cwd, session_last_write
 from securevector.app.terminals import live_runs
+from securevector.app.terminals import worktree as worktrees
 from securevector.app.services import session_drift
 from securevector.app.terminals.store import (
     RUNNING,
@@ -86,6 +87,10 @@ GUARD_HEARTBEAT_SECONDS = 300
 
 # What a linked task's folder says when nothing in the audit trail names one.
 UNKNOWN_WORKSPACE = "(unknown folder)"
+
+
+# A board read refreshes a stopped task's worktree counts at most this often.
+WORKTREE_REFRESH_S = 10.0
 
 
 class GuardHooksMissing(RuntimeError):
@@ -217,6 +222,15 @@ class TerminalManager:
         # -> the card warning. Cleared by the next hook event.
         self._guard_silent: dict = {}
         self._input_checked: set = set()
+        # Worktree claims: task id -> worktree root it runs in, taken under
+        # _wt_lock at spawn and checked by removal under the same lock, so a
+        # relaunch or delegation cannot start in a worktree being removed.
+        self._wt_claims: dict = {}
+        self._wt_lock: Optional[asyncio.Lock] = None
+        # Last fresh count read per task (monotonic seconds), for GET reads.
+        self._wt_refreshed: dict = {}
+        self._wt_refresh_sem: Optional[asyncio.Semaphore] = None
+        worktrees.configure(settings.data_dir)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -242,8 +256,29 @@ class TerminalManager:
             # _reap does blocking os.kill / subprocess.run(timeout=2); keep it
             # off the event loop.
             await loop.run_in_executor(None, self._reap, task)
+        await self._sweep_worktrees(loop)
         if live_runs.has_sink():
             self.start_heartbeat()
+
+    async def _sweep_worktrees(self, loop: asyncio.AbstractEventLoop) -> None:
+        """A worktree left 'active' by a process that is gone is kept, never
+        deleted. Paths are registered for source_for, and git's bookkeeping
+        is pruned only in repositories that have a removed task worktree."""
+        try:
+            await self.store.mark_active_worktrees_kept()
+            for row in await self.store.worktree_tasks((worktrees.ACTIVE, worktrees.KEPT)):
+                paths = self._worktree_paths(row)
+                if paths is not None:
+                    worktrees.register(*paths)
+            sources = set()
+            for row in await self.store.worktree_tasks((worktrees.REMOVED,)):
+                paths = self._worktree_paths(row)
+                if paths is not None:
+                    sources.add(paths[1])
+            for source_root in sources:
+                await loop.run_in_executor(None, worktrees.prune, source_root)
+        except Exception:
+            logger.warning("worktree startup sweep failed", exc_info=True)
 
     # -- Live Runs heartbeat --------------------------------------------------
 
@@ -421,6 +456,8 @@ class TerminalManager:
         parent_task_id: Optional[str] = None,
         folder_check: Optional[Callable[[str], bool]] = None,
         initial_prompt: Optional[str] = None,
+        worktree: bool = False,
+        from_task_id: Optional[str] = None,
     ) -> dict:
         """Start a governed task. With `resume_session_id` the harness reopens
         that conversation instead of starting a fresh one, which is the only
@@ -495,6 +532,35 @@ class TerminalManager:
             resume_session_id=resume_session_id,
             initial_prompt=initial_prompt,
         ))
+        # Worktree isolation: the process runs in the worktree, every record
+        # keeps the source folder. A relaunch or resume reuses the earlier
+        # task's worktree when it still exists.
+        source_cwd = str(launch.cwd)
+        created_wt: Optional[worktrees.Created] = None
+        child_dir: Optional[str] = None
+        async with self._worktree_lock():
+            reused = await self._reusable_worktree(from_task_id, resume_session_id, source_cwd)
+            if parent_task_id is not None and reused is None and not worktree:
+                # A child of a worktree task runs in the parent's worktree, never
+                # in the person's source folder. Refused when that worktree is gone.
+                parent_row = await self.store.get_task(parent_task_id)
+                child_dir = self.child_run_dir(parent_row, source_cwd)
+                if child_dir is not None:
+                    self._wt_claims[task_id] = self._worktree_paths(parent_row)[0]
+            if reused is not None:
+                self._wt_claims[task_id] = reused["_root"]
+        if reused is None and worktree:
+            created_wt = await asyncio.get_running_loop().run_in_executor(
+                None, worktrees.create, source_cwd, task_dir, task_id
+            )
+        if created_wt is not None:
+            self._wt_claims[task_id] = os.path.realpath(created_wt.root)
+        if reused is not None:
+            launch = replace(launch, cwd=reused["run_dir"])
+        elif created_wt is not None:
+            launch = replace(launch, cwd=created_wt.run_dir)
+        elif child_dir is not None:
+            launch = replace(launch, cwd=child_dir)
         self._hook_tokens[task_id] = hook_token
         # The store row is created BEFORE host.spawn() runs, with pid=None.
         # InProcessPtyHost's reader thread can call on_exit almost as soon as
@@ -508,22 +574,44 @@ class TerminalManager:
         try:
             if parent_task_id is not None:
                 await self.store.create_task(
-                    task_id, executor_id=executor_id, workspace=str(launch.cwd), title=title, pid=None,
+                    task_id, executor_id=executor_id, workspace=source_cwd, title=title, pid=None,
                     parent_task_id=parent_task_id,
                 )
                 self._delegated.add(task_id)
             else:
                 await self.store.create_task(
-                    task_id, executor_id=executor_id, workspace=str(launch.cwd), title=title, pid=None
+                    task_id, executor_id=executor_id, workspace=source_cwd, title=title, pid=None
                 )
             created = True
+            if created_wt is not None:
+                await self.store.set_worktree(
+                    task_id, run_dir=created_wt.run_dir, branch=created_wt.branch,
+                    base=created_wt.base, state=worktrees.ACTIVE,
+                )
+            elif reused is not None:
+                await self.store.set_worktree(
+                    task_id, run_dir=reused["run_dir"], branch=reused["worktree_branch"],
+                    base=reused["worktree_base"], state=worktrees.ACTIVE,
+                )
+                await self.store.set_worktree_state(task_id, worktrees.ACTIVE)
+            elif child_dir is not None:
+                # Shown by the UI; no branch, so this row can never remove it.
+                await self.store.set_run_dir(task_id, child_dir)
             # A delegated launch re-checks its folder scope right before the
             # process starts, so the folder that runs is the folder approved.
-            if parent_task_id is not None and folder_check is not None and not folder_check(str(launch.cwd)):
+            if parent_task_id is not None and folder_check is not None and not folder_check(source_cwd):
                 raise FolderOutOfScope("The folder is no longer inside the approved scope.")
             # Also mark running before spawn, for the same reason: if on_exit
             # fires before this line would otherwise run, _on_exit's discard
             # must not be a no-op followed by a stale add.
+            if child_dir is not None:
+                # Re-checked right before the start: the path must still
+                # resolve to itself inside the parent's worktree.
+                claimed = self._wt_claims.get(task_id)
+                if (not claimed or os.path.realpath(child_dir) != child_dir
+                        or not worktrees.inside_real(child_dir, claimed)):
+                    raise worktrees.WorktreeError(
+                        "That folder leaves the requesting task's worktree through a link.")
             self._running.add(task_id)
             info = self.host.spawn(
                 task_id,
@@ -535,6 +623,16 @@ class TerminalManager:
         except Exception as exc:
             self._hook_tokens.pop(task_id, None)
             self._running.discard(task_id)
+            self._wt_claims.pop(task_id, None)
+            if created_wt is not None:
+                # Only what this spawn just created: its worktree and branch.
+                await asyncio.get_running_loop().run_in_executor(
+                    None, worktrees.discard, created_wt.source_root, created_wt.root, created_wt.branch
+                )
+                if created:
+                    await self.store.set_worktree_state(task_id, worktrees.REMOVED)
+            elif reused is not None and created:
+                await self.store.set_worktree_state(task_id, worktrees.KEPT)
             if created:
                 await self.store.set_exit(task_id, None)
             detail = redact_secrets(f"{type(exc).__name__}: {exc}", "outgoing")[0]
@@ -542,8 +640,19 @@ class TerminalManager:
             raise
         await self.store.update_pid(task_id, info.pid)
         await self.store.add_event(
-            task_id, kind="spawn", origin=origin, detail=f"{executor_id} in {launch.cwd}"
+            task_id, kind="spawn", origin=origin, detail=f"{executor_id} in {source_cwd}"
         )
+        if created_wt is not None:
+            copied = f"; copied {', '.join(created_wt.copied)}" if created_wt.copied else ""
+            await self.store.add_event(
+                task_id, kind="worktree", origin=origin,
+                detail=f"Running in worktree {created_wt.branch} from {created_wt.base[:12]}{copied}",
+            )
+        elif reused is not None:
+            await self.store.add_event(
+                task_id, kind="worktree", origin=origin,
+                detail=f"Reusing worktree {reused['worktree_branch']}",
+            )
         if initial_prompt is not None:
             import hashlib
 
@@ -555,7 +664,7 @@ class TerminalManager:
         task = await self.store.get_task(task_id)
         if task is None:
             raise RuntimeError(f"terminal task {task_id} vanished immediately after spawn")
-        self._config_check(task_id, executor_id, str(launch.cwd), "start")
+        self._config_check(task_id, executor_id, source_cwd, "start")
         # Metadata only, and never awaited on this path: a cloud that is slow
         # or gone must not hold up a local launch. No `detail` is passed, and
         # the emitter takes none: the audit detail above carries the working
@@ -683,6 +792,7 @@ class TerminalManager:
             folder = (workspace or "").strip()
             if not folder:
                 folder = await self._resolve_linked_workspace(executor_id, session_id)
+            folder = worktrees.source_for(folder)
             task_id = uuid.uuid4().hex[:12]
             await self.store.create_task(
                 task_id,
@@ -738,9 +848,10 @@ class TerminalManager:
         """
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
+            found = await loop.run_in_executor(
                 None, resolve_session_cwd, executor_id, session_id
             )
+            return worktrees.source_for(found)
         except Exception:
             logger.debug("session cwd lookup failed for %s", str(session_id).replace("\n", " ").replace("\r", " "), exc_info=True)
             return None
@@ -957,6 +1068,8 @@ class TerminalManager:
 
     async def _on_exit(self, task_id: str, code: Optional[int]) -> None:
         self._running.discard(task_id)
+        self._wt_claims.pop(task_id, None)
+        self._wt_refreshed.pop(task_id, None)
         self._hook_tokens.pop(task_id, None)
         self._input_bytes.pop(task_id, None)
         # The audit trail is authoritative for finished tasks; the set is a cache.
@@ -990,6 +1103,7 @@ class TerminalManager:
             if exited_task:
                 self._config_check(task_id, exited_task.get("executor_id"), exited_task.get("workspace"),
                                    "exit", exited_task.get("session_id"))
+        await self._worktree_ended(task_id)
         self._live_status.pop(task_id, None)
         self._notify_delegation(task_id)
         try:
@@ -1270,6 +1384,7 @@ class TerminalManager:
         path so a launch or a hook never waits on it. Observe only."""
         if not self.settings.config_trust or not executor_id:
             return
+        workspace = worktrees.source_for(workspace)
         from securevector.app.services import config_trust
         config_trust.schedule(config_trust.session_check(
             self.store.db, harness=executor_id, workspace=workspace, phase=phase,
@@ -1318,6 +1433,7 @@ class TerminalManager:
             task = await self.store.get_task(task_id)
             if task:
                 cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else None
+                cwd = worktrees.source_for(cwd)
                 self._config_check(task_id, task.get("executor_id"), cwd or task.get("workspace"), "start",
                                    task.get("session_id"))
         self._guard_silent.pop(task_id, None)
@@ -1376,6 +1492,226 @@ class TerminalManager:
         if status == "idle":
             self._notify_delegation(task_id)
         return True
+
+    # -- worktrees ------------------------------------------------------------
+
+    def _worktree_paths(self, task: Optional[Mapping]) -> Optional[Tuple[str, str]]:
+        """(worktree root, source top level) for a task row with a worktree.
+        The root is always <data_dir>/terminals/tasks/<creating task>/worktree;
+        the creating task is named by the branch, so a relaunch that reuses a
+        worktree resolves to the same root."""
+        if not task:
+            return None
+        branch = str(task.get("worktree_branch") or "")
+        run_dir = task.get("run_dir")
+        if not run_dir or not branch.startswith(worktrees.BRANCH_PREFIX):
+            return None
+        owner = branch[len(worktrees.BRANCH_PREFIX):]
+        if not re.fullmatch(r"[0-9a-f]{12}", owner):
+            return None
+        root = os.path.realpath(
+            Path(self.settings.data_dir) / "terminals" / "tasks" / owner / worktrees.WORKTREE_DIRNAME
+        )
+        source_root = worktrees.split_source(
+            str(task.get("workspace") or ""), os.path.normpath(str(run_dir)), root
+        )
+        if not source_root:
+            return None
+        return root, source_root
+
+    def _worktree_lock(self) -> asyncio.Lock:
+        if self._wt_lock is None:
+            self._wt_lock = asyncio.Lock()
+        return self._wt_lock
+
+    @staticmethod
+    def _worktree_gone(task: Mapping) -> bool:
+        return task.get("worktree_state") in (worktrees.REMOVED, worktrees.REMOVING)
+
+    async def _reusable_worktree(self, from_task_id: Optional[str], resume_session_id: Optional[str],
+                                 source_cwd: str) -> Optional[dict]:
+        """The earlier task's worktree row, when a relaunch or resume should
+        run in it again: same source folder, folder still on disk and inside
+        the worktree once links are resolved, not removed or being removed,
+        and no running task in it. Called under _worktree_lock()."""
+        prior = None
+        if from_task_id:
+            prior = await self.store.get_task(from_task_id)
+        elif resume_session_id:
+            prior = await self.store.task_for_session(resume_session_id)
+        if not prior or not prior.get("run_dir") or self._worktree_gone(prior):
+            return None
+        if os.path.realpath(str(prior.get("workspace") or "")) != os.path.realpath(source_cwd):
+            return None
+        paths = self._worktree_paths(prior)
+        if paths is None or not os.path.isdir(str(prior["run_dir"])):
+            return None
+        run_dir = os.path.realpath(str(prior["run_dir"]))
+        if not worktrees.inside_real(run_dir, paths[0]):
+            raise worktrees.WorktreeError("The worktree folder leaves the worktree through a link.")
+        if await self._worktree_busy(prior):
+            raise worktrees.WorktreeError("Another running task is using this worktree.")
+        worktrees.register(*paths)
+        return dict(prior, run_dir=run_dir, _root=paths[0])
+
+    def child_run_dir(self, parent: Optional[Mapping], folder: str) -> Optional[str]:
+        """Where a delegated child of `parent` runs for the (source) `folder`:
+        the same subpath in the parent's worktree, links resolved. None when
+        the parent has no worktree or the folder is outside the parent's
+        repository. Raises WorktreeError when the parent's worktree was
+        removed, is being removed, is missing, or the path leaves it."""
+        if not parent or not parent.get("run_dir"):
+            return None
+        paths = self._worktree_paths(parent)
+        if paths is None:
+            return None
+        if self._worktree_gone(parent) or not os.path.isdir(paths[0]):
+            raise worktrees.WorktreeError("The requesting task's worktree was removed, so it cannot delegate.")
+        root, source_root = paths
+        rel = os.path.relpath(os.path.realpath(folder), source_root)
+        if rel == ".." or rel.startswith(".." + os.sep):
+            return None
+        target = os.path.realpath(root if rel == "." else os.path.join(root, rel))
+        if not worktrees.inside_real(target, root):
+            raise worktrees.WorktreeError("That folder leaves the requesting task's worktree through a link.")
+        if not os.path.isdir(target):
+            raise worktrees.WorktreeError("That folder does not exist in the requesting task's worktree.")
+        return target
+
+    async def _worktree_busy(self, task: Mapping) -> bool:
+        branch = task.get("worktree_branch")
+        if not branch:
+            return False
+        paths = self._worktree_paths(task)
+        root = paths[0] if paths else None
+        if root and root in self._wt_claims.values():
+            return True
+        for running_id in list(self._running):
+            row = await self.store.get_task(running_id)
+            if not row:
+                continue
+            if row.get("worktree_branch") == branch:
+                return True
+            # A delegated child running inside this worktree.
+            run_dir = row.get("run_dir")
+            if root and run_dir:
+                real = os.path.realpath(str(run_dir))
+                if real == root or real.startswith(root + os.sep):
+                    return True
+        return False
+
+    async def _worktree_ended(self, task_id: str) -> None:
+        """At exit: count changed files and commits, mark the worktree kept.
+        Nothing is removed."""
+        try:
+            task = await self.store.get_task(task_id)
+            paths = self._worktree_paths(task)
+            if paths is None or self._worktree_gone(task):
+                return
+            root, source_root = paths
+            found = await asyncio.get_running_loop().run_in_executor(
+                None, worktrees.counts, source_root, root, task["worktree_branch"], task.get("worktree_base") or "",
+            )
+            await self.store.set_worktree_state(
+                task_id, worktrees.KEPT, dirty=found["dirty"], commits=found["commits"]
+            )
+            self._wt_refreshed[task_id] = asyncio.get_running_loop().time()
+            await self.store.add_event(
+                task_id, kind="worktree_kept", origin="process",
+                detail=(f"Worktree {task['worktree_branch']} kept: {found['dirty']} changed file(s), "
+                        f"{found['commits']} commit(s)"),
+            )
+        except Exception:
+            logger.warning("worktree end check failed for %s", task_id, exc_info=True)
+
+    async def refresh_worktree(self, task_id: str) -> Optional[dict]:
+        """Fresh counts for one task's worktree (read only), stored on its row.
+        At most one read per task every WORKTREE_REFRESH_S, none while a task
+        runs in the worktree (the exit check counts then), and at most two at
+        a time across the app."""
+        task = await self.store.get_task(task_id)
+        paths = self._worktree_paths(task)
+        if paths is None or self._worktree_gone(task):
+            return task
+        loop = asyncio.get_running_loop()
+        last = self._wt_refreshed.get(task_id)
+        if last is not None and loop.time() - last < WORKTREE_REFRESH_S:
+            return task
+        if await self._worktree_busy(task):
+            return task
+        if self._wt_refresh_sem is None:
+            self._wt_refresh_sem = asyncio.Semaphore(2)
+        if self._wt_refresh_sem.locked():
+            return task
+        root, source_root = paths
+        async with self._wt_refresh_sem:
+            self._wt_refreshed[task_id] = loop.time()
+            try:
+                found = await loop.run_in_executor(
+                    None, worktrees.counts, source_root, root, task["worktree_branch"],
+                    task.get("worktree_base") or "",
+                )
+            except worktrees.WorktreeError:
+                return task
+        current = await self.store.get_task(task_id)
+        if current is None or self._worktree_gone(current) or await self._worktree_busy(current):
+            return current
+        await self.store.set_worktree_state(
+            task_id, current.get("worktree_state") or worktrees.KEPT, dirty=found["dirty"], commits=found["commits"]
+        )
+        return await self.store.get_task(task_id)
+
+    async def remove_worktree(self, task_id: str, *, confirm: bool, origin: str = "ui") -> dict:
+        """Remove a task's worktree, only on the person's explicit request.
+        Marked 'removing' under the worktree lock first, so a relaunch or a
+        delegation cannot start in it meanwhile; restored on any failure."""
+        async with self._worktree_lock():
+            task = await self.store.get_task(task_id)
+            if task is None:
+                raise KeyError(task_id)
+            paths = self._worktree_paths(task)
+            if paths is None:
+                raise ValueError("This task has no worktree.")
+            if task.get("worktree_state") == worktrees.REMOVED:
+                raise ValueError("The worktree was already removed.")
+            if task.get("worktree_state") == worktrees.REMOVING:
+                raise ValueError("The worktree is already being removed.")
+            if await self._worktree_busy(task):
+                raise ValueError("Stop the task before removing its worktree.")
+            previous = task.get("worktree_state") or worktrees.KEPT
+            await self.store.set_worktree_state(
+                task_id, worktrees.REMOVING, dirty=task.get("worktree_dirty"), commits=task.get("worktree_commits")
+            )
+        root, source_root = paths
+        branch, base = task["worktree_branch"], task.get("worktree_base") or ""
+        result = None
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: worktrees.remove(source_root, root, branch, base, confirm=bool(confirm))
+            )
+        finally:
+            if not (result and result.get("removed")):
+                await self.store.set_worktree_state(
+                    task_id, previous,
+                    dirty=(result or {}).get("dirty", task.get("worktree_dirty")),
+                    commits=(result or {}).get("commits", task.get("worktree_commits")),
+                )
+        if not result.get("removed"):
+            return result
+        self._wt_refreshed.pop(task_id, None)
+        await self.store.set_worktree_state(
+            task_id, worktrees.REMOVED, dirty=result.get("dirty"), commits=result.get("commits")
+        )
+        await self.store.add_event(task_id, kind="worktree_removed", origin=origin,
+                                   detail=result.get("message"))
+        return result
+
+    def worktree_folder(self, task: Optional[Mapping]) -> Optional[str]:
+        """The folder to reveal for a task's worktree, when it exists."""
+        if self._worktree_paths(task) is None or task.get("worktree_state") == worktrees.REMOVED:
+            return None
+        run_dir = str(task.get("run_dir"))
+        return run_dir if os.path.isdir(run_dir) else None
 
     # -- attached terminal ----------------------------------------------------
 

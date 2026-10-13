@@ -149,7 +149,10 @@ def cwd_from_preview(preview: Any) -> Optional[str]:
             candidate = re.split(r"[;\r\n]", rest, 1)[0]
         found = _plausible_cwd(candidate)
         if found is not None:
-            return found
+            # A task running in its own worktree reports the source folder.
+            from securevector.app.terminals.worktree import source_for
+
+            return source_for(found)
         at = text.find("cwd=", at + 4)
     return None
 
@@ -475,6 +478,64 @@ class TerminalStore:
                 if str(r["detail"]) not in lst:
                     lst.append(str(r["detail"]))
         return out
+
+    # -- worktrees ---------------------------------------------------------
+
+    async def set_worktree(
+        self, task_id: str, *, run_dir: str, branch: str, base: str, state: str
+    ) -> None:
+        await self.db.execute(
+            "UPDATE terminal_tasks SET run_dir = ?, worktree_branch = ?, worktree_base = ?, "
+            "worktree_state = ? WHERE id = ?",
+            (run_dir, branch, base, state, task_id),
+        )
+
+    async def set_worktree_state(
+        self,
+        task_id: str,
+        state: str,
+        *,
+        dirty: Optional[int] = None,
+        commits: Optional[int] = None,
+    ) -> None:
+        """State and counts for every row sharing this task's worktree (a
+        relaunch reuses the worktree, so two rows can name one branch)."""
+        task = await self.get_task(task_id)
+        if task is None or not task.get("worktree_branch"):
+            return
+        await self.db.execute(
+            "UPDATE terminal_tasks SET worktree_state = ?, worktree_dirty = ?, worktree_commits = ? "
+            "WHERE worktree_branch = ? AND run_dir IS NOT NULL",
+            (state, dirty, commits, task["worktree_branch"]),
+        )
+
+    async def set_run_dir(self, task_id: str, run_dir: str) -> None:
+        """A delegated child running in its parent's worktree: run_dir only,
+        no branch or state, so the child never owns that worktree."""
+        await self.db.execute("UPDATE terminal_tasks SET run_dir = ? WHERE id = ?", (run_dir, task_id))
+
+    async def worktree_tasks(self, states: tuple) -> list[dict[str, Any]]:
+        placeholders = ",".join("?" * len(states))
+        rows = await self.db.fetch_all(
+            f"SELECT * FROM terminal_tasks WHERE run_dir IS NOT NULL AND worktree_state IN ({placeholders}) "
+            "ORDER BY created_at, rowid",
+            tuple(states),
+        )
+        return [dict(r) for r in rows]
+
+    async def mark_active_worktrees_kept(self) -> int:
+        """Startup: a worktree still 'active' (or 'removing') belonged to a
+        process that is gone. It is kept, never deleted."""
+        rows = await self.db.fetch_all(
+            "SELECT id FROM terminal_tasks WHERE run_dir IS NOT NULL "
+            "AND worktree_state IN ('active', 'removing')"
+        )
+        if rows:
+            await self.db.execute(
+                "UPDATE terminal_tasks SET worktree_state = 'kept' "
+                "WHERE run_dir IS NOT NULL AND worktree_state IN ('active', 'removing')"
+            )
+        return len(rows)
 
     async def update_workspace(self, task_id: str, workspace: str) -> None:
         await self.db.execute(

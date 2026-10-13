@@ -207,6 +207,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         58: migrate_to_v58,
         59: migrate_to_v59,
         60: migrate_to_v60,
+        61: migrate_to_v61,
     }
 
     if version in migrations:
@@ -2150,6 +2151,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_policy_check_tables(db)
     await ensure_response_rung_tables(db)
     await ensure_delegation_tables(db)
+    await ensure_worktree_columns(db)
     await cleanup_old_policy_decisions(db)
 
     # Load community rules after schema is ready
@@ -3459,3 +3461,42 @@ async def migrate_to_v60(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v60: governed delegation")
+
+
+# Worktree isolation: where a task actually runs when it has its own git
+# worktree. `workspace` keeps the source folder.
+WORKTREE_COLUMNS = (
+    ("run_dir", "TEXT"),
+    ("worktree_branch", "TEXT"),
+    ("worktree_base", "TEXT"),
+    ("worktree_state", "TEXT"),
+    ("worktree_dirty", "INTEGER"),
+    ("worktree_commits", "INTEGER"),
+)
+
+
+async def ensure_worktree_columns(db: DatabaseConnection) -> None:
+    """Add the nullable worktree columns to terminal_tasks when missing.
+    Idempotent; PRAGMA guarded."""
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(terminal_tasks)")
+    task_cols = [r[1] for r in await cursor.fetchall()]
+    if not task_cols:
+        return
+    for name, kind in WORKTREE_COLUMNS:
+        if name not in task_cols:
+            await conn.execute(f"ALTER TABLE terminal_tasks ADD COLUMN {name} {kind}")
+    await conn.commit()
+
+
+async def migrate_to_v61(db: DatabaseConnection) -> None:
+    """v60 -> v61: worktree isolation for tasks. Nullable run_dir and
+    worktree columns on terminal_tasks. Idempotent."""
+    await ensure_worktree_columns(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (61, CURRENT_TIMESTAMP, 'Worktree isolation for tasks')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v61: worktree isolation")
