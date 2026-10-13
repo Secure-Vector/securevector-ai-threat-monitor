@@ -386,3 +386,42 @@ def test_strip_leaves_hook_state_marker_alone_when_no_entries_for_us():
     assert "[hooks.state]" in cleaned
     assert "some-other-plugin@market" in cleaned
     assert "zzz" in cleaned
+
+
+def _install_world(tmp_path, monkeypatch, hooks_bytes):
+    from pathlib import Path as _P
+
+    home = _P.home() / ".codex"   # the test's own home (conftest)
+    home.mkdir(parents=True, exist_ok=True)
+    cfg = home / "config.toml"
+    cfg.write_text(
+        '[plugins."securevector-guard@securevector-local"]\nenabled = true\n\n'
+        '[hooks.state."securevector-guard@securevector-local:hooks/hooks.json:stop:0:0"]\n'
+        'trusted_hash = "sha256:abc"\n'
+    )
+    staging = tmp_path / "staging"
+    src = staging / "plugins" / hooks_codex.PLUGIN_NAME / "hooks"
+    src.mkdir(parents=True)
+    (src / "hooks.json").write_bytes(hooks_bytes)
+    cache = home / "plugins" / "cache"
+    installed = cache / hooks_codex.MARKETPLACE_SLUG / hooks_codex.PLUGIN_NAME / "1.0.0" / "hooks"
+    installed.mkdir(parents=True)
+    (installed / "hooks.json").write_bytes(b'{"hooks": {"Stop": []}}')
+    monkeypatch.setattr(hooks_codex, "CODEX_HOME", home)
+    monkeypatch.setattr(hooks_codex, "CODEX_CONFIG_TOML", cfg)
+    monkeypatch.setattr(hooks_codex, "CODEX_PLUGIN_CACHE_ROOT", cache)
+    monkeypatch.setattr(hooks_codex, "STAGING_DIR", staging)
+    return cfg
+
+
+def test_reinstall_with_identical_hooks_keeps_codex_trust(tmp_path, monkeypatch):
+    cfg = _install_world(tmp_path, monkeypatch, b'{"hooks": {"Stop": []}}')
+    assert hooks_codex._auto_install_to_codex_cache("1.0.0") is not None
+    assert 'trusted_hash = "sha256:abc"' in cfg.read_text()
+
+
+def test_install_with_changed_hooks_clears_codex_trust(tmp_path, monkeypatch):
+    cfg = _install_world(tmp_path, monkeypatch, b'{"hooks": {"Stop": [], "SessionStart": []}}')
+    assert hooks_codex._auto_install_to_codex_cache("1.1.0") is not None
+    text = cfg.read_text()
+    assert "trusted_hash" not in text and 'enabled = true' in text

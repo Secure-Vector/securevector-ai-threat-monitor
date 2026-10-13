@@ -221,7 +221,7 @@ def _read_config_jsonc(path: Path) -> tuple[dict, list[str]]:
             status_code=500,
             detail=(
                 f"OpenCode's config at {path} could not be parsed as JSON ({e}). "
-                "Fix or move that file, then retry the install — SecureVector will "
+                "Fix or move that file, then retry the install. SecureVector will "
                 "not overwrite a config it cannot safely read."
             ),
         )
@@ -418,7 +418,7 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"OpenCode plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "Bundled plugin assets are missing from the installed package — verify "
+                "Bundled plugin assets are missing from the installed package. Verify "
                 "setup.py:package_data and MANIFEST.in include plugins/opencode/**/*."
             ),
         )

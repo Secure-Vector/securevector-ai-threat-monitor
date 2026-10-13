@@ -206,6 +206,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         57: migrate_to_v57,
         58: migrate_to_v58,
         59: migrate_to_v59,
+        60: migrate_to_v60,
     }
 
     if version in migrations:
@@ -2148,6 +2149,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_config_trust_tables(db)
     await ensure_policy_check_tables(db)
     await ensure_response_rung_tables(db)
+    await ensure_delegation_tables(db)
     await cleanup_old_policy_decisions(db)
 
     # Load community rules after schema is ready
@@ -3299,3 +3301,161 @@ async def migrate_to_v59(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v59: response rungs")
+
+
+DELEGATION_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS delegations (
+        id TEXT PRIMARY KEY,
+        parent_task_id TEXT NOT NULL,
+        child_task_id TEXT,
+        harness TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        prompt_sha256 TEXT NOT NULL,
+        prompt_text TEXT,
+        state TEXT NOT NULL DEFAULT 'pending_approval'
+            CHECK (state IN ('pending_approval', 'refused', 'running', 'waiting_for_user', 'done', 'held', 'failed')),
+        refusal_reason TEXT,
+        result_text TEXT,
+        result_flag TEXT,
+        jit_request_id TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        ended_at TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_delegations_parent ON delegations (parent_task_id, state)",
+    "CREATE INDEX IF NOT EXISTS idx_delegations_child ON delegations (child_task_id)",
+    "CREATE INDEX IF NOT EXISTS idx_delegations_request ON delegations (jit_request_id)",
+)
+
+_RUNG_SOURCE_CHECK = "CHECK (rule_source IN ('synced', 'local', 'rung'))"
+_DELEGATE_SOURCE_CHECK = "CHECK (rule_source IN ('synced', 'local', 'rung', 'delegate'))"
+
+
+async def ensure_delegate_rule_source(db: DatabaseConnection) -> None:
+    """Allow ``rule_source = 'delegate'`` on jit_access_requests (approvals
+    a delegation files). Same shape as ensure_rung_rule_source: the rung
+    widening runs first, then the table is rebuilt once with the same
+    columns and rows in one transaction, through a staged copy that a
+    rerun restores or drops. Idempotent."""
+    await ensure_rung_rule_source(db)
+    conn = await db.connect()
+
+    async def table_sql(name: str):
+        cur = await conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (name,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+    main_sql = await table_sql("jit_access_requests")
+    staged_sql = await table_sql("jit_access_requests_v60")
+    if staged_sql is None and (main_sql is None or "'delegate'" in main_sql):
+        return
+    if main_sql and staged_sql is None and _RUNG_SOURCE_CHECK not in main_sql:
+        logger.warning("jit_access_requests has an unexpected shape; delegation requests stay off")
+        return
+    await conn.commit()
+    await conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            if staged_sql is not None:
+                rows = 0
+                if main_sql is not None:
+                    cur = await conn.execute("SELECT COUNT(*) FROM jit_access_requests")
+                    rows = (await cur.fetchone())[0]
+                if main_sql is None or rows == 0:
+                    if main_sql is not None:
+                        await conn.execute("DROP TABLE jit_access_requests")
+                    await conn.execute("ALTER TABLE jit_access_requests_v60 RENAME TO jit_access_requests")
+                else:
+                    await conn.execute("DROP TABLE jit_access_requests_v60")
+                main_sql = await table_sql("jit_access_requests")
+            if main_sql and "'delegate'" not in main_sql and _RUNG_SOURCE_CHECK in main_sql:
+                # After the v59 rename SQLite stores the name quoted.
+                staged = re.sub(
+                    r'^(\s*CREATE\s+TABLE\s+)(["`]?)jit_access_requests\2\s*\(',
+                    r"\1jit_access_requests_v60 (",
+                    main_sql.replace(_RUNG_SOURCE_CHECK, _DELEGATE_SOURCE_CHECK), count=1,
+                )
+                if "jit_access_requests_v60 (" not in staged:
+                    raise RuntimeError("jit_access_requests could not be staged")
+                cur = await conn.execute("PRAGMA table_info(jit_access_requests)")
+                cols = ", ".join(r[1] for r in await cur.fetchall())
+                await conn.execute(staged)
+                await conn.execute(
+                    f"INSERT INTO jit_access_requests_v60 ({cols}) SELECT {cols} FROM jit_access_requests"
+                )
+                await conn.execute("DROP TABLE jit_access_requests")
+                await conn.execute("ALTER TABLE jit_access_requests_v60 RENAME TO jit_access_requests")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jit_requests_status ON jit_access_requests (status, requested_at)"
+            )
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+    finally:
+        await conn.execute("PRAGMA foreign_keys = ON")
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    problems = await cur.fetchall()
+    if problems:
+        logger.warning("jit_access tables: %d rows fail the foreign key check after the v60 rebuild", len(problems))
+
+
+async def ensure_delegation_tables(db: DatabaseConnection) -> None:
+    """Create ``delegations``, add ``terminal_tasks.parent_task_id`` and
+    ``app_settings.delegation_policy`` when missing, and allow delegation
+    requests on jit_access_requests. Idempotent; PRAGMA guarded."""
+    conn = await db.connect()
+    cur = await conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'delegations'")
+    found = await cur.fetchone()
+    if found and "'waiting_for_user'" not in (found[0] or ""):
+        # An earlier build of this table without the waiting state: rebuilt
+        # once, same columns and rows, in one transaction.
+        await conn.commit()
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            await conn.execute("ALTER TABLE delegations RENAME TO delegations_prev")
+            for name in ("idx_delegations_parent", "idx_delegations_child", "idx_delegations_request"):
+                await conn.execute(f"DROP INDEX IF EXISTS {name}")
+            await conn.execute(DELEGATION_DDL[0])
+            cur = await conn.execute("PRAGMA table_info(delegations_prev)")
+            cols = ", ".join(r[1] for r in await cur.fetchall())
+            await conn.execute(f"INSERT INTO delegations ({cols}) SELECT {cols} FROM delegations_prev")
+            await conn.execute("DROP TABLE delegations_prev")
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+    for stmt in DELEGATION_DDL:
+        await conn.execute(stmt)
+    cursor = await conn.execute("PRAGMA table_info(terminal_tasks)")
+    task_cols = [r[1] for r in await cursor.fetchall()]
+    if task_cols and "parent_task_id" not in task_cols:
+        await conn.execute("ALTER TABLE terminal_tasks ADD COLUMN parent_task_id TEXT")
+    if task_cols:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_terminal_tasks_parent ON terminal_tasks (parent_task_id)"
+        )
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    settings_cols = [r[1] for r in await cursor.fetchall()]
+    if settings_cols and "delegation_policy" not in settings_cols:
+        await conn.execute("ALTER TABLE app_settings ADD COLUMN delegation_policy TEXT")
+    await conn.commit()
+    await ensure_delegate_rule_source(db)
+
+
+async def migrate_to_v60(db: DatabaseConnection) -> None:
+    """v59 -> v60: governed delegation. A parent link on terminal tasks,
+    the delegations table, the delegation policy setting, and delegation
+    approvals on jit_access_requests. Idempotent."""
+    await ensure_response_rung_tables(db)
+    await ensure_delegation_tables(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (60, CURRENT_TIMESTAMP, 'Governed delegation')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v60: governed delegation")

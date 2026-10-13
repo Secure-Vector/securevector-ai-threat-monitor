@@ -138,7 +138,7 @@ Environment Variables:
     parser.add_argument(
         "--tools",
         type=str,
-        help="Comma-separated tool names to expose (for example check_policy,session_burn); "
+        help="Comma-separated tool names to expose (for example check_policy,session_burn,delegate,delegation_result); "
              "when set, only these tools are served and resources and prompts are off"
     )
 

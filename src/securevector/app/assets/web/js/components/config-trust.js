@@ -184,14 +184,31 @@ const ConfigTrust = {
         return `<span class="ct-summary ${cls}">${this._esc(s.text)}</span>${list ? `<ul class="terminals-summary-list">${list}</ul>` : ''}`;
     },
 
-    /** The facts line part for a board row, or ''. */
+    /** The facts line part for a board row, or ''. A chip that needs a
+     *  decision opens the session's inbox item. */
     factsPart(t) {
         if (!t || !t.setup_state) return '';
+        const open = t.id ? ` role="button" tabindex="0" data-setup-open="${this._esc(t.id)}"` : '';
         if (t.setup_state === 'changed') {
-            return `<span class="terminals-task-setup is-red" title="Agent setup changed since it was approved">setup changed (${this._esc(t.setup_changes || 0)})</span>`;
+            return `<span class="terminals-task-setup is-red"${open} title="Agent setup changed since it was approved. Open Connect Agents.">setup changed (${this._esc(t.setup_changes || 0)})</span>`;
         }
-        if (t.setup_state === 'new') return '<span class="terminals-task-setup is-amber" title="Agent setup not approved yet">setup not approved</span>';
+        if (t.setup_state === 'new') return `<span class="terminals-task-setup is-amber"${open} title="Agent setup not approved yet. Open Connect Agents.">setup not approved</span>`;
         return '<span class="terminals-task-setup" title="Agent setup matches what you approved">setup pinned</span>';
+    },
+
+    /** Make a setup chip (board or rail) a link to the Connect Agents page,
+     *  where the Agent setup card lives. */
+    bindChips(root) {
+        if (!root || !root.querySelectorAll) return;
+        root.querySelectorAll('[data-setup-open]').forEach(chip => {
+            const go = (ev) => {
+                if (ev && ev.preventDefault) ev.preventDefault();
+                if (ev && ev.stopPropagation) ev.stopPropagation();
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('guide-connect-agents');
+            };
+            chip.addEventListener('click', go);
+            chip.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') go(ev); });
+        });
     },
 
     /** Wire Approve, Keep flagged and the probe switches inside `host`. */

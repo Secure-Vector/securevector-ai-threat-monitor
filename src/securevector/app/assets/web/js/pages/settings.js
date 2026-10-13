@@ -165,15 +165,27 @@ const SettingsPage = {
         refreshSection.appendChild(refreshCard);
         container.appendChild(refreshSection);
 
-        // Response rungs (Agent Sessions): per-harness mode and shadow progress
-        if (window.ResponseRungs && API.terminalsRungModes) {
-            const rungSection = this.createSection('Response rungs', 'Agent Sessions: how a session that drifts is handled. Each harness starts in shadow, where rungs only record.');
-            const rungCard = Card.create({ gradient: true });
-            const rungBody = rungCard.querySelector('.card-body');
-            rungBody.setAttribute('data-rung-settings', '');
-            rungSection.appendChild(rungCard);
-            container.appendChild(rungSection);
-            ResponseRungs.renderCard(rungBody, API);
+        // Agent Sessions settings (Delegation, Response rungs) live on that page.
+        {
+            const sessSection = this.createSection('Agent Sessions', 'Delegation and response steps.');
+            const sessCard = Card.create({ gradient: true });
+            const sessBody = sessCard.querySelector('.card-body');
+            sessBody.setAttribute('data-sessions-pointer', '');
+            const line = document.createElement('p');
+            line.textContent = 'Agent Sessions settings live in Agent Sessions, Settings. ';
+            const link = document.createElement('a');
+            link.href = '#terminals?settings=1';
+            link.textContent = 'Open Agent Sessions settings';
+            link.setAttribute('data-open-sessions-settings', '');
+            link.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                try { sessionStorage.setItem('sv-sessions-settings', '1'); } catch (e) { /* storage unavailable */ }
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');
+            });
+            line.appendChild(link);
+            sessBody.appendChild(line);
+            sessSection.appendChild(sessCard);
+            container.appendChild(sessSection);
         }
 
         // Uninstall Section

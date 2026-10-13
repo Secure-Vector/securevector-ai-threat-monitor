@@ -99,9 +99,12 @@ async def _decorate(manager: TerminalManager, items):
     # seconds.
     unknown = [item["id"] for item in items if item["id"] not in ungoverned]
     audited = await manager.store.tasks_with_event("guard_missing", unknown)
+    silent = manager.guard_silent()
     for item in items:
         item["governed_at_launch"] = not (item["id"] in ungoverned or item["id"] in audited)
+        item["guard_warning"] = silent.get(item["id"])
     await _with_spend(manager, items)
+    await _with_delegations(manager, items)
     await _with_counts(manager, items)
     await _with_drift(manager, items)
     await _with_rung(manager, items)
@@ -217,6 +220,45 @@ async def _with_spend(manager: TerminalManager, items) -> None:
         if row and row.get("requests"):
             item["spend_usd"] = row["spend_usd"]
             item["spend_requests"] = row["requests"]
+    # A parent's total over itself and the children listed with it. Read-only
+    # and additive: spend_usd above stays the session's own figure.
+    by_id = {i.get("id"): i for i in items}
+    totals: dict = {}
+    for item in items:
+        parent = item.get("parent_task_id")
+        if parent and parent in by_id and item.get("spend_usd") is not None:
+            totals[parent] = totals.get(parent, 0.0) + float(item["spend_usd"])
+    for parent, extra in totals.items():
+        item = by_id[parent]
+        item["spend_total_usd"] = float(item.get("spend_usd") or 0.0) + extra
+
+
+async def _with_delegations(manager: TerminalManager, items) -> None:
+    """How many delegations each parent has running, done and held. One
+    grouped query for the page; a parent with none is left without the field."""
+    ids = [i["id"] for i in items if i.get("id")]
+    if not ids:
+        return
+    try:
+        marks = ",".join("?" for _ in ids)
+        rows = await manager.store.db.fetch_all(
+            "SELECT parent_task_id, state, COUNT(*) AS n FROM delegations "
+            f"WHERE parent_task_id IN ({marks}) GROUP BY parent_task_id, state",
+            tuple(ids),
+        )
+    except Exception:  # noqa: BLE001 - the board must render without it
+        logger.debug("could not read delegation counts for the board", exc_info=True)
+        return
+    counts: dict = {}
+    for r in rows or []:
+        c = counts.setdefault(r["parent_task_id"], {"running": 0, "done": 0, "held": 0})
+        key = {"running": "running", "pending_approval": "running", "done": "done", "held": "held"}.get(r["state"])
+        if key:
+            c[key] += int(r["n"])
+    for item in items:
+        c = counts.get(item.get("id"))
+        if c and any(c.values()):
+            item["delegations"] = c
 
 
 # Who asked, recorded on the task's own event trail. NOT the task row's
@@ -224,7 +266,7 @@ async def _with_spend(manager: TerminalManager, items) -> None:
 # session started from the CLI is still a launch. An allowlist rather than a
 # free string, because the value is written verbatim into the tamper-evident
 # event chain and read back into the UI.
-ACTORS = frozenset({"ui", "cli", "rung"})
+ACTORS = frozenset({"ui", "cli", "rung", "delegate", "policy"})
 
 
 def _actor(value: Optional[str]) -> str:
@@ -816,3 +858,63 @@ async def task_socket(websocket: WebSocket, task_id: str):
             await websocket.close()
         except Exception:
             pass
+
+
+# -- governed delegation ------------------------------------------------------
+
+
+def _delegation_ui_view(row: dict) -> dict:
+    """The UI's view of one delegation: the caller's view plus the parent,
+    timestamps and, for a held result, what flagged it. The held text itself
+    is not included."""
+    from securevector.app.services import delegation
+
+    out = delegation.view(row)
+    out["parent_task_id"] = row.get("parent_task_id")
+    out["created_at"] = row.get("created_at")
+    out["ended_at"] = row.get("ended_at")
+    if row.get("state") == "held":
+        try:
+            out["flags"] = (json.loads(row.get("result_flag") or "{}") or {}).get("reasons") or []
+        except ValueError:
+            out["flags"] = []
+    return out
+
+
+@router.get("/tasks/{task_id}/delegations", dependencies=[Depends(require_read)])
+async def task_delegations(task_id: str, manager: TerminalManager = Depends(get_manager)):
+    """Delegations this task asked for, newest first."""
+    from securevector.app.services import delegation
+
+    rows = await delegation.for_parent(manager.store.db, task_id)
+    out = []
+    for row in rows:
+        row = await delegation.refresh(manager.store.db, manager, row, quick=True)
+        out.append(_delegation_ui_view(row))
+    return {"items": out}
+
+
+@router.post("/delegations/{delegation_id}/release", dependencies=[Depends(require_write)])
+async def delegation_release(delegation_id: str, request: Request,
+                             manager: TerminalManager = Depends(get_manager)):
+    """Hand a held result to the task that asked for it."""
+    _require_ui_token(request)
+    from securevector.app.services import delegation
+
+    out = await delegation.release(manager.store.db, manager, delegation_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="No held result for this delegation")
+    return out
+
+
+@router.post("/delegations/{delegation_id}/discard", dependencies=[Depends(require_write)])
+async def delegation_discard(delegation_id: str, request: Request,
+                             manager: TerminalManager = Depends(get_manager)):
+    """Drop a held result; the task that asked gets no text."""
+    _require_ui_token(request)
+    from securevector.app.services import delegation
+
+    out = await delegation.discard(manager.store.db, manager, delegation_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="No held result for this delegation")
+    return out

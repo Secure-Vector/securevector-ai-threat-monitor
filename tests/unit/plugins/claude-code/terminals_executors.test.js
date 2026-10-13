@@ -29,7 +29,7 @@ function makeEl(extra = {}) {
 
 function makeContainer() {
   const els = {
-    '#terminals-launch': makeEl(),
+    '#terminals-launch': makeEl({ addEventListener() {} }),
     '#terminals-launch-btn': makeEl(),
     '#terminals-launch-cancel': makeEl(),
     '#terminals-workspace': makeEl(),
@@ -39,7 +39,7 @@ function makeContainer() {
     '#terminals-executor-hint': makeEl(),
     '#terminals-launch button[type="submit"]': makeEl({ disabled: false }),
   };
-  return { els, querySelector: (sel) => els[sel] || null };
+  return { els, querySelector: (sel) => els[sel] || null, addEventListener(t, fn) { (this.listeners = this.listeners || {})[t] = fn; } };
 }
 
 function loadTerminalsPage(api = {}) {
@@ -82,8 +82,8 @@ test('styles.css defines .terminals-executor-hint', () => {
 
 test('index.html pins the bumped executor cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=99/);
-  assert.match(html, /styles\.css\?v=474/);
+  assert.match(html, /terminals\.js\?v=109/);
+  assert.match(html, /styles\.css\?v=478/);
 });
 
 test('no em dash in the executor-hint UI strings', () => {

@@ -111,7 +111,9 @@ class MCPServerConfig:
         "get_threat_statistics",
         "check_tool_permission",
         "check_policy",
-        "session_burn"
+        "session_burn",
+        "delegate",
+        "delegation_result"
     ])
 
     # Resource settings

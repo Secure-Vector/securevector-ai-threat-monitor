@@ -10282,3 +10282,89 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .terminals-dr-link:hover { text-decoration: underline; }
 .terminals-dr-dismiss { margin-left: auto; background: none; border: 0; color: var(--text-muted); font-size: 12px; cursor: pointer; }
 .terminals-dr-dismiss:hover { color: var(--text-primary); }
+
+/* Governed delegation: children follow their parent, indented; state words and
+   badges stay neutral, since colour is for security state. */
+/* Tree connectors, shared by the board and the left rail: a 1px line down the
+   left of each child and a 10px tick at a fixed offset, so they stay crisp at
+   any zoom. The last child's line stops at the tick, which makes the corner. */
+.deleg-child { position: relative; margin-left: 20px; }
+.deleg-child::before, .nav-view.nav-view-child::before { content: ""; position: absolute; left: -16px; top: 0; bottom: 0; border-left: 1px solid rgba(128, 128, 128, .55); }
+.deleg-child::after, .nav-view.nav-view-child::after { content: ""; position: absolute; left: -16px; top: 22px; width: 14px; border-top: 1px solid rgba(128, 128, 128, .55); }
+.deleg-child.is-last::before, .nav-view.nav-view-child.is-last::before { bottom: auto; height: 23px; }
+.deleg-cross { padding: 0 6px; border: 1px solid var(--border-default, #3a4654); border-radius: 4px; font-size: 10.5px; color: var(--text-secondary); white-space: nowrap; }
+.deleg-toggle { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.deleg-caret { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; }
+.deleg-toggle[aria-expanded="false"] .deleg-caret { border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid currentColor; border-right: 0; }
+.nav-views.nav-views-tasks .nav-item.nav-view.nav-view-child { position: relative; margin-left: 30px; }
+.nav-view.nav-view-child::before { top: -1px; bottom: -1px; }
+.nav-view.nav-view-child::after { top: 23px; }
+.nav-view.nav-view-child.is-last::before { bottom: auto; height: 24px; }
+.nav-task-cross { display: block; margin-top: 2px; }
+.nav-view.is-parent-of-active { background: rgba(128,128,128,.10); }
+.nav-deleg-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; vertical-align: middle; background: var(--text-secondary, #8a96a3); opacity: .8; }
+.nav-deleg-dot.is-approval { background: var(--warning, #f59e0b); opacity: 1; }
+.nav-deleg-dot.is-blocked, .nav-deleg-dot.is-failed { background: var(--danger, #ef4444); opacity: 1; }
+.nav-deleg-dot.is-completed { background: transparent; border: 1px solid var(--text-secondary, #8a96a3); }
+.nav-task-from { display: block; font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.nav-deleg-toggle { flex: 0 0 auto; align-self: center; padding: 2px 4px; border: 0; background: none; color: var(--text-secondary); cursor: pointer; }
+.terminals-deleg-from { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px 0; font-size: 11.5px; color: var(--text-secondary); }
+.terminals-deleg-badge { padding: 0 6px; border: 1px solid var(--border-default, #24303c); border-radius: 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; }
+.terminals-deleg-parent { color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
+.terminals-deleg-line { padding: 0 12px 8px; font-size: 11.5px; color: var(--text-secondary); }
+.terminals-deleg-list { margin: 2px 0 0; padding: 0; list-style: none; }
+.terminals-deleg-item { padding: 6px 0; border-bottom: 1px solid var(--border-default, rgba(128,128,128,.25)); }
+.terminals-deleg-item:last-child { border-bottom: 0; }
+.terminals-deleg-state { margin-left: 6px; font-size: 12px; color: var(--text-secondary); }
+.terminals-deleg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.terminals-deleg-reason { margin-top: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.terminals-deleg-error { margin-top: 6px; font-size: 12.5px; color: var(--danger, #ef4444); }
+.terminals-deleg-error[hidden] { display: none; }
+.terminals-deleg-result, .terminals-deleg-prompt { margin: 4px 0 0; padding: 8px; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--border-default, rgba(128,128,128,.25)); border-radius: 6px; background: rgba(128,128,128,.08); }
+.terminals-deleg-prompt { max-height: 220px; }
+.terminals-deleg-more summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.terminals-deleg-facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 4px 0; font-size: 12.5px; }
+.terminals-deleg-facts dt { color: var(--text-secondary); }
+.terminals-deleg-facts dd { margin: 0; overflow-wrap: anywhere; }
+.terminals-deleg-cross { font-size: 12.5px; font-weight: 600; }
+.terminals-deleg-warn { font-size: 12.5px; color: var(--warning, #f59e0b); }
+.terminals-deleg-label { font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-secondary); margin-top: 4px; }
+.deleg-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.25)); }
+.deleg-set-label { font-weight: 600; font-size: 14px; }
+.deleg-set-note { margin-top: 2px; font-size: 12.5px; color: var(--text-secondary); }
+.deleg-folder-list { margin: 6px 0; padding: 0; list-style: none; }
+.deleg-folder-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+.deleg-folder-row code { overflow-wrap: anywhere; font-size: 12.5px; }
+.deleg-folder-empty { font-size: 12.5px; color: var(--text-secondary); }
+.deleg-folder-add { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.deleg-folder-add .form-input { flex: 1 1 200px; width: auto; min-width: 0; padding: 6px 10px; }
+
+/* Governance column times: small, muted, at the right edge, never wrapping. */
+.terminals-when { flex: 0 0 auto; margin-left: auto; padding-left: 8px; font-size: 10.5px; line-height: 1.4; color: var(--text-secondary); opacity: .8; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.terminals-verdict-main, .terminals-trace-main, .terminals-egress-meta { min-width: 0; }
+.terminals-approval-tool { display: flex; align-items: baseline; gap: 6px; }
+.terminals-approval-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.terminals-trace-top { display: flex; align-items: center; gap: 6px; }
+.terminals-egress-row { flex-wrap: wrap; cursor: pointer; }
+.terminals-egress-open { border: 0; background: none; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; }
+.terminals-egress-open:hover, .terminals-egress-open:focus-visible { text-decoration-color: currentColor; }
+.eg-row-focus td { background: rgba(94, 173, 184, .16); }
+.eg-focus-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
+
+/* Agent Sessions settings panel */
+.terminals-settings-btn { display: inline-flex; align-items: center; gap: 6px; }
+.terminals-settings-panel { display: flex; flex-direction: column; gap: 22px; max-height: 70vh; overflow: auto; }
+.terminals-settings-section h3 { margin: 0 0 6px; font-size: 15px; }
+.deleg-intro { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.deleg-when { margin: 4px 0 12px; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.deleg-when li { margin-bottom: 4px; }
+
+.nav-sessions-settings { gap: 8px; margin: 2px 0 6px; padding: 6px 16px; font-size: 12.5px; }
+.nav-sessions-settings svg { flex: 0 0 auto; }
+
+.terminals-task-setup[data-setup-open] { cursor: pointer; text-decoration: underline; text-decoration-color: transparent; }
+.terminals-task-setup[data-setup-open]:hover, .terminals-task-setup[data-setup-open]:focus-visible { text-decoration-color: currentColor; }
+
+.deleg-example { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border-default, rgba(128,128,128,.25)); border-radius: 6px; }
+.deleg-example-text { flex: 1 1 240px; min-width: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.deleg-example-note { flex: 1 0 100%; font-size: 11.5px; color: var(--text-secondary); }

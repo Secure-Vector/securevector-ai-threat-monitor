@@ -54,6 +54,7 @@ const EgressPage = {
 
     async render(container) {
         container.textContent = '';
+        this._state.focus = undefined;
         // Two sidebar destinations share this page: "Agent Egress" under
         // Visibility shows what agents reached; "Egress Policy" under
         // Policies shows what they may reach. The route decides the view,
@@ -475,7 +476,38 @@ const EgressPage = {
         this._state.blast = blast;
         this._state.destinations = (inv && inv.destinations) || [];
         this._state.scope = scope;
+        // Deep link from Agent Sessions: one session, one host highlighted.
+        // Handed over once through storage, or read from ?session=&host=.
+        if (this._state.focus === undefined) this._state.focus = this._readFocus();
+        this._state.focusError = '';
+        const focus = this._state.focus;
+        if (focus && focus.session) {
+            try {
+                const one = await API.getEgressSessionDestinations(focus.session);
+                this._state.destinations = (one && one.destinations) || [];
+            } catch (e) {
+                this._state.focusError = 'Could not read this session, showing every destination.';
+            }
+        }
         this._renderDestinations();
+    },
+
+    /** The session and host to focus on, or null. */
+    _readFocus() {
+        let f = null;
+        try {
+            const raw = sessionStorage.getItem('sv-egress-focus');
+            if (raw) { sessionStorage.removeItem('sv-egress-focus'); f = JSON.parse(raw); }
+        } catch (e) { f = null; }
+        if (!f || typeof f !== 'object') {
+            try {
+                const q = new URLSearchParams(window.location.search);
+                f = { session: q.get('session') || '', host: q.get('host') || '' };
+            } catch (e) { f = null; }
+        }
+        const session = f && typeof f.session === 'string' ? f.session.slice(0, 200) : '';
+        const host = f && typeof f.host === 'string' ? f.host.slice(0, 300) : '';
+        return session || host ? { session, host } : null;
     },
 
     _renderDestinations() {
@@ -520,6 +552,22 @@ const EgressPage = {
         card.appendChild(this._sectionTitle('Every destination reached',
             'Most active first. Promote a host to allow it under a stricter preset.'));
 
+        const focus = this._state.focus;
+        if (focus) {
+            const bar = document.createElement('div');
+            bar.className = 'eg-note eg-focus-bar';
+            bar.textContent = (this._state.focusError ||
+                (focus.session ? `Showing session ${String(focus.session).slice(0, 12)}` : 'Showing one host')) +
+                (focus.host ? `, host ${focus.host}. ` : '. ');
+            const all = document.createElement('button');
+            all.type = 'button';
+            all.className = 'eg-btn tiny';
+            all.textContent = 'Show all';
+            all.addEventListener('click', () => { this._state.focus = null; this._loadDestinations(); });
+            bar.appendChild(all);
+            card.appendChild(bar);
+        }
+
         const table = document.createElement('table');
         table.className = 'eg-table';
         table.innerHTML =
@@ -529,6 +577,7 @@ const EgressPage = {
         const tbody = document.createElement('tbody');
         this._state.destinations.forEach(d => {
             const tr = document.createElement('tr');
+            if (focus && focus.host && d.host === focus.host) { tr.className = 'eg-row-focus'; tr.id = 'eg-row-focus'; }
             tr.innerHTML =
                 `<td><code>${this._esc(d.host)}</code></td>` +
                 `<td class="num">${Number(d.calls || 0)}</td>` +
@@ -562,6 +611,8 @@ const EgressPage = {
         table.appendChild(tbody);
         card.appendChild(table);
         body.appendChild(card);
+        const hit = body.querySelector ? body.querySelector('#eg-row-focus') : null;
+        if (hit && hit.scrollIntoView) setTimeout(() => hit.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
     },
 
     /** Only rendered when there is something to say. A permanently-visible

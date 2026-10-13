@@ -243,10 +243,10 @@ _OUR_SECTION_HEADERS = (
 # That manifests as enforcement silently disappearing after upgrade —
 # the user sees their Block in the UI, but tool calls fly through.
 #
-# To defend against this, every install / reinstall strips our trust
-# entries from config.toml so Codex re-prompts on next session start.
-# The user re-trusts once and every event (including the freshly added
-# ones) gets blessed in the same prompt.
+# So an install whose hooks.json differs from the one already installed
+# strips our trust entries, and Codex re-prompts on the next session start;
+# the user re-trusts once and every event (including freshly added ones) is
+# approved in the same prompt. A reinstall of identical hooks keeps trust.
 _HOOK_STATE_PREFIX = f'[hooks.state."{INSTALL_KEY}:'
 
 # Matches a real TOML section header line: optional leading whitespace,
@@ -276,7 +276,7 @@ def _enter_multiline_string(line: str, in_ml: bool) -> bool:
     return in_ml if triples % 2 == 0 else not in_ml
 
 
-def _strip_our_sections(text: str) -> str:
+def _strip_our_sections(text: str, include_hook_state: bool = True) -> str:
     """Remove every line of any section whose header matches ours.
 
     A section starts at one of our header lines and ends at the next
@@ -310,7 +310,7 @@ def _strip_our_sections(text: str) -> str:
         stripped = line.strip()
         is_ours = (
             stripped in _OUR_SECTION_HEADERS
-            or stripped.startswith(_HOOK_STATE_PREFIX)
+            or (include_hook_state and stripped.startswith(_HOOK_STATE_PREFIX))
         )
         if is_ours:
             # Drop this section: header + body until the next REAL
@@ -466,7 +466,7 @@ def _backup_config_toml_once() -> None:
         )
 
 
-def _register_in_config_toml(staging_dir: Path) -> None:
+def _register_in_config_toml(staging_dir: Path, clear_hook_trust: bool = True) -> None:
     """Add (or replace) our marketplace + plugin sections in config.toml.
 
     Idempotent: re-running while sections are already present strips the
@@ -479,7 +479,7 @@ def _register_in_config_toml(staging_dir: Path) -> None:
         "+00:00", "Z"
     )
     existing = _read_codex_config_toml()
-    cleaned = _strip_our_sections(existing) if existing else ""
+    cleaned = _strip_our_sections(existing, include_hook_state=clear_hook_trust) if existing else ""
     # If the file was empty and the user has no other config, omit the
     # leading newline so we don't write a stray blank line at the top.
     new_section = _format_our_sections(staging_dir, now_iso)
@@ -588,6 +588,40 @@ def _codex_install_path(version: str) -> Path:
     return CODEX_PLUGIN_CACHE_ROOT / MARKETPLACE_SLUG / PLUGIN_NAME / version
 
 
+def _previous_hooks_json(install_path: Path) -> Optional[bytes]:
+    """The hooks.json of the plugin already installed: the same version's
+    if present, else the most recently changed installed version's."""
+    candidates = []
+    same = install_path / "hooks" / "hooks.json"
+    if same.is_file():
+        candidates.append(same)
+    else:
+        try:
+            for d in install_path.parent.iterdir():
+                f = d / "hooks" / "hooks.json"
+                if d.is_dir() and not d.name.endswith(".tmp") and f.is_file():
+                    candidates.append(f)
+        except OSError:
+            pass
+        candidates.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    for f in candidates[:1]:
+        try:
+            return f.read_bytes()
+        except OSError:
+            return None
+    return None
+
+
+def _hooks_changed(plugin_src: Path, install_path: Path) -> bool:
+    """True unless the staged hooks.json is byte-identical to the installed one."""
+    try:
+        new = (plugin_src / "hooks" / "hooks.json").read_bytes()
+    except OSError:
+        return True
+    previous = _previous_hooks_json(install_path)
+    return previous is None or previous != new
+
+
 def _auto_install_to_codex_cache(version: str) -> Optional[Path]:
     """Copy the plugin into Codex's cache + register in config.toml.
 
@@ -623,6 +657,10 @@ def _auto_install_to_codex_cache(version: str) -> Optional[Path]:
         )
         return None
 
+    # 0. Whether the hooks change: Codex trusts each hook by hash, so only
+    #    a changed hooks.json needs the user's approval again.
+    hooks_changed = _hooks_changed(plugin_src, install_path)
+
     # 1. Copy the plugin tree into the cache. Two-step `tmp → os.replace`
     #    prevents Codex from seeing a half-populated dir mid-copy.
     tmp_install_path = install_path.parent / f"{install_path.name}.tmp"
@@ -637,7 +675,7 @@ def _auto_install_to_codex_cache(version: str) -> Optional[Path]:
     # 2. Register in config.toml. Idempotent — re-running just refreshes
     #    the `last_updated` timestamp and re-asserts `enabled = true`.
     try:
-        _register_in_config_toml(STAGING_DIR)
+        _register_in_config_toml(STAGING_DIR, clear_hook_trust=hooks_changed)
     except Exception:
         # Roll back the cache copy so we don't leave files without
         # config.toml registration. Best-effort: a failure here is
@@ -808,6 +846,13 @@ async def plugin_status():
     )
 
 
+# Codex keeps a trusted hash per hook, so a new or updated Guard runs only
+# after the person approves its hooks in Codex.
+CODEX_HOOK_APPROVAL_STEP = (
+    "Codex asks you to approve the updated SecureVector hooks once. Open Codex and accept them."
+)
+
+
 @router.post("/install", response_model=InstallResponse, dependencies=[Depends(require_local_origin)])
 async def install_plugin():
     """Stage the plugin tree + auto-install into ~/.codex if present.
@@ -837,7 +882,7 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"Codex plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "The bundled plugin assets are missing from the installed package — "
+                "The bundled plugin assets are missing from the installed package. "
                 "verify setup.py:package_data and MANIFEST.in include "
                 "plugins/codex/**/* and plugins/codex/.codex-plugin/*."
             ),
@@ -868,8 +913,8 @@ async def install_plugin():
             codex_install_path=str(install_path),
             enabled=_is_enabled_in_config_toml(),
             next_step=(
-                "Start a new Codex session — the plugin loads on next launch. "
-                "Codex will prompt you to trust SecureVector Guard hooks on first run."
+                "Start a new Codex session. The plugin loads on next launch. "
+                + CODEX_HOOK_APPROVAL_STEP
             ),
         )
 
@@ -884,7 +929,7 @@ async def install_plugin():
         auto_installed=False,
         codex_install_path=None,
         enabled=False,
-        next_step=None,
+        next_step=CODEX_HOOK_APPROVAL_STEP,
     )
 
 

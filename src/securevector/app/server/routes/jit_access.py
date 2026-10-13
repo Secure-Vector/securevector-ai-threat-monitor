@@ -53,6 +53,27 @@ router = APIRouter()
 # cannot approve.)
 _UI_TOKEN = secrets.token_hex(16)
 
+# Per-run page cookie: set on the served web UI page (HttpOnly,
+# SameSite=Strict), and required, with the same-origin checks below, before
+# /jit/ui-token hands out the token.
+UI_PAGE_COOKIE = "sv_ui_page"
+UI_PAGE_COOKIE_PATH = "/api/jit"
+_UI_PAGE_SECRET = secrets.token_hex(24)
+
+
+def set_ui_page_cookie(response):
+    """Attach the page cookie to a response that serves the web UI page."""
+    response.set_cookie(UI_PAGE_COOKIE, _UI_PAGE_SECRET, httponly=True, samesite="strict",
+                        path=UI_PAGE_COOKIE_PATH)
+    return response
+
+
+def _ui_page_cookie_ok(request: Request) -> bool:
+    value = request.cookies.get(UI_PAGE_COOKIE)
+    if not value:
+        return False
+    return secrets.compare_digest(value.encode("utf-8", "surrogateescape"), _UI_PAGE_SECRET.encode("utf-8"))
+
 
 def _require_ui_token(token: Optional[str]) -> None:
     if not isinstance(token, str) or not token or not secrets.compare_digest(
@@ -141,7 +162,7 @@ def _browser_same_origin(request: Request) -> bool:
 @router.get("/jit/ui-token")
 async def get_ui_token(request: Request):
     """Per-run token the web UI attaches to decision calls."""
-    if not _browser_same_origin(request):
+    if not _browser_same_origin(request) or not _ui_page_cookie_ok(request):
         raise HTTPException(status_code=403, detail="The UI token is for the local web UI only")
     return {"token": _UI_TOKEN}
 
@@ -151,6 +172,14 @@ async def create_request(body: JitRequestCreate):
     """File a JIT access request (the agent-facing surface)."""
     # Host approvals are filed by the egress evaluator itself, for a block it
     # just decided.
+    # Delegation approvals are filed by the delegate route, after its checks.
+    if body.tool_id.startswith("delegate:"):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "not_requestable",
+                    "message": "Delegation approvals are filed by the delegate tool, "
+                               "not requested directly."},
+        )
     if body.tool_id.startswith("egress:"):
         raise HTTPException(
             status_code=403,
@@ -243,12 +272,22 @@ async def list_requests(
 async def approve_request(
     request_id: str,
     body: JitApprove,
+    request: Request,
     x_sv_ui_token: Optional[str] = Header(None),
 ):
     _require_ui_token(x_sv_ui_token)
     try:
         db = get_database()
         repo = JitAccessRepository(db)
+        # A delegation request launches its task on approval; no grant.
+        pending = await repo.get_request(request_id)
+        if pending and pending.get("rule_source") == "delegate":
+            from securevector.app.services import delegation
+            manager = getattr(getattr(request.app, "state", None), "terminal_manager", None)
+            out = await delegation.approve(db, manager, request_id)
+            if out is None:
+                raise HTTPException(status_code=404, detail="No such pending request")
+            return {"delegation": out}
         try:
             grant = await repo.approve_request(request_id, body.duration)
         except ValueError as ve:
@@ -271,11 +310,20 @@ async def approve_request(
 async def deny_request(
     request_id: str,
     body: JitDeny,
+    request: Request,
     x_sv_ui_token: Optional[str] = Header(None),
 ):
     _require_ui_token(x_sv_ui_token)
     try:
         db = get_database()
+        pending = await JitAccessRepository(db).get_request(request_id)
+        if pending and pending.get("rule_source") == "delegate":
+            from securevector.app.services import delegation
+            manager = getattr(getattr(request.app, "state", None), "terminal_manager", None)
+            out = await delegation.deny(db, manager, request_id, body.reason)
+            if out is None:
+                raise HTTPException(status_code=404, detail="No such pending request")
+            return {"denied": True, "delegation": out}
         ok = await JitAccessRepository(db).deny_request(request_id, body.reason)
         if not ok:
             raise HTTPException(status_code=404, detail="No such pending request")

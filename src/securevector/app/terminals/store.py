@@ -189,8 +189,19 @@ class TerminalStore:
         status: str = "starting",
         session_id: Optional[str] = None,
         activity: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
     ) -> None:
         now = _now()
+        if parent_task_id is not None:
+            # A delegated task names the task that asked for it.
+            await self.db.execute(
+                "INSERT INTO terminal_tasks "
+                "(id, executor_id, workspace, title, status, session_id, pid, activity, origin, created_at, "
+                "parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, executor_id, workspace, title, status, session_id, pid,
+                 activity[:200] if activity else None, origin, now, parent_task_id),
+            )
+            return
         await self.db.execute(
             "INSERT INTO terminal_tasks "
             "(id, executor_id, workspace, title, status, session_id, pid, activity, origin, created_at) "
@@ -208,6 +219,26 @@ class TerminalStore:
                 now,
             ),
         )
+
+    async def parent_for_session(self, session_id: str) -> Optional[str]:
+        """The parent of a delegated task that carried this session, if any."""
+        try:
+            row = await self.db.fetch_one(
+                "SELECT parent_task_id FROM terminal_tasks WHERE session_id = ? AND parent_task_id IS NOT NULL "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (session_id,),
+            )
+        except Exception:  # a database from before the column existed
+            return None
+        return row["parent_task_id"] if row else None
+
+    async def children_of(self, parent_task_id: str) -> list[dict[str, Any]]:
+        """Tasks launched by delegation from this parent, oldest first."""
+        rows = await self.db.fetch_all(
+            "SELECT * FROM terminal_tasks WHERE parent_task_id = ? ORDER BY created_at ASC, rowid ASC",
+            (parent_task_id,),
+        )
+        return [dict(r) for r in rows]
 
     async def task_for_session(self, session_id: str) -> Optional[dict[str, Any]]:
         """The live (non-archived) task already carrying this session id.

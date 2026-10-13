@@ -119,6 +119,7 @@ const TerminalsPage = {
               <div class="terminals-tasks-head">
                 <div class="terminals-tasks-actions">
                   <input class="terminals-task-search" id="terminals-task-search" type="search" placeholder="Find a task" aria-label="Find a task" title="Filters the tasks below as you type. Clear this box to show every task again.">
+                  <button class="btn btn-sm terminals-settings-btn" id="terminals-settings-btn" type="button" aria-haspopup="dialog">${this.GEAR_SVG}<span>Settings</span></button>
                   <button class="btn btn-primary btn-sm terminals-launch-button" id="terminals-launch-btn">+ Launch</button>
                 </div>
               </div>
@@ -149,7 +150,7 @@ const TerminalsPage = {
                 <div class="terminals-executor-hint" id="terminals-executor-hint" hidden></div>
                 <div class="terminals-guard-row" id="terminals-guard-row" hidden>
                   <span class="terminals-guard-text" id="terminals-guard-text"></span>
-                  <button type="button" class="btn btn-sm btn-primary" id="terminals-guard-install">Install SecureVector Guard</button>
+                  <button type="button" class="btn btn-sm btn-primary" id="terminals-guard-install">Install</button>
                   <button type="button" class="btn btn-sm" id="terminals-guard-recheck" hidden>Check again</button>
                 </div>
                 <pre class="terminals-guard-commands" id="terminals-guard-commands" hidden></pre>
@@ -191,7 +192,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             </section>
             <div class="terminals-gov-edge" id="terminals-gov-edge">
               <div class="terminals-gov-gutter" id="terminals-gov-gutter" role="separator" aria-orientation="vertical" aria-label="Resize the governance column" tabindex="0"></div>
-              <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body" aria-label="Collapse governance activity"><span class="terminals-governance-caret" aria-hidden="true"></span></button>
+              <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="false" aria-controls="terminals-governance-body" aria-label="Expand governance activity"><span class="terminals-governance-caret" aria-hidden="true"></span></button>
             </div>
             <section class="terminals-governance" id="terminals-governance">
               <div class="terminals-governance-head" id="terminals-governance-head">
@@ -250,6 +251,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (gen !== this._gen) return;
             this._executors = ex.items || [];
             this._renderExecutorOptions(container);
+            this._restoreLaunchDraft(container);
             this._renderGuardBanner();
         } catch (e) {
             console.warn('Terminals: executors unavailable', e);
@@ -260,8 +262,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (gen !== this._gen) return;
         await this._refreshTasks();
         if (gen !== this._gen) return;
+        this._maybeOpenSettings();
         this._pollTimer = setInterval(() => this._refreshTasks(), 3000);
-        this._railTimer = setInterval(() => { this._refreshRail(); this._refreshPaneGov(); }, 4000);
+        this._railTimer = setInterval(() => { this._refreshRail(); this._refreshPaneGov(); this._tickTimes(); }, 4000);
     },
 
     destroy() {
@@ -316,16 +319,96 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     // --- task strip -----------------------------------------------------
 
+    GEAR_SVG: '<svg class="terminals-gear" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h0a1.6 1.6 0 0 0 1-1.5V5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v0a1.6 1.6 0 0 0 1.5 1H19a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>',
+
+    /** The Agent Sessions settings panel: Delegation and Response rungs, using
+     *  the app's modal. Esc and the close button dismiss it. */
+    openSettings() {
+        if (!window.Modal || typeof document === 'undefined') return;
+        const body = document.createElement('div');
+        body.className = 'terminals-settings-panel';
+        body.setAttribute('data-sessions-settings', '');
+        const section = (title, introHtml, attr) => {
+            const sec = document.createElement('section');
+            sec.className = 'terminals-settings-section';
+            const h = document.createElement('h3');
+            h.textContent = title;
+            sec.appendChild(h);
+            const intro = document.createElement('div');
+            intro.innerHTML = introHtml;
+            sec.appendChild(intro);
+            const host = document.createElement('div');
+            host.setAttribute(attr, '');
+            sec.appendChild(host);
+            body.appendChild(sec);
+            return host;
+        };
+        if (window.DelegationUI && API.getDelegationPolicy) {
+            const host = section('Delegation', DelegationUI.introHtml(), 'data-delegation-settings');
+            DelegationUI.wireIntro(host.previousSibling || host.parentNode);
+            DelegationUI.renderCard(host, API);
+        }
+        if (window.ResponseRungs && API.terminalsRungModes) {
+            const host = section('Response rungs', `<p class="deleg-intro">${this._esc(ResponseRungs.INTRO)}</p>`, 'data-rung-settings');
+            ResponseRungs.renderCard(host, API);
+        }
+        Modal.show({ title: 'Agent Sessions settings', content: body, size: 'large' });
+    },
+
+    /** Opens the panel when asked for by the Settings page or a deep link. */
+    _maybeOpenSettings() {
+        let want = false;
+        try {
+            if (sessionStorage.getItem('sv-sessions-settings') === '1') { sessionStorage.removeItem('sv-sessions-settings'); want = true; }
+        } catch (e) { /* storage unavailable */ }
+        try {
+            const loc = window.location || {};
+            if (/(^|[?&])settings=1(&|$)/.test(String(loc.search || '').replace(/^\?/, '')) || /[?&]settings=1(&|$)/.test(String(loc.hash || ''))) want = true;
+        } catch (e) { /* no location */ }
+        if (want) setTimeout(() => this.openSettings(), 0);
+    },
+
+    /** Remember the launch form: open or not, harness and typed fields. */
+    _saveLaunchDraft(container) {
+        const form = container.querySelector('#terminals-launch');
+        if (!form) return;
+        const val = (id) => { const n = container.querySelector(`#${id}`); return n ? n.value : ''; };
+        this._launchDraft = form.hidden ? null : {
+            executor: val('terminals-executor'), workspace: val('terminals-workspace'),
+            title: val('terminals-title'), session: val('terminals-session-id'),
+        };
+    },
+
+    /** Put the remembered form back after the page was rebuilt. */
+    _restoreLaunchDraft(container) {
+        const d = this._launchDraft;
+        const form = container.querySelector('#terminals-launch');
+        if (!d || !form) return;
+        form.hidden = false;
+        const set = (id, v) => { const n = container.querySelector(`#${id}`); if (n && v) n.value = v; };
+        const sel = container.querySelector('#terminals-executor');
+        if (sel && d.executor && Array.from(sel.options || []).some(o => o.value === d.executor && !o.disabled)) {
+            sel.value = d.executor;
+            this._showExecutorState(container);
+        }
+        set('terminals-workspace', d.workspace);
+        set('terminals-title', d.title);
+        set('terminals-session-id', d.session);
+    },
+
     _bindLaunchForm(container) {
+        const sBtn = container.querySelector('#terminals-settings-btn');
+        if (sBtn) sBtn.onclick = () => this.openSettings();
         const form = container.querySelector('#terminals-launch');
         container.querySelector('#terminals-launch-btn').onclick = () => {
             form.hidden = !form.hidden;
+            this._saveLaunchDraft(container);
             if (!form.hidden) {
                 container.querySelector('#terminals-workspace').focus();
                 this._checkFolderTrust(container);
             }
         };
-        container.querySelector('#terminals-launch-cancel').onclick = () => { form.hidden = true; };
+        container.querySelector('#terminals-launch-cancel').onclick = () => { form.hidden = true; this._launchDraft = null; };
         const modeLaunch = container.querySelector('#terminals-mode-launch');
         const modeLink = container.querySelector('#terminals-mode-link');
         if (modeLaunch) modeLaunch.onclick = () => this._setLaunchMode(container, 'launch');
@@ -343,16 +426,27 @@ ${this.CLI_BIN} stop &lt;id&gt;
             node.onchange = () => { this._renderCliHint(container); this._checkFolderTrust(container); };
         }
         this._renderCliHint(container);
-        const guardInstall = container.querySelector('#terminals-guard-install');
-        if (guardInstall) guardInstall.onclick = () => {
-            const sel = container.querySelector('#terminals-executor');
-            if (sel && sel.value) this._installGuard(sel.value, container);
-        };
-        const guardRecheck = container.querySelector('#terminals-guard-recheck');
-        if (guardRecheck) guardRecheck.onclick = () => {
-            const sel = container.querySelector('#terminals-executor');
-            if (sel && sel.value) this._recheckGuard(sel.value, container);
-        };
+        // Install and Check again are handled by one listener on the container,
+        // bound once: the buttons can be re-created by a re-render, and a
+        // handler on the node itself would be lost with it.
+        if (!container._guardDelegated) {
+            container._guardDelegated = true;
+            container.addEventListener('click', (ev) => {
+                let node = ev.target;
+                if (node && node.nodeType === 3) node = node.parentElement;
+                const hit = node && node.closest ? node.closest('#terminals-guard-install, #terminals-guard-recheck') : null;
+                if (!hit) return;
+                ev.preventDefault();
+                const sel = container.querySelector('#terminals-executor');
+                if (!sel || !sel.value) return;
+                if (hit.id === 'terminals-guard-install') this._installGuard(sel.value, container);
+                else this._recheckGuard(sel.value, container);
+            });
+        }
+        // The open form and what was typed survive a re-render of the page.
+        const keep = () => this._saveLaunchDraft(container);
+        form.addEventListener('input', keep);
+        form.addEventListener('change', keep);
         form.onsubmit = async (ev) => {
             ev.preventDefault();
             if (this._mode === 'link') { await this._submitLink(container); return; }
@@ -367,6 +461,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             try {
                 const task = await API.terminalsLaunch(executor, workspace, title);
                 form.hidden = true;
+                this._launchDraft = null;
                 await this._refreshTasks();
                 if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
                 await this._attach(task.id);
@@ -1031,8 +1126,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  with no data are left out. Only a blocked count above zero is coloured. */
     _factsHtml(t) {
         const parts = [];
-        const cost = this._fmtSpend(t.spend_usd);
-        if (cost) parts.push(`<span class="terminals-task-spend" title="${this._esc(String(t.spend_requests || 0))} priced request(s) for this session">${this._esc(cost)}</span>`);
+        // A parent that delegated shows its spend rolled up over its children.
+        const rolled = typeof t.spend_total_usd === 'number';
+        const cost = this._fmtSpend(rolled ? t.spend_total_usd : t.spend_usd);
+        if (cost) parts.push(`<span class="terminals-task-spend" title="${rolled ? 'Including delegated sessions' : this._esc(String(t.spend_requests || 0)) + ' priced request(s) for this session'}">${this._esc(cost)}</span>`);
         if (typeof t.tool_calls === 'number') parts.push(`<span class="terminals-task-calls">${this._esc(t.tool_calls)} ${t.tool_calls === 1 ? 'call' : 'calls'}</span>`);
         if (typeof t.blocked_calls === 'number') {
             parts.push(`<span class="terminals-task-blocked${t.blocked_calls > 0 ? ' is-danger' : ''}">${this._esc(t.blocked_calls)} blocked</span>`);
@@ -1098,7 +1195,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return groups.get(name);
         };
         {
-            for (const t of byFolder) {
+            // Delegated children follow their parent, in the parent's folder.
+            const nested = window.DelegationUI ? DelegationUI.nest(byFolder) : { list: byFolder, parentOf: new Map(), kidsOf: new Map() };
+            const folded = window.DelegationUI ? DelegationUI.collapsed() : new Set();
+            const visibleList = window.DelegationUI ? DelegationUI.visible(nested, folded, this._attached) : nested.list;
+            for (const t of visibleList) {
+                const deleg = nested.parentOf.get(t.id) || null;
+                const kidCount = (nested.kidsOf.get(t.id) || []).length;
+                const delegPos = deleg ? DelegationUI.position(nested, t) : null;
+                const lookup = deleg || (t.parent_task_id ? (this._tasks || []).find(x => x.id === t.parent_task_id) || null : null);
                 const active = t.id === this._attached ? ' is-attached' : '';
                 const state = this._taskState(t);
                 // A linked session that ended can carry the folder placeholder
@@ -1170,12 +1275,19 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const drLink = this._drLinkHtml(t, 'terminals-task-dr');
                 const branch = typeof t.branch === 'string' && t.branch
                     ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
-                const grp = cardsOf(t);
+                const grp = cardsOf(deleg || t);
                 if (t.id === this._attached) grp.attached = true;
-                grp.cards.push(`
-                  <article class="terminals-task${active}" data-id="${this._esc(t.id)}">
+                const cross = deleg && DelegationUI.crossAgent(t.executor_id, deleg.executor_id);
+                const delegFrom = window.DelegationUI && (deleg || t.parent_task_id)
+                    ? DelegationUI.fromHtml(t, lookup, !!deleg).replace('</div>', (cross ? ' ' + DelegationUI.crossHtml() : '') + '</div>') : '';
+                const delegLine = window.DelegationUI ? DelegationUI.summaryLineHtml(t, kidCount, folded.has(t.id)) : '';
+                const wrapOpen = delegPos ? `<div class="deleg-child is-${delegPos}">` : '';
+                const wrapClose = delegPos ? '</div>' : '';
+                grp.cards.push(`${wrapOpen}
+                  <article class="terminals-task${active}${deleg ? ' is-delegated' : ''}" data-id="${this._esc(t.id)}">
+                    ${delegFrom}
                     <button class="terminals-task-select" data-id="${this._esc(t.id)}" aria-label="Open ${this._esc(t.title || this._label(t.executor_id))}">
-                      <span class="terminals-task-title-row">${window.TaskAvatar ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 44 }) : ''}<span class="terminals-task-title">${this._esc(t.title || this._label(t.executor_id))}</span>${t.origin === 'linked' ? '<span class="terminals-task-linked">linked</span>' : ''}</span>
+                      <span class="terminals-task-title-row">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: state.kind, size: 44 })) : ''}<span class="terminals-task-title">${this._esc(t.title || this._label(t.executor_id))}</span>${t.origin === 'linked' ? '<span class="terminals-task-linked">linked</span>' : ''}</span>
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
                       ${doing}
                       <span class="terminals-task-folder" title="${this._esc(t.workspace || 'This session never reported a working folder')}">${this._esc(this._knownWorkspace(t.workspace) ? this._shortPath(this._knownWorkspace(t.workspace)) : 'Folder not reported')}</span>
@@ -1183,8 +1295,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       ${facts}
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
+                    ${delegLine}
                     ${relaunch || removable || drLink ? `<div class="terminals-task-actions">${drLink}${relaunch}${removable}</div>` : ''}
-                  </article>`);
+                  </article>${wrapClose}`);
             }
         }
         const collapsed = this._collapsedFolders();
@@ -1222,6 +1335,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 this._renderTaskList();
             };
         });
+        if (window.DelegationUI) DelegationUI.wireBoard(el, () => this._renderTaskList());
+        if (window.ConfigTrust) ConfigTrust.bindChips(el);
         el.querySelectorAll('.terminals-task-select').forEach(b => {
             b.onclick = () => {
                 // The click that ends a card drag belongs to the drag, not to
@@ -1330,6 +1445,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (t.governed_at_launch === false) {
             return { kind: 'ungoverned', label: 'not governed', detail: 'Launched without SecureVector Guard: its calls are not being checked or recorded' };
         }
+        if (t.guard_warning) {
+            return { kind: 'ungoverned', label: 'Guard not reporting', detail: String(t.guard_warning) };
+        }
         return { kind: 'governed', label: 'governed', detail: 'Launched with SecureVector Guard in place: every call is checked and recorded' };
     },
 
@@ -1437,7 +1555,27 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return this._ago(/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v : v.replace(' ', 'T') + 'Z');
     },
 
+    /** Avatar options for a task: a delegated child gets the junior variant. */
+    _avatarOpts(t, base) {
+        if (!t || !t.parent_task_id) return base;
+        const parent = (this._tasks || []).find(x => x.id === t.parent_task_id) || null;
+        return Object.assign({}, base, {
+            delegated: true,
+            parentTitle: parent ? (parent.title || parent.executor_id) : '',
+            cross: !!parent && !!t.executor_id && parent.executor_id !== t.executor_id,
+        });
+    },
+
+    _approvalIso(iso) {
+        const v = String(iso || '');
+        return v && !/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v.replace(' ', 'T') + 'Z' : v;
+    },
+
     _approvalHtml(r, other) {
+        if (window.DelegationUI && DelegationUI.isDelegate(r)) {
+            const pid = DelegationUI.parseRequest(r).taskId;
+            return DelegationUI.inboxHtml(r, (this._tasks || []).find(t => t.id === pid) || null, this._whenHtml(this._approvalIso(r.requested_at)));
+        }
         const ago = this._approvalAgo(r.requested_at);
         const noSession = !r.session_id;
         const sid = noSession ? 'no session' : 'session ' + String(r.session_id).slice(0, 8);
@@ -1447,7 +1585,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const label = host ? `Connect to ${host}` : (r.function_name || r.tool_id);
         return `
               <div class="terminals-approval" data-id="${this._esc(r.id)}">
-                <div class="terminals-approval-tool">${this._esc(label)}${ago ? ` <span class="terminals-approval-when">${this._esc(ago)}</span>` : ''}</div>
+                <div class="terminals-approval-tool"><span class="terminals-approval-label" title="${this._esc(label)}" aria-label="${this._esc(label)}">${this._esc(label)}</span>${this._whenHtml(this._approvalIso(r.requested_at))}</div>
                 ${host && r.function_name ? `<div class="terminals-approval-when">Rule <code>${this._esc(r.function_name)}</code> · approval applies to this session only</div>` : ''}
                 <div class="terminals-approval-why">${this._esc(r.justification || 'No justification given')}</div>
                 ${other ? `<div class="terminals-approval-when">${this._esc(sid)}</div>` : ''}
@@ -1548,8 +1686,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
     GOV_STRIP_W: 34,      // the collapsed strip, matching the CSS
     GOV_STEP: 24,         // px an arrow key moves the column edge
     _govWidth: 0,         // px; 0 until restored or defaulted
-    _govCollapsed: false, // effective state, expanded until the person collapses it
+    _govCollapsed: true,  // effective state, collapsed until the person expands it
     _govUserSet: false,   // true once the person has clicked the toggle
+    _govAutoOpen: false,  // the page opened the column (approval Review); never persisted
     _govSections: null,   // per-section open state, once anything is remembered
     _govApplied: null,    // the last value the page knows about, per section
     _govStacked: false,   // phone viewport: the media query stacks the column
@@ -2177,7 +2316,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const name = t ? (t.title || this._label(t.executor_id)) : 'No task';
             const on = id === rec.taskId;
             const avatar = t && window.TaskAvatar
-                ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 16 })
+                ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: state.kind, size: 16 }))
                 : '';
             const live = state && state.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : '';
             // The tab is the wrapper, not the button inside it: a tablist
@@ -2222,7 +2361,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
         rec.headEl.hidden = false;
         const avatar = t && window.TaskAvatar
-            ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 16 })
+            ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: state.kind, size: 16 }))
             : '';
         const live = state && state.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : '';
         const named = group.length > 1
@@ -2685,7 +2824,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             : `<button type="button" class="terminals-linked-unlink btn btn-sm" data-linked-unlink="${this._esc(task.id)}" title="Stop governing this session; it keeps running in your own terminal and the audit record remains">Unlink this session</button>`;
         return `
               <div class="terminals-linked-stage">
-                <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
+                <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(task, { id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 })) : ''}</div>
                 <h3>Runs outside SecureVector</h3>
                 <p>This session was started in your own terminal. There is no terminal here; governance is live.</p>
                 ${note}
@@ -2802,7 +2941,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (rec.bannerEl) rec.bannerEl.hidden = true;
         rec.stageEl.innerHTML = `
           <div class="terminals-ended-stage">
-            <div class="terminals-ended-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
+            <div class="terminals-ended-bot">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(task, { id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 })) : ''}</div>
             <h3>This session has ended</h3>
             <p class="terminals-ended-who">${this._esc(name)} · ${this._esc(this._label(task.executor_id))} · ${this._esc(this._folderName(task))}</p>
             <p class="terminals-ended-exit">${this._esc(exitLine)}</p>
@@ -2940,6 +3079,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             approvals,
             drift,
             rung: window.ResponseRungs ? ResponseRungs.summaryData(d.rung) : null,
+            deleg: window.DelegationUI ? DelegationUI.summaryData(d.deleg) : null,
             setup: d.setup && typeof d.setup === 'object' && d.setup.state && d.setup.state !== 'unchecked' ? d.setup : null,
         };
     },
@@ -2970,6 +3110,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
         const dr = this._drLinkHtml({ id: s.task_id, drift_score: 0 }, 'terminals-summary-dr');
         if (s.drift) out.push(row('Drift', this._driftHtml(s.drift) + (typeof s.drift.score === 'number' ? dr : '')));
+        if (s.deleg && window.DelegationUI) out.push(row('Delegations', `<span data-deleg-cell>${DelegationUI.summaryHtml(s.deleg)}</span>`));
         if (s.rung && window.ResponseRungs) out.push(row('Response', `<span data-rung-cell>${ResponseRungs.summaryHtml(s.rung, !!s.ended_at)}</span>`));
         if (s.setup && window.ConfigTrust) out.push(row('Setup', ConfigTrust.summaryHtml(s.setup) + dr));
         if (s.approvals.approved + s.approvals.denied > 0) {
@@ -3011,13 +3152,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
     async _summaryLoad(task) {
         const sid = task.session_id;
         const soft = (f) => { try { return Promise.resolve(f()).catch(() => null); } catch (e) { return Promise.resolve(null); } };
-        const [verdicts, egress, jit, drift, setup, rung] = await Promise.all([
+        const [verdicts, egress, jit, drift, setup, rung, deleg] = await Promise.all([
             soft(() => API.terminalsVerdicts(task.id)),
             sid && API.getEgressSessionDestinations ? soft(() => API.getEgressSessionDestinations(sid)) : null,
             sid && API.getJitRequests ? soft(() => API.getJitRequests()) : null,
             sid && API.terminalsDrift ? soft(() => API.terminalsDrift(task.id)) : null,
             API.configTrustSession ? soft(() => API.configTrustSession(task.id)) : null,
             sid && API.terminalsRung ? soft(() => API.terminalsRung(task.id)) : null,
+            API.terminalsDelegations && !task.parent_task_id ? soft(() => API.terminalsDelegations(task.id)) : null,
         ]);
         let health = null;
         if (sid && API.getTraceHealth) {
@@ -3030,7 +3172,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (run && run.trace_id) health = await soft(() => API.getTraceHealth(run.trace_id));
         }
         const live = sid ? ((this._optLive && this._optLive.sessions) || []).find(x => x.session_id === sid) : null;
-        return this._summaryBuild(task, { verdicts, egress, health, jit, drift, setup, rung, model: live && live.model });
+        return this._summaryBuild(task, { verdicts, egress, health, jit, drift, setup, rung, deleg, model: live && live.model });
     },
 
     /** Fill `host` with the task's summary and wire its Export and findings link. */
@@ -3053,6 +3195,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         };
         const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
         if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
+        if (s.deleg && window.DelegationUI) {
+            DelegationUI.wire(host, API, () => this._summaryFill(host, task));
+        }
         if (s.rung && window.ResponseRungs) {
             ResponseRungs.wire(host, task, s.rung, API, async (tk) => {
                 await (API.terminalsStopFromRung || API.terminalsStop).call(API, tk.id);
@@ -4137,14 +4282,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     /** The one place that decides collapsed or expanded.
      *
-     *  Governance is expanded by default: the activity is the point of the
-     *  page, and a panel that hides itself until a task attaches is a panel
-     *  people never learn they have. Once the person clicks the toggle their
-     *  choice wins in both directions, attached or not. */
+     *  Governance starts collapsed to keep the page quiet. Once the person
+     *  clicks the toggle their choice wins in both directions, attached or not. */
     _syncGovDock() {
         this._syncGovLayoutMode();
         const { dock, edge, gutter, toggle, body } = this._govEls();
-        const collapsed = this._govUserSet ? !!this._govCollapsed : false;
+        const collapsed = this._govUserSet ? !!this._govCollapsed : !this._govAutoOpen;
         this._govCollapsed = collapsed;
         if (!this._govWidth) this._govWidth = this.GOV_DEFAULT_W;
         // What is on screen: in overlay mode that is the strip unless the
@@ -4251,6 +4394,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (this._govOverlay) { this._setGovOverlayOpen(true); return; }
         if (!this._govCollapsed) return;
         this._govCollapsed = false;
+        this._govAutoOpen = true;
         if (this._govUserSet) this._govUserSet = false;
         this._syncGovDock();
         this._fitAll();
@@ -4405,7 +4549,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const store = this._store();
         this._govWidth = this.GOV_DEFAULT_W;
         this._govUserSet = false;
-        this._govCollapsed = false;
+        this._govAutoOpen = false;
+        this._govCollapsed = true;
         if (!store) return;
         try {
             const raw = store.getItem(this.GOV_KEY);
@@ -4812,13 +4957,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const st = this._taskState(x);
             const name = x.title || this._label(x.executor_id);
             const isActive = x.id === this._attached;
-            return `<button type="button" class="terminals-pane-tab${isActive ? ' is-active' : ''}" role="tab" data-id="${this._esc(x.id)}" aria-selected="${isActive ? 'true' : 'false'}" title="${this._esc(name + ' · ' + this._label(x.executor_id))}">${window.TaskAvatar ? TaskAvatar.html({ id: x.id, harness: x.executor_id, state: st.kind, size: 18 }) : ''}<span class="terminals-pane-tab-title">${this._esc(name)}</span>${st.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : ''}</button>`;
+            return `<button type="button" class="terminals-pane-tab${isActive ? ' is-active' : ''}" role="tab" data-id="${this._esc(x.id)}" aria-selected="${isActive ? 'true' : 'false'}" title="${this._esc(name + ' · ' + this._label(x.executor_id))}">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(x, { id: x.id, harness: x.executor_id, state: st.kind, size: 18 })) : ''}<span class="terminals-pane-tab-title">${this._esc(name)}</span>${st.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : ''}</button>`;
         }).join('');
         head.innerHTML = `
           ${tabbed ? `<div class="terminals-pane-tabs" role="tablist" aria-label="Running tasks">${tabs}</div>` : ''}
           <div class="terminals-pane-tab-actions">${tabbed && overflow ? `<button type="button" class="terminals-pane-tab terminals-pane-tab-more" title="Show all tasks">+${overflow}</button>` : ''}<button type="button" class="terminals-pane-tab terminals-pane-tab-new" title="Launch a task" aria-label="Launch a task">+</button></div>
           <span class="terminals-head-spacer"></span>
           ${soloId ? `<span class="terminals-head-pane-gov" id="terminals-head-pane-gov"></span><span class="terminals-head-pane-acts" id="terminals-head-pane-acts">${this._paneActButtons(this._chords())}</span>` : ''}
+          <button class="btn btn-sm terminals-settings-btn" id="terminals-pane-settings-btn" type="button" aria-haspopup="dialog">${this.GEAR_SVG}<span>Settings</span></button>
           <button class="btn btn-sm" id="terminals-all-tasks-btn">All tasks</button>
           ${panes > 1 ? '<button class="btn btn-sm" id="terminals-even-panes-btn" title="Give every pane an equal share; no task is closed or detached">Even panes</button>' : ''}
           ${stoppable.length > 1
@@ -4836,6 +4982,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // launch, not the attached task. Bring the attached tab into view.
         this._revealActiveTab(head);
         const showAllTasks = () => this.showAllTasks();
+        const paneSettings = head.querySelector('#terminals-pane-settings-btn');
+        if (paneSettings) paneSettings.onclick = () => this.openSettings();
         const allTasksBtn = head.querySelector('#terminals-all-tasks-btn');
         if (allTasksBtn) allTasksBtn.onclick = showAllTasks;
         // The way back from slivers: a layout dragged or split into unusable
@@ -5364,9 +5512,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
               <div class="terminals-verdict terminals-verdict-${kind}">
                 <span class="terminals-dot sv-status-${dot}"></span>
                 <span class="terminals-verdict-main">
-                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}${this._isToolError(i) && i.action !== 'block' ? ' · tool error' : ''}</span></span>
+                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool" title="${this._esc(i.function_name || i.tool_id)}" aria-label="${this._esc(i.function_name || i.tool_id)}">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}${this._isToolError(i) && i.action !== 'block' ? ' · tool error' : ''}</span></span>
                   ${this._verdictReason(i) ? `<span class="terminals-verdict-reason">${this._esc(this._verdictReason(i))}</span>` : ''}
                 </span>
+                ${this._whenHtml(i.called_at)}
               </div>`;
             }).join('') : '<span class="terminals-empty">No tool calls yet.</span>';
             setCount('terminals-verdicts-count', listed.length);
@@ -5623,7 +5772,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (!empty) { show(false); return; }
         show(true);
         if (bot) bot.innerHTML = window.TaskAvatar
-            ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: 'active', size: 56 })
+            ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: 'active', size: 56 }))
             : '';
         const ex = this._executors.find(e => e.id === t.executor_id);
         // Ungoverned is a different empty: nothing is coming until the Guard
@@ -5980,16 +6129,30 @@ ${this.CLI_BIN} stop &lt;id&gt;
                         : '<div class="terminals-egress-detail-line">This rule cannot be approved from a session; it needs a policy edit.</div>'))}
                 </details>`;
             return `
-              <div class="terminals-egress-row terminals-egress-${cls}">
+              <div class="terminals-egress-row terminals-egress-${cls}" data-egress-row="${this._esc(r.host)}">
                 <span class="terminals-dot${dot}"></span>
-                <span class="terminals-egress-host" title="${this._esc(r.host)}">${this._esc(host)}</span>
+                <button type="button" class="terminals-egress-host terminals-egress-open" data-egress-open="${this._esc(r.host)}" title="${this._esc(r.host)}: open in Agent Egress" aria-label="Open ${this._esc(host)} in Agent Egress">${this._esc(host)}</button>
                 <span class="terminals-egress-meta">${this._esc(meta)}</span>
+                ${this._whenHtml(r.last_seen)}
                 ${isBlocked && (r.rule_title || r.rule_id) ? `<span class="terminals-egress-rule">${this._esc(r.rule_title || r.rule_id)}${grant ? ` · ${this._esc(grantLine.toLowerCase())}` : ''}</span>` : ''}
                 ${details}
               </div>`;
         }).join('') + stale + note + (more > 0
             ? `<button type="button" class="terminals-egress-more" id="terminals-egress-more">+${more} more</button>`
             : '');
+        if (el.querySelectorAll) {
+            const open = (hostName) => this._openEgress(t.session_id, hostName);
+            el.querySelectorAll('[data-egress-open]').forEach(b => {
+                b.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); open(b.getAttribute('data-egress-open')); };
+            });
+            el.querySelectorAll('[data-egress-row]').forEach(row => {
+                row.onclick = (ev) => {
+                    // Only a click on the row itself; the Details drawer and its buttons keep their own.
+                    const tag = ev && ev.target && ev.target.closest ? ev.target.closest('details, button, a') : null;
+                    if (!tag) open(row.getAttribute('data-egress-row'));
+                };
+            });
+        }
         const moreBtn = document.getElementById('terminals-egress-more');
         if (moreBtn) moreBtn.onclick = () => { if (window.Sidebar?.navigate) Sidebar.navigate('egress'); };
         if (el.querySelectorAll) el.querySelectorAll('[data-egress-dur]').forEach(b => {
@@ -6015,6 +6178,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
         });
     },
 
+    /** Open Agent Egress filtered to this session and host. The page reads the
+     *  hand-off from storage, or from ?session=&host= on a reload. */
+    _openEgress(sessionId, host) {
+        try { sessionStorage.setItem('sv-egress-focus', JSON.stringify({ session: sessionId || '', host: host || '' })); } catch (e) { /* storage unavailable */ }
+        if (window.Sidebar && window.Sidebar.navigate) window.Sidebar.navigate('egress');
+    },
+
     /** A timestamp as epoch ms: ISO with a zone, or SQLite's bare UTC
      *  'YYYY-MM-DD HH:MM:SS'. Unparseable sorts last (0). */
     _epochMs(v) {
@@ -6023,6 +6193,45 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const iso = /(Z|[+-]\d\d:?\d\d)$/.test(s) ? s : s.replace(' ', 'T') + 'Z';
         const t = Date.parse(iso);
         return Number.isFinite(t) ? t : 0;
+    },
+
+    /** The one relative-time formatter for the governance column: now,
+     *  N min ago, N h ago, N days ago. `now` is injectable for tests. */
+    _relTime(iso, now) {
+        const ms = this._epochMs(iso);
+        if (!ms) return '';
+        const s = Math.floor(((now == null ? Date.now() : now) - ms) / 1000);
+        if (s < 60) return 'now';
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m} min ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h} h ago`;
+        const d = Math.floor(h / 24);
+        return `${d} ${d === 1 ? 'day' : 'days'} ago`;
+    },
+    /** Local clock time for a hover title, e.g. "13:41:07, Fri 9 Oct". */
+    _absTime(iso) {
+        const ms = this._epochMs(iso);
+        if (!ms) return '';
+        const d = new Date(ms);
+        const p = (n) => String(n).padStart(2, '0');
+        const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+        const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+        return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}, ${day} ${d.getDate()} ${mon}`;
+    },
+    /** A small muted time cell for the right edge of a row. */
+    _whenHtml(iso) {
+        const rel = this._relTime(iso);
+        if (!rel) return '';
+        return `<time class="terminals-when" data-ts="${this._esc(iso)}" title="${this._esc(this._absTime(iso))}">${this._esc(rel)}</time>`;
+    },
+    /** Rewrite every time cell in place on the existing rail tick. */
+    _tickTimes() {
+        if (typeof document === 'undefined' || !document.querySelectorAll) return;
+        document.querySelectorAll('time.terminals-when[data-ts]').forEach(el => {
+            const rel = this._relTime(el.getAttribute('data-ts'));
+            if (rel && el.textContent !== rel) el.textContent = rel;
+        });
     },
 
     /** Scroll the strip (never the page) so the attached task's tab shows. */
@@ -6186,7 +6395,6 @@ ${this.CLI_BIN} stop &lt;id&gt;
                         const state = blocked > 0 ? `${blocked} blocked`
                             : (detections > 0 ? `${detections} flagged` : (risk === 'amber' ? '1 flagged' : 'clean'));
                         const metaParts = [
-                            this._ago(r.started_at),
                             state,
                             `${spans} span${spans === 1 ? '' : 's'}`,
                         ].filter(Boolean);
@@ -6195,7 +6403,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       <div class="terminals-trace" data-trace-id="${this._esc(r.trace_id)}">
                         <span class="terminals-dot sv-status-${risk}" role="img" aria-label="${this._esc(riskLabel)}"></span>
                         <span class="terminals-trace-main">
-                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">Run ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span></span>
+                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">Run ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span>${this._whenHtml(r.started_at)}</span>
                           <span class="terminals-trace-foot">
                             <span class="terminals-trace-meta">${this._esc(metaParts.join(' · '))}</span>
                             <button type="button" class="terminals-trace-open terminals-steps-toggle" data-trace-id="${this._esc(r.trace_id)}" data-fk="t:${this._esc(r.trace_id)}" aria-expanded="${open ? 'true' : 'false'}"${open ? ` aria-controls="terminals-steps-${this._esc(r.trace_id)}"` : ''}>${open ? 'Hide steps ▴' : 'Show steps ▾'}</button>
@@ -6293,6 +6501,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
     _renderExecutorOptions(container) {
         const sel = container.querySelector('#terminals-executor');
         if (!sel) return;
+        const prior = sel.value;
         sel.innerHTML = this._executors.map(e => {
             const ok = this._launchable(e);
             // Installed-but-ungoverned stays selectable so the user can pick
@@ -6306,7 +6515,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // installed one so the form still opens on something the user can
         // launch (ungoverned) rather than nothing.
         const first = this._executors.find(e => this._launchable(e)) || this._executors.find(e => e.installed !== false);
-        if (first) sel.value = first.id;
+        // A refetch keeps what the person already picked, if it is still offered.
+        const picked = this._executors.find(e => e.id === prior && e.installed !== false);
+        if (picked) sel.value = picked.id;
+        else if (first) sel.value = first.id;
         sel.onchange = () => this._showExecutorState(container);
         this._showExecutorState(container);
     },
@@ -6367,9 +6579,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 if (guardInstall) guardInstall.hidden = true;
                 if (guardRecheck) { guardRecheck.hidden = false; guardRecheck.disabled = false; guardRecheck.textContent = 'Check again'; }
             } else {
-                if (guardText) guardText.textContent = `SecureVector Guard is not enabled for ${cur.label}. The task launches ungoverned: no verdicts, traces, or approvals until you install it.`;
+                if (guardText) guardText.textContent = `SecureVector Guard is not installed for ${cur.label}. Install it now?`;
                 if (guardCommands) guardCommands.hidden = true;
-                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install SecureVector Guard'; }
+                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install'; }
                 if (guardRecheck) guardRecheck.hidden = true;
             }
         } else {
@@ -6422,13 +6634,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 this._guardPending = null;
                 if (guardText) guardText.textContent = res.next_step || `Guard install did not finish for ${label}. Try again.`;
                 if (guardRow) guardRow.hidden = false;
-                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install SecureVector Guard'; }
+                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install'; }
                 if (guardRecheck) guardRecheck.hidden = true;
             }
         } catch (e) {
             if (guardRow) guardRow.hidden = false;
             if (guardText) guardText.textContent = e.message || 'Guard install failed.';
-            if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install SecureVector Guard'; }
+            if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install'; }
             if (guardRecheck) guardRecheck.hidden = true;
         }
     },

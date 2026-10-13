@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -559,3 +559,44 @@ async def toggle_cloud_mode(request: CloudModeRequest) -> CloudModeResponse:
     except Exception as e:
         logger.error(f"Failed to toggle cloud mode: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class DelegationPolicyUpdate(BaseModel):
+    """Delegation policy. Every delegation still asks for approval."""
+
+    enabled: Optional[bool] = None
+    cross_harness: Optional[bool] = None
+    folder_allowlist: Optional[list[str]] = Field(None, max_length=50)
+
+
+@router.get("/settings/delegation")
+async def get_delegation_policy() -> dict:
+    """The delegation policy: enabled, cross_harness, folder_allowlist."""
+    try:
+        return await SettingsRepository(get_database()).get_delegation_policy()
+    except Exception as e:
+        logger.error(f"Failed to get delegation policy: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read the delegation policy")
+
+
+@router.put("/settings/delegation")
+async def update_delegation_policy(
+    request: DelegationPolicyUpdate,
+    x_sv_ui_token: Optional[str] = Header(None),
+) -> dict:
+    """Change the delegation policy. Requires the local web UI's token, the
+    same one approvals use."""
+    from securevector.app.server.routes.jit_access import _require_ui_token
+
+    _require_ui_token(x_sv_ui_token)
+    try:
+        repo = SettingsRepository(get_database())
+        current = await repo.get_delegation_policy()
+        for key in ("enabled", "cross_harness", "folder_allowlist"):
+            value = getattr(request, key)
+            if value is not None:
+                current[key] = value
+        return await repo.set_delegation_policy(current)
+    except Exception as e:
+        logger.error(f"Failed to update delegation policy: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update the delegation policy")

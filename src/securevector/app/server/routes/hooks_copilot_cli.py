@@ -408,7 +408,7 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"Copilot CLI plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "Bundled plugin assets are missing from the installed package — verify "
+                "Bundled plugin assets are missing from the installed package. Verify "
                 "setup.py:package_data and MANIFEST.in include plugins/copilot-cli/**/*."
             ),
         )
