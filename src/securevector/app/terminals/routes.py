@@ -39,6 +39,7 @@ from securevector.app.terminals.manager import (
     TerminalManager,
 )
 from securevector.app.terminals.pty_host import PtyUnavailable
+from securevector.app.terminals import worktree as worktrees
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/terminals", tags=["Agent Terminals"])
@@ -76,6 +77,9 @@ def _with_branch(items):
         if ws not in cache:
             cache[ws] = workspace_branch(ws) if ws else None
         item["branch"] = cache[ws]
+        # A task in its own worktree is on its own branch.
+        if item.get("worktree_branch") and item.get("worktree_state") in (worktrees.ACTIVE, worktrees.KEPT):
+            item["branch"] = item["worktree_branch"]
     return items
 
 
@@ -293,6 +297,20 @@ class SpawnRequest(BaseModel):
     resume_session_id: Optional[str] = Field(default=None, max_length=128)
     # Who asked. Omitted by the UI, which is the default.
     origin: Optional[str] = Field(default=None, max_length=16)
+    # Run in a new git worktree of the folder instead of the folder itself.
+    worktree: bool = False
+    # Relaunch of this task: reuse its worktree when it still exists.
+    from_task_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class WorktreeRemoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Required when the worktree has changed files: they are discarded.
+    confirm: bool = False
+    # The changed-file count the person was shown (from the needs_confirm
+    # answer). Required with confirm when there are changes; a mismatch
+    # means the worktree changed since, and the answer is needs_confirm again.
+    dirty_seen: Optional[int] = Field(default=None, ge=0)
 
 
 class LinkRequest(BaseModel):
@@ -318,9 +336,23 @@ async def list_executors(manager: TerminalManager = Depends(get_manager)):
     return {"items": manager.executor_status()}
 
 
+# Kept worktree rows refreshed per board read (each still limited by the
+# manager's per-task cache and concurrency cap).
+LIST_WORKTREE_REFRESH = 10
+
+
 @router.get("/tasks", dependencies=[Depends(require_read)])
 async def list_tasks(manager: TerminalManager = Depends(get_manager)):
     items = await manager.store.list_tasks()
+    budget = LIST_WORKTREE_REFRESH
+    for i, item in enumerate(items):
+        if budget <= 0:
+            break
+        if item.get("worktree_branch") and item.get("worktree_state") == worktrees.KEPT:
+            budget -= 1
+            fresh = await manager.refresh_worktree(item["id"])
+            if fresh is not None:
+                items[i] = fresh
     items = await _decorate(manager, items)
     return {"items": items, "running": manager.running_count()}
 
@@ -334,10 +366,16 @@ async def spawn_task(body: SpawnRequest, manager: TerminalManager = Depends(get_
             title=body.title,
             origin=_actor(body.origin),
             resume_session_id=body.resume_session_id,
+            worktree=body.worktree,
+            from_task_id=body.from_task_id,
         )
         return (await _decorate(manager, [task]))[0]
     except UnknownExecutor as exc:
         raise HTTPException(status_code=400, detail="Unknown executor") from exc
+    except worktrees.NotAGitRepository as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except worktrees.WorktreeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     # After UnknownExecutor, which is itself a ValueError: a malformed session
     # id or a harness that cannot reopen one both land here.
     except ValueError as exc:
@@ -383,7 +421,67 @@ async def get_task(task_id: str, manager: TerminalManager = Depends(get_manager)
     task = await manager.store.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Unknown task")
+    if task.get("run_dir"):
+        # One task: fresh changed-file and commit counts for its worktree.
+        task = await manager.refresh_worktree(task_id) or task
     return (await _decorate(manager, [task]))[0]
+
+
+@router.get("/git-repo", dependencies=[Depends(require_read)])
+async def git_repo(folder: str = ""):
+    """For the launch form: can this folder run a task in a worktree?"""
+    if not folder or len(folder) > 4096 or "\x00" in folder:
+        return {"git": False, "root": None, "worktree_ok": False, "message": worktrees.NOT_A_REPO}
+    result = await anyio.to_thread.run_sync(worktrees.check_folder, folder)
+    result.setdefault("worktree_ok", False)
+    return result
+
+
+@router.post("/tasks/{task_id}/worktree/remove", dependencies=[Depends(require_write)])
+async def remove_worktree(task_id: str, body: WorktreeRemoveRequest, request: Request,
+                          manager: TerminalManager = Depends(get_manager)):
+    """Remove a task's worktree on the person's request. With changed files
+    and no `confirm`, nothing is removed and needs_confirm comes back."""
+    _require_ui_token(request)
+    try:
+        result = await manager.remove_worktree(task_id, confirm=body.confirm, origin="ui",
+                                               dirty_seen=body.dirty_seen)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown task") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except worktrees.WorktreeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not result.get("removed") and result.get("needs_confirm"):
+        raise HTTPException(status_code=409, detail=result)
+    return result
+
+
+@router.post("/tasks/{task_id}/worktree/open", dependencies=[Depends(require_write)])
+async def open_worktree(task_id: str, request: Request, manager: TerminalManager = Depends(get_manager)):
+    """Reveal the task's worktree folder in the platform file manager."""
+    _require_ui_token(request)
+    task =await manager.store.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Unknown task")
+    folder = manager.worktree_folder(task)
+    if folder is None:
+        raise HTTPException(status_code=409, detail="This task has no worktree folder on disk.")
+    argv = worktrees.open_folder_argv(folder)
+    if argv is None:
+        raise HTTPException(status_code=501, detail="Opening a folder is not supported on this system.")
+
+    def _run() -> int:
+        import subprocess
+
+        return subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=10, check=False).returncode
+
+    try:
+        await anyio.to_thread.run_sync(_run)
+    except Exception as exc:  # noqa: BLE001 - shown as a plain failure
+        raise HTTPException(status_code=500, detail="The folder could not be opened.") from exc
+    return {"ok": True, "folder": folder}
 
 
 @router.post("/tasks/{task_id}/stop", dependencies=[Depends(require_write)])
@@ -411,7 +509,16 @@ async def archive_task(task_id: str, manager: TerminalManager = Depends(get_mana
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not archived:
         raise HTTPException(status_code=404, detail="Unknown task")
-    return {"ok": True}
+    # Archiving never touches a worktree; say when one is still on disk so
+    # the page can offer to remove it.
+    task = await manager.store.get_task(task_id)
+    kept = bool(task and manager.worktree_folder(task))
+    return {
+        "ok": True,
+        "worktree_kept": kept,
+        "run_dir": task.get("run_dir") if kept else None,
+        "worktree_branch": task.get("worktree_branch") if kept else None,
+    }
 
 
 @router.post("/stop-all", dependencies=[Depends(require_write)])

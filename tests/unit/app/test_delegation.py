@@ -139,6 +139,28 @@ async def world(tmp_path, monkeypatch):
         parent_env={"PATH": str(_bin(tmp_path))},
     )
     manager = TerminalManager(FakeHost(), TerminalStore(db), settings)
+    # Completion signals instead of wall-clock sleeps: an event per task once
+    # its exit handler has finished, and every background delegation notice.
+    exits: dict = {}
+    pending: set = set()
+    real_on_exit = manager._on_exit
+
+    async def tracked_on_exit(task_id, code):
+        try:
+            await real_on_exit(task_id, code)
+        finally:
+            exits.setdefault(task_id, asyncio.Event()).set()
+
+    manager._on_exit = tracked_on_exit
+    real_child_event = delegation.on_child_event
+
+    def tracked_child_event(*a, **kw):
+        fut = asyncio.ensure_future(real_child_event(*a, **kw))
+        pending.add(fut)
+        fut.add_done_callback(pending.discard)
+        return fut
+
+    monkeypatch.setattr(delegation, "on_child_event", tracked_child_event)
     await manager.start(asyncio.get_running_loop())
     parent = await manager.spawn("claude-code", str(ws), title=None, origin="ui")
     await manager.store.set_session(parent["id"], "parent-session-0001")
@@ -146,9 +168,20 @@ async def world(tmp_path, monkeypatch):
     monkeypatch.setattr(session_cwd, "CLAUDE_PROJECTS_ROOT", claude_root)
     monkeypatch.setattr(session_cwd, "CODEX_SESSIONS_ROOT", codex_root)
     yield SimpleNamespace(db=db, manager=manager, parent=parent["id"], ws=ws, outside=outside,
-                          tmp=tmp_path, claude_root=claude_root, codex_root=codex_root)
+                          tmp=tmp_path, claude_root=claude_root, codex_root=codex_root,
+                          exits=exits, pending=pending)
     for timer in list(manager._prompt_timers.values()):
         timer.cancel()
+
+
+async def _exit_done(world, *task_ids, timeout=30.0):
+    """Wait until each task's exit handler and the delegation notices it
+    started have finished. A generous limit, never a fixed sleep."""
+    for task_id in task_ids:
+        event = world.exits.setdefault(task_id, asyncio.Event())
+        await asyncio.wait_for(event.wait(), timeout)
+    while world.pending:
+        await asyncio.wait_for(asyncio.gather(*list(world.pending), return_exceptions=True), timeout)
 
 
 def _hdrs(world, task_id=None):
@@ -238,11 +271,11 @@ async def _hook(world, task_id, name, session_id=None):
 
 @pytest.mark.asyncio
 async def test_v60_schema_and_idempotent(world):
-    assert CURRENT_SCHEMA_VERSION == 60
+    assert CURRENT_SCHEMA_VERSION == 61
     await ensure_delegation_tables(world.db)
     await migrate_to_v60(world.db)
     row = await world.db.fetch_one("SELECT MAX(version) AS v FROM schema_version")
-    assert row["v"] == 60
+    assert row["v"] == 61
     cols = {r["name"] for r in await world.db.fetch_all("PRAGMA table_info(terminal_tasks)")}
     assert "parent_task_id" in cols
     sql = (await world.db.fetch_one(
@@ -434,7 +467,7 @@ def fast_watch(monkeypatch):
     monkeypatch.setattr(manager_module, "QUIET_SECONDS", 0.05)
 
 
-async def _until(cond, timeout=3.0):
+async def _until(cond, timeout=30.0):
     loop = asyncio.get_running_loop()
     end = loop.time() + timeout
     while loop.time() < end:
@@ -510,21 +543,29 @@ async def test_a_dialog_on_the_child_screen_waits_for_the_person(world, fast_wat
 
     assert await _until(pasted)
     assert [d for t, d in host.writes if t == child] == [b"\x1b[200~" + PROMPT.encode() + b"\x1b[201~", b"\r"]
-    assert (await _result(world, out["delegation_id"]))["state"] == "running"
+
+    async def running():
+        return (await _result(world, out["delegation_id"]))["state"] == "running"
+
+    assert await _until(running)
 
 
 @pytest.mark.asyncio
 async def test_a_dialog_extends_the_ready_wait(world, fast_watch, monkeypatch):
     from securevector.app.terminals import manager as manager_module
 
-    monkeypatch.setattr(manager_module, "WAITING_TIMEOUT_S", 0.5)
+    monkeypatch.setattr(manager_module, "WAITING_TIMEOUT_S", 3.0)
     out = await _launched(world)
     child = out["child_task_id"]
     world.manager._prompt_timers.pop(child).cancel()
     world.manager.host.screens[child] = b"Yes, I trust this folder"
     world.manager.deliver_prompt(child, PROMPT, ready_timeout_s=0.05)
-    await asyncio.sleep(0.25)
-    assert (await _result(world, out["delegation_id"]))["state"] == "waiting_for_user"
+
+    async def waiting():
+        return (await _result(world, out["delegation_id"]))["state"] == "waiting_for_user"
+
+    # Past the 0.05 s ready limit, the dialog keeps it waiting, not failed.
+    assert await _until(waiting)
 
     async def failed():
         return (await _result(world, out["delegation_id"]))["state"] == "failed"
@@ -543,7 +584,7 @@ def test_user_dialog_ignores_ordinary_output():
 async def test_a_child_that_ends_before_its_prompt_is_failed_not_done(world):
     out = await _launched(world)
     world.manager.host.exit(out["child_task_id"], 0)
-    await asyncio.sleep(0.1)
+    await _exit_done(world, out["child_task_id"])
     res = await _result(world, out["delegation_id"])
     assert res["state"] == "failed" and "before the prompt" in res["reason"]
 
@@ -578,7 +619,11 @@ async def test_nothing_is_typed_when_the_child_never_becomes_ready(world, paste_
     child = out["child_task_id"]
     world.manager._prompt_timers.pop(child).cancel()
     world.manager.deliver_prompt(child, PROMPT, ready_timeout_s=0.01)
-    await asyncio.sleep(0.2)
+
+    async def failed():
+        return (await _result(world, out["delegation_id"]))["state"] == "failed"
+
+    assert await _until(failed)
     assert [d for t, d in world.manager.host.writes if t == child] == []
     res = await _result(world, out["delegation_id"])
     assert res["state"] == "failed" and res["reason"] == "The child did not become ready."
@@ -655,7 +700,7 @@ async def test_running_children_count_until_they_end(world):
         await _delegate(world)
     assert (await _delegate(world))["state"] == "refused"
     world.manager.host.exit(out["child_task_id"], 0)
-    await asyncio.sleep(0.1)
+    await _exit_done(world, out["child_task_id"])
     assert (await _delegate(world))["state"] != "refused"
 
 
@@ -721,7 +766,7 @@ async def test_auto_launches_are_rate_limited_per_parent(world):
         out = await _delegate(world)
         assert out["state"] == "running"
         world.manager.host.exit(out["child_task_id"], 0)
-    await asyncio.sleep(0.1)
+        await _exit_done(world, out["child_task_id"])
     out = await _delegate(world)
     assert out["state"] == "pending_approval"
     assert (await delegation._get(world.db, out["delegation_id"]))["jit_request_id"]
@@ -751,7 +796,7 @@ async def test_a_resumed_child_keeps_its_parent_and_cannot_delegate(world):
     out = await _launched(world)
     await _hook(world, out["child_task_id"], "SessionStart", "child-session-0012")
     world.manager.host.exit(out["child_task_id"], 0)
-    await asyncio.sleep(0.1)
+    await _exit_done(world, out["child_task_id"])
     resumed = await world.manager.spawn("claude-code", str(world.ws), title=None, origin="ui",
                                         resume_session_id="child-session-0012")
     assert resumed["parent_task_id"] == world.parent
@@ -828,7 +873,7 @@ async def test_no_placeholder_until_the_child_has_been_gone_a_while(world, monke
     child = out["child_task_id"]
     await _hook(world, child, "SessionStart", "child-session-0022")
     world.manager.host.exit(child, 0)
-    await asyncio.sleep(0.1)
+    await _exit_done(world, child)
     res = await _result(world, out["delegation_id"])
     assert res.get("result_pending") is True and res["result"] is None
     monkeypatch.setattr(delegation, "RESULT_GIVE_UP_S", 0.0)
@@ -852,7 +897,7 @@ async def test_codex_result_on_exit(world):
     await _hook(world, child, "SessionStart", sid)
     _write_codex(world, sid, "Two failures in test_x.py.")
     world.manager.host.exit(child, 0)
-    await asyncio.sleep(0.1)
+    await _exit_done(world, child)
     res = await _result(world, out["delegation_id"])
     assert res["state"] == "done" and res["result"] == "Two failures in test_x.py." and res["exit_code"] == 0
 
@@ -885,7 +930,7 @@ async def test_copilot_result_is_the_fixed_message_and_exit_status(world):
     await CustomToolsRepository(world.db).log_tool_call_audit(
         "Bash", "Bash", "allow", runtime_kind="copilot-cli", session_id="copilot-session-1")
     world.manager.host.exit(out["child_task_id"], 3)
-    await asyncio.sleep(0.1)
+    await _exit_done(world, out["child_task_id"])
     res = await _result(world, out["delegation_id"])
     assert res["state"] == "done" and res["result"] == delegation.NO_TEXT_RESULT and res["exit_code"] == 3
 
@@ -941,7 +986,7 @@ async def test_stopping_a_parent_stops_its_children(world):
     out = await _launched(world)
     child = out["child_task_id"]
     await world.manager.stop(world.parent, origin="ui")
-    await asyncio.sleep(0.1)
+    await _exit_done(world, child, world.parent)
     assert world.manager.host.stopped == [child, world.parent]
     events = await world.manager.store.list_events(child)
     assert ("parent_stopped", "ui") in [(e["kind"], e["origin"]) for e in events]
@@ -954,7 +999,7 @@ async def test_a_parent_exit_stops_its_children(world):
     out = await _launched(world)
     child = out["child_task_id"]
     world.manager.host.exit(world.parent, 0)
-    await asyncio.sleep(0.2)
+    await _exit_done(world, world.parent, child)
     assert world.manager.host.stopped == [child]
     events = await world.manager.store.list_events(child)
     assert ("parent_stopped", "process") in [(e["kind"], e["origin"]) for e in events]
@@ -1068,6 +1113,8 @@ async def test_a_child_whose_guard_never_reports_is_stopped_and_failed(world, fa
         return (await _result(world, out["delegation_id"]))["state"] == "failed"
 
     assert await _until(failed)
+    # The delegation fails first, then the stop lands: wait for its exit.
+    await _exit_done(world, child)
     res = await _result(world, out["delegation_id"])
     assert res["reason"] == ("SecureVector Guard did not report from this Codex session. "
                              "Its hooks may need approval in Codex.")
@@ -1077,10 +1124,15 @@ async def test_a_child_whose_guard_never_reports_is_stopped_and_failed(world, fa
 
 
 @pytest.mark.asyncio
-async def test_a_child_whose_guard_reports_keeps_running(world, fast_watch, fast_guard):
+async def test_a_child_whose_guard_reports_keeps_running(world, fast_watch, fast_guard, monkeypatch):
+    checks = []
+    monkeypatch.setattr(world.manager, "_schedule_guard_check",
+                        lambda task_id, after_seq, *, delegated: checks.append((task_id, after_seq, delegated)))
     out, child = await _codex_child_delivered(world)
     await _hook(world, child, "SessionStart", "codex-session-0050")
-    await asyncio.sleep(0.3)
+    # The check the paste scheduled, run once the hook is in, in order.
+    assert [c[0] for c in checks] == [child]
+    await world.manager._guard_check(*checks[0])
     assert (await _result(world, out["delegation_id"]))["state"] == "running"
     assert child not in world.manager.host.stopped
 
@@ -1091,7 +1143,11 @@ async def test_a_launched_session_without_guard_reports_shows_a_card_warning(wor
 
     task = await world.manager.spawn("codex", str(world.ws), title=None, origin="ui")
     await world.manager.input(task["id"], b"hello\r")
-    await asyncio.sleep(0.3)
+
+    async def warned():
+        return task["id"] in world.manager.guard_silent()
+
+    assert await _until(warned)
     items = await terminal_routes._decorate(world.manager, await world.manager.store.list_tasks())
     warn = {i["id"]: i["guard_warning"] for i in items}[task["id"]]
     assert warn == "SecureVector Guard did not report from this Codex session. Its hooks may need approval in Codex."
@@ -1150,7 +1206,7 @@ async def test_a_child_whose_stop_fails_does_not_block_the_parent_stop(world, mo
 
     monkeypatch.setattr(world.manager, "stop", stop)
     await real_stop(world.parent, origin="ui")
-    await asyncio.sleep(0.1)
+    await _exit_done(world, world.parent)
     assert world.parent in world.manager.host.stopped
 
 
@@ -1164,26 +1220,23 @@ async def test_a_child_started_while_its_parent_stops_is_stopped_too(world, monk
 
     monkeypatch.setattr(world.manager, "spawn", spawn)
     out = await _delegate(world)
-    await asyncio.sleep(0.1)
     assert out["state"] == "failed" and "ended" in out["reason"]
     row = await delegation._get(world.db, out["delegation_id"])
+    await _exit_done(world, world.parent, row["child_task_id"])
     assert row["child_task_id"] in world.manager.host.stopped
 
 
 @pytest.mark.asyncio
 async def test_the_delegations_list_does_not_wait_on_transcript_retries(world, monkeypatch):
-    import time
-
     monkeypatch.setattr(world.manager, "_notify_delegation", lambda task_id: None)
     out = await _launched(world)
     child = out["child_task_id"]
     await _hook(world, child, "SessionStart", "child-session-0031")
     await _hook(world, child, "Stop")
-    monkeypatch.setattr(delegation, "RESULT_RETRY_S", 1.0)
+    # A list that waited on even one retry would take 1000 seconds.
+    monkeypatch.setattr(delegation, "RESULT_RETRY_S", 1000.0)
     monkeypatch.setattr(delegation, "RESULT_RETRIES", 5)
-    started = time.monotonic()
-    rows = await _task_delegations(world)
-    assert time.monotonic() - started < 0.5
+    rows = await asyncio.wait_for(_task_delegations(world), 30.0)
     assert rows[0]["result_pending"] is True
 
 
@@ -1192,6 +1245,76 @@ async def test_per_task_state_is_dropped_when_a_task_ends(world):
     delegation._lock_for(world.parent)
     world.manager._hook_seen.add(world.parent)
     world.manager.host.exit(world.parent, 0)
-    await asyncio.sleep(0.1)
+    await _exit_done(world, world.parent)
     assert world.parent not in delegation._parent_locks
     assert world.parent not in world.manager._hook_seen
+
+
+# --- delegation from a task running in its own worktree --------------------------------
+
+
+async def _worktree_parent(world):
+    from tests.unit.app.terminals.test_worktree import _git
+
+    (world.ws / "sub" / "a.txt").write_text("a\n")
+    _git(world.ws, "init", "-q", "-b", "main")
+    _git(world.ws, "add", "-A")
+    _git(world.ws, "commit", "-q", "-m", "init")
+    parent = await world.manager.spawn("claude-code", str(world.ws), title=None, origin="ui", worktree=True)
+    await world.manager.store.set_session(parent["id"], "wt-parent-session-0001")
+    return parent
+
+
+@pytest.mark.asyncio
+async def test_worktree_parent_child_runs_in_the_parent_worktree(world):
+    parent = await _worktree_parent(world)
+    src = os.path.realpath(world.ws)
+    out = await _launched(world, folder=world.ws / "sub", task_id=parent["id"])
+    child = await world.manager.store.get_task(out["child_task_id"])
+    wt_sub = os.path.join(parent["run_dir"], "sub")
+    assert world.manager.host.launches[child["id"]].cwd == wt_sub
+    # Governance keys stay on the source folder.
+    assert child["workspace"] == os.path.join(src, "sub") and out["folder"] == os.path.join(src, "sub")
+    assert child["run_dir"] == wt_sub and child["worktree_branch"] is None
+    # The parent's worktree path, asked for directly, is scoped as the source.
+    out2 = await _launched(world, folder=parent["run_dir"] + "/sub", task_id=parent["id"])
+    assert out2["folder"] == os.path.join(src, "sub")
+    assert world.manager.host.launches[out2["child_task_id"]].cwd == wt_sub
+
+
+@pytest.mark.asyncio
+async def test_worktree_parent_child_folder_scope_uses_source_semantics(world):
+    parent = await _worktree_parent(world)
+    out = await _delegate(world, folder=world.outside, task_id=parent["id"])
+    assert out["state"] == "refused" and "workspace" in out["reason"]
+    assert delegation.resolve_folder(parent["run_dir"] + "/sub", parent["workspace"], []) == \
+        delegation.resolve_folder(str(world.ws / "sub"), parent["workspace"], [])
+
+
+@pytest.mark.asyncio
+async def test_worktree_parent_with_removed_worktree_cannot_delegate(world):
+    parent = await _worktree_parent(world)
+    await world.manager.store.set_worktree_state(parent["id"], "removed")
+    out = await _delegate(world, folder=world.ws / "sub", task_id=parent["id"])
+    assert out["state"] == "refused" and "worktree was removed" in out["reason"]
+    assert out.get("child_task_id") is None
+    # The same when the folder is gone from disk while the row still says kept.
+    await world.manager.store.set_worktree_state(parent["id"], "active")
+    import shutil
+
+    shutil.rmtree(parent["run_dir"])
+    out = await _delegate(world, folder=world.ws / "sub", task_id=parent["id"])
+    assert out["state"] == "refused" and "worktree" in out["reason"]
+
+
+@pytest.mark.asyncio
+async def test_worktree_child_row_cannot_remove_the_parent_worktree(world):
+    parent = await _worktree_parent(world)
+    out = await _launched(world, folder=world.ws / "sub", task_id=parent["id"])
+    child_id = out["child_task_id"]
+    world.manager.host.exit(child_id, 0)
+    await _exit_done(world, child_id)
+    with pytest.raises(ValueError):
+        await world.manager.remove_worktree(child_id, confirm=True)
+    assert world.manager.worktree_folder(await world.manager.store.get_task(child_id)) is None
+    assert os.path.isdir(parent["run_dir"])

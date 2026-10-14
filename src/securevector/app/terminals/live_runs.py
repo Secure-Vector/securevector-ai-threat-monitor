@@ -194,6 +194,11 @@ EVENT_KINDS = frozenset(
         "delegate_prompt",
         "parent_stopped",
         "delegation",
+        # Worktree isolation: created or reused at launch, kept at exit,
+        # removed on the person's request.
+        "worktree",
+        "worktree_kept",
+        "worktree_removed",
     }
 )
 # `shutdown` (server/app.py's stop_all on a clean web shutdown) and `quit`

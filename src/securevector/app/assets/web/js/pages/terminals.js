@@ -138,6 +138,10 @@ const TerminalsPage = {
                 <label>Folder
                   <input id="terminals-workspace" type="text" placeholder="/path/to/project" autocomplete="off" spellcheck="false">
                 </label>
+                <div class="terminals-worktree" id="terminals-worktree-field">
+                  <label class="terminals-worktree-check"><input type="checkbox" id="terminals-worktree" disabled> Run in its own worktree</label>
+                  <div class="terminals-worktree-hint" id="terminals-worktree-hint" aria-live="polite" hidden></div>
+                </div>
                 <label>Title (optional)
                   <input id="terminals-title" type="text" maxlength="120">
                 </label>
@@ -406,6 +410,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (!form.hidden) {
                 container.querySelector('#terminals-workspace').focus();
                 this._checkFolderTrust(container);
+                this._scheduleWorktreeCheck(container, 0);
             }
         };
         container.querySelector('#terminals-launch-cancel').onclick = () => { form.hidden = true; this._launchDraft = null; };
@@ -425,6 +430,21 @@ ${this.CLI_BIN} stop &lt;id&gt;
             node.oninput = () => this._renderCliHint(container);
             node.onchange = () => { this._renderCliHint(container); this._checkFolderTrust(container); };
         }
+        const wsNode = container.querySelector('#terminals-workspace');
+        if (wsNode) {
+            const prevInput = wsNode.oninput;
+            wsNode.oninput = () => {
+                if (prevInput) prevInput();
+                // Until the check answers for this folder, the old answer is stale.
+                const box = container.querySelector('#terminals-worktree');
+                if (box) { box.disabled = true; box.checked = false; }
+                this._scheduleWorktreeCheck(container);
+            };
+            const prevChange = wsNode.onchange;
+            wsNode.onchange = () => { if (prevChange) prevChange(); this._scheduleWorktreeCheck(container, 0); };
+        }
+        const wtBox = container.querySelector('#terminals-worktree');
+        if (wtBox) wtBox.onchange = () => this._renderWorktreeHint(container);
         this._renderCliHint(container);
         // Install and Check again are handled by one listener on the container,
         // bound once: the buttons can be re-created by a re-render, and a
@@ -459,7 +479,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const title = container.querySelector('#terminals-title').value.trim();
             if (!workspace) { err.textContent = 'Enter the folder the task should run in.'; err.hidden = false; return; }
             try {
-                const task = await API.terminalsLaunch(executor, workspace, title);
+                const wtBox = container.querySelector('#terminals-worktree');
+                const wantWorktree = !!(wtBox && wtBox.checked && !wtBox.disabled);
+                const task = wantWorktree
+                    ? await API.terminalsLaunch(executor, workspace, title, null, { worktree: true })
+                    : await API.terminalsLaunch(executor, workspace, title);
                 form.hidden = true;
                 this._launchDraft = null;
                 await this._refreshTasks();
@@ -470,6 +494,44 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 err.hidden = false;
             }
         };
+    },
+
+    WORKTREE_DEBOUNCE_MS: 400,
+    WORKTREE_LOSS_NOTE: 'Uncommitted changes in this folder are not carried over.',
+
+    /** Ask, after a short pause in typing, whether the folder can host a worktree. */
+    _scheduleWorktreeCheck(container, delay) {
+        clearTimeout(this._worktreeTimer);
+        const ms = typeof delay === 'number' ? delay : this.WORKTREE_DEBOUNCE_MS;
+        this._worktreeTimer = setTimeout(() => this._checkWorktreeFolder(container), ms);
+    },
+
+    async _checkWorktreeFolder(container) {
+        const box = container.querySelector('#terminals-worktree');
+        const ws = container.querySelector('#terminals-workspace');
+        if (!box || !API.terminalsGitRepo) return;
+        const folder = ws && ws.value ? ws.value.trim() : '';
+        const seq = (this._worktreeSeq = (this._worktreeSeq || 0) + 1);
+        let info = null;
+        if (folder) {
+            try { info = await API.terminalsGitRepo(folder); } catch (e) { info = null; }
+        }
+        const empty = 'Enter a git folder to use a worktree.';
+        if (seq !== this._worktreeSeq) return;
+        const ok = !!(info && info.worktree_ok);
+        box.disabled = !ok;
+        if (!ok) box.checked = false;
+        this._worktreeMessage = ok ? '' : (info && info.message ? String(info.message) : empty);
+        this._renderWorktreeHint(container);
+    },
+
+    _renderWorktreeHint(container) {
+        const box = container.querySelector('#terminals-worktree');
+        const hint = container.querySelector('#terminals-worktree-hint');
+        if (!hint) return;
+        const text = box && box.checked ? this.WORKTREE_LOSS_NOTE : (this._worktreeMessage || '');
+        hint.textContent = text;
+        hint.hidden = !text;
     },
 
     /** Repo trust before the first prompt: the folder's setup state and its
@@ -1140,6 +1202,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const band = t.drift_band === 'high' || t.drift_band === 'watch' ? t.drift_band : 'calm';
             parts.push(`<span class="terminals-task-drift is-${band}" title="Session drift ${this._esc(t.drift_score)}, ${band}">drift ${this._esc(t.drift_score)}</span>`);
         }
+        if (t.worktree_branch) {
+            parts.push(`<span class="terminals-task-worktree" title="${this._esc(t.run_dir || '')}">worktree, ${this._esc(t.worktree_branch)}</span>`);
+        } else if (t.run_dir) {
+            parts.push(`<span class="terminals-task-worktree" title="${this._esc(t.run_dir)}">in parent's worktree</span>`);
+        }
         // Response rung: neutral at observe, amber at flag, red at step-up.
         const rung = window.ResponseRungs ? ResponseRungs.chipHtml(t) : '';
         if (rung) parts.push(rung);
@@ -1152,13 +1219,152 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return `<span class="terminals-task-facts">${parts.join('<span class="terminals-task-facts-sep" aria-hidden="true"> · </span>')}</span>`;
     },
 
+    // --- worktree isolation: the card's line after the task has ended ------
+
+    _plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; },
+
+    _worktreeChangesText(t) {
+        const files = Number(t.worktree_dirty) || 0;
+        const commits = Number(t.worktree_commits) || 0;
+        const bits = [];
+        if (files) bits.push(this._plural(files, 'file changed', 'files changed'));
+        if (commits) bits.push(this._plural(commits, 'commit', 'commits'));
+        return bits.join(', ');
+    },
+
+    _worktreeBlockHtml(t) {
+        if (!t || !t.worktree_branch) return '';
+        const id = this._esc(t.id);
+        const note = this._worktreeNotes && this._worktreeNotes[t.id];
+        const noteHtml = note ? `<span class="terminals-worktree-note" role="status">${this._esc(note)}</span>` : '';
+        const busy = !!(this._worktreeBusy && this._worktreeBusy.has(t.id));
+        const dis = busy ? ' disabled' : '';
+        if (t.worktree_state === 'removing') {
+            return `<div class="terminals-task-worktreebox"><span>Removing worktree...</span><button type="button" class="terminals-worktree-btn" disabled>Remove worktree</button></div>`;
+        }
+        if (t.worktree_state !== 'kept' || !this._isNewestOnBranch(t)) {
+            return noteHtml ? `<div class="terminals-task-worktreebox">${noteHtml}</div>` : '';
+        }
+        const ask = this._worktreeAsk && this._worktreeAsk.id === t.id ? this._worktreeAsk : null;
+        if (ask) {
+            return `<div class="terminals-task-worktreebox"><span class="terminals-worktree-confirm" role="status">${this._esc(ask.message)}</span>
+              <button type="button" class="terminals-worktree-btn" data-worktree-confirm="${id}"${dis}>Remove</button>
+              <button type="button" class="terminals-worktree-btn" data-worktree-cancel="${id}"${dis}>Cancel</button></div>`;
+        }
+        const changes = this._worktreeChangesText(t);
+        const line = changes || 'No changes in the worktree. Remove it?';
+        const open = changes ? `<button type="button" class="terminals-worktree-btn" data-worktree-open="${id}"${dis}>Open folder</button>` : '';
+        return `<div class="terminals-task-worktreebox"><span>${this._esc(line)}</span>${noteHtml}${open}
+          <button type="button" class="terminals-worktree-btn" data-worktree-remove="${id}"${dis}>Remove worktree</button></div>`;
+    },
+
+    /** Rows that reused one worktree: only the newest row may act on it. */
+    _isNewestOnBranch(t) {
+        const same = (this._tasks || []).filter(x => x.worktree_branch === t.worktree_branch && x.run_dir === t.run_dir);
+        if (same.length < 2) return true;
+        const key = (x) => String(x.created_at || '');
+        let newest = same[0];
+        for (const x of same) if (key(x) > key(newest)) newest = x;
+        return newest.id === t.id;
+    },
+
+    _armWorktreeAsk(ask) {
+        this._worktreeAsk = ask;
+        this._worktreeFocusId = ask ? ask.id : null;
+        clearTimeout(this._worktreeAskTimer);
+        this._worktreeAskTimer = null;
+        if (!ask) return;
+        this._worktreeAskTimer = setTimeout(() => {
+            if (this._worktreeAsk === ask) { this._armWorktreeAsk(null); this._renderTaskList(); }
+        }, this.WORKTREE_ASK_MS);
+    },
+
+    _pruneWorktreeAsk() {
+        const a = this._worktreeAsk;
+        if (!a) return;
+        const t = (this._tasks || []).find(x => x.id === a.id);
+        if (!t || t.worktree_state !== 'kept') this._armWorktreeAsk(null);
+    },
+
+    _wireWorktree(el) {
+        el.querySelectorAll('[data-worktree-remove]').forEach(b => {
+            b.onclick = (ev) => { ev.stopPropagation(); this._removeWorktree(b.dataset.worktreeRemove, false); };
+        });
+        el.querySelectorAll('[data-worktree-confirm]').forEach(b => {
+            b.onclick = (ev) => { ev.stopPropagation(); this._removeWorktree(b.dataset.worktreeConfirm, true); };
+        });
+        el.querySelectorAll('[data-worktree-cancel]').forEach(b => {
+            b.onclick = (ev) => { ev.stopPropagation(); this._armWorktreeAsk(null); this._renderTaskList(); };
+        });
+        el.querySelectorAll('[data-worktree-open]').forEach(b => {
+            b.onclick = async (ev) => {
+                ev.stopPropagation();
+                try { await API.terminalsWorktreeOpen(b.dataset.worktreeOpen); }
+                catch (e) { this._noteWorktree(b.dataset.worktreeOpen, (e && e.message) || 'Could not open the folder.'); this._renderTaskList(); }
+            };
+        });
+        el.querySelectorAll('.terminals-task-worktreebox').forEach(n => { n.onclick = (ev) => ev.stopPropagation(); });
+        // Focus the Remove button only when the confirm was just armed.
+        if (this._worktreeFocusId) {
+            const want = this._worktreeFocusId;
+            this._worktreeFocusId = null;
+            const btn = Array.from(el.querySelectorAll('[data-worktree-confirm]')).find(b => b.dataset.worktreeConfirm === want);
+            if (btn && btn.focus) btn.focus();
+        }
+    },
+
+    WORKTREE_NOTE_MS: 8000,
+    WORKTREE_ASK_MS: 6000,
+
+    _noteWorktree(id, text) {
+        this._worktreeNotes = this._worktreeNotes || {};
+        this._worktreeNotes[id] = text;
+        setTimeout(() => { delete this._worktreeNotes[id]; this._renderTaskList(); }, this.WORKTREE_NOTE_MS);
+    },
+
+    async _removeWorktree(id, confirm) {
+        this._worktreeBusy = this._worktreeBusy || new Set();
+        if (this._worktreeBusy.has(id)) return;
+        this._worktreeBusy.add(id);
+        this._renderTaskList();
+        try {
+            const seen = confirm && this._worktreeAsk && this._worktreeAsk.id === id ? this._worktreeAsk.dirty : undefined;
+            const res = await API.terminalsWorktreeRemove(id, !!confirm, seen);
+            this._armWorktreeAsk(null);
+            if (res && res.needs_confirm && !res.removed) {
+                const n = Number(res.dirty) || 0;
+                const fallback = `${this._plural(n, 'uncommitted file', 'uncommitted files')} will be lost. Ignored files such as build output are deleted too.`;
+                this._armWorktreeAsk({ id, dirty: n, message: res.message || fallback });
+            } else if (res && res.message) {
+                this._noteWorktree(id, res.message);
+            }
+        } catch (e) {
+            this._armWorktreeAsk(null);
+            this._noteWorktree(id, (e && e.message) || 'Could not remove the worktree.');
+        }
+        this._worktreeBusy.delete(id);
+        try { await this._refreshTasks(); } catch (e) { this._renderTaskList(); }
+        this._renderTaskList();
+    },
+
+    _boardNoteHtml() {
+        return this._boardNote ? `<div class="terminals-worktree-kept-note" role="status">${this._esc(this._boardNote)}</div>` : '';
+    },
+
+    _noteBoard(text) {
+        this._boardNote = text;
+        clearTimeout(this._boardNoteTimer);
+        this._boardNoteTimer = setTimeout(() => { this._boardNote = null; this._renderTaskList(); }, this.WORKTREE_NOTE_MS);
+    },
+
     _renderTaskList() {
         const el = document.getElementById('terminals-task-list');
         if (!el) return;
+        this._pruneWorktreeAsk();
         if (this._error) { this._renderBoardSummary([]); el.innerHTML = `<div class="terminals-error">${this._esc(this._error)}</div>`; return; }
         if (!this._tasks.length) {
             this._renderBoardSummary([]);
-            el.innerHTML = `<div class="terminals-task-empty">
+            el.innerHTML = this._boardNoteHtml() + `<div class="terminals-task-empty">
               <strong>Start your first governed task</strong>
               <span>Choose a harness, then SecureVector keeps its calls and decisions together.</span>
               <button class="btn btn-sm btn-primary" id="terminals-empty-launch">Launch a harness</button>
@@ -1296,6 +1502,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
                     ${delegLine}
+                    ${this._worktreeBlockHtml(t)}
                     ${relaunch || removable || drLink ? `<div class="terminals-task-actions">${drLink}${relaunch}${removable}</div>` : ''}
                   </article>${wrapClose}`);
             }
@@ -1322,7 +1529,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 <div class="terminals-group-cards" id="terminals-group-${i}"${open ? '' : ' hidden'}>${g.cards.join('')}</div>
               </section>`;
         });
-        el.innerHTML = html;
+        el.innerHTML = this._boardNoteHtml() + html;
         el.querySelectorAll('.terminals-group-toggle').forEach(b => {
             b.onclick = () => {
                 const name = b.dataset.folder;
@@ -1394,6 +1601,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         el.querySelectorAll('.terminals-task-confirm').forEach(sp => {
             sp.onclick = (ev) => ev.stopPropagation();
         });
+        this._wireWorktree(el);
     },
 
     // Removing a task is reversible in intent (the audit trace is kept) but
@@ -2640,7 +2848,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  so the adopt panel can offer it again.
      */
     async _removeFromBoard(taskId) {
-        await API.terminalsArchive(taskId);
+        const res = await API.terminalsArchive(taskId);
+        if (res && res.worktree_kept) {
+            this._noteBoard(`The worktree was kept at ${res.run_dir || 'its folder'}.`);
+        }
         this._removeConfirmId = null;
         // The pane holding it is closed by the prune in _refreshTasks(); the
         // rest of the workspace stays up.
@@ -5162,6 +5373,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // join the focused pane's group as one more tab beside the dead task
         // it was meant to replace, and every relaunch would grow that group.
         const holder = pane || this._paneForTask(task.id);
+        if (resumeSessionId && task.worktree_branch && task.worktree_state === 'removed') {
+            throw new Error('The worktree was removed. Relaunch to start in a new one.');
+        }
         if (stopFirst) {
             await API.terminalsStop(task.id);
             let stopped = false;
@@ -5181,7 +5395,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // path keeps sending exactly the three arguments it always has.
         const fresh = resumeSessionId
             ? await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '', resumeSessionId)
-            : await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '');
+            : task.worktree_branch
+                ? await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '', null, { worktree: true, from_task_id: task.id })
+                : await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '');
+        if (!resumeSessionId && task.worktree_branch && task.worktree_state === 'removed' && fresh && fresh.id) {
+            this._noteWorktree(fresh.id, 'Started in a new worktree');
+        }
         await this._refreshTasks();
         if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
         // A restart is the same tab with a new session behind it, so the new

@@ -10368,3 +10368,16 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .deleg-example { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border-default, rgba(128,128,128,.25)); border-radius: 6px; }
 .deleg-example-text { flex: 1 1 240px; min-width: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .deleg-example-note { flex: 1 0 100%; font-size: 11.5px; color: var(--text-secondary); }
+
+/* Worktree isolation: launch checkbox, facts part and the ended-task line. Neutral: no security state. */
+.terminals-launch .terminals-worktree { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.terminals-launch .terminals-worktree-check { flex-direction: row; align-items: center; gap: 6px; }
+.terminals-launch .terminals-worktree-check input { padding: 0; accent-color: var(--accent-primary); }
+.terminals-worktree-hint { font-size: 11px; color: var(--text-muted); }
+.terminals-task-worktree { font-family: var(--font-mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-task-worktreebox { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0 2px; font-size: 11px; color: var(--text-secondary); }
+.terminals-worktree-btn { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border-default); background: transparent; color: var(--text-primary); font: 650 10px/1.35 inherit; cursor: pointer; }
+.terminals-worktree-btn:hover:not(:disabled) { border-color: var(--accent-primary); }
+.terminals-worktree-btn:disabled { opacity: .5; cursor: not-allowed; }
+.terminals-worktree-note { color: var(--text-muted); }
+.terminals-worktree-kept-note { font-size: 11px; color: var(--text-secondary); padding: 6px 8px; border: 1px solid var(--border-default); border-radius: var(--radius-md, 6px); margin-bottom: 6px; }

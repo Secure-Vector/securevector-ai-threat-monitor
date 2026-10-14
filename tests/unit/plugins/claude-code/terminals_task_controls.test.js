@@ -165,8 +165,8 @@ test('restart and the card Relaunch share one code path, and restart keeps its p
     'a restart has to come back in the pane whose banner asked for it');
   assert.match(src, /_claimPane\(taskId, paneId, group = 'replace', swapFor = null\) \{/,
     'and the pane is claimed by name, not by whichever one holds the focus');
-  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 3,
-    'two in the shared helper, one with a resume id and one without, plus the launch form');
+  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 5,
+    'three in the shared helper (resume id, worktree, plain), plus the launch form with and without a worktree');
 });
 
 // --------------------------------------------------------- remove confirm

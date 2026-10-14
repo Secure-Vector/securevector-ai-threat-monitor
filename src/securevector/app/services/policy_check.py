@@ -227,7 +227,10 @@ class Caller:
 async def caller_from_headers(manager, headers, harness: Optional[str], cwd: Optional[str]) -> Caller:
     """Verify X-SV-Terminal-Task / X-SV-Terminal-Hook against the terminal
     manager the same way the egress session binding does."""
-    caller = Caller(harness=_clean_harness(harness), cwd=_clean_cwd(cwd))
+    # A task running in its own worktree is governed as its source folder.
+    from securevector.app.terminals.worktree import source_for
+
+    caller = Caller(harness=_clean_harness(harness), cwd=source_for(_clean_cwd(cwd)))
     task_id = (headers.get("x-sv-terminal-task") or "") if headers is not None else ""
     token = (headers.get("x-sv-terminal-hook") or "") if headers is not None else ""
     if not task_id and not token:

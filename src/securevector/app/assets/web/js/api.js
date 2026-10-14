@@ -1124,8 +1124,36 @@ const API = {
     // `resumeSessionId` reopens an existing harness session instead of starting
     // a fresh one. Optional, and omitted by every existing call site: the host
     // refuses it for a harness that cannot reopen a session by id.
-    async terminalsLaunch(executorId, workspace, title, resumeSessionId) {
-        return this._terminalsWrite('/api/terminals/tasks', { executor_id: executorId, workspace, title: title || null, resume_session_id: resumeSessionId || null });
+    async terminalsLaunch(executorId, workspace, title, resumeSessionId, extra) {
+        const body = { executor_id: executorId, workspace, title: title || null, resume_session_id: resumeSessionId || null };
+        if (extra && extra.worktree) body.worktree = true;
+        if (extra && extra.from_task_id) body.from_task_id = extra.from_task_id;
+        return this._terminalsWrite('/api/terminals/tasks', body);
+    },
+    // Worktree isolation: can this folder host one, remove one, reveal one.
+    async terminalsGitRepo(folder) {
+        return this._terminalsRead(`/api/terminals/git-repo?folder=${encodeURIComponent(folder)}`);
+    },
+    async terminalsWorktreeOpen(id) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/worktree/open`, {});
+    },
+    // A 409 that carries the confirm object is an answer, not a failure: the
+    // person is asked in the card, then the call is repeated with confirm.
+    async terminalsWorktreeRemove(id, confirm, dirtySeen) {
+        await this.terminalsSession();
+        const url = `${this.baseUrl}/api/terminals/tasks/${encodeURIComponent(id)}/worktree/remove`;
+        const send = async () => fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1', 'X-SV-UI-Token': await this._getJitToken() },
+            body: JSON.stringify(confirm && Number.isInteger(dirtySeen) ? { confirm: true, dirty_seen: dirtySeen } : { confirm: !!confirm }),
+        });
+        let res = await send();
+        if (res.status === 403) { this._jitToken = null; res = await send(); }
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) return body;
+        const d = body && body.detail;
+        if (res.status === 409 && d && typeof d === 'object' && d.needs_confirm) return d;
+        throw new Error(typeof d === 'string' ? d : `HTTP ${res.status}`);
     },
     async terminalsLink(executorId, sessionId, workspace, title) {
         return this._terminalsWrite('/api/terminals/tasks/link', {
