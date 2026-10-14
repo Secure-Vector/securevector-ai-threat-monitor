@@ -152,6 +152,27 @@ class DriftResult:
         ]
 
 
+def contribution_points(result: "DriftResult") -> list:
+    """[(id, points)] for every contributing feature, in top() order.
+
+    The score is renormalised over the live (non-skipped) weights, so each
+    feature's share is value x weight x 100 / total live weight. Rounded,
+    with the rounding remainder added to the first row so the points sum to
+    the score. Empty when there is no score."""
+    if result.score is None:
+        return []
+    live_feats = [f for f in result.features if not f.get("skipped")]
+    total = sum(f["weight"] for f in live_feats)
+    if not total:
+        return []
+    ranked = [f for f in live_feats if f.get("value", 0) > 0]
+    ranked.sort(key=lambda f: (-f["weight"] * f["value"], FEATURE_IDS.index(f["id"])))
+    rows = [[f["id"], int(round(f["value"] * f["weight"] * 100 / total))] for f in ranked]
+    if rows:
+        rows[0][1] = max(0, rows[0][1] + int(result.score) - sum(p for _, p in rows))
+    return [(fid, pts) for fid, pts in rows]
+
+
 def detail_of(feature: Mapping[str, Any]) -> str:
     """Counts only, never names: '4 of 31 calls', '3', '2 locations'."""
     c = feature.get("counts") or {}

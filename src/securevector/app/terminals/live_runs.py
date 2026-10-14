@@ -539,6 +539,8 @@ ADR_FIELDS = (
     "drift_score",
     "drift_band",
     "drift_top",
+    "drift_top_points",
+    "drift_top_counts",
     "config_state",
     "config_changed_count",
     "mcp_changed_count",
@@ -557,6 +559,8 @@ RUNG_MAX = 3
 # keeps the two in step; any other id is dropped, never sent.
 RUNG_REASON_IDS = frozenset({"drift", "config", "deny"})
 RUNG_REASON_MAX = 3
+DRIFT_POINTS_MAX = 100
+DRIFT_COUNT_MAX = 100000
 SETUP_COUNT_MAX = 10000
 PREFLIGHT_COUNT_MAX = 100000
 # Config Trust's per-task setup state, mapped onto the wire vocabulary.
@@ -584,6 +588,55 @@ def _count(value: Any, cap: int) -> Optional[int]:
     return min(number, cap)
 
 
+def _int_list(value: Any) -> Optional[list]:
+    """A comma-joined string or a list of ints, or None if any item is not one."""
+    items = _ids(value)
+    out = []
+    for item in items:
+        if isinstance(item, float) or isinstance(item, bool):
+            return None
+        number = _int(item)
+        if number is None:
+            return None
+        out.append(number)
+    return out
+
+
+def _drift_top_fields(src: Mapping[str, Any]) -> dict:
+    """drift_top plus drift_top_points and drift_top_counts, kept aligned.
+
+    The points and counts lists must have exactly one entry per drift_top
+    id (as given), else that list is dropped. Ids outside the enum or
+    repeated are dropped together with their entries; points are clamped
+    to 0..100, counts to 0..100000, at most three of each. Neither list
+    leaves without drift_top.
+    """
+    ids = _ids(src.get("drift_top"))
+    extra = {}
+    for name in ("drift_top_points", "drift_top_counts"):
+        if src.get(name) is None:
+            continue
+        values = _int_list(src.get(name))
+        if values is not None and len(values) == len(ids):
+            extra[name] = values
+    keep: list = []
+    for i, item in enumerate(ids):
+        fid = item.get("id") if isinstance(item, Mapping) else item
+        if isinstance(fid, str) and fid in DRIFT_FEATURE_IDS and fid not in {k for _, k in keep}:
+            keep.append((i, fid))
+    keep = keep[:DRIFT_TOP_MAX]
+    if not keep:
+        return {}
+    out = {"drift_top": ",".join(fid for _, fid in keep)}
+    caps = {"drift_top_points": DRIFT_POINTS_MAX, "drift_top_counts": DRIFT_COUNT_MAX}
+    for name, values in extra.items():
+        picked = [values[i] for i, _ in keep]
+        if any(v < 0 for v in picked):
+            continue
+        out[name] = ",".join(str(min(v, caps[name])) for v in picked)
+    return out
+
+
 def adr_fields(values: Any, event: Any = None) -> dict:
     """The detection and response fields that may leave, from `values`.
 
@@ -599,11 +652,10 @@ def adr_fields(values: Any, event: Any = None) -> dict:
     src: Mapping[str, Any] = values if isinstance(values, Mapping) else {}
     out: dict = {}
     try:
-        top = src.get("drift_top")
-        drift = drift_fields(src.get("drift_score"), _ids(top))
-        for name in ("drift_score", "drift_top"):
-            if drift[name] is not None:
-                out[name] = drift[name]
+        drift = drift_fields(src.get("drift_score"), None)
+        if drift["drift_score"] is not None:
+            out["drift_score"] = drift["drift_score"]
+        out.update(_drift_top_fields(src))
         band = src.get("drift_band")
         if isinstance(band, str) and band in DRIFT_BANDS:
             out["drift_band"] = band
@@ -634,6 +686,24 @@ def adr_fields(values: Any, event: Any = None) -> dict:
         logger.debug("live_runs: adr fields dropped", exc_info=True)
         return {}
     return out
+
+
+# The count each drift feature's sentence names on the local page.
+_PRIMARY_COUNT = {
+    "tool_novelty": "unseen_tools",
+    "errors_after_block": "errors",
+    "secrets_reach": "locations",
+    "new_hosts": "hosts",
+    "persistence": "repeats",
+}
+
+
+def _primary_count(fid: Any, counts: Any) -> int:
+    c = counts if isinstance(counts, Mapping) else {}
+    if fid == "enumeration":
+        loops = _int(c.get("loop_calls")) or 0
+        return loops if loops > 0 else (_int(c.get("distinct_hosts")) or 0)
+    return _int(c.get(_PRIMARY_COUNT.get(fid, ""))) or 0
 
 
 ADR_COLLECT_TIMEOUT_SECONDS = 2.0
@@ -700,7 +770,16 @@ async def _collect_adr(task: Mapping[str, Any], db: Any, mods_unmanaged: Any) ->
                 result = session_drift.result_from_row(drow)
                 out["drift_score"] = result.score
                 out["drift_band"] = session_drift.band_for(result.score)
-                out["drift_top"] = [f["id"] for f in result.top()]
+                top = result.top()
+                feats = {f["id"]: f for f in result.features}
+                out["drift_top"] = [f["id"] for f in top]
+                # Each row's share of the score (as the local page shows it),
+                # and the count its sentence names.
+                points = dict(session_drift.contribution_points(result))
+                out["drift_top_points"] = [points.get(f["id"], 0) for f in top]
+                out["drift_top_counts"] = [
+                    _primary_count(f["id"], (feats.get(f["id"]) or {}).get("counts")) for f in top
+                ]
         except Exception:
             logger.debug("live_runs: drift metadata unavailable", exc_info=True)
 

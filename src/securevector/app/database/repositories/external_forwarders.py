@@ -232,6 +232,8 @@ _TASK_EVENT_ALLOWED = frozenset({
     "drift_score",
     "drift_band",
     "drift_top",
+    "drift_top_points",
+    "drift_top_counts",
     "config_state",
     "config_changed_count",
     "mcp_changed_count",

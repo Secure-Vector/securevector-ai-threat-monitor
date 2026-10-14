@@ -51,6 +51,8 @@ FULL = {
     "drift_score": 74,
     "drift_band": "high",
     "drift_top": ["new_hosts", "enumeration", "secrets_reach"],
+    "drift_top_points": [15, 8, 7],
+    "drift_top_counts": [3, 10, 2],
     "config_state": "changed",
     "config_changed_count": 3,
     "mcp_changed_count": 1,
@@ -79,6 +81,7 @@ def _reset():
 def test_every_field_passes_when_inside_the_contract():
     out = live_runs.adr_fields(FULL, "exit")
     assert out == {**FULL, "drift_top": "new_hosts,enumeration,secrets_reach",
+                   "drift_top_points": "15,8,7", "drift_top_counts": "3,10,2",
                    "rung_reason_ids": "config,drift"}
     assert set(out) == set(live_runs.ADR_FIELDS)
 
@@ -103,6 +106,46 @@ def test_drift_top_keeps_only_known_ids_max_three():
     assert live_runs.adr_fields({"drift_top": "enumeration,curl evil.example.com"}, "exit") == {
         "drift_top": "enumeration"}
     assert live_runs.adr_fields({"drift_top": ["Bash"]}, "exit") == {}
+
+
+def test_points_and_counts_stay_aligned_with_drift_top():
+    out = live_runs.adr_fields({
+        "drift_top": ["persistence", "Bash", "new_hosts", "persistence", "enumeration", "tool_novelty"],
+        "drift_top_points": [4, 99, 250, 1, -0, 3],
+        "drift_top_counts": "2,7,3,9,10,10000000",
+    }, "exit")
+    assert out == {"drift_top": "persistence,new_hosts,enumeration",
+                   "drift_top_points": "4,100,0", "drift_top_counts": "2,3,10"}
+
+
+def test_points_or_counts_with_a_mismatched_length_are_rejected():
+    out = live_runs.adr_fields({"drift_top": ["new_hosts", "enumeration"],
+                                "drift_top_points": [15], "drift_top_counts": [3, 9]}, "exit")
+    assert out == {"drift_top": "new_hosts,enumeration", "drift_top_counts": "3,9"}
+    out = live_runs.adr_fields({"drift_top": "new_hosts", "drift_top_points": ["x"],
+                                "drift_top_counts": [-1]}, "exit")
+    assert out == {"drift_top": "new_hosts"}
+    out = live_runs.adr_fields({"drift_top": "new_hosts", "drift_top_points": [1.5]}, "exit")
+    assert out == {"drift_top": "new_hosts"}
+
+
+def test_points_and_counts_never_leave_without_drift_top():
+    out = live_runs.adr_fields({"drift_top_points": [5], "drift_top_counts": [1]}, "exit")
+    assert out == {}
+    out = live_runs.adr_fields({"drift_top": ["Bash"], "drift_top_points": [5]}, "exit")
+    assert out == {}
+
+
+def test_primary_count_matches_the_page_sentences():
+    pc = live_runs._primary_count
+    assert pc("tool_novelty", {"unseen_tools": 4, "unseen_calls": 9}) == 4
+    assert pc("errors_after_block", {"errors": 6}) == 6
+    assert pc("enumeration", {"loop_calls": 10, "distinct_hosts": 3}) == 10
+    assert pc("enumeration", {"loop_calls": 0, "distinct_hosts": 3}) == 3
+    assert pc("secrets_reach", {"locations": 2}) == 2
+    assert pc("new_hosts", {"hosts": 3}) == 3
+    assert pc("persistence", {"repeats": 2}) == 2
+    assert pc("persistence", None) == 0
 
 
 def test_rung_reason_ids_are_the_closed_signal_list_max_three():
@@ -240,10 +283,16 @@ def test_fleet_encoder_projects_the_fields_only_when_present():
 
 async def _seed(db):
     conn = await db.connect()
+    # Coherent with score 72: 100 * (25 + 20 + 15 + 7.5 + 5) / 100 = 72.5.
     feats = json.dumps([
-        {"id": "new_hosts", "value": 1.0, "weight": 20, "skipped": False, "counts": {"hosts": 4}},
-        {"id": "enumeration", "value": 0.5, "weight": 15, "skipped": False, "counts": {}},
-        {"id": "tool_novelty", "value": 0.0, "weight": 20, "skipped": False, "counts": {}},
+        {"id": "tool_novelty", "value": 1.0, "weight": 25, "skipped": False,
+         "counts": {"unseen_tools": 5, "unseen_calls": 9}},
+        {"id": "errors_after_block", "value": 1.0, "weight": 20, "skipped": False, "counts": {"errors": 6}},
+        {"id": "enumeration", "value": 0.5, "weight": 15, "skipped": False,
+         "counts": {"distinct_hosts": 9, "loop_calls": 0}},
+        {"id": "secrets_reach", "value": 0.0, "weight": 15, "skipped": False, "counts": {"locations": 0}},
+        {"id": "new_hosts", "value": 1.0, "weight": 15, "skipped": False, "counts": {"hosts": 4}},
+        {"id": "persistence", "value": 0.5, "weight": 10, "skipped": False, "counts": {"repeats": 2}},
     ])
     await conn.execute(
         "INSERT INTO session_drift (session_id, task_id, harness, workspace, score, band, status, "
@@ -297,7 +346,8 @@ async def test_collect_reads_each_source_and_leaks_nothing(tmp_path):
         raw = await live_runs.collect_adr(_row(), db=db)
         out = live_runs.adr_fields(raw, "exit")
         assert out == {
-            "drift_score": 72, "drift_band": "high", "drift_top": "new_hosts,enumeration",
+            "drift_score": 72, "drift_band": "high", "drift_top": "tool_novelty,errors_after_block,new_hosts",
+            "drift_top_points": "24,20,15", "drift_top_counts": "5,6,4",
             "config_state": "changed", "config_changed_count": 2, "mcp_changed_count": 1,
             "mods_unmanaged_count": 2, "rung": 2, "rung_mode": "active", "rung_reason_ids": "config,drift",
             "preflight_checked": 3, "preflight_avoided": 1,
@@ -345,3 +395,36 @@ async def test_emit_attaches_fields_to_heartbeat_only(tmp_path):
             assert secret not in blob
     finally:
         await close_database()
+
+
+def _result(score, feats):
+    from securevector.app.services import session_drift as drift
+
+    full = [{"id": fid, "label": drift.LABELS[fid], "weight": drift.WEIGHTS[fid], "value": v,
+             "skipped": sk, "counts": {}} for fid, v, sk in feats]
+    return drift.DriftResult(score, drift.band_for(score), drift.STATUS_SCORED, full, True, "t")
+
+
+def test_contribution_points_full_session_sum_to_the_score():
+    from securevector.app.services import session_drift as drift
+
+    feats = [("tool_novelty", 1.0, False), ("errors_after_block", 1.0, False), ("enumeration", 0.5, False),
+             ("secrets_reach", 0.0, False), ("new_hosts", 1.0, False), ("persistence", 0.5, False)]
+    pts = drift.contribution_points(_result(72, feats))
+    assert pts == [("tool_novelty", 24), ("errors_after_block", 20), ("new_hosts", 15),
+                   ("enumeration", 8), ("persistence", 5)]
+    assert sum(p for _, p in pts) == 72
+
+
+def test_contribution_points_partial_session_renormalise_over_live_weights():
+    from securevector.app.services import session_drift as drift
+
+    # Host features skipped: live weight is 25 + 20 + 15 + 10 = 70.
+    feats = [("tool_novelty", 1.0, False), ("errors_after_block", 0.5, False), ("enumeration", 1.0, True),
+             ("secrets_reach", 1.0, False), ("new_hosts", 1.0, True), ("persistence", 0.0, False)]
+    score = int(round(100 * (25 + 10 + 15) / 70))  # 71
+    pts = drift.contribution_points(_result(score, feats))
+    assert [fid for fid, _ in pts] == ["tool_novelty", "secrets_reach", "errors_after_block"]
+    assert pts == [("tool_novelty", 36), ("secrets_reach", 21), ("errors_after_block", 14)]
+    assert sum(p for _, p in pts) == score
+    assert drift.contribution_points(_result(None, feats)) == []
