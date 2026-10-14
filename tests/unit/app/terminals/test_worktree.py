@@ -147,7 +147,7 @@ async def test_dirty_end_is_kept_with_counts_and_remove_needs_confirm(tmp_path):
     refused = await m.remove_worktree(tid, confirm=False)
     assert refused["removed"] is False and refused["needs_confirm"] is True
     assert (Path(run_dir) / "new.txt").exists()
-    done = await m.remove_worktree(tid, confirm=True)
+    done = await m.remove_worktree(tid, confirm=True, dirty_seen=refused["dirty"])
     assert done["removed"] is True and done["branch_deleted"] is True
     assert not os.path.exists(run_dir) and f"sv/task-{tid}" not in _branches(repo)
     assert (await m.store.get_task(tid))["worktree_state"] == "removed"
@@ -459,7 +459,9 @@ def _route_flow(client, repo, plain):
     assert os.path.isdir(task["run_dir"])
     opened = f"/api/terminals/tasks/{tid}/worktree/open"
     assert client.post(opened, headers=AUTH).status_code == 403
-    r = client.post(url, headers=ui, json={"confirm": True})
+    # A confirm without the count shown is asked again.
+    assert client.post(url, headers=ui, json={"confirm": True}).status_code == 409
+    r = client.post(url, headers=ui, json={"confirm": True, "dirty_seen": 1})
     assert r.status_code == 200 and r.json()["removed"] is True
     assert not os.path.exists(task["run_dir"])
     assert client.post(opened, headers=ui).status_code == 409
@@ -663,3 +665,44 @@ def test_lfs_style_required_filter_is_refused_up_front(tmp_path):
     assert worktrees.check_folder(str(repo))["message"] == worktrees.LFS_UNSUPPORTED
     assert not (tmp_path / "task" / "worktree").exists()
     assert "sv/task-acacacacacac" not in _branches(repo)
+
+
+@pytest.mark.asyncio
+async def test_remove_after_a_clean_end_rechecks_and_keeps_a_new_untracked_file(tmp_path):
+    repo = tmp_path / "plain-repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "README.md").write_text("hello\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    m = await _manager(tmp_path)
+    task = await _spawn_wt(m, repo)
+    m.host.exit(task["id"], 1)
+    row = await _until_state(m, task["id"], "kept")
+    assert row["worktree_dirty"] == 0 and row["worktree_commits"] == 0
+    (Path(task["run_dir"]) / "hello.txt").write_text("keep me\n")
+    out = await m.remove_worktree(task["id"], confirm=False)
+    assert out["removed"] is False and out["needs_confirm"] is True and out["dirty"] == 1
+    # A confirm given against the stale clean card does not discard it either.
+    for seen in (None, 0):
+        out = await m.remove_worktree(task["id"], confirm=True, dirty_seen=seen)
+        assert out["removed"] is False and out["needs_confirm"] is True and out["dirty"] == 1
+    assert (Path(task["run_dir"]) / "hello.txt").read_text() == "keep me\n"
+    assert f"sv/task-{task['id']}" in _branches(repo)
+    assert (await m.store.get_task(task["id"]))["worktree_state"] == "kept"
+
+
+@pytest.mark.asyncio
+async def test_board_list_refreshes_kept_worktree_counts(tmp_path, monkeypatch):
+    from securevector.app.terminals import manager as manager_module
+
+    repo = _repo(tmp_path / "proj")
+    m = await _manager(tmp_path)
+    task = await _spawn_wt(m, repo)
+    m.host.exit(task["id"], 0)
+    await _until_state(m, task["id"], "kept")
+    (Path(task["run_dir"]) / "late.txt").write_text("late\n")
+    monkeypatch.setattr(manager_module, "WORKTREE_REFRESH_S", 0.0)
+    body = await routes.list_tasks(m)
+    row = {i["id"]: i for i in body["items"]}[task["id"]]
+    assert row["worktree_dirty"] == 1

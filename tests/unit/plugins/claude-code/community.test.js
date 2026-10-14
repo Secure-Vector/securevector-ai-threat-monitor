@@ -98,5 +98,5 @@ test('community.js loads before the rail and the pins moved', () => {
   assert.ok(community > 0 && community < sidebar);
   assert.match(html, /header\.js\?v=59/);
   assert.match(html, /dashboard\.js\?v=93/);
-  assert.match(html, /styles\.css\?v=478/);
+  assert.match(html, /styles\.css\?v=479/);
 });

@@ -307,6 +307,10 @@ class WorktreeRemoveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # Required when the worktree has changed files: they are discarded.
     confirm: bool = False
+    # The changed-file count the person was shown (from the needs_confirm
+    # answer). Required with confirm when there are changes; a mismatch
+    # means the worktree changed since, and the answer is needs_confirm again.
+    dirty_seen: Optional[int] = Field(default=None, ge=0)
 
 
 class LinkRequest(BaseModel):
@@ -332,9 +336,23 @@ async def list_executors(manager: TerminalManager = Depends(get_manager)):
     return {"items": manager.executor_status()}
 
 
+# Kept worktree rows refreshed per board read (each still limited by the
+# manager's per-task cache and concurrency cap).
+LIST_WORKTREE_REFRESH = 10
+
+
 @router.get("/tasks", dependencies=[Depends(require_read)])
 async def list_tasks(manager: TerminalManager = Depends(get_manager)):
     items = await manager.store.list_tasks()
+    budget = LIST_WORKTREE_REFRESH
+    for i, item in enumerate(items):
+        if budget <= 0:
+            break
+        if item.get("worktree_branch") and item.get("worktree_state") == worktrees.KEPT:
+            budget -= 1
+            fresh = await manager.refresh_worktree(item["id"])
+            if fresh is not None:
+                items[i] = fresh
     items = await _decorate(manager, items)
     return {"items": items, "running": manager.running_count()}
 
@@ -426,7 +444,8 @@ async def remove_worktree(task_id: str, body: WorktreeRemoveRequest, request: Re
     and no `confirm`, nothing is removed and needs_confirm comes back."""
     _require_ui_token(request)
     try:
-        result = await manager.remove_worktree(task_id, confirm=body.confirm, origin="ui")
+        result = await manager.remove_worktree(task_id, confirm=body.confirm, origin="ui",
+                                               dirty_seen=body.dirty_seen)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown task") from exc
     except ValueError as exc:

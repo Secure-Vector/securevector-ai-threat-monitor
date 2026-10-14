@@ -283,5 +283,5 @@ test('fleet row copy rules and cache pins', () => {
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
   assert.match(read('index.html'), /detection-response\.js\?v=4/);
-  assert.match(read('index.html'), /styles\.css\?v=478/);
+  assert.match(read('index.html'), /styles\.css\?v=479/);
 });

@@ -69,6 +69,10 @@ class Created:
 # -- git ------------------------------------------------------------------------
 
 
+
+def _count(n, noun):
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
 def _git_env() -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["GIT_TERMINAL_PROMPT"] = "0"
@@ -442,18 +446,24 @@ def counts(source_root: str, root: str, branch: str, base: str) -> dict:
     return {"dirty": dirty, "commits": commits}
 
 
-def remove(source_root: str, root: str, branch: str, base: str, *, confirm: bool) -> dict:
-    """Remove the worktree on the person's request. Refused while it has
-    changed files unless `confirm`. The branch is deleted only when it has no
-    commits beyond base; otherwise it is kept and the result says so."""
+def remove(source_root: str, root: str, branch: str, base: str, *, confirm: bool,
+           dirty_seen: Optional[int] = None) -> dict:
+    """Remove the worktree on the person's request. Changed files (tracked
+    or untracked) are counted fresh here, never taken from a stored count.
+    With changes, removal needs `confirm` AND `dirty_seen` equal to the fresh
+    count, so a confirm given against an older count (a stale card) cannot
+    discard files the person never saw. The branch is deleted only when it
+    has no commits beyond base; otherwise it is kept and the result says so."""
     now = counts(source_root, root, branch, base)
+    if (now["dirty"] or 0) > 0 and confirm and dirty_seen != now["dirty"]:
+        confirm = False
     if not confirm and now["dirty"] is None and os.path.exists(root):
         return {"removed": False, "needs_confirm": True, **now,
                 "message": "The worktree's changes could not be read. Confirm to remove it anyway. "
                            + IGNORED_NOTE}
     if (now["dirty"] or 0) > 0 and not confirm:
         return {"removed": False, "needs_confirm": True, **now,
-                "message": f"The worktree has {now['dirty']} changed file(s). Confirm to discard them. "
+                "message": f"{_count(now['dirty'], 'uncommitted file')} will be lost. "
                            + IGNORED_NOTE}
     if os.path.exists(root):
         out = git(source_root, "worktree", "remove", "--force", "--", root)
@@ -469,7 +479,7 @@ def remove(source_root: str, root: str, branch: str, base: str, *, confirm: bool
         if branch_deleted:
             message = f"Worktree and branch {branch} removed."
     elif now["commits"]:
-        message = f"Worktree removed. Branch {branch} kept: it has {now['commits']} commit(s)."
+        message = f"Worktree removed. Branch {branch} kept: it has {_count(now['commits'], 'commit')}."
     else:
         message = f"Worktree removed. Branch {branch} kept."
     return {"removed": True, "needs_confirm": False, "branch_deleted": branch_deleted,

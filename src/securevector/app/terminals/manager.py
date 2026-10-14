@@ -1618,8 +1618,9 @@ class TerminalManager:
             self._wt_refreshed[task_id] = asyncio.get_running_loop().time()
             await self.store.add_event(
                 task_id, kind="worktree_kept", origin="process",
-                detail=(f"Worktree {task['worktree_branch']} kept: {found['dirty']} changed file(s), "
-                        f"{found['commits']} commit(s)"),
+                detail=(f"Worktree {task['worktree_branch']} kept: "
+                        f"{found['dirty']} changed file{'' if found['dirty'] == 1 else 's'}, "
+                        f"{found['commits']} commit{'' if found['commits'] == 1 else 's'}"),
             )
         except Exception:
             logger.warning("worktree end check failed for %s", task_id, exc_info=True)
@@ -1661,7 +1662,8 @@ class TerminalManager:
         )
         return await self.store.get_task(task_id)
 
-    async def remove_worktree(self, task_id: str, *, confirm: bool, origin: str = "ui") -> dict:
+    async def remove_worktree(self, task_id: str, *, confirm: bool, origin: str = "ui",
+                              dirty_seen: Optional[int] = None) -> dict:
         """Remove a task's worktree, only on the person's explicit request.
         Marked 'removing' under the worktree lock first, so a relaunch or a
         delegation cannot start in it meanwhile; restored on any failure."""
@@ -1687,7 +1689,8 @@ class TerminalManager:
         result = None
         try:
             result = await asyncio.get_running_loop().run_in_executor(
-                None, lambda: worktrees.remove(source_root, root, branch, base, confirm=bool(confirm))
+                None, lambda: worktrees.remove(source_root, root, branch, base, confirm=bool(confirm),
+                                         dirty_seen=dirty_seen)
             )
         finally:
             if not (result and result.get("removed")):
