@@ -977,6 +977,19 @@ def guard_not_running_reason(executor_id: Optional[str]) -> str:
             "started. Open the child pane to check, or reinstall the Guard from Connect Agents.")
 
 
+def reason_code(reason: Optional[str]) -> Optional[str]:
+    """A stable code for the Guard-related reasons above, so readers match on
+    the code and not on wording. Derived from the same builders' fixed openings."""
+    text = str(reason or "")
+    if text.startswith("SecureVector Guard did not report from this"):
+        return "guard_silent"
+    if text.startswith("SecureVector Guard is not installed for"):
+        return "guard_missing"
+    if text.startswith("SecureVector Guard is not running in this"):
+        return "guard_not_running"
+    return None
+
+
 async def on_waiting_for_user(manager, child_task_id: str, reason: str) -> None:
     """The child shows a dialog for the person: the delegation and the
     child's card say so. Nothing is typed into it."""
@@ -1077,6 +1090,7 @@ def view(row: Optional[dict]) -> dict:
         "reason": row.get("refusal_reason") if state in ("refused", "failed", "waiting_for_user") else None,
         "result": None,
     }
+    out["reason_code"] = reason_code(out["reason"])
     if _result_pending(row):
         out["result_pending"] = True
         out["reason"] = RESULT_PENDING_NOTE

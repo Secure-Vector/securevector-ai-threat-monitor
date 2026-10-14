@@ -100,7 +100,7 @@ const Tour = {
                 nav: 'detection-response', go: 'detection-response',
                 badge: 'Operate', title: 'Agent Detection & Response',
                 body: `<b>Agent Detection & Response</b> answers one question: how are my agents behaving? ` +
-                    `It runs four steps: <b>Detect</b>, <b>Harden</b>, <b>Respond</b> and <b>Pre-flight</b>.`,
+                    `It lists <b>unusual sessions</b>, <b>config changes</b>, <b>automatic actions</b> and <b>permission checks</b>.`,
             },
             {
                 nav: 'guide', go: 'guide', expand: 'guide',

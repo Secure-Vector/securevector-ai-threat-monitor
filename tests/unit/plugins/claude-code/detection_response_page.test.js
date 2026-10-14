@@ -21,15 +21,17 @@ function loadPage(extra) {
   return ctx.window.DetectionResponsePage;
 }
 
-test('the page is routed, loaded and on the rail beside Agent Governance', () => {
+test('the page is routed, loaded and listed under Agents beside Settings', () => {
   assert.match(read('js/app.js'), /'detection-response': DetectionResponsePage,/);
   assert.match(read('index.html'), /js\/pages\/detection-response\.js\?v=\d+/);
   const sidebar = read('js/components/sidebar.js');
   assert.match(sidebar, /id: 'detection-response', label: 'Agent Detection & Response', icon: 'search',\s*\n\s*tooltip: '/);
-  assert.match(sidebar, /items: \['governance', 'detection-response'\]/);
+  assert.doesNotMatch(sidebar, /items: \['governance', 'detection-response'\]/);
+  assert.match(sidebar, /extraPages: \['detection-response'\]/);
+  assert.match(sidebar, /nav-sessions-dr/);
 });
 
-test('tiles read the four verbs with neutral counts', () => {
+test('tiles are four plain-word numbers with neutral counts', () => {
   const P = loadPage();
   P._data = { window_days: 7 };
   const html = P._tilesHtml({
@@ -37,11 +39,12 @@ test('tiles read the four verbs with neutral counts', () => {
     harden: { available: true, changes: 2, harnesses: 1 },
     preflight: { checked: 12, avoided_denials: 1, registered: true },
   }, null);
-  for (const w of ['Detect', 'Sessions to review', 'Harden', 'Setup changes', 'Respond', 'Steps taken', 'Pre-flight', 'Checks answered']) {
+  for (const w of ['Unusual sessions', 'Config changes to review', 'Automatic actions', 'Permission checks']) {
     assert.ok(html.includes(w), w);
   }
-  assert.match(html, /Shadow<\/span><\/div>\s*<div class="dr-tile-sub">watching, nothing enforced/);
-  assert.match(html, /1 denial avoided/);
+  assert.match(html, /Automatic actions[\s\S]*dr-tile-sub">nothing enforced \(test mode\)</);
+  assert.match(html, /12 checks \u00b7 1 denied before it ran/);
+  assert.doesNotMatch(html, /Detect|Harden|Respond|Pre-flight|Shadow/);
   assert.match(html, /in the last 7 days/);
   assert.doesNotMatch(html, /is-red|is-amber|is-high|is-watch/);
 });
@@ -49,7 +52,7 @@ test('tiles read the four verbs with neutral counts', () => {
 test('empty and partial states', () => {
   const P = loadPage();
   const building = P._detectTile({ to_review: 0, baseline: { state: 'building', ended_sessions: 0, needed: 5 } });
-  assert.match(building, /Building baseline/);
+  assert.match(building, /Learning what is normal/);
   assert.match(building, /0 of 5 sessions/);
   assert.match(building, /data-dr-launch>Launch a session</);
   assert.match(P._detectTile({ to_review: 2, baseline: { state: 'partial' } }), />2<[\s\S]*partial baseline/);
@@ -64,30 +67,39 @@ test('a review row shows harness, folder, band, setup state, reason and the two 
     status: 'scored', setup_state: 'changed', setup_changes: 2, setup_harness: 'claude-code',
     reason: 'Tools new here: 4 of 31 calls', ended: true, at: new Date().toISOString() }, true);
   assert.match(row, /is-focused/);
-  assert.match(row, /<strong>Claude Code<\/strong><span class="dr-row-folder">app</);
-  assert.match(row, /dr-band is-high">82, high</);
-  assert.match(row, /dr-setup is-red">setup changed \(2\)</);
+  assert.match(row, /<strong>Claude Code<\/strong><span class="dr-row-folder" title="app">app</);
+  assert.match(row, /unusual activity <span class="dr-band is-high">high</);
+  assert.match(row, /dr-setup is-amber">Agent config changed \(2\)</);
   assert.match(row, /Tools new here: 4 of 31 calls/);
-  assert.match(row, /data-dr-normal="t1">Looks normal</);
-  assert.match(row, /data-dr-approve="t1">Approve this setup</);
+  assert.match(row, /data-dr-normal="t1">Looks normal<\/button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</);
+  assert.match(row, /btn btn-sm" data-dr-approve="t1">Approve this setup<\/button><span class="dr-act-cap">Trust these config files from now on</);
   const running = P._rowHtml({ task_id: 't2', score: 50, band: 'watch', ended: false, setup_state: 'pinned' }, false);
   assert.doesNotMatch(running, /Looks normal|Approve this setup/);
 });
+
+const P_plain = () => { const P = loadPage(); return (t, h) => P._plainReason(t, h); };
 
 test('copy rules: full name, docs link, no em dash, no banned words', () => {
   const src = read('js/pages/detection-response.js');
   assert.ok(src.includes('https://docs.securevector.io/agent-detection-response'));
   assert.ok(!src.includes('—'), 'no em dash');
   assert.doesNotMatch(src, /\bADR\b|firewall|Mission Control|GovRun|defensive AI/i);
-  assert.match(src, /localStorage\.getItem\(this\.LOOP_SEEN_KEY\)/);
-  assert.match(src, /try \{ localStorage\.setItem\(this\.LOOP_SEEN_KEY, '1'\); \} catch/);
+  assert.doesNotMatch(src, /LOOP_SEEN_KEY/);
+  const loop = loadPage()._loopHtml(false);
+  assert.doesNotMatch(loop, /<details class="dr-loop" open/);
+  assert.match(loop, /How it works/);
+  assert.doesNotMatch(src, /\b(Harden|Pre-flight|Shadow)\b/);
+  const r = P_plain();
+  assert.equal(r('Mod code-review changed (manifest or files).', 'Claude Code'), 'The code-review plugin changed.');
+  assert.equal(r('Mod settings changed in ~/.codex/config.toml.', 'Codex'), 'Codex settings changed (~/.codex/config.toml).');
+  assert.match(src, /Drift Score \$\{this\._esc\(row\.score\)\} of 100/);
 });
 
-test('Agent Sessions links to the page from the card and the Drift and Setup rows', () => {
+test('Agent Sessions links to the page from the card and the Unusual activity and Agent config rows', () => {
   const src = read('js/pages/terminals.js');
   assert.match(src, /const drLink = this\._drLinkHtml\(t, 'terminals-task-dr'\);/);
-  assert.match(src, /row\('Drift', this\._driftHtml\(s\.drift\) \+ \(typeof s\.drift\.score === 'number' \? dr : ''\)\)/);
-  assert.match(src, /row\('Setup', ConfigTrust\.summaryHtml\(s\.setup\) \+ dr\)/);
+  assert.match(src, /row\('Unusual activity', this\._driftHtml\(s\.drift\) \+ \(typeof s\.drift\.score === 'number' \? dr : ''\)\)/);
+  assert.match(src, /row\('Agent config', ConfigTrust\.summaryHtml\(s\.setup\) \+ dr\)/);
   assert.match(read('js/api.js'), /\/api\/terminals\/detection-response\/summary/);
 });
 
@@ -100,7 +112,7 @@ test('approve panel lists each target with all its items and its own button', ()
   assert.match(setup, /data-dr-confirm="0">Approve this setup</);
   const folder = P._targetHtml({ kind: 'folder', state: 'new', title: 'This folder: app', items: [],
     counts: { mcp_servers: 1, hooks: 2, rules: 0 }, truncated: 0 }, 1);
-  assert.match(folder, /Pins the current setup: 1 MCP servers · 2 hooks · 0 rules files\./);
+  assert.match(folder, /Trusts the current config: 1 MCP servers · 2 hooks · 0 rules files\./);
   assert.match(folder, /data-dr-confirm="1">Approve this folder</);
   const cut = P._targetHtml({ kind: 'folder', state: 'changed', title: 'This folder: app',
     items: [{ severity: 'red', text: 'x' }], counts: {}, truncated: 4 }, 2);
@@ -114,78 +126,80 @@ test('the approve flow reads the folder from the task, not the summary', () => {
   assert.doesNotMatch(src, /row\.workspace/);
 });
 
-// ---- entry points on Agent Sessions: chip, one-time callout, tour step ----
+// ---- entry point on Agent Sessions: a count in the board status row ----
 
-function loadSessions(store, api, slot) {
+function loadSessions(api, summary) {
   const sandbox = {
     window: {},
-    document: { getElementById: (id) => (id === 'terminals-dr-slot' ? slot : null), querySelector: () => null },
+    document: { getElementById: (id) => (id === 'terminals-board-summary' ? summary : null), querySelector: () => null },
     API: api || {},
     URLSearchParams,
     sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-    localStorage: {
-      getItem: (k) => (k in store ? store[k] : null),
-      setItem: (k, v) => { store[k] = String(v); },
-    },
+    localStorage: { getItem: () => null, setItem() {} },
   };
   vm.runInNewContext(read('js/pages/terminals-layout.js'), sandbox);
   vm.runInNewContext(read('js/pages/terminals.js'), sandbox);
-  return sandbox.window.TerminalsPage;
+  return { T: sandbox.window.TerminalsPage, sandbox };
 }
-const fakeSlot = () => ({ innerHTML: '', querySelector: () => null });
+const fakeSummary = () => {
+  const btn = { onclick: null };
+  return { hidden: true, innerHTML: '', btn,
+    querySelector(sel) { return sel === '[data-board-dr]' && this.innerHTML.includes('data-board-dr') ? btn : null; } };
+};
+const twoTasks = [{ id: 'a', status: 'working' }, { id: 'b', status: 'working' }];
 
-test('the chip hides at zero and reads the count otherwise', () => {
-  const T = loadSessions({});
-  assert.equal(T._drChipHtml(0), '');
-  assert.equal(T._drChipHtml(undefined), '');
-  assert.match(T._drChipHtml(1), /Detection &amp; Response: 1 session to review/);
-  assert.match(T._drChipHtml(4), /Detection &amp; Response: 4 sessions to review/);
+test('count 3 puts a "3 need a look" button in the status row that opens Review', () => {
+  const el = fakeSummary();
+  const { T, sandbox } = loadSessions({}, el);
+  T._drData = { detect: { to_review: 3 } };
+  T._renderBoardSummary(twoTasks);
+  assert.match(el.innerHTML, /<button[^>]*data-board-dr[^>]*><b>3<\/b> need a look<\/button>/);
+  assert.match(el.innerHTML, /terminals-board-stat terminals-board-orphans is-amber/);
+  assert.match(el.innerHTML, /Opens Agent Detection &amp; Response\./);
+  let went = null;
+  sandbox.window.Sidebar = { navigate: (p) => { went = p; } };
+  sandbox.Sidebar = sandbox.window.Sidebar;
+  el.btn.onclick({ preventDefault() {} });
+  assert.equal(went, 'detection-response');
 });
 
-test('a failed or empty summary leaves the slot empty and logs nothing', async () => {
-  const slot = fakeSlot();
-  const T = loadSessions({}, { detectionResponseSummary: async () => { throw new Error('x'); } }, slot);
+test('the strip has five items in plain words, zeros dimmed, no button at zero', () => {
+  const el = fakeSummary();
+  const { T } = loadSessions({}, el);
+  T._drData = { detect: { to_review: 0 } };
+  T._renderBoardSummary(twoTasks);
+  for (const w of ['running', 'need you', 'need a look', 'not monitored', 'stopped by a restart']) assert.ok(el.innerHTML.includes(w), w);
+  assert.doesNotMatch(el.innerHTML, /data-board-dr|data-board-adopt|<button/);
+  assert.equal((el.innerHTML.match(/is-zero/g) || []).length, 4, 'every zero but running is dimmed');
+  assert.doesNotMatch(el.innerHTML, /not governed|waiting on you|interrupted/);
+  T._drData = null;
+  T._renderBoardSummary(twoTasks);
+  assert.doesNotMatch(el.innerHTML, /data-board-dr/);
+});
+
+test('a failed summary read leaves the count empty and logs nothing', async () => {
+  const { T } = loadSessions({ detectionResponseSummary: async () => { throw new Error('x'); } }, fakeSummary());
   T._gen = 1;
+  T._renderTaskList = () => {};
   await T._refreshDr();
-  assert.equal(slot.innerHTML, '');
+  assert.equal(T._drToReview(), 0);
 });
 
-test('the callout shows for a scored baseline or a setup change, and never after dismissal or a visit', () => {
-  const scored = { detect: { to_review: 0, baseline: { state: 'scored' } }, harden: { changes: 0 } };
-  const building = { detect: { to_review: 0, baseline: { state: 'building' } }, harden: { changes: 0 } };
-  const change = { detect: { to_review: 0, baseline: { state: 'building' } }, harden: { changes: 1 } };
-  const store = {};
-  const T = loadSessions(store);
-  assert.equal(T._drCalloutDue(building), false);
-  assert.equal(T._drCalloutDue(scored), true);
-  assert.equal(T._drCalloutDue(change), true);
-  assert.equal(T._drCalloutDue(null), false);
-  store['sv-dr-callout-dismissed'] = '1';
-  assert.equal(T._drCalloutDue(scored), false);
-  delete store['sv-dr-callout-dismissed'];
-  store['sv-dr-page-opened'] = '1';
-  assert.equal(T._drCalloutDue(change), false);
-  assert.match(T._drCalloutHtml(), /Your sessions now have a Drift Score\. See what Agent Detection &amp; Response found\./);
+test('no chip, callout or slot markup remains on the page or in the styles', () => {
+  const js = read('js/pages/terminals.js');
+  const css = read('css/styles.css');
+  for (const w of ['terminals-dr-slot', 'terminals-dr-chip', 'terminals-dr-callout', 'data-dr-chip', 'sv-dr-callout-dismissed', 'sv-dr-page-opened']) {
+    assert.ok(!js.includes(w), w);
+    assert.ok(!css.includes(w), w);
+  }
 });
 
-test('the callout survives unavailable storage', () => {
-  const T = loadSessions({});
-  T._drStore = T._drStore.bind(T);
-  const sandboxed = loadSessions({});
-  assert.doesNotThrow(() => sandboxed._drStore('set', 'k', '1'));
-  const slot = fakeSlot();
-  const T2 = loadSessions({}, {}, slot);
-  T2._drRender({ detect: { to_review: 2, baseline: { state: 'scored' } }, harden: { changes: 0 } });
-  assert.match(slot.innerHTML, /2 sessions to review/);
-  assert.match(slot.innerHTML, /data-dr-callout-dismiss/);
-});
-
-test('the tour has one Agent Detection & Response step with clean copy', () => {
+test('the tour has one Review step with clean copy', () => {
   const src = read('js/components/tour.js');
   assert.equal((src.match(/nav: 'detection-response'/g) || []).length, 1);
   const i = src.indexOf("nav: 'detection-response'");
   const step = src.slice(i, src.indexOf('},', i));
-  for (const w of ['Detect', 'Harden', 'Respond', 'Pre-flight', 'how are my agents behaving']) assert.ok(step.includes(w), w);
+  for (const w of ['Agent Detection & Response', 'unusual sessions', 'config changes', 'automatic actions', 'permission checks', 'how are my agents behaving']) assert.ok(step.includes(w), w);
   assert.doesNotMatch(step, /—|–|firewall|Mission Control|GovRun|\bADR\b/i);
 });
 
@@ -210,8 +224,8 @@ test('Community and enrolled variants', () => {
   const P = loadPage({ localStorage: memStore() });
   const c = P._fleetHtml({ credentials_configured: false });
   assert.match(c, /Across your devices/);
-  assert.match(c, /Pro shows drift, setup changes and response activity across every device you enrol\. 30-day trial\./);
-  assert.match(c, />See the fleet view</);
+  assert.match(c, /See unusual sessions and config changes from every device in one list\./);
+  assert.match(c, />Preview fleet view \(30-day trial\)</);
   assert.match(c, /href="https:\/\/docs\.securevector\.io\/agent-detection-response"[^>]*>How it works</);
   assert.match(c, /data-dr-fleet-dismiss/);
   const e = P._fleetHtml({ credentials_configured: true });
@@ -250,8 +264,8 @@ test('Copy stats is counts only: no path, folder or session id', () => {
   ['opens', 'opens', 'normal', 'approvals', 'cloudShown', 'cloudClicked', 'register'].forEach(k => P._bump(k));
   const data = { ...SCORED, sessions: [{ task_id: 't-9f', folder: 'secret-project', session_id: 'abc-123' }] };
   const t = P._statsText(data);
-  assert.match(t, /^Agent Detection & Response stats, week \d{4}-W\d{2}\n/);
-  for (const l of ['Page opens: 2', 'Sessions to review: 3', 'Reviewed: 2 of 3', 'Setup approvals: 1',
+  assert.match(t, /^Review stats, week \d{4}-W\d{2}\n/);
+  for (const l of ['Page opens: 2', 'Sessions to review: 3', 'Reviewed: 2 of 3', 'Config approvals: 1',
     'False-flag rate (7 days): 1 of 5', 'Cloud row: shown 1, dismissed 0, clicked 1', 'Install to first scored session: 2 days']) {
     assert.ok(t.includes(l), l);
   }
@@ -266,7 +280,7 @@ test('Copy stats uses the clipboard and toasts, with a textarea fallback', async
   const P = loadPage({ localStorage: memStore(), Toast, navigator: { clipboard: { writeText: async (t) => { written = t; } } } });
   P._data = SCORED;
   await P._copyStats();
-  assert.match(written, /^Agent Detection & Response stats/);
+  assert.match(written, /^Review stats/);
   assert.deepEqual(toasts, ['Stats copied']);
   const ta = { setAttribute() {}, style: {}, select() {}, remove() {} };
   let copied = false;
@@ -282,6 +296,159 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=4/);
-  assert.match(read('index.html'), /styles\.css\?v=479/);
+  assert.match(read('index.html'), /detection-response\.js\?v=13/);
+  assert.match(read('index.html'), /styles\.css\?v=489/);
+});
+
+test('plain-language pass: Review label and heading, Launch first, one card status line', () => {
+  const sidebar = read('js/components/sidebar.js');
+  assert.match(sidebar, /<span class="nav-label">Agent Detection &amp; Response<\/span>/);
+  assert.match(read('js/components/header.js'), /'detection-response': \{ title: 'Agent Detection & Response', subtitle: 'Sessions that did something unusual, and agent config changes to check\.' \}/);
+  const page = read('js/pages/terminals.js');
+  assert.ok(page.indexOf('id="terminals-launch-btn"') < page.indexOf('id="terminals-settings-btn"'), 'Launch precedes Settings');
+  assert.match(page, /btn btn-primary btn-sm terminals-launch-button/);
+  assert.doesNotMatch(page, /terminals-adopt-line|not governed'/);
+  const el = fakeSummary();
+  const { T } = loadSessions({}, el);
+  const facts = T._factsHtml({ id: 'x', tool_calls: 41, blocked_calls: 0, drift_score: 10, drift_band: 'calm', setup_state: 'changed' });
+  assert.match(facts, /title="41 calls · 0 blocked · unusual activity low"/);
+  assert.doesNotMatch(facts, /governed|setup|rung/);
+  assert.equal(T._guardState({ governed_at_launch: false }).label, 'not monitored');
+  assert.equal(T._guardState({}).label, 'checked');
+});
+
+// ---- spotlight ----
+
+const SPOT = { task_id: 't-high', harness_label: 'Claude Code', folder: 'billing-api', score: 82, band: 'high',
+  computed_at: new Date(2026, 9, 12, 14, 7).toISOString(), started_at: new Date(2026, 9, 12, 13, 0).toISOString(), ended_at: null,
+  had_blocks: false, baseline: { sessions: 8, median: 11.4 },
+  features: [
+    { id: 'tool_novelty', signal: 'Novelty', points: 20, counts: { unseen_tools: 4, unseen_calls: 9, calls: 31 }, detail: '9 of 31 calls' },
+    { id: 'errors_after_block', signal: 'Errors after a block', points: 15, counts: { errors: 6 }, detail: '6' },
+    { id: 'enumeration', signal: 'Repeat calls', points: 10, counts: { loop_calls: 10 }, detail: '10 repeated calls' },
+    { id: 'secrets_reach', signal: 'Credential reach', points: 8, counts: { locations: 2 }, detail: '2 locations' },
+    { id: 'new_hosts', signal: 'New hosts', points: 5, counts: { hosts: 3 }, detail: '3' },
+    { id: 'persistence', signal: 'Persistence', points: 3, counts: { repeats: 2 }, detail: '2' },
+  ],
+  recent_scores: [{ score: 10 }, { score: 12 }, { score: 9 }, { score: 82, current: true }] };
+
+test('spotlight: headline, subline, band chip, folder name only, points and sentences', () => {
+  const P = loadPage();
+  const html = P._spotlightHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high' }] });
+  assert.match(html, /Claude Code in billing-api stopped behaving like itself\./);
+  assert.match(html, /Scored at \d\d:\d\d\. Compared with/);
+  assert.match(html, /Compared with its own last 3 sessions in this folder\. No rule had to fire\./);
+  assert.match(html, /dr-spot-score is-high">82</);
+  assert.match(html, /High \u00b7 70 and above/);
+  assert.match(html, /Baseline for this folder over 3 sessions: 11\./);
+  assert.match(html, /Same agent tool\. Same folder\. Same permissions\./);
+  assert.match(html, />\+20<[\s\S]*Used 4 tools it had never used here before\./);
+  assert.match(html, /Novelty \u00b7 9 of 31 calls/);
+  assert.match(html, /Hit 6 errors right after a blocked call\./);
+  assert.match(html, /Repeated the same call 10 times\./);
+  assert.match(html, /Reached credential locations 2 times\./);
+  assert.match(html, /Called 3 hosts new for this folder\./);
+  assert.doesNotMatch(html, /Kept asking after a denial/, 'at most five rows');
+  assert.doesNotMatch(html, /\/Users|\\\\/);
+  assert.match(html, /data-dr-open="t-high"/);
+  assert.doesNotMatch(html, /data-dr-normal/, 'a running session cannot be marked normal');
+  assert.doesNotMatch(P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { had_blocks: true }) }), /No rule had to fire/);
+  assert.match(P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { ended_at: SPOT.computed_at }) }), /data-dr-normal="t-high"[\s\S]*Hide from this list and count it as normal for future scores/);
+});
+
+test('spotlight: sparkline has N points and highlights the last; watch and low chips', () => {
+  const P = loadPage();
+  const svg = P._sparkHtml(SPOT);
+  assert.equal((svg.match(/<circle/g) || []).length, 1, 'one highlighted last point');
+  assert.match(svg, /3 sessions of normal/);
+  assert.equal(svg.match(/<polyline class="dr-spark-base" fill="none" points="([^"]+)"/)[1].split(' ').length, 3);
+  assert.match(svg, /dr-spark is-high/);
+  assert.equal(P._sparkHtml({ recent_scores: [{ score: 5 }] }), '');
+  assert.match(P.BAND_RANGE.watch, /Worth a look \u00b7 40 to 69/);
+  assert.match(P.BAND_RANGE.calm, /Low \u00b7 below 40/);
+});
+
+test('spotlight: empty state and list excludes the spotlight session', () => {
+  const P = loadPage();
+  const empty = P._spotlightHtml({ spotlight: null, sessions: [] });
+  assert.match(empty, /No scored sessions yet\./);
+  assert.match(empty, /Scores start after 5 sessions in a folder\./);
+  assert.doesNotMatch(empty, /dr-spot-card/);
+  // Sessions to review exist (config changes) but none is watch or high: still the empty headline.
+  const cfgOnly = P._spotlightHtml({ spotlight: null, sessions: [{ task_id: 'x', score: 8, band: 'calm', setup_state: 'changed' }, { task_id: 'y', score: null, band: null, setup_state: 'changed' }], harden: { changes: 2 } });
+  assert.match(cfgOnly, /2 config changes need a look\./);
+  assert.doesNotMatch(cfgOnly, /sessions? (and|need)/, 'config-only sessions are not unusual sessions');
+  const unusual = P._spotlightHtml({ spotlight: null, sessions: [{ task_id: 'x', score: 80, band: 'high' }, { task_id: 'y', band: null }], harden: { changes: 1 } });
+  assert.match(unusual, /1 session and 1 config change need a look\./);
+  assert.doesNotMatch(cfgOnly, /dr-spot-card/);
+  assert.match(P._spotlightHtml({ spotlight: null, sessions: [], detect: { to_review: 0 }, harden: { changes: 3 } }), /3 config changes need a look\./);
+  const calm = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 25, features: [] }), sessions: [{ task_id: 'a', band: 'watch', score: 50 }, { task_id: 'b', band: 'high', score: 90 }], detect: { to_review: 2 }, harden: { changes: 17 } });
+  assert.match(calm, /2 sessions and 17 config changes need a look\./);
+  assert.match(calm, /Highest score this week: 25, low\. Claude Code in billing-api\./);
+  assert.match(calm, /dr-spot-score is-calm">25</);
+  assert.match(calm, /Low \u00b7 below 40/);
+  assert.match(calm, /No signal stood out\./);
+  assert.match(calm, /dr-spark is-calm/);
+  assert.match(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high' }] }), /No other sessions need review\./);
+  assert.doesNotMatch(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high', score: 82, band: 'high' }, { task_id: 'o', score: 50, band: 'watch' }] }), /data-dr-open="t-high"/);
+});
+
+test('Agent Detection & Response rows sit in the Agents bottom section with a count badge', () => {
+  const src = read('js/components/sidebar.js');
+  assert.match(src, /agentFooterRows\.push\(dr, row\)/);
+  assert.match(src, /agentFooterRows\.forEach\(r => bottomSection\.appendChild\(r\)\)/);
+  assert.ok(src.indexOf('agentFooterRows.forEach') < src.indexOf('bottomSection.appendChild(statusToggle)'), 'above Plugins');
+  assert.doesNotMatch(src, /nav\.appendChild\(dr\)/);
+  assert.match(src, /nav-dr-badge/);
+});
+
+test('bulk approve: plain button with live count, confirm gate, UI-token approve path, result line', async () => {
+  const P = loadPage();
+  const html = P._configHtml({ harden: { available: true, changes: 17 } });
+  assert.match(html, /<button type="button" class="btn btn-sm" data-dr-bulk>Approve all 17 config changes<\/button>/);
+  assert.doesNotMatch(html, /btn-primary/);
+  assert.doesNotMatch(P._configHtml({ harden: { available: true, changes: 0 } }), /data-dr-bulk/);
+  const calls = [];
+  const panel = { innerHTML: '', querySelector(q) { return this._n[q] || null; }, _n: {} };
+  const host = { querySelector: (q) => (q === '[data-dr-bulk-panel]' ? panel : null) };
+  const sandboxApi = { configTrustStatus: async () => ({ harnesses: [
+    { harness: 'claude-code', label: 'Claude Code', state: 'changed', view_hash: 'h1', changes: new Array(11).fill({}) },
+    { harness: 'codex', label: 'Codex', state: 'new', view_hash: 'h2', changes: [{}] },
+    { harness: 'x', label: 'X', state: 'pinned', view_hash: 'h3' }] }),
+    configTrustApprove: async (b) => { calls.push(b); return {}; } };
+  const P2 = loadPage({ API: sandboxApi });
+  const btn = { disabled: false, hidden: false };
+  const yes = { disabled: false }; const no = {};
+  panel._n = { '[data-dr-bulk-yes]': yes, '[data-dr-bulk-no]': no };
+  await P2._askBulk(btn, host);
+  assert.equal(calls.length, 0, 'nothing is approved before the confirm');
+  assert.match(panel.innerHTML, /Claude Code: 11 changes/);
+  assert.match(panel.innerHTML, /Codex: 1 change/);
+  assert.doesNotMatch(panel.innerHTML, /X:/);
+  assert.match(panel.innerHTML, /data-dr-bulk-yes[^>]*>Approve all/);
+  await yes.onclick();
+  assert.deepEqual(calls.map(c => c.harness), ['claude-code', 'codex']);
+  assert.ok(calls.every(c => c.target === 'setup' && c.expected));
+  assert.match(panel.innerHTML, /Approved 12 config changes\./);
+  assert.match(read('js/api.js'), /configTrustApprove\(body\) \{\s*return this\._terminalsWrite\('\/api\/terminals\/config-trust\/pins', body\);/);
+});
+
+test('calm spotlight subline skips "No rule had to fire"; chart and subline share one N', () => {
+  const P = loadPage();
+  const calm = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 20, had_blocks: false }), detect: {}, harden: {} });
+  assert.doesNotMatch(calm, /No rule had to fire/);
+  assert.match(calm, /Compared with its own last 3 sessions in this folder\./);
+  assert.match(calm, /3 sessions of normal/);
+  assert.match(P._spotlightHtml({ spotlight: SPOT }), /No rule had to fire\./);
+});
+
+test('fallback headline uses the band word; no Looks normal when not in the review list; no-rule sentence needs known zero blocks', () => {
+  const P = loadPage();
+  const mk = (o) => P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { ended_at: SPOT.computed_at }, o), detect: {}, harden: {} });
+  assert.match(mk({ to_review: false, band: 'calm', score: 20 }), /Highest score this week: 20, low\./);
+  assert.doesNotMatch(mk({ to_review: false, band: 'calm' }), /data-dr-normal/);
+  assert.match(mk({ to_review: true }), /data-dr-normal/);
+  assert.doesNotMatch(mk({ had_blocks: null }), /No rule had to fire/);
+  assert.match(mk({ had_blocks: false }), /No rule had to fire/);
+  assert.match(P._reasonHtml({ reason: 'A', setup_texts: ['A', 'B', 'C'] }), /<button type="button" class="dr-more" data-dr-more aria-expanded="false">, \+2 more<\/button>/);
 });

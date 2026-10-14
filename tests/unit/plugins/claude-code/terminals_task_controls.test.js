@@ -532,8 +532,9 @@ test('the orphaned count appears only when something was orphaned', () => {
   assert.match(src, /data-board-filter="interrupted"/);
   // A control, so it must be a button: a span with an onclick takes no focus
   // and answers no keyboard.
-  assert.match(src, /<button type="button" class="terminals-board-stat terminals-board-orphans"/);
-  assert.match(src, /orphaned\s*\n?\s*\?/, 'rendered conditionally, not as a permanent 0');
+  assert.match(src, /<button type="button" class="terminals-board-stat terminals-board-orphans/);
+  assert.match(src, /btn\(orphaned, 'stopped by a restart'/);
+  assert.match(src, /n > 0\s*\n?\s*\?/, 'a button only above zero; zero is a dimmed count');
 });
 
 test('clicking orphaned narrows the board through the search everyone can see', () => {
