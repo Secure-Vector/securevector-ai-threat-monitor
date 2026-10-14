@@ -147,30 +147,28 @@ class DriftResult:
         live.sort(key=lambda f: (-f["weight"] * f["value"], FEATURE_IDS.index(f["id"])))
         return [
             {"id": f["id"], "label": f["label"], "value": round(f["value"], 3),
-             "weight": f["weight"], "detail": detail_of(f)}
+             "weight": f["weight"], "detail": detail_of(f), "counts": f.get("counts") or {}}
             for f in live[:n]
         ]
 
 
 def contribution_points(result: "DriftResult") -> list:
-    """[(id, points)] for every contributing feature, in top() order.
-
-    The score is renormalised over the live (non-skipped) weights, so each
-    feature's share is value x weight x 100 / total live weight. Rounded,
-    with the rounding remainder added to the first row so the points sum to
-    the score. Empty when there is no score."""
+    """[(feature_id, points)] for the features that added to the score, in the
+    order they mattered. Each is value x weight scaled to the 0 to 100 score
+    (over the weight of every feature that took part), rounded, with the
+    rounding remainder given to the top row so the points add up to the score."""
     if result.score is None:
         return []
-    live_feats = [f for f in result.features if not f.get("skipped")]
-    total = sum(f["weight"] for f in live_feats)
-    if not total:
+    parts = [f for f in result.features if not f.get("skipped")]
+    total = sum(f["weight"] for f in parts)
+    live = [f for f in parts if f.get("value", 0) > 0]
+    live.sort(key=lambda f: (-f["weight"] * f["value"], FEATURE_IDS.index(f["id"])))
+    if not live or not total:
         return []
-    ranked = [f for f in live_feats if f.get("value", 0) > 0]
-    ranked.sort(key=lambda f: (-f["weight"] * f["value"], FEATURE_IDS.index(f["id"])))
-    rows = [[f["id"], int(round(f["value"] * f["weight"] * 100 / total))] for f in ranked]
-    if rows:
-        rows[0][1] = max(0, rows[0][1] + int(result.score) - sum(p for _, p in rows))
-    return [(fid, pts) for fid, pts in rows]
+    pts = [int(round(100.0 * f["weight"] * f["value"] / total)) for f in live]
+    if sum(pts) != result.score:
+        pts[0] = max(0, pts[0] + (result.score - sum(pts)))
+    return [(f["id"], p) for f, p in zip(live, pts)]
 
 
 def detail_of(feature: Mapping[str, Any]) -> str:

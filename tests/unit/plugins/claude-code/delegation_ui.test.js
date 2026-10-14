@@ -623,7 +623,7 @@ function loadCT() {
 
 test('setup chips are links to the Connect Agents page, only when a decision is needed', async () => {
   const ct = loadCT();
-  assert.match(ct.factsPart({ id: 't9', setup_state: 'new' }), /data-setup-open="t9"[^>]*>setup not approved</);
+  assert.equal(ct.factsPart({ id: 't9', setup_state: 'new' }), '');
   assert.match(ct.factsPart({ id: 't9', setup_state: 'changed', setup_changes: 2 }), /role="button" tabindex="0" data-setup-open="t9"/);
   assert.ok(!ct.factsPart({ id: 't9', setup_state: 'pinned' }).includes('data-setup-open'));
   let went = null;

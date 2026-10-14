@@ -174,7 +174,7 @@ const DelegationUI = {
         const out = items.filter(x => x && typeof x === 'object' && x.delegation_id).map(x => ({
             id: String(x.delegation_id), state: String(x.state || ''), harness: x.harness || '',
             folder: x.folder || '', reason: x.reason || '', result: typeof x.result === 'string' ? x.result : '',
-            child: x.child_task_id || null,
+            child: x.child_task_id || null, code: x.reason_code || '',
         }));
         return out.length ? out : null;
     },

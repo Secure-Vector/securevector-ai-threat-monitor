@@ -29,7 +29,7 @@ const Sidebar = {
           ] },
         { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'How protected this one device is right now, and the gaps to close' },
         { id: 'detection-response', label: 'Agent Detection & Response', icon: 'search',
-          tooltip: 'Sessions to review, setup changes, steps taken and pre-flight checks, in one loop' },
+          tooltip: 'Sessions that did something unusual, and agent config changes to check.' },
         { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'What your agents spend on model calls, per agent, model and session' },
         { id: 'egress', label: 'Agent Egress', icon: 'proxy', count: 'egress',
           tooltip: 'Every external host your agents reached, first seen and how often' },
@@ -73,11 +73,11 @@ const Sidebar = {
     ],
     productGroups: [
         { id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',
-          subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
+          subtitle: 'Launch and return to governed agent sessions', items: ['terminals'], extraPages: ['detection-response'] },
         { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
           subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
         { id: 'governance', label: 'Governance', icon: 'gauge', landing: 'governance',
-          subtitle: 'Review protection posture and approvals', items: ['governance', 'detection-response'] },
+          subtitle: 'Review protection posture and approvals', items: ['governance'] },
         { id: 'policies', label: 'Policies', icon: 'sliders', landing: 'policies',
           subtitle: 'Set the controls agents must follow', items: ['policies'] },
         { id: 'connect', label: 'Connect', icon: 'plug', landing: 'guide-connect-agents',
@@ -292,8 +292,9 @@ const Sidebar = {
         const nav = document.createElement('nav');
         nav.className = 'sidebar-nav';
 
-        // Agents group: a fixed Settings row above the task tree. It is a nav
+        // Agents group: Settings and Agent Detection & Response rows, placed in the bottom section above Plugins. It is a nav
         // item, not a task, and opens the Agent Sessions settings panel.
+        const agentFooterRows = [];
         if (activeGroup.id === 'tasks') {
             const row = document.createElement('div');
             row.className = 'nav-item nav-sessions-settings';
@@ -311,7 +312,17 @@ const Sidebar = {
             };
             row.addEventListener('click', openSettings);
             this._makeRowFocusable(row, openSettings, { role: 'button' });
-            nav.appendChild(row);
+
+            // Agent Detection & Response sits above Settings in the bottom section.
+            const dr = document.createElement('div');
+            dr.className = 'nav-item nav-sessions-dr' + (this.currentPage === 'detection-response' ? ' active' : '');
+            dr.dataset.page = 'detection-response';
+            dr.title = 'Sessions that did something unusual, and agent config changes to check.';
+            dr.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M16 16l4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="nav-label">Agent Detection &amp; Response</span><span class="nav-dr-badge" hidden></span>';
+            const openDr = (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.navigate('detection-response'); };
+            dr.addEventListener('click', openDr);
+            this._makeRowFocusable(dr, openDr, { role: 'button' });
+            agentFooterRows.push(dr, row);
         }
 
         // Core features get an orange badge dot overlaid on their icon
@@ -865,6 +876,20 @@ const Sidebar = {
         statusToggle.appendChild(statusCount);
         statusToggle.addEventListener('mouseenter', () => { statusToggle.style.color = 'var(--text-secondary)'; });
         statusToggle.addEventListener('mouseleave', () => { statusToggle.style.color = 'var(--text-muted)'; });
+        agentFooterRows.forEach(r => bottomSection.appendChild(r));
+        const drBadge = bottomSection.querySelector('.nav-dr-badge');
+        if (drBadge && window.API) {
+            const showCount = (n) => {
+                n = Number(n) || 0;
+                drBadge.textContent = String(n);
+                drBadge.hidden = n <= 0;
+                drBadge.title = `${n} ${n === 1 ? 'session needs' : 'sessions need'} a look`;
+            };
+            try {
+                Promise.resolve((API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API))
+                    .then(d => showCount(d && d.detect && d.detect.to_review)).catch(() => {});
+            } catch (e) { /* no count */ }
+        }
         bottomSection.appendChild(statusToggle);
 
         const statusStack = document.createElement('div');
@@ -885,7 +910,8 @@ const Sidebar = {
             try { localStorage.setItem(STATUS_COLLAPSE_KEY, nowCollapsed ? '1' : '0'); } catch (_) { /* private mode */ }
             applyStatusCollapsed(nowCollapsed);
         });
-        applyStatusCollapsed(localStorage.getItem(STATUS_COLLAPSE_KEY) === '1');
+        const savedCollapse = localStorage.getItem(STATUS_COLLAPSE_KEY);
+        applyStatusCollapsed(savedCollapse === null ? window.innerHeight < 900 : savedCollapse === '1');
         // Header visibility + count track the banners' own show/hide (each
         // poller flips its banner's inline display) — observe instead of
         // threading a callback through all five pollers.
@@ -1255,7 +1281,7 @@ const Sidebar = {
     },
 
     _activeProductGroup(page) {
-        return this.productGroups.find(group => group.items.some(itemId => {
+        return this.productGroups.find(group => (group.extraPages || []).includes(page) || group.items.some(itemId => {
             const item = this.navItems.find(candidate => candidate.id === itemId);
             return item && this._itemMatches(item, page);
         })) || this.productGroups[0];
@@ -1374,7 +1400,15 @@ const Sidebar = {
             tasks.forEach(v => { const f = folderOf(v); if (!counts.has(f)) { counts.set(f, 0); order.push(f); } counts.set(f, counts.get(f) + 1); if (this._viewActive(v)) openFolders.add(f); });
             order.sort((a, b) => (a === 'Other') - (b === 'Other'));
             const ordered = nested ? DU.visible(nested, folded, activeTaskId) : tasks;
-            views = [...plain, ...order.flatMap(f => ordered.filter(v => folderOf(v) === f))];
+            // Within a folder, sessions that need the person come first; a
+            // delegated child stays with its parent.
+            const sortFolder = (list) => {
+                const chunks = [];
+                list.forEach(v => { if (v.parentId && chunks.length) chunks[chunks.length - 1].push(v); else chunks.push([v]); });
+                const need = (c) => c.some(v => v.needs) ? 0 : 1;
+                return chunks.map((c, i) => [c, i]).sort((a, b) => need(a[0]) - need(b[0]) || a[1] - b[1]).flatMap(x => x[0]);
+            };
+            views = [...plain, ...order.flatMap(f => sortFolder(ordered.filter(v => folderOf(v) === f)))];
             collapsed = TP._collapsedFolders();
         }
         const headed = new Set();
@@ -1424,6 +1458,7 @@ const Sidebar = {
             }
             row.dataset.page = view.id;
             if (view.taskId) row.dataset.taskId = view.taskId;
+            if (view.needs) row.classList.add('needs-you');
             if (view.aliases) row.dataset.aliases = view.aliases.join(',');
             const locked = !!view.cloud && this._enrolled !== true;
             row.dataset.tip = locked
@@ -1619,6 +1654,7 @@ const Sidebar = {
                             created: task.created_at || '',
                             fromTitle: task.parent_task_id ? ((((result.items || []).find(x => x.id === task.parent_task_id)) || {}).title || '') : '',
                             state,
+                            needs: pendingSessions.has(task.session_id) || task.drift_band === 'watch' || task.drift_band === 'high',
                             label: task.title || task.executor_id,
                             linked: task.origin === 'linked',
                             sub: this._taskSubtitle(task, state) + (childCount[task.id] ? ` · ${childCount[task.id] === 1 ? '1 child' : childCount[task.id] + ' children'}` : ''),

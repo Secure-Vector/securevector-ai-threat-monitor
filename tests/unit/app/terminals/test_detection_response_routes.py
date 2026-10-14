@@ -216,3 +216,75 @@ def test_setup_checks_are_read_in_batches():
     out = asyncio.run(_latest_checks(repo, ids))
     assert repo.calls == [400, 400, 150]
     assert len(out) == 950
+
+
+def test_spotlight_is_the_highest_score_with_points_and_folder_name_only(dr_env):
+    client, ws, db = dr_env
+    _seed(db, ws)
+    body = client.get(URL, headers=AUTH).json()
+    sp = body["spotlight"]
+    assert sp["task_id"] == "t-high" and sp["score"] == 82 and sp["band"] == "high" and sp["to_review"] is True
+    assert sp["folder"] == ws.rstrip("/").split("/")[-1] and "/" not in sp["folder"]
+    top = sp["features"][0]
+    assert top["id"] == "tool_novelty" and top["signal"] == "Novelty"
+    assert top["points"] == sp["score"] and top["counts"]["unseen_calls"] == 4
+    scores = [r["score"] for r in sp["recent_scores"]]
+    assert 82 in scores and sum(1 for r in sp["recent_scores"] if r["current"]) == 1
+    assert sp["baseline"]["sessions"] == 6 and sp["baseline"]["median"] is not None
+    assert "spotlight" not in body["detect"]
+
+
+def test_spotlight_falls_back_to_the_top_calm_score_and_is_none_without_scores(dr_env):
+    client, ws, db = dr_env
+    assert client.get(URL, headers=AUTH).json()["spotlight"] is None
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-calm", "s-calm", ws, ended_days=0)
+    _drift(raw, "s-calm", "t-calm", 10, "calm")
+    _task(raw, "t-calm2", "s-calm2", ws, ended_days=1)
+    _drift(raw, "s-calm2", "t-calm2", 25, "calm")
+    raw.commit()
+    sp = client.get(URL, headers=AUTH).json()["spotlight"]
+    assert sp["task_id"] == "t-calm2" and sp["score"] == 25 and sp["band"] == "calm"
+    assert sp["to_review"] is False
+
+
+def test_spotlight_tie_goes_to_the_newest(dr_env):
+    client, ws, db = dr_env
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-a", "s-a", ws, ended_days=2, created_days=3)
+    _drift(raw, "s-a", "t-a", 75, "high")
+    _task(raw, "t-b", "s-b", ws, ended_days=0)
+    _drift(raw, "s-b", "t-b", 75, "high")
+    raw.commit()
+    assert client.get(URL, headers=AUTH).json()["spotlight"]["task_id"] == "t-b"
+
+
+def test_spotlight_points_add_up_to_the_score_and_blocks_are_counted(dr_env):
+    client, ws, db = dr_env
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-p", "s-p", ws, ended_days=0)
+    feats = [{"id": "tool_novelty", "value": 0.5, "skipped": False, "counts": {"unseen_tools": 2}},
+             {"id": "errors_after_block", "value": 0.4, "skipped": False, "counts": {"errors": 2}},
+             {"id": "new_hosts", "value": 0.0, "skipped": True, "counts": {}}]
+    # 100 * (25*0.5 + 20*0.4) / (25+20) = 45.6 -> 46 (partial: one feature skipped)
+    raw.execute(
+        "INSERT INTO session_drift (session_id, task_id, harness, workspace, score, band, status, features_json, "
+        "baseline_sessions, baseline_calls, computed_at) VALUES ('s-p','t-p','claude-code','/w',46,'watch','partial',?,6,300,?)",
+        (json.dumps(feats), (NOW - timedelta(minutes=5)).isoformat()))
+    raw.execute("INSERT INTO tool_call_audit (tool_id, function_name, action, called_at, session_id, runtime_kind) VALUES ('Bash','Bash','block',?, 's-p','claude-code')",
+                ((NOW - timedelta(minutes=6)).strftime("%Y-%m-%d %H:%M:%S"),))
+    raw.commit()
+    sp = client.get(URL, headers=AUTH).json()["spotlight"]
+    assert sum(f["points"] for f in sp["features"]) == sp["score"] == 46
+    assert sp["had_blocks"] is True
+
+
+def test_fallback_spotlight_skips_sessions_marked_normal(dr_env):
+    client, ws, db = dr_env
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-n", "s-n", ws, ended_days=0)
+    _drift(raw, "s-n", "t-n", 30, "calm", feedback="normal")
+    _task(raw, "t-m", "s-m", ws, ended_days=1)
+    _drift(raw, "s-m", "t-m", 12, "calm")
+    raw.commit()
+    assert client.get(URL, headers=AUTH).json()["spotlight"]["task_id"] == "t-m"

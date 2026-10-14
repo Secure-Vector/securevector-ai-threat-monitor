@@ -190,10 +190,9 @@ const ConfigTrust = {
         if (!t || !t.setup_state) return '';
         const open = t.id ? ` role="button" tabindex="0" data-setup-open="${this._esc(t.id)}"` : '';
         if (t.setup_state === 'changed') {
-            return `<span class="terminals-task-setup is-red"${open} title="Agent setup changed since it was approved. Open Connect Agents.">setup changed (${this._esc(t.setup_changes || 0)})</span>`;
+            return `<span class="terminals-task-setup is-amber"${open} title="Agent config changed since you approved it. Open Connect Agents.">config changed</span>`;
         }
-        if (t.setup_state === 'new') return `<span class="terminals-task-setup is-amber"${open} title="Agent setup not approved yet. Open Connect Agents.">setup not approved</span>`;
-        return '<span class="terminals-task-setup" title="Agent setup matches what you approved">setup pinned</span>';
+        return '';
     },
 
     /** Make a setup chip (board or rail) a link to the Connect Agents page,

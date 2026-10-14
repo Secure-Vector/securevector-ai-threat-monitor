@@ -171,7 +171,7 @@ test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
   assert.match(html, /guardian-bot\.js\?v=14/);
   assert.match(html, /guardian-3d\.js\?v=18/);
-  assert.match(html, /guardian-assistant\.js\?v=49/);
+  assert.match(html, /guardian-assistant\.js\?v=50/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {
@@ -457,7 +457,7 @@ test('the thought cloud is honest: dots mean real work, thoughts mean idle', () 
   assert.match(a, /this\._think\(true\);/);
   assert.match(a, /\.finally\(\(\) => this\._think\(false\)\)/);
   // and the cloud yields to anything that needs attention
-  assert.match(a, /if \(this\._quiet\(\) \|\| this\._open \|\| this\._bubbleEl \|\| !this\._fab\) return;/);
+  assert.match(a, /if \(this\._quiet\(\) \|\| this\._open \|\| this\._bubbleEl \|\| !this\._fab \|\| this\._noBubblePage\(\)\) return;/);
   // every colour is a theme token, so the cloud follows light / black /
   // azure / ember / slate without a single per-theme rule, and the only
   // accent it can reach for is the product's one teal

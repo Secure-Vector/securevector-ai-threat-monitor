@@ -766,6 +766,11 @@ const GuardianAssistant = {
         else document.documentElement.setAttribute('data-bot-accent', name);
     },
 
+    /** The bot keeps its badge but never opens a bubble over these pages. */
+    _noBubblePage() {
+        try { return ['terminals', 'detection-response'].includes(this['_currentPage']()); } catch (_) { return false; }
+    },
+
     _quiet() {
         try { return localStorage.getItem('sv-guardian-quiet') === '1'; } catch (_) { return false; }
     },
@@ -1377,7 +1382,7 @@ const GuardianAssistant = {
     _thoughtShow(text) {
         // Anything that needs the user's attention outranks the cloud: an open
         // panel, a live bubble, quiet mode, or a page the bot is fading over.
-        if (this._quiet() || this._open || this._bubbleEl || !this._fab) return;
+        if (this._quiet() || this._open || this._bubbleEl || !this._fab || this._noBubblePage()) return;
         const t = this._thoughtEl();
         // Dots never interrupt a thought mid-read: a routine poll starting
         // while a line is up would otherwise clip it to three dots.
@@ -1525,6 +1530,7 @@ const GuardianAssistant = {
 
     _speak({ text, cta, page, tab, mood, act, openTask }) {
         if (this._quiet() || !this._fab) return false;
+        if (this._noBubblePage()) return false;
         this._lastEventAt = Date.now(); // something happened; the shift is not quiet
         if (this._bubbleEl && this._bubbleEl.isConnected) return false; // one at a time
         this._spokeAt = Date.now(); // thoughts wait their turn after any bubble

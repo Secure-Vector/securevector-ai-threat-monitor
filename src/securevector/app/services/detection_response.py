@@ -116,6 +116,77 @@ async def _drift_rows(db, session_ids: list) -> dict:
     return out
 
 
+SIGNAL_NAMES = {
+    session_drift.F_TOOLS: "Novelty", session_drift.F_ERRORS: "Errors after a block",
+    session_drift.F_ENUM: "Repeat calls", session_drift.F_SECRETS: "Credential reach",
+    session_drift.F_HOSTS: "New hosts", session_drift.F_PERSIST: "Persistence",
+}
+SPOTLIGHT_SCORES = 20
+
+
+def _median(values: list) -> Optional[float]:
+    vals = sorted(values)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    return float(vals[mid]) if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2.0
+
+
+async def _spotlight(db, candidates: list, scored_all: Optional[list] = None) -> Optional[dict]:
+    """The one session that most needs a look: highest drift score among the
+    sessions to review, newest on a tie. Reads stored rows only; a piece with
+    no data is left out rather than guessed."""
+    pool = candidates or scored_all or []
+    if not pool:
+        return None
+    score, _at, t, d = sorted(pool, key=lambda c: (c[0], c[1]), reverse=True)[0]
+    result = session_drift.result_from_row(d)
+    live = [f for f in result.features if not f.get("skipped") and f.get("value", 0) > 0]
+    live.sort(key=lambda f: (-f["weight"] * f["value"], session_drift.FEATURE_IDS.index(f["id"])))
+    points = dict(session_drift.contribution_points(result))
+    features = [{"id": f["id"], "signal": SIGNAL_NAMES.get(f["id"], ""), "label": f["label"],
+                 "value": round(f["value"], 3), "weight": f["weight"],
+                 "points": points.get(f["id"], 0), "counts": f.get("counts") or {},
+                 "detail": session_drift.detail_of(f)} for f in live][:5]
+    recent: list = []
+    workspace = d.get("workspace") or t.get("workspace")
+    if workspace:
+        try:
+            rows = await db.fetch_all(
+                "SELECT session_id, score, computed_at FROM session_drift "
+                "WHERE workspace = ? AND score IS NOT NULL ORDER BY computed_at DESC LIMIT ?",
+                (workspace, SPOTLIGHT_SCORES))
+            recent = [{"score": int(r["score"]), "at": r["computed_at"],
+                       "current": r["session_id"] == d.get("session_id")} for r in reversed(rows)]
+        except Exception:  # noqa: BLE001 - no sparkline without history
+            logger.debug("detection response: could not read folder history", exc_info=True)
+    others = [r["score"] for r in recent if not r["current"]]
+    had_blocks: Optional[bool] = None
+    try:
+        row = await db.fetch_one(
+            "SELECT COUNT(*) AS n FROM tool_call_audit WHERE session_id = ? AND action = 'block'",
+            (d.get("session_id"),))
+        had_blocks = bool(row and int(row["n"] or 0) > 0)
+    except Exception:  # noqa: BLE001 - unknown, so the page drops the sentence
+        logger.debug("detection response: could not count blocked calls", exc_info=True)
+    return {
+        "task_id": t["id"],
+        "to_review": bool(candidates),
+        "harness_label": _label(t.get("executor_id")),
+        "folder": _folder(t.get("workspace")),
+        "score": score,
+        "band": d.get("band"),
+        "computed_at": d.get("computed_at"),
+        "crossed_at": None,
+        "started_at": t.get("created_at"),
+        "ended_at": t.get("ended_at"),
+        "had_blocks": had_blocks,
+        "features": features,
+        "baseline": {"sessions": int(d.get("baseline_sessions") or 0), "median": _median(others)},
+        "recent_scores": recent,
+    }
+
+
 async def _detect(db, now: datetime) -> dict:
     since = now - timedelta(days=WINDOW_DAYS)
     out: dict = {"rows": [], "to_review": 0, "marked_normal": 0, "flagged": 0, "scored": 0,
@@ -136,10 +207,14 @@ async def _detect(db, now: datetime) -> dict:
         logger.debug("detection response: could not read setup checks", exc_info=True)
 
     rows = []
+    candidates = []
+    scored_all = []
     for t in tasks:
         d = drift.get(t["session_id"]) or {}
         if d.get("score") is not None:
             out["scored"] += 1
+        if d.get("score") is not None and d.get("feedback") != session_drift.FEEDBACK_NORMAL:
+            scored_all.append((int(d["score"]), t["_at"], t, d))
         c = checks.get(t["id"]) or {}
         band = d.get("band") if d.get("score") is not None else None
         setup_state = c.get("state")
@@ -153,6 +228,8 @@ async def _detect(db, now: datetime) -> dict:
         if d.get("feedback") == session_drift.FEEDBACK_NORMAL and not flagged_setup:
             out["marked_normal"] += 1
             continue
+        if flagged_drift and d.get("score") is not None:
+            candidates.append((int(d["score"]), t["_at"], t, d))
         reason = _drift_reason(d) if flagged_drift else ""
         if not reason and flagged_setup:
             reason = _setup_reason(c)
@@ -167,10 +244,12 @@ async def _detect(db, now: datetime) -> dict:
             "status": d.get("status"),
             "setup_state": setup_state,
             "setup_changes": len(c.get("diff") or []),
+            "setup_texts": [str(x["text"]) for x in (c.get("diff") or []) if isinstance(x, dict) and x.get("text")][:30],
             "reason": reason or "Drift above the usual range for this harness.",
             "ended": bool(t.get("ended_at")),
             "at": t["_at"].isoformat(timespec="seconds"),
         })
+    out["spotlight"] = await _spotlight(db, candidates, scored_all)
     out["to_review"] = len(rows)
     # Flagged = still listed plus marked normal; the false-flag rate reads
     # marked_normal out of flagged.
@@ -242,7 +321,8 @@ async def summary(db, *, setup: Optional[Mapping[str, Any]] = None,
     pre["registered"] = registered
     return {
         "window_days": WINDOW_DAYS,
-        "detect": {k: v for k, v in detect.items() if k != "rows"},
+        "detect": {k: v for k, v in detect.items() if k not in ("rows", "spotlight")},
+        "spotlight": detect.get("spotlight"),
         "harden": _harden(setup),
         "preflight": pre,
         "sessions": detect["rows"],

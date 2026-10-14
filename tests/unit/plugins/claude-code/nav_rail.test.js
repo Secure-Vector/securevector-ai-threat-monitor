@@ -27,11 +27,12 @@ test('product rail order and contextual route mappings are stable', () => {
   assert.deepStrictEqual(ids, ['tasks', 'visibility', 'governance', 'policies', 'connect', 'more']);
   assert.match(groups, /id: 'tasks'[\s\S]*?landing: 'terminals',[\s\S]*?items: \['terminals'\]/);
   assert.match(groups, /id: 'visibility'[\s\S]*?items: \['dashboard', 'agent-runs', 'threats', 'costs', 'egress'\]/);
-  assert.match(groups, /id: 'governance'[\s\S]*?items: \['governance', 'detection-response'\]/);
+  assert.match(groups, /id: 'governance'[\s\S]*?items: \['governance'\]/);
+  assert.match(groups, /id: 'tasks'[\s\S]*?extraPages: \['detection-response'\]/);
   assert.match(groups, /id: 'policies'[\s\S]*?items: \['policies'\]/);
   assert.match(groups, /id: 'connect'[\s\S]*?items: \['guide-connect-agents', 'siem-export'\]/);
   assert.match(groups, /id: 'more'[\s\S]*?items: \['guide', 'settings'\]/);
-  assert.match(read('js/components/sidebar.js'), /return this\.productGroups\.find\(group => group\.items\.some/);
+  assert.match(read('js/components/sidebar.js'), /return this\.productGroups\.find\(group => \(group\.extraPages \|\| \[\]\)\.includes\(page\) \|\| group\.items\.some/);
 });
 
 test('Agent Tasks is first and root/fallback navigation is session-first', () => {
@@ -42,7 +43,7 @@ test('Agent Tasks is first and root/fallback navigation is session-first', () =>
   // destination (say `threats`) has to fail here, instead of silently
   // degrading its deep link into the Agent Tasks context.
   const navIds = new Set(ids);
-  const groupItemIds = [...productGroupsSource().matchAll(/items: \[([^\]]*)\]/g)]
+  const groupItemIds = [...productGroupsSource().matchAll(/(?:items|extraPages): \[([^\]]*)\]/g)]
     .flatMap(m => [...m[1].matchAll(/'([a-z0-9-]+)'/g)].map(x => x[1]));
   assert.equal(groupItemIds.length, 13, 'the rail must offer all thirteen destinations');
   assert.equal(new Set(groupItemIds).size, groupItemIds.length, 'a destination belongs to one group only');
@@ -190,8 +191,8 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=189/);
-  assert.match(html, /styles\.css\?v=479/);
+  assert.match(html, /sidebar\.js\?v=193/);
+  assert.match(html, /styles\.css\?v=489/);
   assert.match(html, /app\.js\?v=75/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -287,7 +288,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=479/);
+  assert.match(read('index.html'), /styles\.css\?v=489/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -610,7 +611,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=189/);
+  assert.match(read('index.html'), /sidebar\.js\?v=193/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
