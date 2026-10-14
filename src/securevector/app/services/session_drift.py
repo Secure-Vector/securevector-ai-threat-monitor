@@ -147,9 +147,26 @@ class DriftResult:
         live.sort(key=lambda f: (-f["weight"] * f["value"], FEATURE_IDS.index(f["id"])))
         return [
             {"id": f["id"], "label": f["label"], "value": round(f["value"], 3),
-             "weight": f["weight"], "detail": detail_of(f)}
+             "weight": f["weight"], "detail": detail_of(f), "counts": f.get("counts") or {}}
             for f in live[:n]
         ]
+
+
+def contribution_points(result: "DriftResult") -> list:
+    """[(feature_id, points)] for the features that added to the score, in the
+    order they mattered. Each is value x weight scaled to the 0 to 100 score
+    (over the weight of every feature that took part), rounded, with the
+    rounding remainder given to the top row so the points add up to the score."""
+    parts = [f for f in result.features if not f.get("skipped")]
+    total = sum(f["weight"] for f in parts)
+    live = [f for f in parts if f.get("value", 0) > 0]
+    live.sort(key=lambda f: (-f["weight"] * f["value"], FEATURE_IDS.index(f["id"])))
+    if not live or not total:
+        return []
+    pts = [int(round(100.0 * f["weight"] * f["value"] / total)) for f in live]
+    if result.score is not None and sum(pts) != result.score:
+        pts[0] = max(0, pts[0] + (result.score - sum(pts)))
+    return [(f["id"], p) for f, p in zip(live, pts)]
 
 
 def detail_of(feature: Mapping[str, Any]) -> str:

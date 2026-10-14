@@ -1,10 +1,9 @@
-// Agent Detection & Response: one page for the loop that runs on this device.
-//   Detect      sessions whose drift or setup state needs a look
-//   Harden      agent setup changes waiting for approval
-//   Respond     response steps taken (shadow until a mode is enforced)
-//   Pre-flight  check_policy answers, and the denials they avoided
-// Counts stay neutral; colour is used only for security state (drift band,
-// setup change state, response mode word).
+// Agent Detection & Response: one page for the agent checks that run on this device.
+//   Unusual sessions        sessions whose activity or config state needs a look
+//   Config changes          agent config changes waiting for approval
+//   Automatic actions       steps taken (test mode until a mode is switched on)
+//   Permission checks       check_policy answers, and the denials they avoided
+// Counts stay neutral; colour is used only for security state.
 
 // A deep link like /detection-response?session=<task id> loses its query when
 // the router rewrites the URL, so read it once while the script loads.
@@ -14,7 +13,6 @@ const _drInitialFocus = (() => {
 
 const DetectionResponsePage = {
     DOCS_URL: 'https://docs.securevector.io/agent-detection-response',
-    LOOP_SEEN_KEY: 'sv-dr-loop-seen',
     STATS_KEY: 'sv-dr-stats',
     CLOUD_DISMISS_KEY: 'sv-dr-cloud-dismissed',
     CLOUD_DISMISS_DAYS: 30,
@@ -26,10 +24,10 @@ const DetectionResponsePage = {
     _cloud: null,
 
     LOOP: [
-        { verb: 'Detect', text: 'Each session is scored against your own recent sessions, and the ones that look unusual are listed for review.' },
-        { verb: 'Harden', text: 'Changes to agent config, MCP servers, hooks and rules wait for your approval before they count as trusted.' },
-        { verb: 'Respond', text: 'Response steps start in shadow: they record what they would do before anything is enforced.' },
-        { verb: 'Pre-flight', text: 'Agents can ask whether a tool call is allowed before trying it, so a denial costs nothing.' },
+        { verb: 'Unusual activity', text: 'Each session is compared with your own recent sessions, and the ones that look unusual are listed for review.' },
+        { verb: 'Config changes', text: 'Changes to agent config, MCP servers, hooks and rules wait for your approval before they count as trusted.' },
+        { verb: 'Automatic actions', text: 'Automatic actions start in test mode: they log what they would do before anything is enforced.' },
+        { verb: 'Permission checks', text: 'Agents can ask whether a tool call is allowed before trying it, so a refusal costs nothing.' },
     ],
 
     _esc(v) {
@@ -53,9 +51,8 @@ const DetectionResponsePage = {
 
     // --- tiles --------------------------------------------------------------
 
-    _tile(verb, label, value, sub, extra) {
-        return `<section class="dr-tile" aria-label="${this._esc(verb + ': ' + label)}">
-            <div class="dr-tile-verb">${this._esc(verb)}</div>
+    _tile(label, value, sub, extra) {
+        return `<section class="dr-tile" aria-label="${this._esc(label)}">
             <div class="dr-tile-label">${this._esc(label)}</div>
             <div class="dr-tile-value">${value}</div>
             ${sub ? `<div class="dr-tile-sub">${sub}</div>` : ''}
@@ -70,58 +67,53 @@ const DetectionResponsePage = {
         const n = d.to_review || 0;
         if (b.state === 'building' && !n) {
             const have = Math.min(b.ended_sessions || 0, needed);
-            return this._tile('Detect', 'Sessions to review', '<span class="dr-tile-state">Building baseline</span>',
-                `${this._esc(have)} of ${this._esc(needed)} sessions`,
+            return this._tile('Unusual sessions', this._esc(this._num(n)),
+                `Learning what is normal: ${this._esc(have)} of ${this._esc(needed)} sessions`,
                 '<a href="/terminals" class="dr-link" data-dr-launch>Launch a session</a>');
         }
         const sub = b.state === 'partial'
             ? 'partial baseline'
             : `in the last ${this._esc((this._data && this._data.window_days) || 7)} days`;
         const normal = d.marked_normal ? ` · ${this._esc(d.marked_normal)} marked normal` : '';
-        return this._tile('Detect', 'Sessions to review', this._esc(this._num(n)), sub + normal);
+        return this._tile('Unusual sessions', this._esc(this._num(n)), sub + normal);
     },
 
     _hardenTile(h) {
         h = h || {};
-        if (!h.available) return this._tile('Harden', 'Setup changes', '<span class="dr-tile-state">Not checked</span>', 'The setup scan did not answer');
+        if (!h.available) return this._tile('Config changes to review', '<span class="dr-tile-state">Not checked</span>', 'The config scan did not answer');
         const n = h.changes || 0;
         let sub;
-        if (!h.harnesses) sub = 'No agent setup found on this device';
-        else if (!n) sub = `Matches what you approved, ${this._esc(h.harnesses)} ${h.harnesses === 1 ? 'harness' : 'harnesses'}`;
-        else sub = `waiting for approval across ${this._esc(h.harnesses)} ${h.harnesses === 1 ? 'harness' : 'harnesses'}`;
-        return this._tile('Harden', 'Setup changes', this._esc(this._num(n)), sub);
+        if (!h.harnesses) sub = 'No agent config found on this device';
+        else if (!n) sub = `Matches what you approved, ${this._esc(h.harnesses)} ${h.harnesses === 1 ? 'agent tool' : 'agent tools'}`;
+        else sub = `waiting for approval across ${this._esc(h.harnesses)} ${h.harnesses === 1 ? 'agent tool' : 'agent tools'}`;
+        return this._tile('Config changes to review', this._esc(this._num(n)), sub);
     },
 
     _respondTile(r) {
         // The response modes route may not exist yet on this install: that
-        // reads as shadow, never as a failure.
-        if (!r || typeof r !== 'object') {
-            return this._tile('Respond', 'Steps taken', '<span class="dr-tile-state">Shadow</span>', 'watching, nothing enforced');
-        }
-        const taken = [r.steps_taken, r.taken, r.count].find(x => Number.isFinite(x));
-        const mode = String(r.mode || r.global_mode || 'shadow').toLowerCase();
-        const word = mode.charAt(0).toUpperCase() + mode.slice(1);
-        const cls = mode === 'shadow' ? '' : ' is-active';
-        const sub = mode === 'shadow' ? 'watching, nothing enforced' : `mode: <span class="dr-rung${cls}">${this._esc(word)}</span>`;
-        return this._tile('Respond', 'Steps taken', Number.isFinite(taken) ? this._esc(this._num(taken))
-            : `<span class="dr-tile-state dr-rung${cls}">${this._esc(word)}</span>`, sub);
+        // reads as test mode, never as a failure.
+        const taken = r && typeof r === 'object' ? [r.steps_taken, r.taken, r.count].find(x => Number.isFinite(x)) : undefined;
+        const mode = r && typeof r === 'object' ? String(r.mode || r.global_mode || 'shadow').toLowerCase() : 'shadow';
+        const test = mode === 'shadow';
+        const cap = test ? ((Number.isFinite(taken) && taken > 0) ? 'test mode (logged only)' : 'nothing enforced (test mode)') : `<span class="dr-rung is-active">on</span>`;
+        return this._tile('Automatic actions', this._esc(this._num(Number.isFinite(taken) ? taken : 0)), cap);
     },
 
     _preflightTile(p) {
         p = p || {};
         const n = p.checked || 0;
         if (!n && p.registered === false) {
-            return this._tile('Pre-flight', 'Checks answered', '<span class="dr-tile-state">0</span>', 'MCP tools not registered',
+            return this._tile('Permission checks', '<span class="dr-tile-state">0</span>', 'MCP tools not registered',
                 '<a href="/guide-connect-agents" class="dr-link" data-dr-nav="guide-connect-agents">Register the MCP tools</a>');
         }
         const avoided = p.avoided_denials || 0;
-        return this._tile('Pre-flight', 'Checks answered', this._esc(this._num(n)),
-            `${this._esc(this._num(avoided))} ${avoided === 1 ? 'denial' : 'denials'} avoided`);
+        return this._tile('Permission checks', this._esc(this._num(n)),
+            `${this._esc(this._num(n))} ${n === 1 ? 'check' : 'checks'} \u00b7 ${this._esc(this._num(avoided))} denied before ${avoided === 1 ? 'it' : 'they'} ran`);
     },
 
     _skeletonHtml() {
-        const t = [['Detect', 'Sessions to review'], ['Harden', 'Setup changes'], ['Respond', 'Steps taken'], ['Pre-flight', 'Checks answered']]
-            .map(([v, l]) => this._tile(v, l, '<span class="dr-tile-state dr-muted">…</span>', '')).join('');
+        const t = ['Unusual sessions', 'Config changes to review', 'Automatic actions', 'Permission checks']
+            .map((l) => this._tile(l, '<span class="dr-tile-state dr-muted">…</span>', '')).join('');
         return `<div class="dr-tiles is-loading" aria-busy="true">${t}</div>`;
     },
 
@@ -130,20 +122,182 @@ const DetectionResponsePage = {
         return `<div class="dr-tiles">${this._detectTile(data.detect)}${this._hardenTile(data.harden)}${this._respondTile(rungs)}${this._preflightTile(data.preflight)}</div>`;
     },
 
+    /** Config changes waiting for approval, as their own short section. */
+    _configHtml(data) {
+        const h = (data && data.harden) || {};
+        const n = h.changes || 0;
+        const body = !h.available ? 'The config scan did not answer.'
+            : n ? `${this._esc(this._num(n))} agent config ${n === 1 ? 'change is' : 'changes are'} waiting for approval. Approve them from the sessions above, or open <a href="/guide-connect-agents" class="dr-link" data-dr-nav="guide-connect-agents">Connect Agents</a>.`
+            : 'No agent config changes to review.';
+        const bulk = h.available && n > 0
+            ? `<div class="dr-bulk"><button type="button" class="btn btn-sm" data-dr-bulk>Approve all ${this._esc(this._num(n))} config ${n === 1 ? 'change' : 'changes'}</button><div data-dr-bulk-panel></div></div>` : '';
+        return `<p class="dr-muted dr-config-caption">${body}</p>${bulk}`;
+    },
+
+    // --- spotlight ------------------------------------------------------------
+
+    BAND_RANGE: { high: 'High \u00b7 70 and above', watch: 'Worth a look \u00b7 40 to 69', calm: 'Low \u00b7 below 40' },
+
+    _hhmm(iso) {
+        const t = new Date(iso || '');
+        if (!Number.isFinite(t.getTime())) return '';
+        return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+    },
+
+    _bandWord(b) { return b === 'high' ? 'high' : b === 'watch' ? 'worth a look' : 'low'; },
+
+    _bandOf(b) { return b === 'high' || b === 'watch' ? b : 'calm'; },
+
+    /** The plain sentence for one feature, from its stored counts. */
+    _featureSentence(f) {
+        const c = f.counts || {};
+        const n = (v) => Number(v) || 0;
+        const times = (v) => `${n(v)} ${n(v) === 1 ? 'time' : 'times'}`;
+        switch (f.id) {
+            case 'tool_novelty': return `Used ${n(c.unseen_tools)} ${n(c.unseen_tools) === 1 ? 'tool' : 'tools'} it had never used here before.`;
+            case 'errors_after_block': return `Hit ${n(c.errors)} ${n(c.errors) === 1 ? 'error' : 'errors'} right after a blocked call.`;
+            case 'enumeration': return n(c.loop_calls) > 0 ? `Repeated the same call ${n(c.loop_calls)} times.` : `Called ${n(c.distinct_hosts)} different hosts in one session.`;
+            case 'secrets_reach': return `Reached credential locations ${times(c.locations)}.`;
+            case 'new_hosts': return `Called ${n(c.hosts)} ${n(c.hosts) === 1 ? 'host' : 'hosts'} new for this folder.`;
+            case 'persistence': return `Kept asking after a denial ${times(c.repeats)}.`;
+            default: return f.label ? String(f.label).charAt(0).toUpperCase() + String(f.label).slice(1) + '.' : '';
+        }
+    },
+
+    /** Drift scores of this folder, oldest to newest, this session last. */
+    _sparkHtml(sp, endLabel) {
+        const pts = (sp.recent_scores || []).filter(r => Number.isFinite(r.score));
+        if (pts.length < 2) return '';
+        const W = 320, H = 84, pad = 8, padR = 22;
+        const x = (i) => pad + (i * (W - pad - padR)) / (pts.length - 1);
+        const y = (v) => H - pad - (Math.max(0, Math.min(100, v)) / 100) * (H - 2 * pad);
+        const xy = (i) => `${x(i).toFixed(1)},${y(pts[i].score).toFixed(1)}`;
+        const last = pts.length - 1;
+        const band = this._bandOf(sp.band);
+        const base = pts.slice(0, last).map((_, i) => xy(i)).join(' ');
+        const rise = `${xy(last - 1)} ${xy(last)}`;
+        const fill = `${x(last - 1).toFixed(1)},${H - pad} ${rise} ${x(last).toFixed(1)},${H - pad}`;
+        const normal = pts.filter(r => !r.current).length;
+        const startT = this._hhmm(sp.started_at);
+        const grid = [40, 70].map(v => `<line class="dr-spark-grid" x1="${pad}" x2="${W - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>`).join('');
+        return `<div class="dr-spark is-${band}">
+            <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Drift scores of recent sessions in this folder, oldest to newest" preserveAspectRatio="none">
+              ${grid}
+              ${pts.length > 2 ? `<polyline class="dr-spark-base" fill="none" points="${base}"/>` : ''}
+              <polygon class="dr-spark-fill" points="${fill}"/>
+              <polyline class="dr-spark-rise" fill="none" points="${rise}"/>
+              <circle class="dr-spark-dot" cx="${x(last).toFixed(1)}" cy="${y(pts[last].score).toFixed(1)}" r="3.5"/>
+            </svg>
+            <div class="dr-spark-x"><span>${this._esc(normal)} ${normal === 1 ? 'session' : 'sessions'} of normal</span>${startT ? `<span>${this._esc(startT)}</span>` : ''}<span>${this._esc(endLabel || 'now')}</span></div>
+            <div class="dr-spark-last">${this._esc(pts[last].score)}</div>
+        </div>`;
+    },
+
+    /** The honest pending-work line: sessions to review and config changes. */
+    _pendingLine(data) {
+        if (!data) return '';
+        const n = (data.sessions || []).filter(r => r && (r.band === 'watch' || r.band === 'high')).length;
+        const m = Number(data.harden && data.harden.changes) || 0;
+        const parts = [];
+        if (n) parts.push(`${n} ${n === 1 ? 'session' : 'sessions'}`);
+        if (m) parts.push(`${m} config ${m === 1 ? 'change' : 'changes'}`);
+        if (!parts.length) return '';
+        return `<p class="dr-spot-pending">${this._esc(parts.join(' and '))} ${parts.length === 1 && (n === 1 || m === 1) ? 'needs' : 'need'} a look.</p>`;
+    },
+
+    _spotlightHtml(data) {
+        const sp = data && data.spotlight;
+        const pending = this._pendingLine(data);
+        if (!sp) {
+            if (!data) return '';
+            return `<section class="dr-spot dr-spot-empty" aria-label="Spotlight">${pending}
+                <h2 class="dr-spot-h">No scored sessions yet.</h2>
+                <p class="dr-spot-sub">Scores start after 5 sessions in a folder.</p>
+            </section>`;
+        }
+        const band = this._bandOf(sp.band);
+        const when = this._hhmm(sp.crossed_at || sp.computed_at);
+        const who = sp.harness_label || 'This agent tool';
+        const where = sp.folder ? ` in ${sp.folder}` : '';
+        const plotted = (sp.recent_scores || []).filter(r => !r.current && Number.isFinite(r.score)).length;
+        const n = plotted || Number(sp.baseline && sp.baseline.sessions) || 0;
+        const cmp = n ? `Compared with its own last ${n} sessions in this folder.` : 'Compared with its own recent sessions in this folder.';
+        const sub = (when ? `Scored at ${when}. ` : '') + cmp
+            + (sp.had_blocks === false && sp.to_review !== false ? ' No rule had to fire.' : '');
+        const median = sp.baseline && Number.isFinite(sp.baseline.median) ? Math.round(sp.baseline.median) : null;
+        const why = (sp.features || []).slice(0, 5).map(f => `<li class="dr-why-row">
+            <span class="dr-why-pts">+${this._esc(f.points)}</span>
+            <span class="dr-why-text"><span>${this._esc(this._featureSentence(f))}</span>
+            <span class="dr-muted">${this._esc([f.signal, f.detail].filter(Boolean).join(' \u00b7 '))}</span></span></li>`).join('');
+        const id = this._esc(sp.task_id);
+        return `<section class="dr-spot" aria-label="Spotlight">
+            ${pending}
+            <h2 class="dr-spot-h">${this._esc(sp.to_review === false ? `Highest score this week: ${sp.score}, ${this._bandWord(sp.band)}. ${who}${where}.` : `${who}${where} stopped behaving like itself.`)}</h2>
+            <p class="dr-spot-sub">${this._esc(sub)}</p>
+            <div class="dr-spot-cards">
+              <div class="dr-spot-card">
+                <div class="dr-caps">Drift score</div>
+                <div class="dr-spot-score is-${band}">${this._esc(sp.score)}</div>
+                <span class="dr-spot-chip is-${band}">${this._esc(this.BAND_RANGE[band])}</span>
+                ${median !== null ? `<p class="dr-muted">Baseline for this folder over ${this._esc(n)} sessions: ${this._esc(median)}.</p>` : ''}
+                <p class="dr-muted">Same agent tool. Same folder. Same permissions.</p>
+                ${this._sparkHtml(sp, when || (sp.ended_at ? this._hhmm(sp.ended_at) : 'now'))}
+              </div>
+              <div class="dr-spot-card">
+                <div class="dr-caps">Why</div>
+                <p class="dr-muted">Top contributing signals, in the order they mattered.</p>
+                ${why ? `<ul class="dr-why">${why}</ul>` : '<p class="dr-muted">No signal stood out.</p>'}
+              </div>
+            </div>
+            <div class="dr-spot-actions">
+              ${sp.ended_at && sp.to_review !== false ? `<div class="dr-act"><button type="button" class="btn btn-sm" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span></div>` : ''}
+              <div class="dr-act"><button type="button" class="btn btn-sm btn-primary" data-dr-open="${id}">Open session</button></div>
+            </div>
+        </section>`;
+    },
+
     // --- review list --------------------------------------------------------
 
     _bandHtml(row) {
-        if (typeof row.score !== 'number' || !row.band) return '<span class="dr-row-drift">no score</span>';
+        if (typeof row.score !== 'number' || !row.band) {
+            const b = (this._data && this._data.detect && this._data.detect.baseline) || {};
+            const enough = Number.isFinite(b.ended_sessions) && b.needed && b.ended_sessions >= b.needed;
+            if (row.status === 'building_baseline' && enough) return `<span class="dr-row-drift">Learning this folder's usual pattern</span>`;
+            const counts = Number.isFinite(b.ended_sessions) && b.needed ? ` (${this._esc(Math.min(b.ended_sessions, b.needed))} of ${this._esc(b.needed)} sessions)` : '';
+            return `<span class="dr-row-drift">${row.status === 'building_baseline' ? 'Building a baseline' + counts : 'no score'}</span>`;
+        }
         const band = ['calm', 'watch', 'high'].includes(row.band) ? row.band : 'calm';
         const partial = row.status === 'partial' ? ' <span class="dr-row-partial">(partial baseline)</span>' : '';
-        return `<span class="dr-row-drift">drift <span class="dr-band is-${band}">${this._esc(row.score)}, ${band}</span>${partial}</span>`;
+        const w = band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low';
+        return `<span class="dr-row-drift"><span title="Drift Score ${this._esc(row.score)} of 100. Compared with this agent's own recent sessions in this folder.">unusual activity <span class="dr-band is-${band}">${w}</span> <span class="dr-muted">(${this._esc(row.score)} of 100)</span></span>${partial}</span>`;
     },
 
     _setupHtml(row) {
-        if (row.setup_state === 'changed') return `<span class="dr-setup is-red">setup changed (${this._esc(row.setup_changes || 0)})</span>`;
-        if (row.setup_state === 'new') return '<span class="dr-setup is-amber">setup not approved</span>';
-        if (row.setup_state === 'pinned') return '<span class="dr-setup">setup pinned</span>';
-        return '<span class="dr-setup">setup not checked</span>';
+        if (row.setup_state === 'changed') return `<span class="dr-setup is-amber">Agent config changed (${this._esc(row.setup_changes || 0)})</span>`;
+        if (row.setup_state === 'new') return '<span class="dr-setup is-amber">Agent config not reviewed yet</span>';
+        if (row.setup_state === 'pinned') return '<span class="dr-setup">Agent config approved</span>';
+        return '<span class="dr-setup">Agent config not checked</span>';
+    },
+
+    /** Backend change text in plain words; paths shrink to the file name. */
+    _plainReason(text, harness) {
+        let m;
+        text = String(text || '');
+        if ((m = /^Mod (.+?) changed \(manifest or files\)\.?$/.exec(text))) return m[1] === 'settings' ? `${harness || 'Agent'} settings changed.` : `The ${m[1]} plugin changed.`;
+        if ((m = /^New mod (.+?), not approved yet\.?$/.exec(text))) return `New ${m[1]} plugin, not approved yet.`;
+        if ((m = /^(.+?) changed in (\S+?)\.$/.exec(text))) {
+            const word = m[1] === 'Mod settings' ? `${harness || 'Agent'} settings` : m[1];
+            return `${word} changed (${m[2]}).`;
+        }
+        return text;
+    },
+
+    _reasonHtml(row) {
+        const texts = (row.setup_texts || []).map(t => this._plainReason(t, row.harness_label));
+        const isSetup = texts.length > 1 && (row.setup_texts || [])[0] === row.reason;
+        if (!isSetup) return this._esc(this._plainReason(row.reason, row.harness_label));
+        const rest = texts.slice(1);
+        return `${this._esc(texts[0].replace(/\.$/, ''))}<button type="button" class="dr-more" data-dr-more aria-expanded="false">, +${rest.length} more</button><ul class="dr-more-list" hidden>${rest.map(t => `<li>${this._esc(t)}</li>`).join('')}</ul>`;
     },
 
     _rowHtml(row, focused) {
@@ -153,19 +307,24 @@ const DetectionResponsePage = {
         const who = row.harness_label || row.harness || 'Session';
         return `<li class="dr-row${focused ? ' is-focused' : ''}" data-dr-row="${id}">
             <button type="button" class="dr-row-open" data-dr-open="${id}" aria-label="Open the session summary for ${this._esc(who)} in ${this._esc(row.folder || 'this folder')}">
-              <span class="dr-row-head"><strong>${this._esc(who)}</strong><span class="dr-row-folder">${this._esc(row.folder || 'unknown folder')}</span><span class="dr-row-when">${this._esc(this._ago(row.at))}</span></span>
+              <span class="dr-row-head"><strong>${this._esc(who)}</strong><span class="dr-row-folder" title="${this._esc(row.folder || '')}">${this._esc(row.folder || 'unknown folder')}</span><span class="dr-row-when">${this._esc(this._ago(row.at))}</span></span>
               <span class="dr-row-facts">${this._bandHtml(row)}<span class="dr-sep" aria-hidden="true"> · </span>${this._setupHtml(row)}</span>
-              <span class="dr-row-reason">${this._esc(row.reason || '')}</span>
+              <span class="dr-row-reason">${this._reasonHtml(row)}</span>
             </button>
             <div class="dr-row-actions" data-dr-actions="${id}">
-              ${canNormal ? `<button type="button" class="btn btn-sm" data-dr-normal="${id}">Looks normal</button>` : ''}
-              ${canApprove ? `<button type="button" class="btn btn-sm" data-dr-approve="${id}">Approve this setup</button>` : ''}
+              <div class="dr-act">${canNormal ? `<button type="button" class="btn btn-sm" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span>` : ''}</div>
+              <div class="dr-act">${canApprove ? `<button type="button" class="btn btn-sm" data-dr-approve="${id}">Approve this setup</button><span class="dr-act-cap">Trust these config files from now on</span>` : ''}</div>
             </div>
         </li>`;
     },
 
     _listHtml(data, focus) {
-        const rows = (data && data.sessions) || [];
+        const spot = data && data.spotlight;
+        let rows = (data && data.sessions) || [];
+        if (spot) {
+            rows = rows.filter(r => r.task_id !== spot.task_id);
+            if (!rows.length) return '<p class="dr-muted">No other sessions need review.</p>';
+        }
         if (!rows.length) {
             const ago = this._ago(data && data.detect && data.detect.last_scored_at);
             const tail = ago ? ` Last scored ${this._esc(ago)}.` : '';
@@ -179,14 +338,10 @@ const DetectionResponsePage = {
 
     // --- loop card ----------------------------------------------------------
 
-    _loopOpen() {
-        try { return localStorage.getItem(this.LOOP_SEEN_KEY) !== '1'; } catch (e) { return true; }
-    },
-
     _loopHtml(open) {
         const items = this.LOOP.map(s => `<li><strong>${this._esc(s.verb)}</strong><span>${this._esc(s.text)}</span></li>`).join('');
         return `<details class="dr-loop"${open ? ' open' : ''}>
-            <summary>How the loop works</summary>
+            <summary>How it works</summary>
             <ol class="dr-loop-list">${items}</ol>
             <a class="dr-link" href="${this.DOCS_URL}" target="_blank" rel="noopener noreferrer">Read the Agent Detection &amp; Response docs</a>
         </details>`;
@@ -244,13 +399,13 @@ const DetectionResponsePage = {
         const toReview = Number(d.to_review) || 0;
         const reviewed = n('normal') + n('approvals');
         const lines = [
-            `Agent Detection & Response stats, week ${this._isoWeek(new Date())}`,
+            `Review stats, week ${this._isoWeek(new Date())}`,
             `Page opens: ${n('opens')}`,
             `Sessions to review: ${toReview}`,
             `Reviewed: ${reviewed} of ${Math.max(toReview, reviewed)}`,
-            `Setup approvals: ${n('approvals')}`,
+            `Config approvals: ${n('approvals')}`,
             `False-flag rate (${(data && data.window_days) || 7} days): ${Number(d.marked_normal) || 0} of ${Number(d.flagged) || 0}`,
-            `Pre-flight Register clicks: ${n('register')}`,
+            `Permission checks Register clicks: ${n('register')}`,
             `Cloud row: shown ${n('cloudShown')}, dismissed ${n('cloudDismissed')}, clicked ${n('cloudClicked')}`,
         ];
         const gap = this._since(d.first_task_at, d.first_scored_at);
@@ -304,15 +459,15 @@ const DetectionResponsePage = {
         if (enrolled) {
             return `<section class="dr-fleet" aria-labelledby="dr-fleet-h" data-dr-fleet="enrolled">
                 <h3 id="dr-fleet-h">Across your devices</h3>
-                <p class="dr-muted">Drift, setup changes and response activity across every device you enrolled.</p>
+                <p class="dr-muted">See unusual sessions and config changes from every device in one list.</p>
                 <div class="dr-fleet-actions"><a class="btn btn-sm" href="${this.FLEET_URL}" target="_blank" rel="noopener noreferrer" data-dr-fleet-open>Open fleet view</a></div>
             </section>`;
         }
         return `<section class="dr-fleet" aria-labelledby="dr-fleet-h" data-dr-fleet="community">
             <h3 id="dr-fleet-h">Across your devices</h3>
-            <p class="dr-muted">Pro shows drift, setup changes and response activity across every device you enrol. 30-day trial.</p>
+            <p class="dr-muted">See unusual sessions and config changes from every device in one list.</p>
             <div class="dr-fleet-actions">
-              <button type="button" class="btn btn-sm" data-dr-fleet-open>See the fleet view</button>
+              <button type="button" class="btn btn-sm" data-dr-fleet-open>Preview fleet view (30-day trial)</button>
               <a class="btn btn-sm" href="${this.DOCS_URL}" target="_blank" rel="noopener noreferrer">How it works</a>
               <button type="button" class="dr-fleet-dismiss" data-dr-fleet-dismiss aria-label="Hide this row for 30 days">Dismiss</button>
             </div>
@@ -355,16 +510,35 @@ const DetectionResponsePage = {
         else if (window.App) App.loadPage('terminals');
     },
 
+    UNDO_MS: 6000,
+
     async _markNormal(btn, row) {
-        btn.disabled = true;
-        try {
-            await API.terminalsDriftFeedback(row.task_id);
-            this._bump('normal');
-            btn.outerHTML = '<span class="dr-done">Marked normal</span>';
-        } catch (e) {
-            btn.disabled = false;
-            btn.textContent = 'Could not save, try again';
-        }
+        // Nothing is posted for 6 seconds, so Undo is a plain cancel.
+        const cap = btn.nextElementSibling && btn.nextElementSibling.classList && btn.nextElementSibling.classList.contains('dr-act-cap') ? btn.nextElementSibling : null;
+        const box = document.createElement('span');
+        box.className = 'dr-done';
+        box.innerHTML = 'Marked normal \u00b7 <a href="#" class="dr-link" data-dr-undo>Undo</a>';
+        const holder = btn.parentNode;
+        btn.hidden = true;
+        if (cap) cap.hidden = true;
+        holder.appendChild(box);
+        let undone = false;
+        const undo = box.querySelector('[data-dr-undo]');
+        const timer = setTimeout(async () => {
+            if (undone) return;
+            try {
+                await API.terminalsDriftFeedback(row.task_id);
+                this._bump('normal');
+                box.textContent = 'Marked normal';
+            } catch (e) {
+                box.remove(); btn.hidden = false; if (cap) cap.hidden = false;
+                btn.textContent = 'Could not save, try again';
+            }
+        }, this.UNDO_MS);
+        if (undo) undo.onclick = (ev) => {
+            ev.preventDefault(); undone = true; clearTimeout(timer);
+            box.remove(); btn.hidden = false; if (cap) cap.hidden = false;
+        };
     },
 
     APPROVE_SCROLL_AT: 8,
@@ -385,7 +559,7 @@ const DetectionResponsePage = {
         const view = ((status && status.harnesses) || []).find(v => v.harness === row.setup_harness);
         if (view && ['new', 'changed'].includes(view.state) && view.view_hash) {
             out.push({
-                kind: 'setup', state: view.state, title: `${view.label || row.harness_label || row.setup_harness} setup`,
+                kind: 'setup', state: view.state, title: `${view.label || row.harness_label || row.setup_harness} config`,
                 items: (view.changes || []).map(c => ({ severity: c.severity, text: c.text }))
                     .concat((view.risks || []).map(r => ({ severity: r.severity, text: r.text }))),
                 counts: view.counts, truncated: 0,
@@ -425,7 +599,7 @@ const DetectionResponsePage = {
         const scroll = t.items.length > this.APPROVE_SCROLL_AT ? ' is-scroll' : '';
         const list = t.items.length
             ? `<ul class="ct-risks dr-approve-list${scroll}">${t.items.map(x => `<li class="${sev(x.severity)}"><span class="ct-dot" aria-hidden="true"></span>${this._esc(x.text)}</li>`).join('')}</ul>`
-            : `<p class="dr-muted">Pins the current setup: ${this._esc(this._countsText(t.counts))}.</p>`;
+            : `<p class="dr-muted">Trusts the current config: ${this._esc(this._countsText(t.counts))}.</p>`;
         const label = t.kind === 'folder' ? 'Approve this folder' : 'Approve this setup';
         // A folder check returns its top reasons only. When some are not
         // shown, approving here would pin changes nobody saw.
@@ -440,13 +614,13 @@ const DetectionResponsePage = {
 
     async _askApprove(btn, row, host) {
         btn.disabled = true;
-        btn.textContent = 'Reading setup…';
+        btn.textContent = 'Reading config…';
         let targets;
         try { targets = await this._approveTargets(row); } catch (e) { targets = null; }
         const actions = host.querySelector(`[data-dr-actions="${CSS.escape(row.task_id)}"]`);
         if (!actions) return;
-        if (!targets) { btn.disabled = false; btn.textContent = 'Could not read setup, try again'; return; }
-        if (!targets.length) { btn.outerHTML = '<span class="dr-done">Setup already approved</span>'; return; }
+        if (!targets) { btn.disabled = false; btn.textContent = 'Could not read config, try again'; return; }
+        if (!targets.length) { btn.outerHTML = '<span class="dr-done">Config already approved</span>'; return; }
         const panel = document.createElement('div');
         panel.className = 'dr-confirm';
         panel.innerHTML = targets.map((t, i) => this._targetHtml(t, i)).join('')
@@ -471,16 +645,69 @@ const DetectionResponsePage = {
                     left.delete(i);
                     if (!left.size) this.render(document.getElementById('page-content'), true);
                 } catch (e) {
-                    b.outerHTML = '<span class="dr-done">The setup changed after it was shown. Close and open again to see the current changes.</span>';
+                    b.outerHTML = '<span class="dr-done">The config changed after it was shown. Close and open again to see the current changes.</span>';
                 }
             };
         });
     },
 
+    /** What a bulk approve would trust: one entry per agent tool whose config
+     *  is new or changed, read fresh from the status route. */
+    async _bulkTargets() {
+        const status = await API.configTrustStatus(true);
+        return ((status && status.harnesses) || [])
+            .filter(v => ['new', 'changed'].includes(v.state) && v.view_hash)
+            .map(v => ({
+                label: v.label || v.harness, changes: (v.changes || []).length || 1,
+                body: { harness: v.harness, target: 'setup', key: null, workspace: null, expected: v.view_hash },
+            }));
+    },
+
+    /** Nothing is trusted until the person confirms here. The approvals go
+     *  through the same UI-token call as the single Approve button. */
+    async _askBulk(btn, host) {
+        const panel = host.querySelector('[data-dr-bulk-panel]');
+        if (!panel) return;
+        btn.disabled = true;
+        let targets;
+        try { targets = await this._bulkTargets(); } catch (e) { targets = null; }
+        btn.disabled = false;
+        if (!targets) { panel.innerHTML = '<span class="dr-done">Could not read config, try again.</span>'; return; }
+        if (!targets.length) { panel.innerHTML = '<span class="dr-done">Config already approved.</span>'; return; }
+        // One source for the total: the same live count the button shows.
+        const total = Number(this._data && this._data.harden && this._data.harden.changes) || targets.reduce((a, t) => a + t.changes, 0);
+        const lines = targets.map(t => `<li>${this._esc(t.label)}: ${this._esc(t.changes)} ${t.changes === 1 ? 'change' : 'changes'}</li>`).join('');
+        panel.innerHTML = `<div class="dr-confirm"><p>These ${this._esc(total)} config ${total === 1 ? 'change' : 'changes'} will be trusted from now on:</p><ul class="dr-approve-list">${lines}</ul>
+            <div class="dr-confirm-actions"><button type="button" class="btn btn-sm" data-dr-bulk-yes>Approve all</button><button type="button" class="btn btn-sm" data-dr-bulk-no>Cancel</button></div></div>`;
+        btn.hidden = true;
+        panel.querySelector('[data-dr-bulk-no]').onclick = () => { panel.innerHTML = ''; btn.hidden = false; };
+        const yes = panel.querySelector('[data-dr-bulk-yes]');
+        yes.onclick = async () => {
+            yes.disabled = true;
+            try {
+                for (const t of targets) { await API.configTrustApprove(t.body); }
+                this._bump('approvals');
+                panel.innerHTML = `<span class="dr-done">Approved ${this._esc(total)} config ${total === 1 ? 'change' : 'changes'}.</span>`;
+            } catch (e) {
+                panel.innerHTML = '<span class="dr-done">The config changed after it was shown. Reload and try again.</span>';
+                btn.hidden = false;
+            }
+        };
+    },
+
     _bind(host) {
+        const bulkBtn = host.querySelector('[data-dr-bulk]');
+        if (bulkBtn) bulkBtn.onclick = () => this._askBulk(bulkBtn, host);
         const rows = (this._data && this._data.sessions) || [];
         const byId = (id) => rows.find(r => r.task_id === id);
         host.querySelectorAll('[data-dr-open]').forEach(b => { b.onclick = () => this._openSession(b.dataset.drOpen); });
+        host.querySelectorAll('[data-dr-more]').forEach(m => {
+            m.onclick = (ev) => {
+                ev.stopPropagation(); if (ev.preventDefault) ev.preventDefault();
+                const l = m.nextElementSibling;
+                if (l) { l.hidden = !l.hidden; m.setAttribute('aria-expanded', l.hidden ? 'false' : 'true'); }
+            };
+        });
         host.querySelectorAll('[data-dr-normal]').forEach(b => {
             b.onclick = (ev) => { ev.stopPropagation(); const r = byId(b.dataset.drNormal); if (r) this._markNormal(b, r); };
         });
@@ -503,10 +730,6 @@ const DetectionResponsePage = {
         });
         const copy = host.querySelector('[data-dr-copy-stats]');
         if (copy) copy.onclick = () => this._copyStats();
-        const loop = host.querySelector('.dr-loop');
-        if (loop) {
-            try { localStorage.setItem(this.LOOP_SEEN_KEY, '1'); } catch (e) { /* storage unavailable */ }
-        }
     },
 
     /** Open this page with one session highlighted (the element links on
@@ -524,14 +747,15 @@ const DetectionResponsePage = {
         const gen = ++this._gen;
         const focus = this.focusSession || _drInitialFocus || null;
         this.focusSession = null;
-        const loopOpen = this._loopOpen();
         container.innerHTML = `<div class="dr-wrap">
-            <div data-dr-tiles>${this._skeletonHtml()}</div>
+            <div data-dr-spot></div>
             <section class="dr-card" aria-labelledby="dr-review-h">
               <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted">Newest first. Open a row for its session summary.</span></div>
               <div data-dr-list><p class="dr-muted">Loading sessions…</p></div>
             </section>
-            ${this._loopHtml(loopOpen)}
+            <div data-dr-config></div>
+            <div data-dr-tiles>${this._skeletonHtml()}</div>
+            ${this._loopHtml(false)}
             <div data-dr-cloud></div>
             <div class="dr-footer"><button type="button" class="dr-copy-stats" data-dr-copy-stats>Copy stats</button></div>
         </div>`;
@@ -547,6 +771,8 @@ const DetectionResponsePage = {
         this._cloud = cloud;
         const tiles = container.querySelector('[data-dr-tiles]');
         const list = container.querySelector('[data-dr-list]');
+        const cfg = container.querySelector('[data-dr-config]');
+        const spotEl = container.querySelector('[data-dr-spot]');
         if (!data) {
             tiles.innerHTML = this._tilesHtml(null, rungs);
             list.innerHTML = '<p class="dr-muted">Could not read sessions. Try again in a moment.</p>';
@@ -555,6 +781,8 @@ const DetectionResponsePage = {
         }
         tiles.innerHTML = this._tilesHtml(data, rungs);
         list.innerHTML = this._listHtml(data, focus);
+        if (cfg) cfg.innerHTML = this._configHtml(data);
+        if (spotEl) spotEl.innerHTML = this._spotlightHtml(data);
         this._bind(container);
         this._renderFleet(container);
         const hit = focus ? container.querySelector(`[data-dr-row="${CSS.escape(focus)}"]`) : null;

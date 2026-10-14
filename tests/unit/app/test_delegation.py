@@ -1318,3 +1318,11 @@ async def test_worktree_child_row_cannot_remove_the_parent_worktree(world):
         await world.manager.remove_worktree(child_id, confirm=True)
     assert world.manager.worktree_folder(await world.manager.store.get_task(child_id)) is None
     assert os.path.isdir(parent["run_dir"])
+
+
+def test_guard_reasons_carry_a_stable_code():
+    from securevector.app.services import delegation as d
+    assert d.reason_code(d.guard_silent_reason("codex")) == "guard_silent"
+    assert d.reason_code(d.guard_missing_reason("codex")) == "guard_missing"
+    assert d.reason_code(d.guard_not_running_reason("codex")) == "guard_not_running"
+    assert d.reason_code("Something else.") is None

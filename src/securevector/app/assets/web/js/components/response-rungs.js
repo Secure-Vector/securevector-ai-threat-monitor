@@ -13,8 +13,8 @@ const ResponseRungs = {
     },
 
     REASON_WORDS: {
-        drift: 'drift band',
-        config: 'setup change',
+        drift: 'unusual activity',
+        config: 'config change',
         deny: 'retried after a denial',
     },
     HARNESS_WORDS: {

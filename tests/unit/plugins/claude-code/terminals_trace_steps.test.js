@@ -593,10 +593,10 @@ test('footer: governed and blocked, with the session egress denies added once', 
   P._egressSid = 's1';
   P._egress = { blocked_calls: 1, destinations: [{ host: 'evil.example', blocked: 1 }, { host: 'evil2.example', blocked: 1 }] };
   P._renderPaneFoot();
-  assert.match(foot.innerHTML, /2 governed · 1 blocked/);
+  assert.match(foot.innerHTML, /2 calls · 1 blocked/);
   // Another session's egress reading is not this task's.
   P._egressSid = 's2';
   P._footSig = null;
   P._renderPaneFoot();
-  assert.match(foot.innerHTML, /2 governed · 0 blocked/);
+  assert.match(foot.innerHTML, /2 calls · 0 blocked/);
 });

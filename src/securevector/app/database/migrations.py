@@ -2918,6 +2918,7 @@ SESSION_DRIFT_DDL = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_session_drift_task ON session_drift (task_id)",
+    "CREATE INDEX IF NOT EXISTS idx_session_drift_workspace ON session_drift (workspace, computed_at)",
 )
 
 

@@ -1282,6 +1282,14 @@ const API = {
     // Same read without the shared error log, for the entry points on Agent
     // Sessions that hide themselves when the summary is unavailable.
     async detectionResponseSummaryQuiet() {
+        // Shared by the sidebar badge and Agent Sessions: one read per 15 s.
+        const now = Date.now();
+        if (this._drQuiet && now - this._drQuiet.at < 15000) return this._drQuiet.p;
+        const p = this._detectionResponseSummaryRead();
+        this._drQuiet = { at: now, p };
+        return p;
+    },
+    async _detectionResponseSummaryRead() {
         try {
             await this.terminalsSession();
             const r = await fetch('/api/terminals/detection-response/summary', { headers: { 'X-SV-Terminals': '1' }, credentials: 'same-origin' });

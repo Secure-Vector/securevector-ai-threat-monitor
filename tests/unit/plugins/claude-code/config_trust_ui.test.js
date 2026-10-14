@@ -108,8 +108,9 @@ test('launch dialog verdict shows the state and at most three reasons', () => {
 
 test('facts line part and the session Setup row reassure or name what changed', () => {
   const CT = loadTrust();
-  assert.match(CT.factsPart({ setup_state: 'changed', setup_changes: 2 }), /is-red[^>]*>setup changed \(2\)</);
-  assert.match(CT.factsPart({ setup_state: 'pinned' }), /class="terminals-task-setup"[^>]*>setup pinned</);
+  assert.match(CT.factsPart({ setup_state: 'changed', setup_changes: 2 }), /is-amber[^>]*>config changed</);
+  assert.equal(CT.factsPart({ setup_state: 'pinned' }), '');
+  assert.equal(CT.factsPart({ setup_state: 'new' }), '');
   assert.equal(CT.factsPart({}), '');
   assert.match(CT.summaryHtml({ state: 'pinned', moved: false, text: 'Setup unchanged during this session.', changes: [] }),
     /is-neutral">Setup unchanged during this session\./);
@@ -163,7 +164,7 @@ function loadTerminals(api) {
 test('board facts line carries the setup state', () => {
   const Page = loadTerminals({});
   const html = Page._factsHtml({ id: 't', executor_id: 'claude-code', setup_state: 'changed', setup_changes: 1 });
-  assert.match(html, /setup changed \(1\)/);
+  assert.match(html, />config changed</);
 });
 
 test('launch dialog asks for the folder verdict and renders it before the first prompt', async () => {
@@ -184,7 +185,7 @@ test('session summary gets a Setup row from the session check', () => {
   const Page = loadTerminals({});
   const s = Page._summaryBuild({ id: 'abc12345', executor_id: 'claude-code', workspace: '/w/app', created_at: '2026-10-08T10:00:00Z' },
     { setup: { state: 'pinned', moved: false, text: 'Setup unchanged during this session.', changes: [] } });
-  assert.match(Page._summaryHtml(s), /<dt>Setup<\/dt><dd><span class="ct-summary is-neutral">Setup unchanged during this session\./);
+  assert.match(Page._summaryHtml(s), /<dt>Agent config<\/dt><dd><span class="ct-summary is-neutral">Setup unchanged during this session\./);
   const none = Page._summaryBuild({ id: 'x', created_at: '2026-10-08T10:00:00Z' }, { setup: { state: 'unchecked' } });
   assert.ok(!Page._summaryHtml(none).includes('<dt>Setup'));
 });

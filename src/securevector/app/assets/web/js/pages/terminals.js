@@ -119,11 +119,10 @@ const TerminalsPage = {
               <div class="terminals-tasks-head">
                 <div class="terminals-tasks-actions">
                   <input class="terminals-task-search" id="terminals-task-search" type="search" placeholder="Find a task" aria-label="Find a task" title="Filters the tasks below as you type. Clear this box to show every task again.">
-                  <button class="btn btn-sm terminals-settings-btn" id="terminals-settings-btn" type="button" aria-haspopup="dialog">${this.GEAR_SVG}<span>Settings</span></button>
                   <button class="btn btn-primary btn-sm terminals-launch-button" id="terminals-launch-btn">+ Launch</button>
+                  <button class="btn btn-sm terminals-settings-btn" id="terminals-settings-btn" type="button" aria-haspopup="dialog">${this.GEAR_SVG}<span>Settings</span></button>
                 </div>
               </div>
-              <div class="terminals-dr-slot" id="terminals-dr-slot"></div>
               <form class="terminals-launch" id="terminals-launch" hidden>
                 <div class="terminals-launch-modes" role="group" aria-label="Launch mode">
                   <button type="button" class="terminals-launch-mode is-active" id="terminals-mode-launch" aria-pressed="true">Launch a task</button>
@@ -851,6 +850,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._adoptError = null;
             el.hidden = true;
             el.innerHTML = '';
+            this._renderBoardSummary(this._lastShown || []);
             return;
         }
         const more = rows.length > this.ADOPT_PREVIEW;
@@ -882,10 +882,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const error = this._adoptError
             ? `<div class="terminals-adopt-error">${this._esc(this._adoptError)}</div>`
             : '';
-        el.hidden = false;
         const reviewOpen = !!this._adoptReviewOpen;
-        const line = `<button type="button" class="terminals-adopt-line" aria-expanded="${reviewOpen ? 'true' : 'false'}" aria-controls="terminals-adopt-body">${this._esc(rows.length)} ${rows.length === 1 ? 'session' : 'sessions'} not governed · <span class="terminals-adopt-review">Review</span></button>`;
-        el.innerHTML = `${line}
+        el.hidden = !reviewOpen;
+        this._renderBoardSummary(this._lastShown || []);
+        el.innerHTML = `
           <div class="terminals-adopt-body" id="terminals-adopt-body"${reviewOpen ? '' : ' hidden'}>
           <div class="terminals-adopt-head">
             <span class="terminals-adopt-title">Running outside SecureVector</span>
@@ -894,13 +894,6 @@ ${this.CLI_BIN} stop &lt;id&gt;
           <p class="terminals-adopt-note">These sessions are reporting in but are not on your board yet.</p>
           ${body}${toggle}${error}
           </div>`;
-        const lineBtn = el.querySelector('.terminals-adopt-line');
-        if (lineBtn) lineBtn.onclick = () => {
-            this._adoptReviewOpen = !this._adoptReviewOpen;
-            this._renderAdoptable();
-            const again = el.querySelector('.terminals-adopt-line');
-            if (again && again.focus) again.focus();
-        };
         el.querySelectorAll('.terminals-adopt-govern').forEach(b => {
             b.onclick = () => {
                 // Looked up by id rather than carried on the element: the row
@@ -976,66 +969,18 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
     },
 
-    DR_CALLOUT_KEY: 'sv-dr-callout-dismissed',
-    DR_OPENED_KEY: 'sv-dr-page-opened',
     DR_REFRESH_MS: 15000,
     _drAt: 0,
     _drData: null,
 
-    _drStore(op, key, val) {
-        try {
-            if (op === 'get') return localStorage.getItem(key);
-            localStorage.setItem(key, val);
-        } catch (e) { /* storage unavailable */ }
-        return null;
-    },
-
-    /** Agent Detection & Response entry points on this page: a chip with the
-     *  count of sessions to review, and a one-time inline callout. Both read
-     *  the page's summary; either hides quietly when it cannot be read. */
-    _drChipHtml(n) {
-        n = Number(n) || 0;
-        if (n <= 0) return '';
-        return `<a href="#" class="terminals-dr-chip" data-dr-chip>Agent Detection &amp; Response: ${n} ${n === 1 ? 'session' : 'sessions'} to review</a>`;
-    },
-
-    _drCalloutDue(data) {
-        if (!data) return false;
-        if (this._drStore('get', this.DR_CALLOUT_KEY) === '1' || this._drStore('get', this.DR_OPENED_KEY) === '1') return false;
-        const b = (data.detect && data.detect.baseline) || {};
-        const scored = !!b.state && b.state !== 'building';
-        const changes = !!(data.harden && data.harden.changes > 0);
-        return scored || changes;
-    },
-
-    _drCalloutHtml() {
-        return '<div class="terminals-dr-callout" role="note"><span>Your sessions now have a Drift Score. See what Agent Detection &amp; Response found.</span> '
-            + '<a href="#" class="terminals-dr-link" data-dr-callout-open>Open the page</a>'
-            + '<button type="button" class="terminals-dr-dismiss" data-dr-callout-dismiss aria-label="Dismiss this note">Dismiss</button></div>';
-    },
-
-    _drRender(data) {
-        const slot = document.getElementById('terminals-dr-slot');
-        if (!slot) return;
-        const n = data && data.detect ? data.detect.to_review : 0;
-        slot.innerHTML = this._drChipHtml(n) + (this._drCalloutDue(data) ? this._drCalloutHtml() : '');
-        const go = (ev) => {
-            if (ev) ev.preventDefault();
-            if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
-        };
-        const chip = slot.querySelector ? slot.querySelector('[data-dr-chip]') : null;
-        if (chip) chip.onclick = go;
-        const open = slot.querySelector ? slot.querySelector('[data-dr-callout-open]') : null;
-        if (open) open.onclick = (ev) => { this._drStore('set', this.DR_OPENED_KEY, '1'); go(ev); };
-        const dismiss = slot.querySelector ? slot.querySelector('[data-dr-callout-dismiss]') : null;
-        if (dismiss) dismiss.onclick = () => {
-            this._drStore('set', this.DR_CALLOUT_KEY, '1');
-            this._drRender(this._drData);
-        };
+    /** Sessions to review, from the Agent Detection & Response summary. */
+    _drToReview() {
+        const d = this._drData;
+        return Math.max(0, Number(d && d.detect && d.detect.to_review) || 0);
     },
 
     /** Rides the existing task refresh; the summary itself is fetched at most
-     *  every DR_REFRESH_MS. A failed read hides both and logs nothing. */
+     *  every DR_REFRESH_MS. A failed read hides the count and logs nothing. */
     async _refreshDr() {
         const now = Date.now();
         if (this._drAt && now - this._drAt < this.DR_REFRESH_MS) return;
@@ -1045,7 +990,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         try { data = await (API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API); } catch (e) { data = null; }
         if (gen !== this._gen) return;
         this._drData = data && data.detect ? data : null;
-        this._drRender(this._drData);
+        this._renderTaskList();
     },
 
     async _refreshTasks() {
@@ -1192,31 +1137,32 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const rolled = typeof t.spend_total_usd === 'number';
         const cost = this._fmtSpend(rolled ? t.spend_total_usd : t.spend_usd);
         if (cost) parts.push(`<span class="terminals-task-spend" title="${rolled ? 'Including delegated sessions' : this._esc(String(t.spend_requests || 0)) + ' priced request(s) for this session'}">${this._esc(cost)}</span>`);
-        if (typeof t.tool_calls === 'number') parts.push(`<span class="terminals-task-calls">${this._esc(t.tool_calls)} ${t.tool_calls === 1 ? 'call' : 'calls'}</span>`);
-        if (typeof t.blocked_calls === 'number') {
+        const unmonitored = t.origin !== 'linked' && (!!t.guard_warning || t.governed_at_launch === false);
+        if (unmonitored) parts.push('<span class="terminals-task-setup is-amber" title="SecureVector did not watch this session">not monitored</span>');
+        else if (typeof t.tool_calls === 'number') parts.push(`<span class="terminals-task-calls">${this._esc(t.tool_calls)} ${t.tool_calls === 1 ? 'call' : 'calls'}</span>`);
+        if (!unmonitored && typeof t.blocked_calls === 'number') {
             parts.push(`<span class="terminals-task-blocked${t.blocked_calls > 0 ? ' is-danger' : ''}">${this._esc(t.blocked_calls)} blocked</span>`);
         }
-        // Session Drift Score: neutral at calm, amber at watch, red at high
-        // (the band is a security state). Observe only.
+        // Unusual activity: neutral when low, amber when worth a look, red
+        // when high (the band is a security state). Observe only.
         if (typeof t.drift_score === 'number') {
             const band = t.drift_band === 'high' || t.drift_band === 'watch' ? t.drift_band : 'calm';
-            parts.push(`<span class="terminals-task-drift is-${band}" title="Session drift ${this._esc(t.drift_score)}, ${band}">drift ${this._esc(t.drift_score)}</span>`);
+            const w = band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low';
+            parts.push(`<span class="terminals-task-drift is-${band}" title="Unusual activity score ${this._esc(t.drift_score)}">unusual activity ${w}</span>`);
         }
         if (t.worktree_branch) {
             parts.push(`<span class="terminals-task-worktree" title="${this._esc(t.run_dir || '')}">worktree, ${this._esc(t.worktree_branch)}</span>`);
         } else if (t.run_dir) {
             parts.push(`<span class="terminals-task-worktree" title="${this._esc(t.run_dir)}">in parent's worktree</span>`);
         }
-        // Response rung: neutral at observe, amber at flag, red at step-up.
-        const rung = window.ResponseRungs ? ResponseRungs.chipHtml(t) : '';
-        if (rung) parts.push(rung);
-        // Agent setup trust: red when it changed, amber when not approved.
+        // Agent config: one amber chip, only when it changed.
         const setup = window.ConfigTrust ? ConfigTrust.factsPart(t) : '';
         if (setup) parts.push(setup);
         const age = this._compactAge(t.created_at);
         if (age) parts.push(`<span class="terminals-task-age">${this._esc(age)}</span>`);
         if (!parts.length) return '';
-        return `<span class="terminals-task-facts">${parts.join('<span class="terminals-task-facts-sep" aria-hidden="true"> · </span>')}</span>`;
+        const plain = parts.map(x => x.replace(/<[^>]*>/g, '')).join(' \u00b7 ');
+        return `<span class="terminals-task-facts${setup ? ' is-wrap' : ''}" title="${this._esc(plain)}">${parts.join('<span class="terminals-task-facts-sep" aria-hidden="true"> · </span>')}</span>`;
     },
 
     // --- worktree isolation: the card's line after the task has ended ------
@@ -1497,7 +1443,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
                       ${doing}
                       <span class="terminals-task-folder" title="${this._esc(t.workspace || 'This session never reported a working folder')}">${this._esc(this._knownWorkspace(t.workspace) ? this._shortPath(this._knownWorkspace(t.workspace)) : 'Folder not reported')}</span>
-                      <span class="terminals-task-meta"><span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>${unver}${health}${stuck}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
+                      <span class="terminals-task-meta">${guard.kind === 'ungoverned' || this._RUNNING_STATUSES.includes(t.status) ? `<span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>` : ''}${unver}${health}${stuck}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
                       ${facts}
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
@@ -1651,12 +1597,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return { kind: 'linked', label: 'linked', detail: 'A session you linked; the app does not own this process' };
         }
         if (t.governed_at_launch === false) {
-            return { kind: 'ungoverned', label: 'not governed', detail: 'Launched without SecureVector Guard: its calls are not being checked or recorded' };
+            return { kind: 'ungoverned', label: 'not monitored', detail: 'Launched without SecureVector Guard: its calls are not being checked or recorded' };
         }
         if (t.guard_warning) {
             return { kind: 'ungoverned', label: 'Guard not reporting', detail: String(t.guard_warning) };
         }
-        return { kind: 'governed', label: 'governed', detail: 'Launched with SecureVector Guard in place: every call is checked and recorded' };
+        return { kind: 'governed', label: 'checked', detail: 'Launched with SecureVector Guard in place: every call is checked and recorded' };
     },
 
     /** One line of state over the whole board. Every number here is counted
@@ -1664,32 +1610,44 @@ ${this.CLI_BIN} stop &lt;id&gt;
     _renderBoardSummary(shown) {
         const el = document.getElementById('terminals-board-summary');
         if (!el) return;
-        if (!shown || shown.length < 2) { el.hidden = true; el.innerHTML = ''; return; }
+        shown = shown || [];
+        this._lastShown = shown;
+        // Not checked: the sessions reporting in from outside SecureVector.
+        // Same source as the panel this count opens, so the two always agree.
+        const notChecked = this._adoptRows().length;
+        const toReview = this._drToReview();
+        if (shown.length < 2 && !notChecked && !toReview) { el.hidden = true; el.innerHTML = ''; return; }
         const running = shown.filter(t => this._RUNNING_STATUSES.includes(t.status)).length;
         const waiting = shown.filter(t => this._hasPendingApproval(t)).length;
-        const blocked = shown.filter(t => t.status === 'blocked').length;
-        const ungoverned = shown.filter(t => this._guardState(t).kind === 'ungoverned').length;
-        // Orphaned: the app went away while these were running, so the reaper
-        // marked them on the next start. The release plan asks for an orphaned-tasks view.
-        // It is this count made clickable rather than a separate page: the
-        // board already holds the rows and already filters, and a second
-        // surface listing the same rows would be one more thing to keep in
-        // step for no new information.
-        // The button reads "interrupted", not "orphaned": that is the word
-        // the card badge already shows (_statusLabel) and the exact word the
-        // click puts in the search box, so there is one name for this state
-        // instead of three ("orphaned" here, "Interrupted" on the card,
-        // whatever landed in the search box).
+        // "Stopped by a restart": the app went away while these were running,
+        // so the reaper marked them interrupted on the next start. The count
+        // is clickable and filters through the existing search box.
         const orphaned = shown.filter(t => t.status === 'interrupted').length;
-        const cell = (n, word, cls, title) => `<span class="terminals-board-stat${n > 0 && cls ? ' ' + cls : ''}" title="${this._esc(title)}"><b>${n}</b> ${this._esc(word)}</span>`;
+        const word = (n, w, cls, title) => `<b>${n}</b> ${this._esc(w)}`;
+        const cell = (n, w, cls, title) => `<span class="terminals-board-stat${n > 0 ? (cls ? ' ' + cls : '') : ' is-zero'}" title="${this._esc(title)}">${word(n, w)}</span>`;
+        const btn = (n, w, cls, title, attr) => n > 0
+            ? `<button type="button" class="terminals-board-stat terminals-board-orphans${cls ? ' ' + cls : ''}" ${attr} title="${this._esc(title)}">${word(n, w)}</button>`
+            : cell(n, w, cls, title);
         el.hidden = false;
-        el.innerHTML = cell(running, 'running', '', 'Tasks whose harness is still alive')
-            + cell(waiting, 'waiting on you', 'is-amber', 'Tasks paused for your decision')
-            + cell(blocked, 'blocked', 'is-red', 'Tasks the harness stopped')
-            + cell(ungoverned, 'not governed', 'is-amber', 'Tasks launched without SecureVector Guard')
-            + (orphaned
-                ? `<button type="button" class="terminals-board-stat terminals-board-orphans" data-board-filter="interrupted" title="Tasks the app restarted out from under. Click to show only these; clear the search box above to show every task again."><b>${orphaned}</b> interrupted</button>`
-                : '');
+        el.innerHTML = cell(running, 'running', '', 'Tasks whose agent tool is still alive')
+            + cell(waiting, 'need you', 'is-amber', 'Tasks paused for your decision')
+            + btn(toReview, 'need a look', 'is-amber', 'Sessions with unusual behaviour or config changes. Opens Agent Detection & Response.', 'data-board-dr')
+            + btn(notChecked, 'not monitored', 'is-amber', 'Sessions SecureVector did not watch. Open to review.', 'data-board-adopt')
+            + btn(orphaned, 'stopped by a restart', '', 'Tasks the app restarted out from under. Click to show only these; clear the search box above to show every task again.', 'data-board-filter="interrupted"');
+        const drBtn = el.querySelector('[data-board-dr]');
+        if (drBtn) {
+            drBtn.onclick = (ev) => {
+                if (ev) ev.preventDefault();
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
+            };
+        }
+        const adoptBtn = el.querySelector('[data-board-adopt]');
+        if (adoptBtn) {
+            adoptBtn.onclick = () => {
+                this._adoptReviewOpen = !this._adoptReviewOpen;
+                this._renderAdoptable();
+            };
+        }
         const orphanBtn = el.querySelector('[data-board-filter]');
         if (orphanBtn) {
             orphanBtn.onclick = () => {
@@ -3262,7 +3220,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             band: ['calm', 'watch', 'high'].includes(dr.band) ? dr.band : null,
             status: String(dr.status),
             top: (Array.isArray(dr.top) ? dr.top : []).slice(0, 3)
-                .map(f => ({ label: String(f.label || ''), detail: String(f.detail || '') })).filter(f => f.label),
+                .map(f => ({ id: String(f.id || ''), label: String(f.label || ''), detail: String(f.detail || ''), counts: f.counts && typeof f.counts === 'object' ? f.counts : {} })).filter(f => f.label),
             sessions: (dr.baseline && dr.baseline.sessions) || 0,
             needed: (dr.baseline && dr.baseline.needed_sessions) || 5,
             feedback: dr.feedback === 'normal' ? 'normal' : null,
@@ -3274,6 +3232,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const folder = String(task.workspace || '').split(/[\\/]/).filter(Boolean).pop() || '';
         return {
             id: String(task.id || '').slice(0, 8),
+            status: String(task.status || ''),
             task_id: String(task.id || ''),
             harness: this._label(task.executor_id),
             folder,
@@ -3284,6 +3243,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             duration_seconds: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 1000) : null,
             exit_code: typeof task.exit_code === 'number' ? task.exit_code : null,
             tool_calls: calls,
+            header_calls: typeof task.tool_calls === 'number' ? task.tool_calls : null,
             hosts: { count: dests.length, top },
             findings,
             findings_total: all.length,
@@ -3293,6 +3253,117 @@ ${this.CLI_BIN} stop &lt;id&gt;
             deleg: window.DelegationUI ? DelegationUI.summaryData(d.deleg) : null,
             setup: d.setup && typeof d.setup === 'object' && d.setup.state && d.setup.state !== 'unchecked' ? d.setup : null,
         };
+    },
+
+    _band(b) { return b === 'high' ? 'high' : b === 'watch' ? 'worth a look' : 'low'; },
+
+    /** Plain one-liners for what is worth a look, most severe first. */
+    _worthALook(s) {
+        const items = [];
+        const c = s.tool_calls;
+        if (c.blocked > 0) items.push({ sev: 0, text: `${c.blocked} ${c.blocked === 1 ? 'call was' : 'calls were'} blocked.` });
+        if (s.drift && (s.drift.band === 'high' || s.drift.band === 'watch')) {
+            const sev = s.drift.band === 'high' ? 1 : 3;
+            const tops = s.drift.top.length ? s.drift.top : [{ label: 'Unusual activity', detail: '' }];
+            tops.forEach(f => items.push({ sev, text: this._driftSentence(f) }));
+        }
+        if (s.setup && s.setup.state === 'changed') {
+            const ch = (s.setup.changes || []).filter(x => x && x.text);
+            const mods = ch.filter(x => /^(Mod .+ changed|New mod )/.test(x.text)).length;
+            const other = Math.max(0, ch.length - mods);
+            const parts = [];
+            if (mods) parts.push(`${mods} ${mods === 1 ? 'plugin' : 'plugins'}`);
+            if (other) parts.push(`${other} ${other === 1 ? 'settings file' : 'settings files'}`);
+            items.push({ sev: 2, text: parts.length ? `Config changed: ${parts.join(' and ')}.` : 'Agent config changed.' });
+        }
+        const unmon = (s.deleg || []).filter(d => this._unmonitored(d)).length;
+        if (unmon) items.push({ sev: 2, text: `${unmon} ${unmon === 1 ? 'sub-agent ran' : 'sub-agents ran'} without monitoring.` });
+        s.findings.forEach(f => { const t = this._toolWords(f.title); items.push({ sev: 4, text: /[.!?]$/.test(t) ? t : t + '.' }); });
+        return items.sort((a, b) => a.sev - b.sev);
+    },
+
+    /** The same plain sentence the Detection & Response WHY card uses. */
+    _driftSentence(f) {
+        const P = window.DetectionResponsePage;
+        if (P && P._featureSentence && f.id && f.counts && Object.keys(f.counts).length) return P._featureSentence(f);
+        return `${f.label}${f.detail ? ` (${f.detail})` : ''}.`;
+    },
+
+    _shortResult(text) {
+        const md = String(text || '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`]+/g, '');
+        const first = md.trim().split(/(?<=[.!?])\s|\n/)[0] || '';
+        const plain = first.replace(/(?:[A-Za-z]:)?[\w.~-]*(?:[\\/][\w.~ -]+)+[\\/]([^\\/\s]+)/g, '$1').replace(/[.!?]+$/, '');
+        return plain.length > 80 ? plain.slice(0, 79) + '\u2026' : plain;
+    },
+
+    _unmonitored(d) {
+        return (d.state === 'failed' || d.state === 'refused' || d.state === 'waiting_for_user')
+            && (['guard_silent', 'guard_missing', 'guard_not_running'].includes(d.code)
+                || (!d.code && /SecureVector Guard (did not report|is not (installed|running))/.test(d.reason || '')));
+    },
+
+    _delegWord(d) {
+        const child = d.child ? (this._tasks || []).find(x => x.id === d.child) : null;
+        if (child && child.status === 'stopped') return 'stopped by you';
+        if (this._unmonitored(d)) return 'ran without monitoring';
+        return String((window.DelegationUI && DelegationUI.STATE_WORDS[d.state]) || d.state).toLowerCase();
+    },
+
+    _toolWords(text) {
+        return String(text || '')
+            .replace(/mcp__([a-z0-9-]+)__([a-z0-9_]+)/gi, (_m, srv, tool) => `${srv.charAt(0).toUpperCase() + srv.slice(1)} ${tool}`)
+            .replace(/^loop[:\s-]+/i, '');
+    },
+
+    _delegLinesHtml(items) {
+        if (!items || !items.length || !window.DelegationUI) return '';
+        const lis = items.map(d => {
+            const word = this._delegWord(d);
+            const short = d.state === 'done' && d.result ? this._shortResult(d.result) : '';
+            const line = [DelegationUI.harnessLabel(d.harness), d.state === 'held' ? 'held for review' : word, short].filter(Boolean).join(' \u00b7 ');
+            const full = d.state === 'done' && d.result ? DelegationUI.resultHtml(d.result)
+                : d.reason ? `<div class="terminals-deleg-reason">${this._esc(d.reason)}</div>` : '';
+            return full
+                ? `<li class="terminals-deleg-line"><details><summary>${this._esc(line)}</summary>${full}</details></li>`
+                : `<li class="terminals-deleg-line">${this._esc(line)}</li>`;
+        }).join('');
+        return `<ul class="terminals-deleg-lines">${lis}</ul>`;
+    },
+
+    _summaryHeadline(s, n) {
+        const dur = s.duration_seconds !== null ? this._elapsed(s.started_at, s.ended_at) : '';
+        const tail = n === 0 ? 'Nothing unusual' : `${n} ${n === 1 ? 'thing' : 'things'} worth a look`;
+        if (this._RUNNING_STATUSES.includes(s.status) && !s.ended_at) return `Running${dur ? ' for ' + dur : ''}. ${n === 0 ? 'Nothing unusual so far' : tail}.`;
+        const lead = s.status === 'failed' ? 'Stopped' : s.status === 'interrupted' ? 'Interrupted' : 'Finished';
+        return `${lead}${dur ? (lead === 'Finished' ? ' in ' : ' after ') + dur : ''}. ${tail}.`;
+    },
+
+    /** The top of the summary: the same label-left, value-right rows as Details. */
+    _summaryTopRows(s, worth) {
+        const row = (label, body) => `<div class="terminals-summary-row"><dt>${label}</dt><dd>${body}</dd></div>`;
+        const c = s.tool_calls;
+        const sum = c.allowed + c.flagged + c.failed + c.blocked;
+        // The pane header counts every call; name whatever the verdict list does not.
+        const total = Math.max(sum, s.header_calls || 0);
+        const other = total - c.allowed - c.blocked;
+        const out = [row('Status', this._esc(this._summaryHeadline(s, worth.length)))];
+        out.push(row('Tool calls', this._esc(total ? `${total} calls \u00b7 ${c.allowed} allowed \u00b7 ${c.blocked} blocked${other ? ` \u00b7 ${other} other` : ''}` : 'none yet')));
+        if (s.drift) {
+            if (s.drift.score === null || s.drift.status === 'building_baseline') {
+                out.push(row('Unusual activity', this._esc(`learning (${Math.min(s.drift.sessions, s.drift.needed)} of ${s.drift.needed})`)));
+            } else {
+                const band = s.drift.band || 'calm';
+                out.push(row('Unusual activity', `<span title="Drift Score ${this._esc(s.drift.score)} of 100. Compared with this agent's own recent sessions in this folder."><span class="terminals-drift-band is-${band}">${this._band(band)}</span> (${this._esc(s.drift.score)} of 100)</span>`));
+            }
+        }
+        if (s.setup) out.push(row('Config', s.setup.state === 'changed' ? '<span class="terminals-task-setup is-amber">changed</span>' : 'unchanged'));
+        if (s.deleg && s.deleg.length) out.push(row('Sub-agents', this._delegLinesHtml(s.deleg)));
+        if (worth.length) {
+            const shown = worth.slice(0, 3);
+            const more = worth.length - shown.length;
+            out.push(row('Worth a look', `<ul class="terminals-summary-list">${shown.map(w => `<li>${this._esc(w.text)}</li>`).join('')}</ul>${more > 0 ? `<a href="#" class="terminals-summary-all" data-summary-more>and ${more} more</a> ` : ''}<button type="button" class="btn btn-sm" data-summary-export aria-label="Export evidence as JSON">Export evidence</button>`));
+        }
+        return out.join('');
     },
 
     _summaryHtml(s) {
@@ -3316,19 +3387,23 @@ ${this.CLI_BIN} stop &lt;id&gt;
             out.push(row('Hosts reached', `${s.hosts.count}<ul class="terminals-summary-list">${list}</ul>${more > 0 ? `<span class="terminals-summary-more">+${more} more</span>` : ''}`));
         }
         if (s.findings.length) {
-            const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(f.title)}</li>`).join('');
+            const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(this._toolWords(f.title))}</li>`).join('');
             out.push(row('Agent Health', `<ul class="terminals-summary-list">${list}</ul><a href="#" class="terminals-summary-all" data-summary-findings aria-label="All findings in Observability">All findings</a>`));
         }
         const dr = this._drLinkHtml({ id: s.task_id, drift_score: 0 }, 'terminals-summary-dr');
-        if (s.drift) out.push(row('Drift', this._driftHtml(s.drift) + (typeof s.drift.score === 'number' ? dr : '')));
+        if (s.drift) out.push(row('Unusual activity', this._driftHtml(s.drift) + (typeof s.drift.score === 'number' ? dr : '')));
         if (s.deleg && window.DelegationUI) out.push(row('Delegations', `<span data-deleg-cell>${DelegationUI.summaryHtml(s.deleg)}</span>`));
-        if (s.rung && window.ResponseRungs) out.push(row('Response', `<span data-rung-cell>${ResponseRungs.summaryHtml(s.rung, !!s.ended_at)}</span>`));
-        if (s.setup && window.ConfigTrust) out.push(row('Setup', ConfigTrust.summaryHtml(s.setup) + dr));
+        if (s.rung && window.ResponseRungs) out.push(row('Automatic actions', `<span data-rung-cell>${ResponseRungs.summaryHtml(s.rung, !!s.ended_at)}</span>`));
+        if (s.setup && window.ConfigTrust) out.push(row('Agent config', ConfigTrust.summaryHtml(s.setup) + dr));
         if (s.approvals.approved + s.approvals.denied > 0) {
             out.push(row('Approvals', `${s.approvals.approved} approved, ${s.approvals.denied} denied`));
         }
-        return `<section class="terminals-summary" aria-label="Session summary"><dl>${out.join('')}</dl>`
-            + '<button type="button" class="btn btn-sm" data-summary-export aria-label="Export session summary as JSON">Export</button></section>';
+        const worth = this._worthALook(s);
+        const held = !!(s.deleg && s.deleg.some(d => d.state === 'held'));
+        return `<section class="terminals-summary" aria-label="Session summary"><dl class="terminals-summary-main">${this._summaryTopRows(s, worth)}</dl>`
+            + `<button type="button" class="terminals-summary-toggle" data-summary-toggle aria-expanded="${held ? 'true' : 'false'}" aria-controls="terminals-summary-details-${this._esc(s.id)}"><span class="terminals-summary-chev" aria-hidden="true"></span><span data-summary-toggle-label>${held ? 'Hide details' : 'Show details'}</span></button>`
+            + `<div class="terminals-summary-details" data-summary-details id="terminals-summary-details-${this._esc(s.id)}"${held ? '' : ' hidden'}><dl>${out.join('')}</dl>`
+            + '<button type="button" class="btn btn-sm" data-summary-export aria-label="Export session summary as JSON">Export</button></div></section>';
     },
 
     /** The Drift row: number, band word and the top three features in plain
@@ -3336,7 +3411,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  colour; "Looks normal" is the one action, and it changes no verdict. */
     _driftHtml(d) {
         if (d.score === null || d.status === 'building_baseline') {
-            return `building baseline, ${this._esc(Math.min(d.sessions, d.needed))} of ${this._esc(d.needed)} sessions`;
+            return `learning what is normal, ${this._esc(Math.min(d.sessions, d.needed))} of ${this._esc(d.needed)} sessions`;
         }
         const band = d.band || 'calm';
         const top = d.top.map(f => `${this._esc(f.label)}${f.detail ? ` (${this._esc(f.detail)})` : ''}`).join(', ');
@@ -3346,7 +3421,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             : d.ended
                 ? ' <a href="#" class="terminals-summary-all" data-drift-normal aria-label="Mark this session as looking normal">Looks normal</a>'
                 : '';
-        return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${band}</span>${top ? `: ${top}` : ''}${partial}${action}`;
+        return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low'}</span>${top ? `: ${top}` : ''}${partial}${action}`;
     },
 
     /** The summary fields only: no prompts, no output, and the working folder
@@ -3396,14 +3471,27 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
         if (!host.isConnected && host.isConnected !== undefined) return;
         host.innerHTML = this._summaryHtml(s);
-        const ex = host.querySelector ? host.querySelector('[data-summary-export]') : null;
-        if (ex) ex.onclick = () => {
+        const exAll = host.querySelectorAll ? Array.from(host.querySelectorAll('[data-summary-export]')) : [];
+        exAll.forEach(ex => { ex.onclick = () => {
             const url = URL.createObjectURL(new Blob([this._summaryExport(s)], { type: 'application/json' }));
             const a = document.createElement('a');
             a.href = url; a.download = `sv-session-${s.id}.json`;
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 0);
+        }; });
+        const moreLink = host.querySelector ? host.querySelector('[data-summary-more]') : null;
+        const det = host.querySelector ? host.querySelector('[data-summary-details]') : null;
+        const tog = host.querySelector ? host.querySelector('[data-summary-toggle]') : null;
+        const setOpen = (open) => {
+            if (det) det.hidden = !open;
+            if (tog) {
+                tog.setAttribute('aria-expanded', open ? 'true' : 'false');
+                const lbl = tog.querySelector ? tog.querySelector('[data-summary-toggle-label]') : null;
+                if (lbl) lbl.textContent = open ? 'Hide details' : 'Show details';
+            }
         };
+        if (tog) tog.onclick = () => setOpen(!!(det && det.hidden));
+        if (moreLink) moreLink.onclick = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); setOpen(true); };
         const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
         if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
         if (s.deleg && window.DelegationUI) {
@@ -5302,7 +5390,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
           ${dot}<span class="terminals-foot-item terminals-foot-state terminals-foot-state-${state.kind}">${this._esc(state.label.toLowerCase())}</span>
           ${dot}<span class="terminals-foot-item terminals-foot-elapsed" id="terminals-foot-elapsed">${this._esc(elapsed)}</span>
           <span class="terminals-head-spacer"></span>
-          <span class="terminals-foot-item terminals-foot-gov">${counts.governed} governed \u00b7 ${counts.blocked} blocked</span>`;
+          <span class="terminals-foot-item terminals-foot-gov">${counts.governed} ${counts.governed === 1 ? 'call' : 'calls'} \u00b7 ${counts.blocked} blocked</span>`;
     },
 
     // Statuses in which the PTY is still alive. A restart has to wait for the
@@ -6319,7 +6407,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const meta = `${r.calls} call${r.calls === 1 ? '' : 's'}`
                 + (r.writes ? ` · ${r.writes} write${r.writes === 1 ? '' : 's'}` : '')
                 + (isBlocked ? ` · ${r.blocked} blocked` : '')
-                + (isObserved ? ' · observed, not governed' : '');
+                + (isObserved ? ' · observed, not monitored' : '');
             const cls = isBlocked ? 'blocked' : (isObserved ? 'observed' : 'allowed');
             const dot = isObserved ? '' : ` sv-status-${isBlocked ? 'red' : 'green'}`;
             const grant = r.grant;

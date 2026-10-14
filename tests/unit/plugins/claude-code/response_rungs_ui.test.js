@@ -47,20 +47,20 @@ test('chip words and colours', () => {
 
 test('terminals page puts the chip in the facts line and the row under Drift', () => {
   const src = read('js/pages/terminals.js');
-  assert.match(src, /ResponseRungs\.chipHtml\(t\)/);
-  assert.ok(src.indexOf("row('Drift'") < src.indexOf("row('Response'"));
+  assert.doesNotMatch(src, /ResponseRungs\.chipHtml\(t\)/, 'the card carries one status line, not a rung chip');
+  assert.ok(src.indexOf("row('Unusual activity'") < src.indexOf("row('Automatic actions'"));
 });
 
 test('summary row words, reasons and buttons', () => {
   const R = load();
   const d = R.summaryData({ word: 'step-up', rung: 3, mode: 'shadow', reasons: ['drift', 'deny'], would_ask: 3 });
   const html = R.summaryHtml(d, false);
-  assert.match(html, /drift band, retried after a denial/);
+  assert.match(html, /unusual activity, retried after a denial/);
   assert.match(html, /would need approval for 3 calls/);
   for (const a of ['data-rung-release', 'data-rung-notneeded', 'data-rung-stop']) assert.ok(html.includes(a), a);
   assert.ok(!R.summaryHtml(d, true).includes('data-rung-stop'));
   const flag = R.summaryHtml(R.summaryData({ word: 'flag', rung: 2, mode: 'shadow', reasons: ['config'] }), false);
-  assert.match(flag, /setup change/);
+  assert.match(flag, /config change/);
   assert.ok(!flag.includes('data-rung-stop'));
 });
 
@@ -105,7 +105,7 @@ test('early-end confirm lists what shadow would have stepped up', () => {
   const R = load();
   const t = R.wouldHaveText({ count: 2, top_reasons: [{ signal: 'drift', sessions: 2 }] });
   assert.match(t, /2 sessions/);
-  assert.match(t, /drift band \(2\)/);
+  assert.match(t, /unusual activity \(2\)/);
 });
 
 test('no em dashes or banned words in the new UI strings', () => {

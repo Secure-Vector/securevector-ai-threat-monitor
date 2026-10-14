@@ -523,3 +523,18 @@ def test_drift_rows_age_out_with_audit_retention(world):
     asyncio.run(cleanup_old_event_records(world.db))
     left = {r[0] for r in world.raw.execute("SELECT session_id FROM session_drift")}
     assert left == {"fresh"}
+
+
+def test_contribution_points_sum_to_the_score_for_full_and_partial():
+    def feats(skip_hosts):
+        return [{"id": drift.F_TOOLS, "label": "a", "weight": 25, "value": 0.5, "skipped": False, "counts": {}},
+                {"id": drift.F_ERRORS, "label": "b", "weight": 20, "value": 0.4, "skipped": False, "counts": {}},
+                {"id": drift.F_HOSTS, "label": "c", "weight": 15, "value": 0.0 if skip_hosts else 0.9, "skipped": skip_hosts, "counts": {}}]
+    for skip in (False, True):
+        fs = feats(skip)
+        live = [f for f in fs if not f["skipped"]]
+        score = int(round(100 * sum(f["weight"] * f["value"] for f in live) / sum(f["weight"] for f in live)))
+        res = drift.DriftResult(score, drift.band_for(score), "scored", fs, True, "")
+        pts = drift.contribution_points(res)
+        assert sum(p for _i, p in pts) == score
+        assert pts[0][0] == (drift.F_HOSTS if not skip else drift.F_TOOLS)

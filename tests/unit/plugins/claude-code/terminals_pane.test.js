@@ -139,9 +139,9 @@ test('the pane and rail styles are defined and survive the collapsed rail', () =
 
 test('index.html pins the versions this change ships', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=479/);
-  assert.match(html, /sidebar\.js\?v=189/);
-  assert.match(html, /terminals\.js\?v=112/);
+  assert.match(html, /styles\.css\?v=489/);
+  assert.match(html, /sidebar\.js\?v=193/);
+  assert.match(html, /terminals\.js\?v=122/);
 });
 
 // --- DOM stub for the behavioural pane tests ---------------------------
@@ -283,7 +283,7 @@ test('the footer reports the governed and blocked counts the verdict loader foun
 
   const foot = elements['terminals-pane-foot'];
   assert.strictEqual(foot.hidden, false);
-  assert.ok(foot.innerHTML.includes('3 governed \u00b7 1 blocked'), `footer read: ${foot.innerHTML}`);
+  assert.ok(foot.innerHTML.includes('3 calls \u00b7 1 blocked'), `footer read: ${foot.innerHTML}`);
   assert.match(foot.innerHTML, /terminals-foot-branch">feat\/x</, 'the branch shows when the backend supplied one');
 });
 
