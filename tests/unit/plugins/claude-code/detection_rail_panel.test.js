@@ -78,8 +78,10 @@ test('section rows in order; Getting started hidden until setup is incomplete', 
   const S = loadSidebar();
   const wrap = S._createDrSections();
   const rows = sections(wrap);
-  assert.deepEqual(rows.map(label), ['Getting started', 'Sessions to review', 'Config changes', 'Automatic actions', 'Permission checks', 'How it works']);
-  assert.deepEqual(rows.map(r => r.dataset.drSection), ['dr-sec-start', 'dr-sec-sessions', 'dr-sec-config', 'dr-sec-actions', 'dr-sec-checks', 'dr-sec-how']);
+  assert.deepEqual(rows.map(label), ['Getting started', 'Sessions to review', 'Details', 'Why this score', 'Automatic actions', 'Permission checks', 'Across your devices', 'Config changes', 'How it works']);
+  assert.deepEqual(rows.map(r => r.dataset.drSection), ['dr-sec-start', 'dr-sec-sessions', 'dr-sec-details', 'dr-sec-why', 'dr-sec-actions', 'dr-sec-checks', 'dr-sec-fleet', 'dr-sec-config', 'dr-sec-how']);
+  // The six Details sections sit indented under the Details row, in page order.
+  assert.deepEqual(rows.map(r => /\bnav-dr-sub\b/.test(r.className)), [false, false, false, true, true, true, true, true, true]);
   assert.equal(rows[0].hidden, true);
   S._paintDrSections({ setup: { scored: false, guard_installed: true, governed_session: false } }, wrap);
   assert.equal(rows[0].hidden, false);
@@ -91,16 +93,19 @@ test('counts beside Sessions to review and Config changes only when above zero',
   const S = loadSidebar();
   const wrap = S._createDrSections();
   const rows = sections(wrap);
+  const CFG = rows.findIndex(r => r.dataset.drSection === 'dr-sec-config');
   assert.equal(count(rows[1]).hidden, true);
-  assert.equal(count(rows[2]).hidden, true);
+  assert.equal(count(rows[CFG]).hidden, true);
+  assert.equal(count(rows[2]), undefined);
+  assert.equal(count(rows[4]), undefined);
   assert.equal(count(rows[3]), undefined);
   S._paintDrSections({ detect: { to_review: 3 }, harden: { available: true, changes: 2 } }, wrap);
   assert.equal(count(rows[1]).textContent, '3');
   assert.equal(count(rows[1]).hidden, false);
-  assert.equal(count(rows[2]).textContent, '2');
+  assert.equal(count(rows[CFG]).textContent, '2');
   S._paintDrSections({ detect: { to_review: 0 }, harden: { available: false, changes: 4 } }, wrap);
   assert.equal(count(rows[1]).hidden, true);
-  assert.equal(count(rows[2]).hidden, true);
+  assert.equal(count(rows[CFG]).hidden, true);
   // Same cached summary the rail badge reads.
   assert.match(read('js/components/sidebar.js'), /this\._drSummary = d \|\| null;[\s\S]{0,140}this\._paintDrSections\(this\._drSummary\);/);
 });
@@ -115,7 +120,7 @@ test('first visible row active on load; a clicked or in-view section takes over'
   S._drActive = 'dr-sec-checks';
   S._drSyncActive(wrap);
   assert.doesNotMatch(rows[1].className, /\bactive\b/);
-  assert.match(rows[4].className, /\bactive\b/);
+  assert.match(rows.find(r => r.dataset.drSection === 'dr-sec-checks').className, /\bactive\b/);
   // Hidden Getting started falls back to the first visible row.
   S._drActive = 'dr-sec-start';
   S._drSyncActive(wrap);
@@ -137,7 +142,7 @@ test('a row navigates to the page with its section pending, or scrolls in place'
   assert.equal(S._drPendingSection, 'dr-sec-how');
   assert.equal(S._drActive, 'dr-sec-how');
   const src = read('js/components/sidebar.js');
-  assert.match(src, /if \(el\.tagName === 'DETAILS'\) el\.open = true;/);
+  assert.match(src, /for \(let n = el; n; n = n\.parentElement\) \{ if \(n\.tagName === 'DETAILS'\) n\.open = true; \}/);
   assert.match(src, /if \(page === 'detection-response'\) this\._drActive = this\._drPendingSection \|\| null;\s*else this\._drPendingSection = null;/);
   // Ready with nothing pending runs the position pass, not a first-row default.
   assert.match(src, /drPageReady\(\) \{[\s\S]*?this\._drPositionPass\(\);\s*\},/);
@@ -145,7 +150,10 @@ test('a row navigates to the page with its section pending, or scrolls in place'
 
 test('the page carries a stable id for every panel row', () => {
   const dr = read('js/pages/detection-response.js');
-  assert.match(dr, /<div data-dr-start id="dr-sec-start"><\/div>\s*<div id="dr-sec-sessions">\s*<div data-dr-spot><\/div>/);
+  assert.match(dr, /<div data-dr-start id="dr-sec-start"><\/div>\s*<div data-dr-top><\/div>\s*<div id="dr-sec-sessions">/);
+  assert.match(dr, /<details class="dr-loop dr-details" id="dr-sec-details">/);
+  assert.match(dr, /<div data-dr-spot id="dr-sec-why"><\/div>/);
+  assert.match(dr, /<div data-dr-cloud id="dr-sec-fleet"><\/div>/);
   assert.match(dr, /<div data-dr-config id="dr-sec-config"><\/div>/);
   assert.match(dr, /<details class="dr-loop" id="dr-sec-how"/);
   assert.match(dr, /_sectionsReady\(\) \{\s*if \(window\.Sidebar && Sidebar\.drPageReady\) Sidebar\.drPageReady\(\);/);
@@ -183,4 +191,66 @@ test('only the page scroller drives the active row, never the nav or an inner li
   assert.equal(S._drIsPageScroll(nav), false);
   assert.equal(S._drIsPageScroll(null), false);
   assert.match(read('js/components/sidebar.js'), /if \(this\.currentPage !== 'detection-response' \|\| !this\._drIsPageScroll\(ev\.target\)\) return;/);
+});
+
+test('a deep link to Config changes opens the closed Details first', () => {
+  const S = loadSidebar();
+  const doc = S._drTestDoc;
+  const details = { tagName: 'DETAILS', open: false, parentElement: null };
+  const body = { tagName: 'DIV', parentElement: details };
+  let scrolled = 0;
+  const cfg = { tagName: 'DIV', parentElement: body, scrollIntoView() { scrolled += 1; } };
+  doc.getElementById = (id) => (id === 'dr-sec-config' ? cfg : null);
+  S.currentPage = 'detection-response';
+  S.goToDrSection('dr-sec-config');
+  assert.equal(details.open, true, 'Details opened');
+  assert.equal(scrolled, 1);
+  // How it works is itself a disclosure inside Details: both open.
+  const how = { tagName: 'DETAILS', open: false, parentElement: body, scrollIntoView() {} };
+  details.open = false;
+  doc.getElementById = (id) => (id === 'dr-sec-how' ? how : null);
+  assert.equal(S._drScrollTo('dr-sec-how'), true);
+  assert.equal(how.open, true);
+  assert.equal(details.open, true);
+});
+
+test('while Details is closed its sections drop out and the Details row stands for them', () => {
+  const S = loadSidebar();
+  const doc = S._drTestDoc;
+  const wrap = S._createDrSections();
+  doc.querySelectorAll = (sel) => wrap.querySelectorAll(sel);
+  const details = { tagName: 'DETAILS', open: false, parentElement: null, offsetParent: {}, getBoundingClientRect: () => ({ top: 50 }) };
+  const at = (top, parent) => ({ tagName: 'DIV', parentElement: parent, offsetParent: {}, getBoundingClientRect: () => ({ top }) });
+  const els = { 'dr-sec-sessions': at(-400, null), 'dr-sec-details': details, 'dr-sec-config': at(60, details), 'dr-sec-actions': at(400, details) };
+  doc.getElementById = (id) => els[id] || null;
+  const box = { scrollTop: 300, clientHeight: 800, scrollHeight: 4000, getBoundingClientRect: () => ({ top: 0 }) };
+  doc.scrollingElement = box;
+  S._drActive = null;
+  S._drPositionPass(box);
+  assert.equal(S._drActive, 'dr-sec-details');
+  assert.equal(S._drClosedAround(els['dr-sec-config']), details);
+  assert.equal(S._drClosedAround(details), null, 'never the element itself');
+  details.open = true;
+  S._drPositionPass(box);
+  assert.equal(S._drActive, 'dr-sec-config');
+});
+
+test('Across your devices hides while its card is not rendered', () => {
+  const S = loadSidebar();
+  const doc = S._drTestDoc;
+  const wrap = S._createDrSections();
+  doc.querySelectorAll = (sel) => wrap.querySelectorAll(sel);
+  const fleet = sections(wrap).find(r => r.dataset.drSection === 'dr-sec-fleet');
+  assert.equal(fleet.hidden, true, 'hidden before the page renders');
+  const slot = { children: [] };
+  doc.getElementById = (id) => (id === 'dr-sec-fleet' ? slot : null);
+  S.drPageReady();
+  assert.equal(fleet.hidden, true, 'empty slot: hidden');
+  slot.children = [{}];
+  S.drPageReady();
+  assert.equal(fleet.hidden, false, 'card rendered: shown');
+  slot.children = [];
+  S._drHideEmpty();
+  assert.equal(fleet.hidden, true, 'dismissed: hidden again');
+  assert.match(read('js/pages/detection-response.js'), /slot\.innerHTML = '';\s*if \(window\.Sidebar && Sidebar\._drHideEmpty\) Sidebar\._drHideEmpty\(\);/);
 });

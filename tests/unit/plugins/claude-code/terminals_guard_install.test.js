@@ -229,7 +229,7 @@ test('index.html and pin assertions moved to the bumped versions', () => {
   const html = read('index.html');
   assert.match(html, /api\.js\?v=338/);
   assert.match(html, /terminals\.js\?v=127/);
-  assert.match(html, /styles\.css\?v=494/);
+  assert.match(html, /styles\.css\?v=495/);
 });
 
 test('the launch-form recheck reports a failed executors fetch and the ready timer is cancelled on harness change', () => {

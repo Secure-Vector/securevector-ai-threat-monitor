@@ -227,7 +227,8 @@ test('no Detection & Response or Settings rows in the Agents panel, and no top c
 test('spotlight trust line and secondary Looks normal everywhere', () => {
   const dr = read('js/pages/detection-response.js');
   assert.match(dr, /<p class="dr-muted dr-spot-trust">Scored on this device from its own history\. Nothing leaves your machine\.<\/p>/);
-  assert.equal((dr.match(/class="btn btn-sm btn-secondary" data-dr-normal/g) || []).length, 2);
+  // Looks normal lives on the review rows only, not in the spotlight.
+  assert.equal((dr.match(/class="btn btn-sm btn-secondary" data-dr-normal/g) || []).length, 1);
   assert.match(read('js/pages/terminals.js'), /class="btn btn-sm btn-secondary" data-drift-normal/);
   const banned = /—|\bADR\b|firewall|Mission Control/;
   const js = read('js/pages/terminals.js');
