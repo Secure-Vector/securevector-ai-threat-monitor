@@ -63,19 +63,21 @@ test('summary row shows number, band word and the top three features in plain wo
   assert.ok(!html.includes('—'));
 });
 
-test('building baseline reads as progress, with no number and no action', () => {
+test('a stored building row from an older build reads as no score yet, with no action', () => {
   const Page = loadPage();
   const s = Page._summaryBuild(TASK, { drift: { score: null, band: null, status: 'building_baseline', top: [], baseline: { sessions: 3, needed_sessions: 5 } } });
   const html = Page._summaryHtml(s);
-  assert.match(html, /<dt>Unusual activity<\/dt><dd>learning what is normal, 3 of 5 sessions<\/dd>/);
+  assert.match(html, /<dt>Unusual activity<\/dt><dd>no score yet, a score appears after the first tool calls<\/dd>/);
+  assert.doesNotMatch(html, /of 5 sessions|baseline/i);
   assert.doesNotMatch(html, /Looks normal/);
 });
 
-test('partial baseline and a session already marked normal', () => {
+test('partial score and a session already marked normal', () => {
   const Page = loadPage();
   const s = Page._summaryBuild(TASK, { drift: Object.assign({}, SCORED, { status: 'partial', feedback: 'normal' }) });
   const html = Page._summaryHtml(s);
-  assert.match(html, /\(partial baseline\)/);
+  assert.match(html, /\(Compared with \d+ earlier sessions?\)/);
+  assert.doesNotMatch(html, /baseline/i);
   assert.match(html, /Marked normal/);
   assert.doesNotMatch(html, /data-drift-normal/);
 });
@@ -169,4 +171,15 @@ test('summary: one line per sub-agent, markdown stripped, file names only, held 
   assert.match(html, /1 sub-agent ran without monitoring\./);
   assert.match(html, /aria-expanded="true"[^>]*>[\s\S]*Hide details/);
   assert.doesNotMatch(html, /data-summary-details id="[^"]+" hidden/);
+});
+
+
+test('comparison line: first session, still settling and settled', () => {
+  const Page = loadPage();
+  const mk = (baseline) => Page._summaryHtml(Page._summaryBuild(TASK, { drift: Object.assign({}, SCORED, { status: 'partial', baseline }) }));
+  assert.match(mk({ sessions: 0, confidence: 0 }), /\(First session here, nothing to compare with yet\)/);
+  assert.match(mk({ sessions: 1, confidence: 0.2 }), /\(Compared with 1 earlier session, comparison still settling\)/);
+  const settled = mk({ sessions: 6, confidence: 1 });
+  assert.match(settled, /\(Compared with 6 earlier sessions\)/);
+  assert.doesNotMatch(settled, /still settling/);
 });

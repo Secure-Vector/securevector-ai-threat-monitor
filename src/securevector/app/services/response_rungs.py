@@ -72,7 +72,8 @@ def _parse(value: Optional[str]) -> Optional[datetime]:
 
 def config_signature() -> str:
     """Changes when the drift weights or bands change; shadow restarts then."""
-    raw = json.dumps([sorted(drift.WEIGHTS.items()), drift.WATCH_FROM, drift.HIGH_FROM])
+    raw = json.dumps([sorted(drift.WEIGHTS.items()), drift.WATCH_FROM, drift.HIGH_FROM,
+                      drift.SCORING_VERSION])
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 
@@ -634,6 +635,10 @@ async def _rung_view(db, session_id: Optional[str]) -> Optional[dict]:
     if harness:
         per = await drift._harness_sessions(drepo, harness)
         baseline, _ = drift.choose_baseline(per, session_id=session_id, workspace=task.get("workspace"))
+        # The step-up deny list compares with earlier sessions only once the
+        # comparison is fully trusted (5 sessions and 200 calls).
+        if drift.baseline_confidence(baseline) < 1.0:
+            baseline = None
     return {"row": row, "applied": active_rung(row) == STEP_UP, "baseline": baseline}
 
 

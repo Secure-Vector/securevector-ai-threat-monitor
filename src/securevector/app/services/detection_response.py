@@ -201,7 +201,8 @@ async def _spotlight(db, candidates: list, scored_all: Optional[list] = None) ->
         "ended_at": t.get("ended_at"),
         "had_blocks": had_blocks,
         "features": features,
-        "baseline": {"sessions": int(d.get("baseline_sessions") or 0), "median": _median(others)},
+        "baseline": {"sessions": int(d.get("baseline_sessions") or 0), "median": _median(others),
+                     "confidence": round(_confidence(d), 2)},
         "recent_scores": recent,
     }
 
@@ -309,12 +310,29 @@ async def _detect(db, now: datetime) -> dict:
         )
         n = len({r["session_id"] for r in ended if (_parse(r["ended_at"]) or cutoff) > cutoff})
         status = latest["status"] if latest else None
-        state = ("scored" if status == session_drift.STATUS_SCORED
-                 else "partial" if status == session_drift.STATUS_PARTIAL else "building")
+        # Every session is scored from the first one, so "building" means
+        # only that no session has a score yet.
+        if not (first and first["scored_at"]):
+            state = "building"
+        elif status == session_drift.STATUS_SCORED:
+            state = "scored"
+        else:
+            state = "partial"
         out["baseline"] = {"ended_sessions": n, "needed": session_drift.MIN_BASELINE_SESSIONS, "state": state}
     except Exception:  # noqa: BLE001 - baseline facts are optional
         logger.debug("detection response: could not read baseline facts", exc_info=True)
     return out
+
+
+def _confidence(row: Mapping[str, Any]) -> float:
+    """How settled a stored row's comparison is, from its baseline counts
+    (same rule as session_drift.baseline_confidence)."""
+    sessions = int(row.get("baseline_sessions") or 0)
+    calls = int(row.get("baseline_calls") or 0)
+    if sessions <= 0:
+        return 0.0
+    return max(0.0, min(1.0, sessions / session_drift.MIN_BASELINE_SESSIONS,
+                        calls / session_drift.MIN_BASELINE_CALLS))
 
 
 async def _preflight(db, now: datetime) -> dict:

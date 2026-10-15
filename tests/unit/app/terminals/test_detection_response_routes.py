@@ -388,3 +388,26 @@ def test_rung_mode_error_is_plain():
     import inspect
     assert "Test mode is not finished yet" in inspect.getsource(response_rungs)
     assert "Shadow period" not in inspect.getsource(response_rungs)
+
+
+def test_first_session_partial_row_counts_as_scored_with_scaled_weight(dr_env):
+    client, ws, db = dr_env
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-1", "s-1", ws, ended_days=0)
+    # A one-session comparison: novelty carries a fifth of its weight.
+    feats = [{"id": "tool_novelty", "value": 1.0, "weight": 5.0, "skipped": False, "counts": {"unseen_tools": 1}},
+             {"id": "errors_after_block", "value": 1.0, "weight": 20, "skipped": False, "counts": {"errors": 3}},
+             {"id": "new_hosts", "value": 0.0, "weight": 3.0, "skipped": True, "counts": {}}]
+    raw.execute(
+        "INSERT INTO session_drift (session_id, task_id, harness, workspace, score, band, status, features_json, "
+        "baseline_sessions, baseline_calls, computed_at) VALUES ('s-1','t-1','claude-code','/w',100,'high','partial',?,1,40,?)",
+        (json.dumps(feats), (NOW - timedelta(minutes=5)).isoformat()))
+    raw.commit()
+    body = client.get(URL, headers=AUTH).json()
+    assert body["detect"]["baseline"]["state"] == "partial"
+    sp = body["spotlight"]
+    assert sp["score"] == 100 and sp["baseline"]["sessions"] == 1
+    assert sp["baseline"]["confidence"] == 0.2
+    assert sum(f["points"] for f in sp["features"]) == 100
+    pts = {f["id"]: f["points"] for f in sp["features"]}
+    assert pts["errors_after_block"] == 80 and pts["tool_novelty"] == 20
