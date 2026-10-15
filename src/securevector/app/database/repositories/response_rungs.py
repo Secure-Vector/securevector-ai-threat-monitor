@@ -31,7 +31,7 @@ class ResponseRungsRepository:
             batch = ids[start:start + 200]
             ph = ",".join("?" for _ in batch)
             for r in await self.db.fetch_all(
-                f"SELECT session_id, rung, mode FROM session_rungs WHERE session_id IN ({ph})", tuple(batch)
+                f"SELECT session_id, rung, mode, reasons_json, would_ask, feedback FROM session_rungs WHERE session_id IN ({ph})", tuple(batch)
             ):
                 out[r["session_id"]] = dict(r)
         return out

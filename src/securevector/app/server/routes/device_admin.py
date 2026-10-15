@@ -32,7 +32,9 @@ import logging
 import os as _os
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header, Request
+
+from securevector.app.services import decisions
 from pydantic import BaseModel
 
 from securevector.app.database.connection import get_database
@@ -668,7 +670,7 @@ class CloudForwardingToggleRequest(BaseModel):
 
 
 @router.post("/v1/cloud-forwarding")
-async def set_cloud_forwarding(body: CloudForwardingToggleRequest) -> dict:
+async def set_cloud_forwarding(body: CloudForwardingToggleRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict:
     """User-level opt-out for cloud fleet forwarding (#151).
 
     Lets the device owner disable forwarding to the managed (enrollment)
@@ -679,6 +681,8 @@ async def set_cloud_forwarding(body: CloudForwardingToggleRequest) -> dict:
     forwarder's delivery loop skips these destinations (they are filtered out
     of list_active by the enabled flag) and nothing new is queued for them.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     if not is_enrolled():
         raise HTTPException(
             status_code=409,

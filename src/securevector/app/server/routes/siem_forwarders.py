@@ -27,7 +27,9 @@ import socket
 from typing import Any, Literal, Optional
 from urllib.parse import urlparse, urlunparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header, Request
+
+from securevector.app.services import decisions
 from pydantic import BaseModel, Field, field_validator
 
 from securevector.app.database.connection import get_database
@@ -197,7 +199,9 @@ async def _guard_full_redaction_for_eu(db, redaction_level) -> None:
 
 
 @router.post("/siem-forwarders")
-async def create_forwarder(req: ForwarderCreate) -> dict[str, Any]:
+async def create_forwarder(req: ForwarderCreate, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict[str, Any]:
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     await _guard_full_redaction_for_eu(db, req.redaction_level)
     repo = ExternalForwardersRepository(db)
@@ -252,7 +256,9 @@ async def get_global_siem_settings() -> SiemGlobalSettings:
 
 
 @router.put("/siem-forwarders/global-settings", response_model=SiemGlobalSettings)
-async def set_global_siem_settings(body: SiemGlobalSettings) -> SiemGlobalSettings:
+async def set_global_siem_settings(body: SiemGlobalSettings, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> SiemGlobalSettings:
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     await set_siem_forwarding_enabled(db, body.enabled)
     logger.info(f"SIEM forwarding globally {'enabled' if body.enabled else 'disabled'}")
@@ -272,7 +278,9 @@ async def get_forwarder(forwarder_id: int) -> dict[str, Any]:
 
 
 @router.put("/siem-forwarders/{forwarder_id}")
-async def update_forwarder(forwarder_id: int, req: ForwarderUpdate) -> dict[str, Any]:
+async def update_forwarder(forwarder_id: int, req: ForwarderUpdate, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict[str, Any]:
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     await _guard_full_redaction_for_eu(db, req.redaction_level)
     repo = ExternalForwardersRepository(db)
@@ -298,7 +306,9 @@ async def update_forwarder(forwarder_id: int, req: ForwarderUpdate) -> dict[str,
 
 
 @router.delete("/siem-forwarders/{forwarder_id}")
-async def delete_forwarder(forwarder_id: int) -> dict[str, Any]:
+async def delete_forwarder(forwarder_id: int, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict[str, Any]:
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = ExternalForwardersRepository(db)
     existed = await repo.delete(forwarder_id)
@@ -777,7 +787,7 @@ async def forwarder_health(forwarder_id: int) -> dict[str, Any]:
 
 
 @router.post("/siem-forwarders/{forwarder_id}/reset-breaker")
-async def reset_forwarder_breaker(forwarder_id: int) -> dict[str, Any]:
+async def reset_forwarder_breaker(forwarder_id: int, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict[str, Any]:
     """Zero the circuit-breaker so the next dispatcher tick retries now.
 
     Use case: operator fixed a broken destination (corrected URL,
@@ -786,6 +796,8 @@ async def reset_forwarder_breaker(forwarder_id: int) -> dict[str, Any]:
     underlying issue persists, the breaker will trip again and drops
     still apply via `drop_exceeded(max_attempts=10)`.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = ExternalForwardersRepository(db)
     fwd = await repo.get(forwarder_id)

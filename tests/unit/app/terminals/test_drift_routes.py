@@ -11,6 +11,9 @@ from securevector.app.database.migrations import ensure_session_drift_table
 from securevector.app.services import session_drift
 from securevector.app.terminals.auth import HEADER
 from tests.unit.app.terminals.test_routes import AUTH, ORIGIN, env  # noqa: F401 - fixture
+from securevector.app.server.routes.jit_access import _UI_TOKEN
+
+UI = {**AUTH, "X-SV-UI-Token": _UI_TOKEN}
 
 NOW = datetime.now(timezone.utc)
 
@@ -106,16 +109,16 @@ def test_feedback_records_looks_normal_only(env):  # noqa: F811
     client, manager, ws, db = env
     _seed(db, ws)
     # A running session cannot be marked normal.
-    running = client.post("/api/terminals/tasks/live1/drift/feedback", headers=AUTH, json={})
+    running = client.post("/api/terminals/tasks/live1/drift/feedback", headers=UI, json={})
     assert running.status_code == 409 and "still running" in running.json()["detail"]
     assert client.get("/api/terminals/tasks/live1/drift", headers=AUTH).json()["feedback"] is None
-    r = client.post("/api/terminals/tasks/done1/drift/feedback", headers=AUTH, json={})
+    r = client.post("/api/terminals/tasks/done1/drift/feedback", headers=UI, json={})
     assert r.status_code == 200 and r.json() == {"ok": True, "feedback": "normal"}
     body = client.get("/api/terminals/tasks/done1/drift", headers=AUTH).json()
     assert body["feedback"] == "normal" and body["ended"] is True
-    bad = client.post("/api/terminals/tasks/done1/drift/feedback", headers=AUTH, json={"feedback": "block"})
+    bad = client.post("/api/terminals/tasks/done1/drift/feedback", headers=UI, json={"feedback": "block"})
     assert bad.status_code == 422
-    extra = client.post("/api/terminals/tasks/done1/drift/feedback", headers=AUTH,
+    extra = client.post("/api/terminals/tasks/done1/drift/feedback", headers=UI,
                         json={"feedback": "normal", "action": "stop"})
     assert extra.status_code == 422
     # Observe only: neither task is touched by any of this.

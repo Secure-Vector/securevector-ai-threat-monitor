@@ -22,8 +22,10 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Tuple
 
@@ -49,6 +51,35 @@ logger = logging.getLogger(__name__)
 # shell-style 128+N from a harness that traps it, or -N from the PTY host when
 # the signal killed it. SIGHUP covers the PTY closing, SIGKILL the host's
 # escalation after its grace period.
+# How far a harness's start may sit from its task row's created_at for the
+# startup reaper to treat the pid as that task's (spawn and the row write
+# happen moments apart).
+_REAP_START_WINDOW_S = 120
+
+
+def _process_start(pid: int) -> Optional[float]:
+    """Epoch seconds a process started, from ps, or None."""
+    try:
+        text = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True,
+                              text=True, timeout=2, env={**os.environ, "LC_ALL": "C"}).stdout.strip()
+        return time.mktime(time.strptime(" ".join(text.split()), "%a %b %d %H:%M:%S %Y"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _started_near(pid: int, created_at: Optional[str]) -> bool:
+    if not created_at:
+        return False
+    try:
+        created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    started = _process_start(pid)
+    return started is not None and abs(started - created.timestamp()) <= _REAP_START_WINDOW_S
+
+
 def _stop_signal_exits(sig_module=signal) -> frozenset:
     # getattr: Windows has no SIGHUP or SIGKILL, and importing must not fail there.
     sigs = (getattr(sig_module, n, None) for n in ("SIGHUP", "SIGINT", "SIGKILL", "SIGTERM"))
@@ -118,6 +149,16 @@ HOOKS_SILENT_S = 20.0
 # is submitted, its Guard should report a hook (SessionStart,
 # UserPromptSubmit or PreToolUse) within this many seconds.
 GUARD_REPORT_S = 30.0
+# A harness whose Guard reports only once a message is submitted (OpenCode's
+# session.created) reports within a few seconds of a paste it took. No hook
+# this long after a quiet paste: the prompt is sent once more, and the Guard
+# check runs its full GUARD_REPORT_S from that second send.
+PROMPT_RESUBMIT_S = 10.0
+# More output than this after the paste means the session is working, so it
+# is never sent a second time.
+RESUBMIT_BUSY_BYTES = 8192
+# Full-screen resets: screen bytes before the last one are no longer shown.
+_SCREEN_RESETS = (b"\x1b[2J", b"\x1b[?1049h", b"\x1bc")
 
 
 class FolderOutOfScope(RuntimeError):
@@ -221,6 +262,9 @@ class TerminalManager:
         # Tasks whose Guard sent no hook after their first prompt: task id
         # -> the card warning. Cleared by the next hook event.
         self._guard_silent: dict = {}
+        # Delegated prompts that may be sent once more if their paste brings
+        # no hook (executors with prompt_resubmit): task id -> text.
+        self._resubmit: dict = {}
         self._input_checked: set = set()
         # Worktree claims: task id -> worktree root it runs in, taken under
         # _wt_lock at spawn and checked by removal under the same lock, so a
@@ -347,8 +391,18 @@ class TerminalManager:
             return
         if os.path.basename(comm) != executor.binary:
             return
+        # A process that did not start when the task did is a later process
+        # on a reused pid: leave it alone.
+        if not _started_near(pid, task.get("created_at")):
+            logger.info("Startup reaper left pid %s alone: it is not task %s", pid, task.get("id"))
+            return
         try:
-            os.kill(pid, signal.SIGTERM)
+            # The harness was spawned as its own group leader: signal the
+            # group so its children go too, unless it is this app's own group.
+            if os.getpgid(pid) == pid and pid != os.getpgrp():
+                os.killpg(pid, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
             logger.info("Reaped orphaned task %s (pid %s)", task["id"], pid)
         except OSError:
             pass
@@ -1079,6 +1133,7 @@ class TerminalManager:
         stop_requested = task_id in self._stop_requested
         self._stop_requested.discard(task_id)
         self._pending_prompts.pop(task_id, None)
+        self._resubmit.pop(task_id, None)
         self._hook_seen.discard(task_id)
         timer = self._prompt_timers.pop(task_id, None)
         if timer is not None:
@@ -1272,6 +1327,12 @@ class TerminalManager:
                 return
             await asyncio.sleep(min(PROMPT_POLL_S, max(0.0, deadline - now)))
 
+    async def _resubmits(self, task_id: str) -> bool:
+        from securevector.app.terminals.executors import EXECUTORS
+
+        executor = EXECUTORS.get(await self._executor_of(task_id) or "")
+        return bool(executor and executor.prompt_resubmit)
+
     async def _executor_of(self, task_id: str) -> Optional[str]:
         task = await self.store.get_task(task_id)
         return task.get("executor_id") if task else None
@@ -1294,12 +1355,19 @@ class TerminalManager:
         child is also stopped and its delegation fails."""
         from securevector.app.services import delegation
 
+        if delegated and task_id in self._resubmit:
+            await asyncio.sleep(PROMPT_RESUBMIT_S)
+            held = self._resubmit.pop(task_id, None)
+            if task_id not in self._running:
+                return
+            if await self._hook_since(task_id, after_seq):
+                return
+            if held is not None and self._output_since(task_id, held[1]) <= RESUBMIT_BUSY_BYTES:
+                await self._resubmit_prompt(task_id, held[0])
         await asyncio.sleep(GUARD_REPORT_S)
         if task_id not in self._running:
             return
-        events = await self.store.list_events(task_id, limit=2000)
-        if any(e.get("kind") == "hook" and (after_seq is None or int(e.get("seq") or 0) > int(after_seq))
-               for e in events):
+        if await self._hook_since(task_id, after_seq):
             return
         warning = delegation.guard_silent_reason(await self._executor_of(task_id))
         self._guard_silent[task_id] = warning
@@ -1313,6 +1381,65 @@ class TerminalManager:
                 await self.stop(task_id, origin="policy")
             except (KeyError, NotLinkable):
                 pass
+
+    async def _hook_since(self, task_id: str, after_seq: Optional[int]) -> bool:
+        events = await self.store.list_events(task_id, limit=2000)
+        return any(e.get("kind") == "hook" and (after_seq is None or int(e.get("seq") or 0) > int(after_seq))
+                   for e in events)
+
+    def _output_mark(self, task_id: str) -> tuple:
+        snap = self._screen(task_id)
+        return len(snap), snap[-256:]
+
+    def _output_since(self, task_id: str, mark: tuple) -> int:
+        """Bytes of screen output since `mark`. Once the ring has wrapped
+        its length stops growing, so the end of the mark is looked up."""
+        length, tail = mark
+        snap = self._screen(task_id)
+        if len(snap) > length and snap[length - len(tail):length] == tail:
+            return len(snap) - length
+        if not tail:
+            return len(snap)
+        at = snap.rfind(tail)
+        return len(snap) if at < 0 else len(snap) - (at + len(tail))
+
+    async def _resubmit_prompt(self, task_id: str, text: str) -> None:
+        """Send a delegated prompt once more after its paste brought no hook.
+        Still on screen (the Enter was lost): Enter only. Gone (the paste was
+        lost): pasted again, then Enter."""
+        import hashlib
+
+        from securevector.app.services.delegation import DIALOG_TAIL_BYTES, _ANSI_RE, paste_text
+
+        def letters(raw: bytes) -> str:
+            return re.sub(r"[^a-z]", "", _ANSI_RE.sub(b" ", raw).decode("utf-8", "ignore").lower())
+
+        data = paste_text(text).encode("utf-8")
+        screen = self._screen(task_id)
+        # Only what is still drawn: output before the last full-screen reset
+        # (a redraw after a self-update, say) is stale echo.
+        cut = max(screen.rfind(r) for r in _SCREEN_RESETS)
+        if cut >= 0:
+            screen = screen[cut:]
+        tail = letters(screen[-DIALOG_TAIL_BYTES:])
+        words = letters(data)
+        shown = bool(words) and (words[:40] in tail or words[-40:] in tail) or bool(
+            re.search(r"\[pasted ~?\d+ lines?\]", _ANSI_RE.sub(b" ", screen[-DIALOG_TAIL_BYTES:])
+                      .decode("utf-8", "ignore").lower()))
+        try:
+            if shown:
+                self.host.write(task_id, b"\r")
+            else:
+                self.host.write(task_id, b"\x1b[200~" + data + b"\x1b[201~")
+                await asyncio.sleep(0.05)
+                self.host.write(task_id, b"\r")
+        except Exception:
+            logger.debug("prompt resubmit failed for %s", task_id, exc_info=True)
+            return
+        await self.store.add_event(
+            task_id, kind="delegate_prompt", origin="delegate",
+            detail=f"sha256={hashlib.sha256(data).hexdigest()} length={len(data)} trigger=resubmit",
+        )
 
     def _screen(self, task_id: str) -> bytes:
         try:
@@ -1340,6 +1467,7 @@ class TerminalManager:
         data = paste_text(text).encode("utf-8")
         # Bracketed paste, so the harness takes the prompt as typed text;
         # Enter as its own write after it.
+        mark = self._output_mark(task_id)
         self.host.write(task_id, b"\x1b[200~" + data + b"\x1b[201~")
         await asyncio.sleep(0.05)
         self.host.write(task_id, b"\r")
@@ -1347,6 +1475,8 @@ class TerminalManager:
             task_id, kind="delegate_prompt", origin="delegate",
             detail=f"sha256={hashlib.sha256(data).hexdigest()} length={len(data)} trigger={trigger}",
         )
+        if trigger == "quiet" and await self._resubmits(task_id):
+            self._resubmit[task_id] = (text, mark)
         self._schedule_guard_check(task_id, seq, delegated=True)
         try:
             from securevector.app.services import delegation
@@ -1437,6 +1567,7 @@ class TerminalManager:
                 self._config_check(task_id, task.get("executor_id"), cwd or task.get("workspace"), "start",
                                    task.get("session_id"))
         self._guard_silent.pop(task_id, None)
+        self._resubmit.pop(task_id, None)
         if task_id in self._pending_prompts and event.get("hook_event_name") in ("SessionStart", "Stop"):
             try:
                 from securevector.app.services import delegation

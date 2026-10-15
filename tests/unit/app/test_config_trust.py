@@ -472,7 +472,7 @@ def test_mid_session_recheck_is_stat_gated_and_debounced(home, db, tmp_path):
     assert run(ct.recheck_once(db))["tasks"] == 1
     assert run(ct.recheck_once(db))["tasks"] == 0
     summary = run(ct.session_summary(db, "t1"))
-    assert summary["moved"] is True and summary["text"] == "Setup changed during this session (1)."
+    assert summary["moved"] is True and summary["text"] == "Config changed during this session (1)."
     assert summary["changes"][0]["text"] == "Rules file CLAUDE.md changed."
 
 
@@ -481,7 +481,7 @@ def test_session_summary_reassures_when_nothing_moved(home, db, tmp_path):
     run(ct.approve(db, "claude-code"))
     run(ct.session_check(db, harness="claude-code", workspace=None, phase="start", task_id="t2"))
     run(ct.session_check(db, harness="claude-code", workspace=None, phase="exit", task_id="t2"))
-    assert run(ct.session_summary(db, "t2"))["text"] == "Setup unchanged during this session."
+    assert run(ct.session_summary(db, "t2"))["text"] == "Config unchanged during this session."
     assert run(ct.session_summary(db, "nope"))["state"] == "unchecked"
 
 
@@ -567,6 +567,11 @@ def test_routes_refuse_without_the_ui_token(home, db, monkeypatch):
     body = {"harness": "claude-code", "expected": view["view_hash"]}
     assert c.post("/api/terminals/config-trust/pins", json=body, headers=ok).status_code == 403
     write_ok = {**ok, "origin": "http://127.0.0.1:8741"}
+    # Re-pinning also needs the UI token: a person in the app.
+    assert c.post("/api/terminals/config-trust/pins", json=body, headers=write_ok).status_code == 403
+    from securevector.app.server.routes import jit_access
+
+    write_ok["X-SV-UI-Token"] = jit_access._UI_TOKEN
     assert c.post("/api/terminals/config-trust/pins", json={"harness": "claude-code"}, headers=write_ok).status_code == 422
     r = c.post("/api/terminals/config-trust/pins", json=body, headers=write_ok)
     assert r.status_code == 200
@@ -743,7 +748,10 @@ def test_stale_view_route_answers_409(home, db, monkeypatch):
     app.state.terminal_auth = TerminalAuth(token="t" * 48, port=8741)
     c = TestClient(app)
     c.cookies.set(COOKIE, "t" * 48)
-    h = {"host": "127.0.0.1:8741", HEADER: "1", "origin": "http://127.0.0.1:8741"}
+    from securevector.app.server.routes import jit_access
+
+    h = {"host": "127.0.0.1:8741", HEADER: "1", "origin": "http://127.0.0.1:8741",
+         "X-SV-UI-Token": jit_access._UI_TOKEN}
     r = c.post("/api/terminals/config-trust/pins", json={"harness": "claude-code", "expected": "stale"}, headers=h)
     assert r.status_code == 409 and "changed after it was shown" in r.json()["detail"]
 

@@ -20,7 +20,9 @@ POST   /api/skill-permissions/evaluate       - Evaluate findings against policy
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Request
+
+from securevector.app.services import decisions
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
@@ -200,7 +202,9 @@ async def list_permissions(
 
 
 @router.post("/skill-permissions", response_model=PermissionResponse, status_code=201)
-async def add_permission(request: AddPermissionRequest):
+async def add_permission(request: AddPermissionRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
     try:
@@ -222,7 +226,9 @@ async def add_permission(request: AddPermissionRequest):
 
 
 @router.put("/skill-permissions/policy-config", response_model=PolicyConfigResponse)
-async def update_policy_config(request: UpdatePolicyConfigRequest):
+async def update_policy_config(request: UpdatePolicyConfigRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
 
@@ -256,7 +262,9 @@ async def update_policy_config(request: UpdatePolicyConfigRequest):
 
 
 @router.put("/skill-permissions/{perm_id}", response_model=PermissionResponse)
-async def update_permission(perm_id: int, request: UpdatePermissionRequest):
+async def update_permission(perm_id: int, request: UpdatePermissionRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
     perm = await repo.update_permission(
@@ -275,7 +283,9 @@ async def update_permission(perm_id: int, request: UpdatePermissionRequest):
 
 
 @router.delete("/skill-permissions/{perm_id}", status_code=204)
-async def delete_permission(perm_id: int):
+async def delete_permission(perm_id: int, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
     try:
@@ -288,7 +298,9 @@ async def delete_permission(perm_id: int):
 
 
 @router.post("/skill-permissions/reset", response_model=dict)
-async def reset_permissions():
+async def reset_permissions(http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
     count = await repo.reset_defaults()
@@ -315,8 +327,10 @@ async def export_permissions():
 
 
 @router.post("/skill-permissions/import", response_model=ImportPermissionsResponse)
-async def import_permissions(request: ImportPermissionsRequest):
+async def import_permissions(request: ImportPermissionsRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
     """Bulk import permissions. Duplicates are skipped."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
     imported = 0
@@ -360,7 +374,9 @@ async def list_publishers():
 
 
 @router.post("/skill-permissions/publishers", response_model=PublisherResponse, status_code=201)
-async def add_publisher(request: AddPublisherRequest):
+async def add_publisher(request: AddPublisherRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
     try:
@@ -376,7 +392,9 @@ async def add_publisher(request: AddPublisherRequest):
 
 
 @router.delete("/skill-permissions/publishers/{pub_id}", status_code=204)
-async def delete_publisher(pub_id: int):
+async def delete_publisher(pub_id: int, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     db = get_database()
     repo = SkillPermissionsRepository(db)
     try:

@@ -785,6 +785,24 @@ async def _child_done(store, child: dict) -> bool:
     return False
 
 
+async def _ended_unreported(store, child: dict, harness: Optional[str]) -> bool:
+    """A child of a harness whose Guard reports on the first submitted
+    message (executors with prompt_resubmit) that sent no hook after its
+    prompt was delivered."""
+    from securevector.app.terminals.executors import EXECUTORS
+
+    executor = EXECUTORS.get(harness or "")
+    if not executor or not executor.prompt_resubmit:
+        return False
+    delivered = None
+    for ev in await store.list_events(child["id"], limit=2000):
+        if ev.get("kind") == "delegate_prompt" and delivered is None:
+            delivered = ev.get("seq")
+        elif delivered is not None and ev.get("kind") == "hook":
+            return False
+    return delivered is not None
+
+
 def _result_pending(row: dict) -> bool:
     if row.get("state") != "done" or row.get("result_text") is not None:
         return False
@@ -839,6 +857,17 @@ async def refresh(db, manager, row: dict, *, quick: bool = False) -> dict:
                                          check="ready", state="failed")
             return current
     harness = child.get("executor_id") or row.get("harness")
+    if not pending and child.get("ended_at") and await _ended_unreported(store, child, harness):
+        # Its Guard reports as soon as a message is submitted; none came, so
+        # the prompt was never taken or the session ran ungoverned.
+        if _finalize_lock is None:
+            _finalize_lock = asyncio.Lock()
+        async with _finalize_lock:
+            current = await _get(db, row["id"]) or row
+            if current.get("state") in LIVE_STATES:
+                return await _refuse_row(db, manager, current, guard_silent_reason(harness),
+                                         check="governed", state="failed")
+            return current
     text = None
     if harness in TRANSCRIPT_HARNESSES:
         text = await _read_transcript(harness, child.get("session_id"),

@@ -491,7 +491,8 @@ async def test_opencode_prompt_is_pasted_once_its_screen_is_drawn_and_still(worl
     host.screens[child] = b"x" * 4000         # drawn, then still
 
     async def pasted():
-        return len(host.writes) >= 2
+        return len(host.writes) >= 2 and any(
+            e["kind"] == "delegate_prompt" for e in await world.manager.store.list_events(child))
 
     assert await _until(pasted)
     assert [d for t, d in host.writes if t == child] == [b"\x1b[200~" + PROMPT.encode() + b"\x1b[201~", b"\r"]
@@ -1121,6 +1122,7 @@ async def test_a_child_whose_guard_never_reports_is_stopped_and_failed(world, fa
     events = await world.manager.store.list_events(child)
     assert ("stop", "policy") in [(e["kind"], e["origin"]) for e in events]
     assert child in world.manager.host.stopped
+    assert [e for e in events if "trigger=resubmit" in str(e.get("detail"))] == []
 
 
 @pytest.mark.asyncio
@@ -1155,6 +1157,135 @@ async def test_a_launched_session_without_guard_reports_shows_a_card_warning(wor
     await _hook(world, task["id"], "UserPromptSubmit", "codex-session-0051")
     items = await terminal_routes._decorate(world.manager, await world.manager.store.list_tasks())
     assert {i["id"]: i["guard_warning"] for i in items}[task["id"]] is None
+
+
+@pytest.fixture
+def fast_resubmit(monkeypatch):
+    from securevector.app.terminals import manager as manager_module
+
+    monkeypatch.setattr(manager_module, "PROMPT_RESUBMIT_S", 0.1)
+    monkeypatch.setattr(manager_module, "GUARD_REPORT_S", 0.3)
+
+
+async def _opencode_child_delivered(world):
+    world.manager.settings.opencode_plugin_enabled = lambda: True
+    await SettingsRepository(world.db).set_delegation_policy({"cross_harness": True})
+    out = await _launched(world, harness="opencode")
+    child = out["child_task_id"]
+    world.manager.host.screens[child] = b"Ask anything " * 400
+
+    async def pasted():
+        return len(world.manager.host.writes) >= 2
+
+    assert await _until(pasted)
+    return out, child
+
+
+async def _triggers(world, child):
+    return [e["detail"].rsplit("trigger=", 1)[-1] for e in await world.manager.store.list_events(child)
+            if e["kind"] == "delegate_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_an_opencode_paste_lost_at_startup_is_sent_again_and_runs(world, fast_watch, fast_resubmit):
+    out, child = await _opencode_child_delivered(world)
+
+    async def resent():
+        return await _triggers(world, child) == ["quiet", "resubmit"]
+
+    assert await _until(resent)
+    paste = b"\x1b[200~" + PROMPT.encode() + b"\x1b[201~"
+    assert [d for t, d in world.manager.host.writes if t == child] == [paste, b"\r", paste, b"\r"]
+    # The Guard reports late, after the second send: the child keeps running.
+    await _hook(world, child, "SessionStart", "ses_opencode_0060")
+    await asyncio.sleep(0.5)
+    assert (await _result(world, out["delegation_id"]))["state"] == "running"
+    assert child not in world.manager.host.stopped
+
+
+@pytest.mark.asyncio
+async def test_an_opencode_prompt_still_in_its_input_gets_enter_only(world, fast_watch, fast_resubmit):
+    out, child = await _opencode_child_delivered(world)
+    world.manager.host.screens[child] = b"Ask anything " * 400 + b"\x1b[2;3H" + PROMPT.encode()
+
+    async def resent():
+        return "resubmit" in await _triggers(world, child)
+
+    assert await _until(resent)
+    assert [d for t, d in world.manager.host.writes if t == child][2:] == [b"\r"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shown", [
+    b"\x1b[5;3H..." + PROMPT[12:].encode(),    # a long prompt scrolled: only its end shows
+    b"\x1b[5;3H[Pasted ~3 lines]",
+])
+async def test_an_opencode_prompt_shown_by_its_end_or_a_paste_marker_gets_enter_only(
+        world, fast_watch, fast_resubmit, shown):
+    out, child = await _opencode_child_delivered(world)
+    world.manager.host.screens[child] = b"Ask anything " * 400 + shown
+
+    async def resent():
+        return "resubmit" in await _triggers(world, child)
+
+    assert await _until(resent)
+    assert [d for t, d in world.manager.host.writes if t == child][2:] == [b"\r"]
+
+
+@pytest.mark.asyncio
+async def test_an_opencode_prompt_echo_before_a_screen_reset_is_pasted_again(world, fast_watch, fast_resubmit):
+    out, child = await _opencode_child_delivered(world)
+    world.manager.host.screens[child] = (b"Ask anything " * 400 + PROMPT.encode()
+                                         + b"\x1b[2J" + b"Updated to 1.19.0 " * 20)
+
+    async def resent():
+        return "resubmit" in await _triggers(world, child)
+
+    assert await _until(resent)
+    paste = b"\x1b[200~" + PROMPT.encode() + b"\x1b[201~"
+    assert [d for t, d in world.manager.host.writes if t == child][2:] == [paste, b"\r"]
+
+
+@pytest.mark.asyncio
+async def test_a_working_opencode_child_is_not_sent_its_prompt_twice(world, fast_watch, fast_resubmit):
+    out, child = await _opencode_child_delivered(world)
+    world.manager.host.screens[child] += b"thinking " * 2000      # busy after the paste
+
+    async def failed():
+        return (await _result(world, out["delegation_id"]))["state"] == "failed"
+
+    assert await _until(failed)
+    await _exit_done(world, child)
+    assert await _triggers(world, child) == ["quiet"]
+    assert len([d for t, d in world.manager.host.writes if t == child]) == 2
+
+
+@pytest.mark.asyncio
+async def test_an_opencode_child_whose_guard_never_reports_fails_after_one_resend(world, fast_watch, fast_resubmit):
+    out, child = await _opencode_child_delivered(world)
+
+    async def failed():
+        return (await _result(world, out["delegation_id"]))["state"] == "failed"
+
+    assert await _until(failed)
+    await _exit_done(world, child)
+    res = await _result(world, out["delegation_id"])
+    assert res["reason"] == ("SecureVector Guard did not report from this OpenCode session. "
+                             "Its hooks may need approval in OpenCode.")
+    assert await _triggers(world, child) == ["quiet", "resubmit"]
+    assert child in world.manager.host.stopped
+
+
+@pytest.mark.asyncio
+async def test_an_opencode_child_that_exits_without_reporting_fails(world, fast_watch, fast_resubmit):
+    out, child = await _opencode_child_delivered(world)
+    world.manager.host.exit(child, 0)
+    await _exit_done(world, child)
+    await asyncio.sleep(0.5)
+    res = await _result(world, out["delegation_id"])
+    assert res["state"] == "failed" and res["reason"].startswith("SecureVector Guard did not report")
+    # Nothing is sent to a child that has ended.
+    assert await _triggers(world, child) == ["quiet"]
 
 
 # --- review hardening --------------------------------------------------------------

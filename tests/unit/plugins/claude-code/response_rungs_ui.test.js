@@ -124,3 +124,15 @@ test('Stop session from a rung card sends origin rung', () => {
   assert.match(api, /terminalsStopFromRung[\s\S]*?stop\?origin=rung/);
   assert.match(read('js/pages/terminals.js'), /terminalsStopFromRung \|\| API\.terminalsStop/);
 });
+
+test('Settings card uses plain words: Automatic actions, Test mode (logged only), On', () => {
+  const R = load();
+  const base = { harness: 'codex', mode: 'shadow', sessions: 1, sessions_needed: 10, days: 1, days_needed: 7, unintended: 0, complete: false, early_ended: false, can_activate: false };
+  assert.match(R.modeRowHtml(base), /rung-mode-state">Test mode \(logged only\)</);
+  assert.match(R.modeRowHtml(Object.assign({}, base, { can_activate: true })), /Test mode \(logged only\), ready/);
+  assert.match(R.modeRowHtml(Object.assign({}, base, { mode: 'active' })), /rung-mode-state">On</);
+  assert.match(R.INTRO, /^Automatic actions .*1 observe, 2 flag, 3 ask you/);
+  assert.match(read('js/pages/terminals.js'), /section\('Automatic actions',/);
+  const all = R.INTRO + R.modeRowHtml(base) + R.modeRowHtml(Object.assign({}, base, { mode: 'active' })) + R.wouldHaveText({ count: 0 });
+  assert.doesNotMatch(all.replace(/data-rung-[a-z]+/g, ''), /[Ss]hadow|Response rungs|Active/);
+});

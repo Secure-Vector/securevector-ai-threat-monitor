@@ -449,8 +449,8 @@ test('api.js exposes the link and discovery calls on the terminals write/read pa
 
 test('index.html pins the bumped asset versions', () => {
   const html = read('index.html');
-  assert.match(html, /api\.js\?v=337/);
-  assert.match(html, /terminals\.js\?v=122/);
-  assert.match(html, /sidebar\.js\?v=193/);
-  assert.match(html, /styles\.css\?v=489/);
+  assert.match(html, /api\.js\?v=338/);
+  assert.match(html, /terminals\.js\?v=126/);
+  assert.match(html, /sidebar\.js\?v=194/);
+  assert.match(html, /styles\.css\?v=493/);
 });
