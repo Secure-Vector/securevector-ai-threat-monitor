@@ -96,12 +96,13 @@ def test_task_drift_scores_and_returns_counts_only(env):  # noqa: F811
     assert board["drift_score"] == body["score"] and board["drift_band"] == body["band"]
 
 
-def test_building_baseline_and_unknown_task(env):  # noqa: F811
+def test_small_baseline_still_scores_and_unknown_task(env):  # noqa: F811
     client, manager, ws, db = env
     _seed(db, ws, baseline=3)
     body = client.get("/api/terminals/tasks/live1/drift", headers=AUTH).json()
-    assert body["status"] == "building_baseline" and body["score"] is None
+    assert body["status"] == "partial" and isinstance(body["score"], int)
     assert body["baseline"]["sessions"] == 3 and body["baseline"]["needed_sessions"] == 5
+    assert 0 < body["baseline"]["confidence"] < 1
     assert client.get("/api/terminals/tasks/nope/drift", headers=AUTH).status_code == 404
 
 

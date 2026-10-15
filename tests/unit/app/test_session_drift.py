@@ -215,22 +215,25 @@ def test_persistence_counts_reblocks_and_jit_refiles():
 # --- cold start, partial, fallback, feedback ------------------------------------------
 
 
-def test_cold_start_builds_baseline_without_a_number(world):
+def test_small_baseline_scores_with_comparison_weighted_down(world):
     world.baseline(count=3)
     world.task("s-new", ended=False)
     world.calls("s-new", drifting_rows())
     r = world.score("s-new")
-    assert r.status == drift.STATUS_BUILDING and r.score is None and r.band is None
-    assert r.baseline["sessions"] == 3 and not r.baseline_ok
+    assert r.status == drift.STATUS_PARTIAL and r.score is not None and r.band is not None
+    assert r.baseline["sessions"] == 3 and r.baseline_ok
     p = drift.payload(r)
-    assert p["score"] is None and p["baseline"]["needed_sessions"] == 5
+    assert p["score"] == r.score and p["baseline"]["needed_sessions"] == 5
+    assert p["baseline"]["confidence"] == r.baseline["confidence"] < 1.0
 
 
 def test_running_session_never_scores_itself(world):
     world.baseline(count=4)
     world.task("s-run", ended=False)
     world.calls("s-run", world.normal_calls("s-run", 300))
-    assert world.score("s-run").status == drift.STATUS_BUILDING
+    r = world.score("s-run")
+    # Its own 300 calls never count: four earlier sessions, not five.
+    assert r.baseline["sessions"] == 4 and r.status == drift.STATUS_PARTIAL
 
 
 def test_partial_skips_host_features_and_renormalises(world):
@@ -338,7 +341,8 @@ def test_baseline_cache_is_per_database(tmp_path):
         b.calls("s", b.normal_calls("s", 5))
         assert a.score("s").baseline_ok
         # Same harness, other database, no clear_cache: must not reuse a's.
-        assert b.score("s").status == drift.STATUS_BUILDING
+        rb = b.score("s")
+        assert not rb.baseline_ok and rb.baseline["sessions"] == 0
     finally:
         a.raw.close()
         b.raw.close()
@@ -538,3 +542,108 @@ def test_contribution_points_sum_to_the_score_for_full_and_partial():
         pts = drift.contribution_points(res)
         assert sum(p for _i, p in pts) == score
         assert pts[0][0] == (drift.F_HOSTS if not skip else drift.F_TOOLS)
+
+
+# --- score from the first session (owner decision 2026-10-14) ----------------
+
+
+def _pure_rows():
+    """Dict rows for `compute`: an unseen tool and a tool blocked four times."""
+    rows = [{"function_name": "Zap", "action": "allow", "args_preview": "{}", "called_at": _sql_ts(NOW)}] * 3
+    return rows + [{"function_name": "Bash", "action": "block", "called_at": _sql_ts(NOW)}] * 4
+
+
+def test_first_session_without_baseline_gets_a_score():
+    r = drift.compute(_pure_rows(), {}, 0, [], None, {}, progress={"sessions": 0, "calls": 0})
+    assert r.status == drift.STATUS_PARTIAL and r.score is not None and r.band == drift.band_for(r.score)
+    assert not r.baseline_ok and r.baseline["confidence"] == 0.0
+    feats = {f["id"]: f for f in r.features}
+    # Novelty keeps its full weight with value 0; new hosts is skipped only
+    # for lack of known hosts on this device.
+    assert not feats["tool_novelty"]["skipped"] and feats["tool_novelty"]["value"] == 0.0
+    assert feats["tool_novelty"]["weight"] == drift.WEIGHTS["tool_novelty"]
+    assert feats["tool_novelty"]["counts"]["settling"] is True
+    assert feats["new_hosts"]["skipped"]
+    assert not feats["errors_after_block"]["skipped"] and not feats["persistence"]["skipped"]
+    assert drift.payload(r)["baseline"]["confidence"] == 0.0
+
+
+def test_first_session_scores_self_contained_features():
+    r = drift.compute(_pure_rows(), {}, 0, [], None, {})
+    assert r.score and r.score > 0 and r.status == drift.STATUS_PARTIAL
+
+
+def _same_behaviour_rows():
+    t0 = NOW
+    rows = [{"function_name": "Bash", "action": "block", "called_at": _sql_ts(t0)}]
+    rows += [{"function_name": "Bash", "action": "allow", "reason": "tool error: x",
+              "called_at": _sql_ts(t0 + timedelta(seconds=10 + i))} for i in range(3)]
+    rows += [{"function_name": "Read", "action": "allow", "args_preview": '{"file_path": "/home/u/.aws/credentials"}',
+              "called_at": _sql_ts(t0 + timedelta(seconds=20))},
+             {"function_name": "Bash", "action": "allow", "args_preview": '{"command": "echo $VAULT_TOKEN"}',
+              "called_at": _sql_ts(t0 + timedelta(seconds=21))}]
+    return rows
+
+
+def test_same_behaviour_scores_the_same_with_or_without_history():
+    rows = _same_behaviour_rows()
+    egress = {"hosts": ["pypi.org"], "distinct_hosts": 1}
+    full = drift.Baseline(sessions=5, calls=200, tools=frozenset({"Bash", "Read"}), hosts=frozenset({"pypi.org"}))
+    first = drift.compute(rows, egress, 40, [], None, {})
+    settled = drift.compute(rows, egress, 40, [], full, {})
+    # errors 20 x 1.0 + credential reach 15 x 1.0 over all 100 weight.
+    assert first.score == settled.score == 35
+    assert first.score < drift.WATCH_FROM
+    assert settled.status == drift.STATUS_SCORED and first.status == drift.STATUS_PARTIAL
+
+
+def test_one_session_baseline_gives_confidence_point_two_and_scales_novelty():
+    base = drift.Baseline(sessions=1, calls=300, tools=frozenset(), hosts=frozenset())
+    assert drift.baseline_confidence(base) == 0.2
+    assert drift.baseline_confidence(None) == 0.0
+    r = drift.compute(_pure_rows(), {}, 0, [], base, {})
+    full = drift.compute(_pure_rows(), {}, 0, [], drift.Baseline(sessions=5, calls=300), {})
+    feats = {f["id"]: f for f in r.features}
+    full_feats = {f["id"]: f for f in full.features}
+    assert feats["tool_novelty"]["weight"] == drift.WEIGHTS["tool_novelty"]
+    assert feats["tool_novelty"]["value"] == pytest.approx(full_feats["tool_novelty"]["value"] * 0.2)
+    assert not feats["tool_novelty"]["skipped"] and feats["tool_novelty"]["counts"]["settling"] is True
+    assert full_feats["tool_novelty"]["counts"]["settling"] is False
+    assert r.status == drift.STATUS_PARTIAL and r.baseline["confidence"] == 0.2
+
+
+def test_confidence_reaches_one_at_five_sessions_and_200_calls():
+    assert drift.baseline_confidence(drift.Baseline(sessions=5, calls=200)) == 1.0
+    assert drift.baseline_confidence(drift.Baseline(sessions=9, calls=900)) == 1.0
+    assert drift.baseline_confidence(drift.Baseline(sessions=5, calls=100)) == 0.5
+    assert drift.baseline_confidence(drift.Baseline(sessions=4, calls=900)) == 0.8
+    base = drift.Baseline(sessions=5, calls=200, tools=frozenset(KNOWN_TOOLS), hosts=frozenset({"pypi.org"}))
+    r = drift.compute([], {"hosts": ["pypi.org"], "distinct_hosts": 1}, 40, [], base, {})
+    assert r.status == drift.STATUS_SCORED
+    assert {f["id"]: f["weight"] for f in r.features} == drift.WEIGHTS
+
+
+def test_meets_needs_one_session_with_calls():
+    assert drift._meets(1, 1) and not drift._meets(0, 0) and not drift._meets(1, 0)
+
+
+def test_result_from_row_uses_stored_weight():
+    feats = '[{"id":"tool_novelty","value":0.5,"weight":5,"skipped":false,"counts":{}}]'
+    row = {"score": 10, "band": "calm", "status": "partial", "computed_at": "x",
+           "features_json": feats, "baseline_sessions": 2, "baseline_calls": 400}
+    back = drift.result_from_row(row)
+    assert back.features[0]["weight"] == 5.0 and back.baseline_ok
+    assert not drift.result_from_row(dict(row, baseline_sessions=0)).baseline_ok
+    # Older rows without a weight fall back to the fixed weight.
+    legacy = dict(row, features_json='[{"id":"tool_novelty","value":0.5,"skipped":false,"counts":{}}]')
+    assert drift.result_from_row(legacy).features[0]["weight"] == drift.WEIGHTS["tool_novelty"]
+    # Building rows from older builds still load.
+    old = drift.result_from_row({"score": None, "status": drift.STATUS_BUILDING, "features_json": "[]"})
+    assert old.status == drift.STATUS_BUILDING and old.score is None
+
+
+def test_first_session_in_store_gets_a_scored_row(world):
+    world.task("s-first", ended=False)
+    world.calls("s-first", drifting_rows())
+    r = world.score("s-first")
+    assert r.score is not None and r.status == drift.STATUS_PARTIAL and not r.baseline_ok

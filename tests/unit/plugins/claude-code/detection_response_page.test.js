@@ -52,10 +52,10 @@ test('tiles are four plain-word numbers with neutral counts', () => {
 test('empty and partial states', () => {
   const P = loadPage();
   const building = P._detectTile({ to_review: 0, baseline: { state: 'building', ended_sessions: 0, needed: 5 } });
-  assert.match(building, /Learning what is normal/);
-  assert.match(building, /0 of 5 sessions/);
+  assert.match(building, /A score appears after the first tool calls/);
+  assert.doesNotMatch(building, /of 5 sessions|baseline/i);
   assert.match(building, /data-dr-launch>Launch a session</);
-  assert.match(P._detectTile({ to_review: 2, baseline: { state: 'partial' } }), />2<[\s\S]*partial baseline/);
+  assert.match(P._detectTile({ to_review: 2, baseline: { state: 'partial' } }), />2<[\s\S]*comparison still settling/);
   assert.match(P._preflightTile({ checked: 0, registered: false }), /MCP tools not registered/);
   const empty = P._listHtml({ sessions: [], detect: { last_scored_at: new Date(Date.now() - 4 * 60000).toISOString() } });
   assert.match(empty, /No sessions need review\.[\s\S]*Last scored 4 min ago\./);
@@ -296,7 +296,7 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=16/);
+  assert.match(read('index.html'), /detection-response\.js\?v=17/);
   assert.match(read('index.html'), /styles\.css\?v=494/);
 });
 
@@ -337,10 +337,10 @@ test('spotlight: headline, subline, band chip, folder name only, points and sent
   const html = P._spotlightHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high' }] });
   assert.match(html, /Claude Code in billing-api stopped behaving like itself\./);
   assert.match(html, /Scored at \d\d:\d\d\. Compared with/);
-  assert.match(html, /Compared with its own last 3 sessions in this folder\. No rule had to fire\./);
+  assert.match(html, /Compared with 3 earlier sessions\. No rule had to fire\./);
   assert.match(html, /dr-spot-score is-high">82</);
   assert.match(html, /High \u00b7 70 and above/);
-  assert.match(html, /Baseline for this folder over 3 sessions: 11\./);
+  assert.match(html, /Typical score for this folder over 3 sessions: 11\./);
   assert.match(html, /Same agent tool\. Same folder\. Same permissions\./);
   assert.match(html, />\+20<[\s\S]*Used 4 tools it had never used here before\./);
   assert.match(html, /Novelty \u00b7 9 of 31 calls/);
@@ -372,7 +372,8 @@ test('spotlight: empty state and list excludes the spotlight session', () => {
   const P = loadPage();
   const empty = P._spotlightHtml({ spotlight: null, sessions: [] });
   assert.match(empty, /No scored sessions yet\./);
-  assert.match(empty, /Scores start after 5 sessions in a folder\./);
+  assert.match(empty, /A score appears after the first tool calls\./);
+  assert.doesNotMatch(empty, /5 sessions/);
   assert.doesNotMatch(empty, /dr-spot-card/);
   // Sessions to review exist (config changes) but none is watch or high: still the empty headline.
   // One count: the server's sessions to review (config-changed sessions included); config changes are a breakdown.
@@ -439,7 +440,7 @@ test('calm spotlight subline skips "No rule had to fire"; chart and subline shar
   const P = loadPage();
   const calm = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 20, had_blocks: false }), detect: {}, harden: {} });
   assert.doesNotMatch(calm, /No rule had to fire/);
-  assert.match(calm, /Compared with its own last 3 sessions in this folder\./);
+  assert.match(calm, /Compared with 3 earlier sessions\./);
   assert.match(calm, /3 sessions of normal/);
   assert.match(P._spotlightHtml({ spotlight: SPOT }), /No rule had to fire\./);
 });
@@ -471,7 +472,7 @@ test('Getting started: all incomplete is the full list with two Not yet marks an
   assert.equal((html.match(/>Not yet</g) || []).length, 2);
   assert.match(html, /Connect the Guard for your agent tool[\s\S]*data-dr-start-connect>Connect Agents</);
   assert.match(html, /Launch a session from this app[\s\S]*data-dr-start-launch>Launch</);
-  assert.match(html, /Then it fills in on its own: launching from here registers the policy check tools, you are asked once to approve the agent&#39;s config, scores start after 5 sessions in a folder, and automatic actions stay in test mode until you turn them on\./);
+  assert.match(html, /Then it fills in on its own: launching from here registers the policy check tools, you are asked once to approve the agent&#39;s config, a score appears after the first tool calls and settles as more sessions finish, and automatic actions stay in test mode until you turn them on\./);
   assert.doesNotMatch(html, /dr-start-progress/);
   assert.doesNotMatch(html, /—|\bADR\b|firewall|Mission Control/);
 });
@@ -480,7 +481,7 @@ test('Getting started: partial shows the baseline line once a session exists and
   const P = loadPage();
   const html = P._startHtml({ setup: { guard_installed: true, governed_session: true, scored: false, baseline: { sessions: 3, needed: 5, folder: 'webapp', harness_label: 'Claude Code' } } });
   assert.match(html, /2 of 2 done/);
-  assert.match(html, /<p class="dr-muted dr-start-progress">3 of 5 sessions in webapp with Claude Code<\/p>/);
+  assert.match(html, /<p class="dr-muted dr-start-progress">3 sessions finished in webapp with Claude Code<\/p>/);
   const one = P._startHtml({ setup: { guard_installed: true, governed_session: false, scored: false, baseline: { sessions: 1, needed: 5, folder: 'w' } } });
   assert.match(one, /1 of 2 done/);
   assert.equal((one.match(/class="dr-start-row is-done"/g) || []).length, 1);
@@ -496,4 +497,16 @@ test('Getting started: scored collapses to one line while a step is open, and hi
   assert.equal(P._startHtml({}), '');
   const src = read('js/pages/detection-response.js');
   assert.ok(src.indexOf('<div data-dr-start></div>') < src.indexOf('<div data-dr-spot></div>'), 'above the spotlight');
+});
+
+
+test('spotlight compare line: first session, still settling, settled', () => {
+  const P = loadPage();
+  assert.equal(P._compareText(0, 0), 'First session here, nothing to compare with yet');
+  assert.equal(P._compareText(1, 0.2), 'Compared with 1 earlier session, comparison still settling');
+  assert.equal(P._compareText(6, 1), 'Compared with 6 earlier sessions');
+  const first = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { recent_scores: [{ score: 30, current: true }], baseline: { sessions: 0, median: null, confidence: 0 } }) });
+  assert.match(first, /First session here, nothing to compare with yet\./);
+  const settling = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { baseline: { sessions: 3, median: 11, confidence: 0.6 } }) });
+  assert.match(settling, /Compared with 3 earlier sessions, comparison still settling\./);
 });

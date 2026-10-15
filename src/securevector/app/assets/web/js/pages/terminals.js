@@ -3407,6 +3407,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 .map(f => ({ id: String(f.id || ''), label: String(f.label || ''), detail: String(f.detail || ''), counts: f.counts && typeof f.counts === 'object' ? f.counts : {} })).filter(f => f.label),
             sessions: (dr.baseline && dr.baseline.sessions) || 0,
             needed: (dr.baseline && dr.baseline.needed_sessions) || 5,
+            confidence: dr.baseline && Number.isFinite(Number(dr.baseline.confidence)) ? Number(dr.baseline.confidence) : null,
             feedback: dr.feedback === 'normal' ? 'normal' : null,
             // "Looks normal" is offered only once the session has ended.
             ended: dr.ended === true || (dr.ended === undefined && !!task.ended_at),
@@ -3534,7 +3535,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         out.push(row('Tool calls', this._esc(total ? `${total} calls \u00b7 ${c.allowed} allowed \u00b7 ${c.blocked} blocked${other ? ` \u00b7 ${other} other` : ''}` : 'none yet')));
         if (s.drift) {
             if (s.drift.score === null || s.drift.status === 'building_baseline') {
-                out.push(row('Unusual activity', this._esc(`learning (${Math.min(s.drift.sessions, s.drift.needed)} of ${s.drift.needed})`)));
+                out.push(row('Unusual activity', this._esc('no score yet, a score appears after the first tool calls')));
             } else {
                 const band = s.drift.band || 'calm';
                 out.push(row('Unusual activity', `<span title="Drift Score ${this._esc(s.drift.score)} of 100. Compared with this agent's own recent sessions in this folder."><span class="terminals-drift-band is-${band}">${this._band(band)}</span> (${this._esc(s.drift.score)} of 100)</span>`));
@@ -3595,11 +3596,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  colour; "Looks normal" is the one action, and it changes no verdict. */
     _driftHtml(d) {
         if (d.score === null || d.status === 'building_baseline') {
-            return `learning what is normal, ${this._esc(Math.min(d.sessions, d.needed))} of ${this._esc(d.needed)} sessions`;
+            return 'no score yet, a score appears after the first tool calls';
         }
         const band = d.band || 'calm';
         const top = d.top.map(f => `${this._esc(f.label)}${f.detail ? ` (${this._esc(f.detail)})` : ''}`).join(', ');
-        const partial = d.status === 'partial' ? ' <span class="terminals-summary-more">(partial baseline)</span>' : '';
+        const n = Number(d.sessions) || 0;
+        const settling = n > 0 && d.confidence !== null && d.confidence !== undefined && d.confidence < 1;
+        const cmp = (n > 0 ? `Compared with ${n} earlier session${n === 1 ? '' : 's'}` : 'First session here, nothing to compare with yet')
+            + (settling ? ', comparison still settling' : '');
+        const partial = ` <span class="terminals-summary-more">(${this._esc(cmp)})</span>`;
         const action = d.feedback === 'normal'
             ? ' <span class="terminals-summary-more" data-drift-marked>Marked normal</span>'
             : d.ended

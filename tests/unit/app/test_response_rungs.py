@@ -1148,3 +1148,31 @@ def test_board_items_carry_rung_reasons_and_would_ask(world):
     asyncio.run(routes._with_rung(_Mgr(), items))
     assert items[0]["rung_reasons"] == ["drift"]
     assert items[0]["rung_would_ask"] == 1
+
+
+def test_one_session_baseline_leaves_the_step_up_deny_list_as_with_none(world, monkeypatch):
+    from securevector.app.server.routes import egress as egress_routes
+    from securevector.app.server.routes import jit_access as jit_routes
+    from securevector.app.server.routes import tool_permissions as tp
+
+    for mod in (tp, egress_routes, jit_routes):
+        monkeypatch.setattr(mod, "get_database", lambda: world.db)
+    _at_rung(world, "s-one", "active")
+    rung = lambda: sorted(r["tool_id"] for r in _rows(world, "s-one") if r.get("source") == "rung")  # noqa: E731
+    without = rung()
+    assert without
+    world.baseline(count=1)
+    drift.clear_cache()
+    view = asyncio.run(rr._rung_view(world.db, "s-one"))
+    assert view["baseline"] is None  # a one-session comparison is not trusted yet
+    assert rung() == without
+    # At the full count the comparison takes part again.
+    world.baseline(count=6)
+    drift.clear_cache()
+    assert asyncio.run(rr._rung_view(world.db, "s-one"))["baseline"] is not None
+
+
+def test_config_signature_carries_the_scoring_version(monkeypatch):
+    before = rr.config_signature()
+    monkeypatch.setattr(drift, "SCORING_VERSION", drift.SCORING_VERSION + 1)
+    assert rr.config_signature() != before
