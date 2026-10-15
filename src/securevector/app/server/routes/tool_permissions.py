@@ -10,7 +10,7 @@ DELETE /api/tool-permissions/overrides/:tool_id - Delete an override
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -26,6 +26,7 @@ from securevector.core.tool_permissions.engine import (
     get_risk_score,
 )
 
+from securevector.app.services import decisions
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -981,8 +982,11 @@ async def get_synced_overrides(runtime: Optional[str] = None,
 
 
 @router.put("/tool-permissions/overrides/{tool_id}")
-async def upsert_override(tool_id: str, request: OverrideRequest):
+async def upsert_override(tool_id: str, request: OverrideRequest, http_request: Request = None,
+                          x_sv_ui_token: Optional[str] = Header(None)):
     """Set or update an override for an essential tool."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         # Validate tool_id exists either in the YAML registry OR in the
         # built-ins list for one of the supported runtimes — the Tool
@@ -1024,8 +1028,11 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
 
 
 @router.delete("/tool-permissions/overrides/{tool_id}")
-async def delete_override(tool_id: str):
+async def delete_override(tool_id: str, http_request: Request = None,
+                          x_sv_ui_token: Optional[str] = Header(None)):
     """Delete an override, reverting to registry default."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = ToolPermissionsRepository(db)
@@ -1094,8 +1101,11 @@ async def list_custom_tools():
 
 
 @router.post("/tool-permissions/custom")
-async def create_custom_tool(request: CreateCustomToolRequest):
+async def create_custom_tool(request: CreateCustomToolRequest, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)):
     """Create a new custom tool."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1136,9 +1146,12 @@ async def create_custom_tool(request: CreateCustomToolRequest):
 
 @router.put("/tool-permissions/custom/{tool_id}")
 async def update_custom_tool_permission(
-    tool_id: str, request: UpdateCustomToolPermissionRequest
+    tool_id: str, request: UpdateCustomToolPermissionRequest, http_request: Request = None,
+    x_sv_ui_token: Optional[str] = Header(None),
 ):
     """Update a custom tool's permission (block/allow)."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1164,12 +1177,15 @@ async def update_custom_tool_permission(
 
 
 @router.patch("/tool-permissions/custom/{tool_id}")
-async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest):
+async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)):
     """Update a custom tool's name / description / risk.
 
     PATCH rather than PUT because the body is a partial update; PUT on this
     path already means "set the permission" and must keep that meaning.
     """
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1198,8 +1214,11 @@ async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest):
 
 
 @router.delete("/tool-permissions/custom/{tool_id}")
-async def delete_custom_tool(tool_id: str):
+async def delete_custom_tool(tool_id: str, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)):
     """Delete a custom tool."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1672,8 +1691,11 @@ class AuditDeleteRequest(BaseModel):
 
 
 @router.delete("/tool-permissions/call-audit")
-async def delete_call_audit_entries(body: AuditDeleteRequest):
+async def delete_call_audit_entries(body: AuditDeleteRequest, http_request: Request = None,
+                                    x_sv_ui_token: Optional[str] = Header(None)):
     """Delete tool call audit entries by ID."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)

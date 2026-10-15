@@ -164,6 +164,9 @@ async def get_ui_token(request: Request):
     """Per-run token the web UI attaches to decision calls."""
     if not _browser_same_origin(request) or not _ui_page_cookie_ok(request):
         raise HTTPException(status_code=403, detail="The UI token is for the local web UI only")
+    # The page asking is not a governed task: same check the decisions run.
+    from securevector.app.services import decisions
+    await decisions.refuse_governed_caller(request)
     return {"token": _UI_TOKEN}
 
 
@@ -261,6 +264,8 @@ async def list_requests(
         # Opportunistic housekeeping: stale pending requests expire on read so
         # the queue the human sees never contains day-old asks.
         await repo.expire_stale_requests()
+        from securevector.app.services import response_rungs
+        await response_rungs.expire_holds(db)
         items = await repo.list_requests(status=status)
         return {"items": items, "pending": await repo.pending_count()}
     except Exception as e:
@@ -276,9 +281,14 @@ async def approve_request(
     x_sv_ui_token: Optional[str] = Header(None),
 ):
     _require_ui_token(x_sv_ui_token)
+    from securevector.app.services import decisions
+    await decisions.refuse_governed_caller(request)
     try:
         db = get_database()
         repo = JitAccessRepository(db)
+        # A hold past its limit is already a deny; a late approval cannot open it.
+        from securevector.app.services import response_rungs
+        await response_rungs.expire_holds(db)
         # A delegation request launches its task on approval; no grant.
         pending = await repo.get_request(request_id)
         if pending and pending.get("rule_source") == "delegate":
@@ -289,11 +299,13 @@ async def approve_request(
                 raise HTTPException(status_code=404, detail="No such pending request")
             return {"delegation": out}
         try:
-            grant = await repo.approve_request(request_id, body.duration)
+            grant, changed = await repo.approve_request(request_id, body.duration, with_change=True)
         except ValueError as ve:
             raise HTTPException(status_code=422, detail=str(ve))
         if grant is None:
             raise HTTPException(status_code=404, detail="No such pending request")
+        if changed:
+            await decisions.audit_request(db, "allow", pending)
         logger.info(
             "JIT grant %s: %s for %s (%s)",
             grant["id"], grant["tool_id"], grant["duration"], request_id,
@@ -314,6 +326,8 @@ async def deny_request(
     x_sv_ui_token: Optional[str] = Header(None),
 ):
     _require_ui_token(x_sv_ui_token)
+    from securevector.app.services import decisions
+    await decisions.refuse_governed_caller(request)
     try:
         db = get_database()
         pending = await JitAccessRepository(db).get_request(request_id)
@@ -327,6 +341,7 @@ async def deny_request(
         ok = await JitAccessRepository(db).deny_request(request_id, body.reason)
         if not ok:
             raise HTTPException(status_code=404, detail="No such pending request")
+        await decisions.audit_request(db, "deny", pending, reason=body.reason)
         return {"denied": True}
     except HTTPException:
         raise

@@ -478,6 +478,17 @@ async def _harness_event(db, harness: str, detail: str) -> None:
 RUNG_SOURCE = "rung"
 REQUESTS_PER_HOUR = 20
 
+# A step-up hold nobody decides is resolved as denied after this long. The
+# Guard already denied the call when the hold began (it never waits on the
+# request), so the deny stands for the agent; this closes the request, so a
+# late approval cannot open it, and the next attempt files a fresh one.
+HOLD_LIMIT_S = 300
+
+
+def hold_limit_reason(limit_s: int = HOLD_LIMIT_S) -> str:
+    minutes = max(1, int(limit_s) // 60)
+    return f"No decision within {minutes} minute{'s' if minutes != 1 else ''}"
+
 KIND_SHELL = "shell"
 KIND_NEW_TOOL = "new_tool"
 KIND_PATH = "sensitive_path"
@@ -772,6 +783,7 @@ async def file_request(db, tool_id: str, function_name: Optional[str], runtime_k
 
     if _ineligible(tool_id) or not session_id:
         return None
+    await expire_holds(db, session_id=session_id)
     repo = ResponseRungsRepository(db)
     jit = JitAccessRepository(db)
     dup = await db.fetch_one(
@@ -786,6 +798,43 @@ async def file_request(db, tool_id: str, function_name: Optional[str], runtime_k
     return await jit.create_request(tool_id=tool_id, rule_source=RUNG_SOURCE, function_name=function_name,
                                     runtime_kind=runtime_kind, session_id=session_id,
                                     justification="Session at step-up")
+
+
+async def expire_holds(db, now: Optional[datetime] = None, limit_s: int = HOLD_LIMIT_S,
+                       session_id: Optional[str] = None) -> int:
+    """Resolve rung requests pending longer than the hold limit as denied,
+    with one audit row each. The `status = 'pending'` predicate makes the
+    update race-safe against an approval landing at the same moment."""
+    from securevector.app.services import decisions
+
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(seconds=int(limit_s))).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    sql = ("SELECT * FROM jit_access_requests WHERE rule_source = 'rung' AND status = 'pending' "
+           "AND requested_at <= ?")
+    args: tuple = (cutoff,)
+    if session_id:
+        sql += " AND session_id = ?"
+        args += (session_id,)
+    try:
+        rows = await db.fetch_all(sql + " LIMIT 200", args)
+    except Exception:  # noqa: BLE001 - no request table, nothing held
+        return 0
+    reason = hold_limit_reason(limit_s)
+    done = 0
+    for r in rows or []:
+        req = dict(r)
+        cur = await db.execute(
+            "UPDATE jit_access_requests SET status = 'denied', decided_at = CURRENT_TIMESTAMP, "
+            "decided_by = 'timeout', deny_reason = ? WHERE id = ? AND status = 'pending'",
+            (reason, req["id"]),
+        )
+        if getattr(cur, "rowcount", 0) == 0:
+            continue
+        done += 1
+        await decisions.audit_request(db, "timeout_deny", req, by=decisions.BY_TIMEOUT, reason=reason)
+        task_id = await decisions._task_id(db, req.get("session_id"))
+        await _task_event(db, task_id, "rung", f"denied: {reason.lower()}", origin="rung")
+    return done
 
 
 async def holds_tool(db, session_id: Optional[str], tool_id: str) -> bool:

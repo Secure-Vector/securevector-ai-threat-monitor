@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -50,6 +51,35 @@ logger = logging.getLogger(__name__)
 # shell-style 128+N from a harness that traps it, or -N from the PTY host when
 # the signal killed it. SIGHUP covers the PTY closing, SIGKILL the host's
 # escalation after its grace period.
+# How far a harness's start may sit from its task row's created_at for the
+# startup reaper to treat the pid as that task's (spawn and the row write
+# happen moments apart).
+_REAP_START_WINDOW_S = 120
+
+
+def _process_start(pid: int) -> Optional[float]:
+    """Epoch seconds a process started, from ps, or None."""
+    try:
+        text = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True,
+                              text=True, timeout=2, env={**os.environ, "LC_ALL": "C"}).stdout.strip()
+        return time.mktime(time.strptime(" ".join(text.split()), "%a %b %d %H:%M:%S %Y"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _started_near(pid: int, created_at: Optional[str]) -> bool:
+    if not created_at:
+        return False
+    try:
+        created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    started = _process_start(pid)
+    return started is not None and abs(started - created.timestamp()) <= _REAP_START_WINDOW_S
+
+
 def _stop_signal_exits(sig_module=signal) -> frozenset:
     # getattr: Windows has no SIGHUP or SIGKILL, and importing must not fail there.
     sigs = (getattr(sig_module, n, None) for n in ("SIGHUP", "SIGINT", "SIGKILL", "SIGTERM"))
@@ -394,8 +424,18 @@ class TerminalManager:
             return
         if os.path.basename(comm) != executor.binary:
             return
+        # A process that did not start when the task did is a later process
+        # on a reused pid: leave it alone.
+        if not _started_near(pid, task.get("created_at")):
+            logger.info("Startup reaper left pid %s alone: it is not task %s", pid, task.get("id"))
+            return
         try:
-            os.kill(pid, signal.SIGTERM)
+            # The harness was spawned as its own group leader: signal the
+            # group so its children go too, unless it is this app's own group.
+            if os.getpgid(pid) == pid and pid != os.getpgrp():
+                os.killpg(pid, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
             logger.info("Reaped orphaned task %s (pid %s)", task["id"], pid)
         except OSError:
             pass

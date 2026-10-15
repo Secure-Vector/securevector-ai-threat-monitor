@@ -40,7 +40,9 @@ def _client(tmp_path, monkeypatch):
     app = FastAPI()
     app.include_router(rules_routes.router, prefix="/api/v1")
     monkeypatch.setattr(rules_routes, "get_database", lambda: db)
-    return TestClient(app)
+    from securevector.app.server.routes import jit_access
+
+    return TestClient(app, headers={"X-SV-UI-Token": jit_access._UI_TOKEN})
 
 
 def test_set_override_returns_the_effective_rule(tmp_path, monkeypatch):
@@ -87,3 +89,11 @@ def test_reset_without_an_override_is_404(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:
         resp = client.delete(f"/api/v1/rules/{RULE_ID}/override")
         assert resp.status_code == 404
+
+
+def test_override_without_the_ui_token_is_refused(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as client:
+        client.headers.pop("X-SV-UI-Token")
+        assert client.put(f"/api/v1/rules/{RULE_ID}/override", json={"severity": "low"}).status_code == 403
+        assert client.delete(f"/api/v1/rules/{RULE_ID}/override").status_code == 403
+        assert client.post(f"/api/v1/rules/{RULE_ID}/toggle", json={"enabled": False}).status_code == 403

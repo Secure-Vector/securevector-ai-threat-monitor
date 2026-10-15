@@ -10,7 +10,9 @@ POST /api/llm/review - Review analysis result with LLM
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header, Request
+
+from securevector.app.services import decisions
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -113,8 +115,10 @@ async def get_llm_settings() -> LLMSettingsResponse:
 
 
 @router.put("/settings/llm", response_model=LLMSettingsResponse)
-async def update_llm_settings(request: LLMSettingsUpdate) -> LLMSettingsResponse:
+async def update_llm_settings(request: LLMSettingsUpdate, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> LLMSettingsResponse:
     """Update LLM settings."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = SettingsRepository(db)
