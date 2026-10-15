@@ -12,12 +12,20 @@ The score is written to `session_drift` and shown; the response rungs that
 may one day read the band live elsewhere and are not part of this module.
 
 **Baseline.** The last 30 days of ended sessions with the same harness and
-the same folder, at least 5 sessions and 200 tool calls. While a folder has
-no baseline yet, the harness on its own (every folder) stands in for it. A
-session never counts toward its own baseline. Sessions marked "looks normal"
-join the baseline. Host features (enumeration, new hosts) also need the
-device host set `egress_scope` uses, and are skipped, not zeroed, until it
-has one.
+the same folder; while the folder has none, the harness on its own (every
+folder) stands in for it. A session never counts toward its own baseline.
+Sessions marked "looks normal" join the baseline. Every session gets a score
+from the first one: four features need no earlier sessions (errors after a
+block, enumeration, credential locations, persistence). The two comparison
+features (tool novelty, new hosts) always keep their full weight, so the
+same behaviour gives the same number whatever the history; their value is
+scaled by `baseline_confidence` (0 with nothing to compare with), which
+reaches 1.0 at 5 sessions and 200 tool calls. Credential locations stay
+self-contained on purpose: a credential read counts from the first session,
+and a location clears as routine once ROUTINE_LOCATION_SESSIONS earlier
+sessions reached it.
+Host features (enumeration, new hosts) also need the device host set
+`egress_scope` uses, and are skipped, not zeroed, until it has one.
 
 **Score.** Each feature yields a value in [0, 1]; the score is the weighted
 sum over the features that have a baseline, renormalised to the weights
@@ -62,6 +70,9 @@ STATUS_SCORED = "scored"
 STATUS_PARTIAL = "partial"
 STATUS_BUILDING = "building_baseline"
 STATUS_NO_SESSION = "no_session"
+# Bumped when the scoring rule changes; part of the response rungs' config
+# signature so shadow mode restarts. 2: score from the first session.
+SCORING_VERSION = 2
 
 FEEDBACK_NORMAL = "normal"
 
@@ -285,7 +296,18 @@ class Baseline:
 
 
 def _meets(sessions: int, calls: int) -> bool:
-    return sessions >= MIN_BASELINE_SESSIONS and calls >= MIN_BASELINE_CALLS
+    """Any earlier session with a tool call is enough to compare with; the
+    comparison is fully trusted only at the MIN_BASELINE_* counts."""
+    return sessions >= 1 and calls >= 1
+
+
+def baseline_confidence(baseline: Optional[Baseline]) -> float:
+    """0.0 to 1.0: how far the comparison features can be trusted. Reaches
+    1.0 at MIN_BASELINE_SESSIONS sessions and MIN_BASELINE_CALLS calls."""
+    if baseline is None:
+        return 0.0
+    return max(0.0, min(1.0, baseline.sessions / MIN_BASELINE_SESSIONS,
+                        baseline.calls / MIN_BASELINE_CALLS))
 
 
 def _view(per_session: Mapping[str, Mapping[str, Any]], ids: list, scope: str) -> Baseline:
@@ -439,10 +461,14 @@ def compute(calls: list, egress: Mapping[str, Any], known_host_count: int, jit: 
             progress: Optional[Mapping[str, int]] = None,
             now: Optional[datetime] = None, preflight_repeats: int = 0) -> DriftResult:
     """Score one session from its rows. Pure: no I/O, no clock unless `now`
-    is omitted. Returns `building_baseline` with no number below the
-    minimums, `partial` when a feature had to be skipped."""
+    is omitted. Every session gets a score: the comparison features keep
+    their full weight and their value scales with `baseline_confidence`
+    (0 with no baseline), so the same behaviour scores the same with or
+    without history. `partial` while any feature is skipped or confidence
+    is below 1.0, `scored` otherwise."""
     computed_at = _now_iso(now)
     prog = dict(progress or {})
+    confidence = baseline_confidence(baseline)
     base_info = {
         "sessions": baseline.sessions if baseline else int(prog.get("sessions", 0)),
         "calls": baseline.calls if baseline else int(prog.get("calls", 0)),
@@ -451,23 +477,34 @@ def compute(calls: list, egress: Mapping[str, Any], known_host_count: int, jit: 
         "scope": baseline.scope if baseline else None,
         "needed_sessions": MIN_BASELINE_SESSIONS,
         "needed_calls": MIN_BASELINE_CALLS,
+        "confidence": round(confidence, 2),
     }
-    if baseline is None:
-        return DriftResult(None, None, STATUS_BUILDING, [], False, computed_at, base_info)
     rows = _governed(calls)
+    if baseline is not None:
+        novelty = feature_tool_novelty(rows, baseline)
+        hosts = feature_new_hosts(egress, baseline, known_host_count)
+    else:
+        novelty = _feature(F_TOOLS, 0, {"unseen_calls": 0, "calls": len(rows), "unseen_tools": 0})
+        hosts = feature_new_hosts(egress, Baseline(), known_host_count)
+    # Full weight always (same behaviour, same number); the value scales
+    # with how far the comparison can be trusted.
+    for f in (novelty, hosts):
+        f["counts"]["settling"] = confidence < 1.0
+        f["value"] = 0.0 if f["skipped"] else f["value"] * confidence
     feats = [
-        feature_tool_novelty(rows, baseline),
+        novelty,
         feature_errors_after_block(rows),
         feature_enumeration(rows, egress, known_host_count),
         feature_secrets_reach(locations_in(rows), routine_locations),
-        feature_new_hosts(egress, baseline, known_host_count),
+        hosts,
         feature_persistence(rows, jit, preflight_repeats),
     ]
     live = [f for f in feats if not f["skipped"]]
     total = sum(f["weight"] for f in live)
     score = int(round(100 * sum(f["weight"] * f["value"] for f in live) / total)) if total else 0
-    status = STATUS_PARTIAL if len(live) < len(feats) else STATUS_SCORED
-    return DriftResult(score, band_for(score), status, feats, True, computed_at, base_info)
+    status = STATUS_PARTIAL if len(live) < len(feats) or confidence < 1.0 else STATUS_SCORED
+    return DriftResult(score, band_for(score), status, feats, baseline is not None and baseline.sessions > 0,
+                       computed_at, base_info)
 
 
 # --- loading, caching and storing ---------------------------------------------------------
@@ -529,19 +566,15 @@ async def score_for(session_id: str, *, db=None, task: Optional[Mapping[str, Any
     workspace = task.get("workspace")
     per_session = await _harness_sessions(repo, harness)
     baseline, progress = choose_baseline(per_session, session_id=session_id, workspace=workspace)
-    egress: dict = {}
-    known = 0
-    jit: list = []
     routine: dict = {}
-    preflight = 0
-    if baseline is not None:
-        egress = await repo.session_egress(session_id)
-        known = await repo.known_host_count()
-        jit = await repo.session_jit(session_id)
-        preflight = await _preflight_repeats(db, session_id, task.get("id"))
-        locs = locations_in(_governed(calls))
-        if locs:
-            routine = await repo.location_sessions(locs, list(baseline.session_ids), location_probe, location_matches)
+    egress = await repo.session_egress(session_id)
+    known = await repo.known_host_count()
+    jit = await repo.session_jit(session_id)
+    preflight = await _preflight_repeats(db, session_id, task.get("id"))
+    locs = locations_in(_governed(calls))
+    if locs:
+        base_ids = list(baseline.session_ids) if baseline is not None else []
+        routine = await repo.location_sessions(locs, base_ids, location_probe, location_matches)
     result = compute(calls, egress, known, jit, baseline, routine, progress=progress,
                      preflight_repeats=preflight)
     if store:
@@ -564,6 +597,7 @@ def payload(result: DriftResult, feedback: Optional[str] = None) -> dict:
             "since": b.get("since"),
             "scope": b.get("scope"),
             "needed_sessions": b.get("needed_sessions", MIN_BASELINE_SESSIONS),
+            "confidence": b.get("confidence", 0.0),
         },
         "computed_at": result.computed_at,
         "feedback": feedback,
@@ -590,13 +624,18 @@ def result_from_row(row: Mapping[str, Any]) -> DriftResult:
     for f in feats if isinstance(feats, list) else []:
         fid = f.get("id") if isinstance(f, dict) else None
         if fid in LABELS:
-            out.append({"id": fid, "label": LABELS[fid], "weight": WEIGHTS[fid],
+            weight = f.get("weight")
+            try:
+                weight = float(weight) if weight is not None else WEIGHTS[fid]
+            except (TypeError, ValueError):
+                weight = WEIGHTS[fid]
+            out.append({"id": fid, "label": LABELS[fid], "weight": weight,
                         "value": float(f.get("value") or 0), "skipped": bool(f.get("skipped")),
                         "counts": f.get("counts") or {}})
     score = row.get("score")
     return DriftResult(
         int(score) if score is not None else None, row.get("band"), row.get("status") or STATUS_BUILDING,
-        out, score is not None, row.get("computed_at") or "",
+        out, int(row.get("baseline_sessions") or 0) > 0, row.get("computed_at") or "",
         {"sessions": int(row.get("baseline_sessions") or 0), "calls": int(row.get("baseline_calls") or 0)},
     )
 

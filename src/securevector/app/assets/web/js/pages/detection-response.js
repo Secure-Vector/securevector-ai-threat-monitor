@@ -63,16 +63,14 @@ const DetectionResponsePage = {
     _detectTile(d) {
         d = d || {};
         const b = d.baseline || {};
-        const needed = b.needed || 5;
         const n = d.to_review || 0;
         if (b.state === 'building' && !n) {
-            const have = Math.min(b.ended_sessions || 0, needed);
             return this._tile('Unusual sessions', this._esc(this._num(n)),
-                `Learning what is normal: ${this._esc(have)} of ${this._esc(needed)} sessions`,
+                'A score appears after the first tool calls',
                 '<a href="/terminals" class="dr-link" data-dr-launch>Launch a session</a>');
         }
         const sub = b.state === 'partial'
-            ? 'partial baseline'
+            ? 'comparison still settling'
             : `in the last ${this._esc((this._data && this._data.window_days) || 7)} days`;
         const normal = d.marked_normal ? ` · ${this._esc(d.marked_normal)} marked normal` : '';
         return this._tile('Unusual sessions', this._esc(this._num(n)), sub + normal);
@@ -211,7 +209,7 @@ const DetectionResponsePage = {
 
     // --- getting started -----------------------------------------------------
 
-    START_NOTE: 'Then it fills in on its own: launching from here registers the policy check tools, you are asked once to approve the agent\'s config, scores start after 5 sessions in a folder, and automatic actions stay in test mode until you turn them on.',
+    START_NOTE: 'Then it fills in on its own: launching from here registers the policy check tools, you are asked once to approve the agent\'s config, a score appears after the first tool calls and settles as more sessions finish, and automatic actions stay in test mode until you turn them on.',
 
     /** Two first steps with done marks, then one plain paragraph. Full list
      *  until a session is scored (it is the empty state); after that one
@@ -237,7 +235,7 @@ const DetectionResponsePage = {
               ${x.link}</li>`).join('');
         const b = st.baseline;
         const progress = st.governed_session && !st.scored && b && b.folder
-            ? `<p class="dr-muted dr-start-progress">${this._esc(`${b.sessions} of ${b.needed} sessions in ${b.folder}${b.harness_label ? ` with ${b.harness_label}` : ''}`)}</p>` : '';
+            ? `<p class="dr-muted dr-start-progress">${this._esc(`${b.sessions} session${b.sessions === 1 ? '' : 's'} finished in ${b.folder}${b.harness_label ? ` with ${b.harness_label}` : ''}`)}</p>` : '';
         return `<section class="dr-card dr-start" aria-labelledby="dr-start-h">
             <div class="dr-card-head"><h3 id="dr-start-h">Getting started</h3><span class="dr-muted">${this._esc(`${done} of ${steps.length} done`)}</span></div>
             <ol class="dr-start-list">${rows}</ol>
@@ -262,6 +260,15 @@ const DetectionResponsePage = {
         };
     },
 
+    /** "Compared with N earlier sessions" or the first-session line, plus
+     *  "comparison still settling" while the comparison is not fully trusted. */
+    _compareText(sessions, confidence) {
+        const n = Number(sessions) || 0;
+        const base = n > 0 ? `Compared with ${n} earlier session${n === 1 ? '' : 's'}` : 'First session here, nothing to compare with yet';
+        const c = Number(confidence);
+        return n > 0 && Number.isFinite(c) && c < 1 ? `${base}, comparison still settling` : base;
+    },
+
     _spotlightHtml(data) {
         const sp = data && data.spotlight;
         const pending = this._pendingLine(data);
@@ -269,7 +276,7 @@ const DetectionResponsePage = {
             if (!data) return '';
             return `<section class="dr-spot dr-spot-empty" aria-label="Spotlight">${pending}
                 <h2 class="dr-spot-h">No scored sessions yet.</h2>
-                <p class="dr-spot-sub">Scores start after 5 sessions in a folder.</p>
+                <p class="dr-spot-sub">A score appears after the first tool calls.</p>
             </section>`;
         }
         const band = this._bandOf(sp.band);
@@ -278,7 +285,8 @@ const DetectionResponsePage = {
         const where = sp.folder ? ` in ${sp.folder}` : '';
         const plotted = (sp.recent_scores || []).filter(r => !r.current && Number.isFinite(r.score)).length;
         const n = plotted || Number(sp.baseline && sp.baseline.sessions) || 0;
-        const cmp = n ? `Compared with its own last ${n} sessions in this folder.` : 'Compared with its own recent sessions in this folder.';
+        // One N for the chart and the subline (the sessions plotted).
+        const cmp = this._compareText(n, sp.baseline && sp.baseline.confidence) + '.';
         const sub = (when ? `Scored at ${when}. ` : '') + cmp
             + (sp.had_blocks === false && sp.to_review !== false ? ' No rule had to fire.' : '');
         const median = sp.baseline && Number.isFinite(sp.baseline.median) ? Math.round(sp.baseline.median) : null;
@@ -296,7 +304,7 @@ const DetectionResponsePage = {
                 <div class="dr-caps">Drift score</div>
                 <div class="dr-spot-score is-${band}">${this._esc(sp.score)}</div>
                 <span class="dr-spot-chip is-${band}">${this._esc(this.BAND_RANGE[band])}</span>
-                ${median !== null ? `<p class="dr-muted">Baseline for this folder over ${this._esc(n)} sessions: ${this._esc(median)}.</p>` : ''}
+                ${median !== null ? `<p class="dr-muted">Typical score for this folder over ${this._esc(n)} sessions: ${this._esc(median)}.</p>` : ''}
                 <p class="dr-muted">Same agent tool. Same folder. Same permissions.</p>
                 ${this._sparkHtml(sp, when || (sp.ended_at ? this._hhmm(sp.ended_at) : 'now'))}
               </div>
@@ -318,14 +326,10 @@ const DetectionResponsePage = {
 
     _bandHtml(row) {
         if (typeof row.score !== 'number' || !row.band) {
-            const b = (this._data && this._data.detect && this._data.detect.baseline) || {};
-            const enough = Number.isFinite(b.ended_sessions) && b.needed && b.ended_sessions >= b.needed;
-            if (row.status === 'building_baseline' && enough) return `<span class="dr-row-drift">Learning this folder's usual pattern</span>`;
-            const counts = Number.isFinite(b.ended_sessions) && b.needed ? ` (${this._esc(Math.min(b.ended_sessions, b.needed))} of ${this._esc(b.needed)} sessions)` : '';
-            return `<span class="dr-row-drift">${row.status === 'building_baseline' ? 'Building a baseline' + counts : 'no score'}</span>`;
+            return `<span class="dr-row-drift">${row.status === 'building_baseline' ? 'no score yet, a score appears after the first tool calls' : 'no score'}</span>`;
         }
         const band = ['calm', 'watch', 'high'].includes(row.band) ? row.band : 'calm';
-        const partial = row.status === 'partial' ? ' <span class="dr-row-partial">(partial baseline)</span>' : '';
+        const partial = row.status === 'partial' ? ' <span class="dr-row-partial">(comparison still settling)</span>' : '';
         const w = band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low';
         return `<span class="dr-row-drift"><span title="Drift Score ${this._esc(row.score)} of 100. Compared with this agent's own recent sessions in this folder.">unusual activity <span class="dr-band is-${band}">${w}</span> <span class="dr-muted">(${this._esc(row.score)} of 100)</span></span>${partial}</span>`;
     },

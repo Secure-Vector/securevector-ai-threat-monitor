@@ -228,7 +228,7 @@ test('a launch submits for an installed-but-ungoverned executor (it runs ungover
 test('index.html and pin assertions moved to the bumped versions', () => {
   const html = read('index.html');
   assert.match(html, /api\.js\?v=338/);
-  assert.match(html, /terminals\.js\?v=126/);
+  assert.match(html, /terminals\.js\?v=127/);
   assert.match(html, /styles\.css\?v=494/);
 });
 
