@@ -330,7 +330,8 @@ async def get_cloud_settings() -> CloudSettingsResponse:
 
 
 @router.post("/settings/cloud/credentials", response_model=CredentialsResponse)
-async def configure_credentials(request: CredentialsRequest) -> CredentialsResponse:
+async def configure_credentials(request: CredentialsRequest, http_request: Request = None,
+                                x_sv_ui_token: Optional[str] = Header(None)) -> CredentialsResponse:
     """
     Configure cloud credentials. Routes by token-prefix:
 
@@ -339,6 +340,10 @@ async def configure_credentials(request: CredentialsRequest) -> CredentialsRespo
     - `svpk_*` or legacy unprefixed → personal API key (existing flow,
       saves to credential store + enables cloud mode).
     """
+    # Changes where events go and what the cloud may push: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     token_type = detect_token_type(request.api_key)
 
     # ---- svet_* — org enrollment path ----

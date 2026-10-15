@@ -707,6 +707,7 @@ const DetectionResponsePage = {
                     left.delete(i);
                     if (!left.size) this.render(document.getElementById('page-content'), true);
                 } catch (e) {
+                    if (/Not confirmed/i.test(String(e && e.message))) { b.disabled = false; return; }
                     b.outerHTML = '<span class="dr-done">The config changed after it was shown. Close and open again to see the current changes.</span>';
                 }
             };
@@ -747,11 +748,14 @@ const DetectionResponsePage = {
         yes.onclick = async () => {
             yes.disabled = true;
             try {
-                for (const t of targets) { await API.configTrustApprove(t.body); }
+                // One call: the person confirms the whole batch once.
+                await API.configTrustApproveAll(targets.map(t => t.body));
                 this._bump('approvals');
                 panel.innerHTML = `<span class="dr-done">Approved ${this._esc(total)} config ${total === 1 ? 'change' : 'changes'}.</span>`;
             } catch (e) {
-                panel.innerHTML = '<span class="dr-done">The config changed after it was shown. Reload and try again.</span>';
+                panel.innerHTML = /Not confirmed/i.test(String(e && e.message))
+                    ? '<span class="dr-done">Not confirmed</span>'
+                    : '<span class="dr-done">The config changed after it was shown. Reload and try again.</span>';
                 btn.hidden = false;
             }
         };

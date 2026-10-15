@@ -1793,6 +1793,23 @@ class TerminalManager:
         )
         return await self.store.get_task(task_id)
 
+    async def worktree_removal_check(self, task_id: str, *, confirm: bool,
+                                     dirty_seen: Optional[int] = None) -> Optional[dict]:
+        """Read only: the needs_confirm answer `remove_worktree` would give
+        with these arguments, or None when it would remove. Raises like it
+        for an unknown task or a task without a worktree."""
+        task = await self.store.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        paths = self._worktree_paths(task)
+        if paths is None:
+            raise ValueError("This task has no worktree.")
+        root, source_root = paths
+        branch, base = task["worktree_branch"], task.get("worktree_base") or ""
+        return await asyncio.get_running_loop().run_in_executor(
+            None, lambda: worktrees.check_removal(source_root, root, branch, base, confirm=bool(confirm),
+                                                  dirty_seen=dirty_seen))
+
     async def remove_worktree(self, task_id: str, *, confirm: bool, origin: str = "ui",
                               dirty_seen: Optional[int] = None) -> dict:
         """Remove a task's worktree, only on the person's explicit request.

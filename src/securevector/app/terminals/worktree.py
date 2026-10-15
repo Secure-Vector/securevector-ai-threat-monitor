@@ -446,15 +446,9 @@ def counts(source_root: str, root: str, branch: str, base: str) -> dict:
     return {"dirty": dirty, "commits": commits}
 
 
-def remove(source_root: str, root: str, branch: str, base: str, *, confirm: bool,
-           dirty_seen: Optional[int] = None) -> dict:
-    """Remove the worktree on the person's request. Changed files (tracked
-    or untracked) are counted fresh here, never taken from a stored count.
-    With changes, removal needs `confirm` AND `dirty_seen` equal to the fresh
-    count, so a confirm given against an older count (a stale card) cannot
-    discard files the person never saw. The branch is deleted only when it
-    has no commits beyond base; otherwise it is kept and the result says so."""
-    now = counts(source_root, root, branch, base)
+def needs_confirm(now: dict, root: str, *, confirm: bool, dirty_seen: Optional[int]) -> Optional[dict]:
+    """The answer that removes nothing and asks the person first, or None
+    when a removal with these arguments would go ahead. Read only."""
     if (now["dirty"] or 0) > 0 and confirm and dirty_seen != now["dirty"]:
         confirm = False
     if not confirm and now["dirty"] is None and os.path.exists(root):
@@ -465,6 +459,27 @@ def remove(source_root: str, root: str, branch: str, base: str, *, confirm: bool
         return {"removed": False, "needs_confirm": True, **now,
                 "message": f"{_count(now['dirty'], 'uncommitted file')} will be lost. "
                            + IGNORED_NOTE}
+    return None
+
+
+def check_removal(source_root: str, root: str, branch: str, base: str, *, confirm: bool,
+                  dirty_seen: Optional[int] = None) -> Optional[dict]:
+    """Fresh counts, then `needs_confirm`. Read only."""
+    return needs_confirm(counts(source_root, root, branch, base), root, confirm=confirm, dirty_seen=dirty_seen)
+
+
+def remove(source_root: str, root: str, branch: str, base: str, *, confirm: bool,
+           dirty_seen: Optional[int] = None) -> dict:
+    """Remove the worktree on the person's request. Changed files (tracked
+    or untracked) are counted fresh here, never taken from a stored count.
+    With changes, removal needs `confirm` AND `dirty_seen` equal to the fresh
+    count, so a confirm given against an older count (a stale card) cannot
+    discard files the person never saw. The branch is deleted only when it
+    has no commits beyond base; otherwise it is kept and the result says so."""
+    now = counts(source_root, root, branch, base)
+    held = needs_confirm(now, root, confirm=confirm, dirty_seen=dirty_seen)
+    if held is not None:
+        return held
     if os.path.exists(root):
         out = git(source_root, "worktree", "remove", "--force", "--", root)
         if out.returncode != 0 and os.path.exists(root):

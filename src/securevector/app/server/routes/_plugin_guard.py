@@ -83,6 +83,8 @@ async def require_local_origin(request: Request) -> None:
 async def _not_a_governed_task(request: Request) -> None:
     """Installing or removing a Guard is a person's change: a governed task
     may not change its own Guard (services/decisions.py)."""
-    from securevector.app.services import decisions
+    from securevector.app.services import confirmations, decisions
 
     await decisions.refuse_governed_caller(request)
+    # The person confirms the install or removal on this computer first.
+    await confirmations.gate(request)

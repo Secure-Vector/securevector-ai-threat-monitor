@@ -273,6 +273,27 @@ async def list_requests(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _decision_summary(request_id: str, verb: str) -> Optional[str]:
+    """What the person is asked to confirm, e.g. "Allow Claude Code in
+    webapp to run: Bash"."""
+    from securevector.app.services import confirmations
+    if not confirmations.enabled():
+        return None
+    try:
+        row = await JitAccessRepository(get_database()).get_request(request_id)
+    except Exception:  # noqa: BLE001 - the generic text is used
+        return None
+    if not row:
+        return None
+    from securevector.app.services.config_trust_scan import HARNESS_LABELS
+    kind = row.get("runtime_kind") or ""
+    who = HARNESS_LABELS.get(kind, kind or "the agent")
+    tool = str(row.get("tool_id") or "a tool")[:80]
+    if row.get("rule_source") == "delegate":
+        return f"{verb} the delegated task from {who}"
+    return f"{verb} {who} to run: {tool}" if verb == "Allow" else f"{verb} {who}: {tool}"
+
+
 @router.post("/jit/requests/{request_id}/approve")
 async def approve_request(
     request_id: str,
@@ -280,9 +301,11 @@ async def approve_request(
     request: Request,
     x_sv_ui_token: Optional[str] = Header(None),
 ):
-    _require_ui_token(x_sv_ui_token)
-    from securevector.app.services import decisions
+    from securevector.app.services import confirmations, decisions
+    if not confirmations.is_replay(request):
+        _require_ui_token(x_sv_ui_token)
     await decisions.refuse_governed_caller(request)
+    await confirmations.gate(request, summary=await _decision_summary(request_id, "Allow"))
     try:
         db = get_database()
         repo = JitAccessRepository(db)
@@ -325,9 +348,11 @@ async def deny_request(
     request: Request,
     x_sv_ui_token: Optional[str] = Header(None),
 ):
-    _require_ui_token(x_sv_ui_token)
-    from securevector.app.services import decisions
+    from securevector.app.services import confirmations, decisions
+    if not confirmations.is_replay(request):
+        _require_ui_token(x_sv_ui_token)
     await decisions.refuse_governed_caller(request)
+    await confirmations.gate(request, summary=await _decision_summary(request_id, "Deny"))
     try:
         db = get_database()
         pending = await JitAccessRepository(db).get_request(request_id)
