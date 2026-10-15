@@ -28,6 +28,8 @@ const Modal = {
 
         const modal = document.createElement('div');
         modal.className = 'modal' + (options.size ? ' modal-' + options.size : '');
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
 
         // Header
         const header = document.createElement('div');
@@ -91,9 +93,10 @@ const Modal = {
 
         this.activeModal = overlay;
 
-        // Focus trap
+        // Focus trap: Tab and Shift+Tab cycle inside the dialog.
         modal.setAttribute('tabindex', '-1');
         modal.focus();
+        modal.addEventListener('keydown', (e) => Modal._trapTab(e, modal));
 
         // ESC to close
         const escHandler = (e) => {
@@ -113,6 +116,19 @@ const Modal = {
     /**
      * Close the active modal
      */
+    /** Keep Tab focus inside `modal`. */
+    _trapTab(e, modal) {
+        if (e.key !== 'Tab') return;
+        const sel = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        const items = Array.from(modal.querySelectorAll(sel)).filter(el => !el.hidden && el.offsetParent !== null);
+        if (!items.length) { e.preventDefault(); modal.focus(); return; }
+        const first = items[0];
+        const last = items[items.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || active === modal)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    },
+
     close() {
         if (!this.activeModal) return;
         // CAPTURE the overlay reference synchronously. The 200ms animation

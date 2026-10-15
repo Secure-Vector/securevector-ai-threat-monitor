@@ -21,6 +21,9 @@ const TerminalsPage = {
     _error: null,
     _pendingApprovalSessions: new Set(),
     _pendingApprovalKinds: new Set(),
+    // Step-up calls blocked pending an approval request, by session id.
+    _heldBySession: new Map(),
+    _rungModes: null,
     _railSig: '',
     _taskQuery: '',
     _gen: 0,
@@ -164,6 +167,7 @@ const TerminalsPage = {
                 <div class="terminals-unlinked" id="terminals-unlinked" hidden></div>
               </form>
               <div class="terminals-board-summary" id="terminals-board-summary" hidden></div>
+              <div class="terminals-alert-row" id="terminals-alert-row" tabindex="-1" aria-live="polite" hidden></div>
               <div class="terminals-adopt" id="terminals-adopt" hidden></div>
               <div id="terminals-task-list" class="terminals-task-list"></div>
               <details class="terminals-cli terminals-board-cli" id="terminals-board-cli">
@@ -303,6 +307,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         this._attachedAt = null;
         this._error = null;
         this._pendingApprovalSessions = new Set();
+        this._heldBySession = new Map();
         this._taskQuery = '';
         this._tracesCache = null;
         this._guardPending = null;
@@ -326,7 +331,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     /** The Agent Sessions settings panel: Delegation and Response rungs, using
      *  the app's modal. Esc and the close button dismiss it. */
-    openSettings() {
+    openSettings(focus) {
         if (!window.Modal || typeof document === 'undefined') return;
         const body = document.createElement('div');
         body.className = 'terminals-settings-panel';
@@ -352,10 +357,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
             DelegationUI.renderCard(host, API);
         }
         if (window.ResponseRungs && API.terminalsRungModes) {
-            const host = section('Response rungs', `<p class="deleg-intro">${this._esc(ResponseRungs.INTRO)}</p>`, 'data-rung-settings');
+            const host = section('Automatic actions', `<p class="deleg-intro">${this._esc(ResponseRungs.INTRO)}</p>`, 'data-rung-settings');
             ResponseRungs.renderCard(host, API);
         }
         Modal.show({ title: 'Agent Sessions settings', content: body, size: 'large' });
+        if (focus === 'rungs' && body.querySelector) {
+            const rungs = body.querySelector('[data-rung-settings]');
+            const sec = rungs && rungs.parentNode;
+            if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'start' });
+        }
     },
 
     /** Opens the panel when asked for by the Settings page or a deep link. */
@@ -988,8 +998,11 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const gen = this._gen;
         let data = null;
         try { data = await (API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API); } catch (e) { data = null; }
+        let modes = null;
+        try { modes = API.terminalsRungModes ? await API.terminalsRungModes() : null; } catch (e) { modes = null; }
         if (gen !== this._gen) return;
         this._drData = data && data.detect ? data : null;
+        this._rungModes = modes && Array.isArray(modes.modes) ? modes.modes : null;
         this._renderTaskList();
     },
 
@@ -1015,11 +1028,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._pendingApprovalKinds = new Set(
                 this._unmatchedApprovals(jit.items || []).map(r => r.runtime_kind).filter(Boolean)
             );
+            this._heldBySession = this._heldMap(jit.items || []);
         } catch (e) {
             // A temporary inbox failure must not make task attachment or the
             // task list unavailable. Avoid showing a stale approval badge.
             this._pendingApprovalSessions = new Set();
             this._pendingApprovalKinds = new Set();
+            this._heldBySession = new Map();
         }
         if (gen !== this._gen) return;
         this._refreshDr();
@@ -1343,7 +1358,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const groups = new Map();
         const cardsOf = (t) => {
             const name = this._folderName(t);
-            if (!groups.has(name)) groups.set(name, { name, cards: [], attached: false });
+            if (!groups.has(name)) groups.set(name, { name, cards: [], held: [], child: [], attached: false });
             return groups.get(name);
         };
         {
@@ -1421,7 +1436,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const stuck = stuckMin != null
                     ? `<span class="terminals-task-stuck" title="Working, with no new tool call or transcript write">no activity for ${this._esc(String(stuckMin))} min</span>`
                     : '';
-                const facts = this._factsHtml(t);
+                const facts = this._factsHtml(t) + this._heldLineHtml(t);
                 // Beside the drift and setup facts (which sit inside the card
                 // button, so the link lives in the actions row instead).
                 const drLink = this._drLinkHtml(t, 'terminals-task-dr');
@@ -1435,6 +1450,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const delegLine = window.DelegationUI ? DelegationUI.summaryLineHtml(t, kidCount, folded.has(t.id)) : '';
                 const wrapOpen = delegPos ? `<div class="deleg-child is-${delegPos}">` : '';
                 const wrapClose = delegPos ? '</div>' : '';
+                grp.held.push(this._heldCount(t) > 0);
+                grp.child.push(!!deleg);
                 grp.cards.push(`${wrapOpen}
                   <article class="terminals-task${active}${deleg ? ' is-delegated' : ''}" data-id="${this._esc(t.id)}">
                     ${delegFrom}
@@ -1459,6 +1476,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (b.name === this.OTHER_FOLDER) return -1;
             return 0;
         });
+        // A session with a blocked step-up call leads its folder; otherwise order stands.
+        ordered.forEach(g => { g.cards = this._heldFirst(g.cards, g.held, g.child); });
         let html = '';
         ordered.forEach((g, i) => {
             // The folder holding the open session never hides it.
@@ -1605,6 +1624,169 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return { kind: 'governed', label: 'checked', detail: 'Launched with SecureVector Guard in place: every call is checked and recorded' };
     },
 
+    /** Pending rung approvals (a step-up hold) per session id. */
+    _heldMap(items) {
+        const m = new Map();
+        (items || []).forEach(r => {
+            if (!r || r.rule_source !== 'rung' || !r.session_id) return;
+            m.set(r.session_id, (m.get(r.session_id) || 0) + 1);
+        });
+        return m;
+    },
+
+    _heldCount(t) {
+        return (t && t.session_id && this._heldBySession && this._heldBySession.get(t.session_id)) || 0;
+    },
+
+    /** Red when on rung 3 the Guard blocked a step-up call and filed an
+     *  approval request; muted in test mode, which only logs it. */
+    _heldLineHtml(t) {
+        const n = this._heldCount(t);
+        const reasons = window.ResponseRungs && ResponseRungs.reasonsText ? ResponseRungs.reasonsText(t.rung_reasons) : '';
+        const score = typeof t.drift_score === 'number' ? `score ${t.drift_score}` : '';
+        if (n > 0) {
+            const parts = [`${n} ${n === 1 ? 'call' : 'calls'} blocked until you decide`, reasons, score].filter(Boolean);
+            return `<span class="terminals-task-stepup-blocked" title="Allow or deny in the approval card beside the session">${this._esc(parts.join(' \u00b7 '))}</span>`;
+        }
+        if (t && t.rung_word === 'step-up' && t.rung_mode !== 'active') {
+            const k = Number(t.rung_would_ask) || 0;
+            const what = k > 0 ? `${k} risky ${k === 1 ? 'call' : 'calls'}` : 'risky calls';
+            return `<span class="terminals-task-wouldblock" title="Test mode: logged only, nothing was blocked">would have blocked: ${this._esc(what)}</span>`;
+        }
+        return '';
+    },
+
+    /** Stable: chunks (a card plus its delegated children) with a blocked
+     *  step-up call move to the front, everything else keeps its order. */
+    _heldFirst(cards, held, child) {
+        const chunks = [];
+        cards.forEach((c, i) => {
+            if (child[i] && chunks.length) { const last = chunks[chunks.length - 1]; last.cards.push(c); last.held = last.held || held[i]; }
+            else chunks.push({ cards: [c], held: !!held[i] });
+        });
+        return chunks.filter(c => c.held).concat(chunks.filter(c => !c.held)).flatMap(c => c.cards);
+    },
+
+    // --- alert row --------------------------------------------------------
+
+    /** What the one-line alert row says, from data already cached. */
+    _alertModel() {
+        const d = this._drData;
+        if (!d) return null;
+        const sp = d.spotlight;
+        let held = 0;
+        (this._heldBySession || new Map()).forEach(n => { held += n; });
+        if (sp && sp.to_review !== false && (sp.band === 'watch' || sp.band === 'high')) {
+            const DR = window.DetectionResponsePage;
+            const sentence = (f) => String((DR && DR._featureSentence ? DR._featureSentence(f) : f.label) || '').replace(/\.$/, '');
+            return {
+                kind: 'unusual', band: sp.band, taskId: sp.task_id, spotlight: sp,
+                head: `${sp.harness_label || 'This agent tool'}${sp.folder ? ` in ${sp.folder}` : ''} stopped behaving like itself`,
+                score: `${sp.score} ${sp.band === 'high' ? 'high' : 'worth a look'}`,
+                signals: (sp.features || []).slice(0, 2).map(sentence).filter(Boolean),
+                blocked: held,
+            };
+        }
+        const config = Math.max(0, Number(d.harden && d.harden.changes) || 0);
+        const toReview = this._drToReview();
+        if (config > 0 || held > 0 || toReview > 0) return { kind: 'pending', config, held, toReview };
+        const high = sp && Number.isFinite(Number(sp.score)) ? Number(sp.score) : null;
+        return { kind: 'calm', high, band: sp ? sp.band : null };
+    },
+
+    /** Automatic actions mode across harnesses: on, test or mixed. */
+    _alertMode() {
+        const modes = this._rungModes;
+        if (!modes) return null;
+        // No rows yet: every agent tool starts in test mode.
+        if (!modes.length) return 'test';
+        const kinds = new Set(modes.map(m => (m && m.mode === 'active' ? 'on' : 'test')));
+        return kinds.size > 1 ? 'mixed' : [...kinds][0];
+    },
+
+    _alertRowHtml(m, mode) {
+        const esc = (v) => this._esc(v);
+        const dot = ' \u00b7 ';
+        let body = '';
+        let actions = '';
+        let cls = 'is-calm';
+        if (m && m.kind === 'unusual') {
+            cls = m.band === 'high' ? 'is-high' : 'is-watch';
+            const blocked = m.blocked > 0 ? [`${m.blocked} ${m.blocked === 1 ? 'call' : 'calls'} blocked`] : [];
+            const tail = [m.score, ...m.signals, ...blocked];
+            const text = [m.head, ...tail].join(dot);
+            body = `<span class="terminals-alert-text" title="${esc(text)}"><b>${esc(m.head)}</b>${esc(dot + tail.join(dot))}</span>`;
+            actions = `<button type="button" class="btn btn-sm" data-alert-open="${esc(m.taskId)}">Open session</button>`
+                + `<button type="button" class="btn btn-sm" data-alert-why>See why</button>`;
+        } else if (m && m.kind === 'pending') {
+            cls = 'is-pending';
+            // The same sessions-to-review count as the rail badge and the
+            // status row; config changes and blocked calls are a breakdown.
+            const parts = [];
+            if (m.toReview > 0) parts.push(`<button type="button" class="terminals-alert-link" data-alert-dr>${esc(`${m.toReview} ${m.toReview === 1 ? 'session needs' : 'sessions need'} a look`)}</button>`);
+            if (m.config > 0) parts.push(`<button type="button" class="terminals-alert-link"${m.toReview > 0 ? ' data-alert-config' : ' data-alert-dr'}>${esc(`${m.config} config ${m.config === 1 ? 'change' : 'changes'} to approve`)}</button>`);
+            if (m.held > 0) parts.push(`<button type="button" class="terminals-alert-link" data-alert-blocked>${esc(`${m.held} ${m.held === 1 ? 'call' : 'calls'} blocked until you decide`)}</button>`);
+            body = `<span class="terminals-alert-text">${parts.join(esc(dot))}</span>`;
+        } else if (m && m.kind === 'calm') {
+            const high = m.high !== null && m.high !== undefined ? `${dot}highest ${m.high}, ${m.band === 'high' ? 'high' : m.band === 'watch' ? 'worth a look' : 'low'}` : '';
+            body = `<span class="terminals-alert-text">${esc('All sessions behaved like themselves this week' + high)}</span>`;
+        }
+        const chip = mode
+            ? `<button type="button" class="terminals-alert-mode is-${mode}" data-alert-mode title="${mode === 'on' ? 'On: step-up calls are blocked until you approve them.' : mode === 'mixed' ? 'On for some agent tools, test mode for others.' : 'Test mode: actions are logged only.'} Opens the Automatic actions settings.">Automatic actions: ${mode === 'on' ? 'on' : mode === 'mixed' ? 'mixed' : 'test mode'}</button>`
+            : '';
+        // Text first (it truncates), then the mode chip, then the buttons.
+        return { cls, html: body + chip + actions };
+    },
+
+    _renderAlertRow() {
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('terminals-alert-row') : null;
+        if (!el) return;
+        const m = this._alertModel();
+        if (!m || !(this._tasks || []).length) { el.hidden = true; el.innerHTML = ''; return; }
+        const out = this._alertRowHtml(m, this._alertMode());
+        el.hidden = false;
+        el.className = `terminals-alert-row ${out.cls}`;
+        el.innerHTML = out.html;
+        const q = (sel) => (el.querySelector ? el.querySelector(sel) : null);
+        const open = q('[data-alert-open]');
+        if (open) open.onclick = () => this._attach(open.dataset.alertOpen);
+        const why = q('[data-alert-why]');
+        if (why) why.onclick = () => this._openSpotlight(m.spotlight);
+        const toDr = () => { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response'); };
+        const dr = q('[data-alert-dr]');
+        if (dr) dr.onclick = toDr;
+        const cfg = q('[data-alert-config]');
+        if (cfg) cfg.onclick = toDr;
+        const held = q('[data-alert-blocked]');
+        if (held) held.onclick = () => {
+            const t = (this._tasks || []).find(x => this._heldCount(x) > 0);
+            if (t) this._attach(t.id);
+        };
+        const mode = q('[data-alert-mode]');
+        if (mode) mode.onclick = () => this.openSettings('rungs');
+    },
+
+    /** "See why": the detection page's spotlight, in an overlay. */
+    _openSpotlight(sp) {
+        const DR = window.DetectionResponsePage;
+        if (!sp || !window.Modal || !DR || !DR._spotlightHtml || typeof document === 'undefined') { this._openDetectionResponse(sp && sp.task_id); return; }
+        const body = document.createElement('div');
+        body.className = 'dr-spot-overlay';
+        body.innerHTML = DR._spotlightHtml({ spotlight: sp });
+        const acts = body.querySelector('.dr-spot-actions');
+        if (acts) acts.remove();
+        Modal.show({ title: 'Why this session stood out', content: body, size: 'large' });
+    },
+
+    /** "N need a look" brings the alert row into view and focus. */
+    _focusAlertRow() {
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('terminals-alert-row') : null;
+        if (!el || el.hidden) return false;
+        if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+        if (el.focus) el.focus();
+        return true;
+    },
+
     /** One line of state over the whole board. Every number here is counted
      *  from the task list already in hand, so it costs no extra request. */
     _renderBoardSummary(shown) {
@@ -1616,6 +1798,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // Same source as the panel this count opens, so the two always agree.
         const notChecked = this._adoptRows().length;
         const toReview = this._drToReview();
+        this._renderAlertRow();
         if (shown.length < 2 && !notChecked && !toReview) { el.hidden = true; el.innerHTML = ''; return; }
         const running = shown.filter(t => this._RUNNING_STATUSES.includes(t.status)).length;
         const waiting = shown.filter(t => this._hasPendingApproval(t)).length;
@@ -1630,14 +1813,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
             : cell(n, w, cls, title);
         el.hidden = false;
         el.innerHTML = cell(running, 'running', '', 'Tasks whose agent tool is still alive')
-            + cell(waiting, 'need you', 'is-amber', 'Tasks paused for your decision')
-            + btn(toReview, 'need a look', 'is-amber', 'Sessions with unusual behaviour or config changes. Opens Agent Detection & Response.', 'data-board-dr')
+            + cell(waiting, 'need you', 'is-amber', 'Tasks waiting for your decision')
+            + btn(toReview, 'need a look', 'is-amber', 'Sessions with unusual behaviour or config changes. Shows the alert line below.', 'data-board-dr')
             + btn(notChecked, 'not monitored', 'is-amber', 'Sessions SecureVector did not watch. Open to review.', 'data-board-adopt')
             + btn(orphaned, 'stopped by a restart', '', 'Tasks the app restarted out from under. Click to show only these; clear the search box above to show every task again.', 'data-board-filter="interrupted"');
         const drBtn = el.querySelector('[data-board-dr]');
         if (drBtn) {
             drBtn.onclick = (ev) => {
                 if (ev) ev.preventDefault();
+                if (this._focusAlertRow()) return;
                 if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
             };
         }
@@ -3419,7 +3603,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const action = d.feedback === 'normal'
             ? ' <span class="terminals-summary-more" data-drift-marked>Marked normal</span>'
             : d.ended
-                ? ' <a href="#" class="terminals-summary-all" data-drift-normal aria-label="Mark this session as looking normal">Looks normal</a>'
+                ? ' <button type="button" class="btn btn-sm btn-secondary" data-drift-normal aria-label="Mark this session as looking normal">Looks normal</button>'
                 : '';
         return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low'}</span>${top ? `: ${top}` : ''}${partial}${action}`;
     },

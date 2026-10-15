@@ -98,7 +98,7 @@ const ResponseRungs = {
 
     // --- Settings card -----------------------------------------------------
 
-    INTRO: "Response steps watch each session's behaviour and react: observe, flag, then ask for approval on risky calls. Each agent starts in shadow, where steps only record.",
+    INTRO: "Automatic actions watch each session's behaviour and react in steps: 1 observe, 2 flag, 3 ask you before risky calls. Each agent starts in test mode, where actions are logged only.",
 
     harnessLabel(id) { return this.HARNESS_WORDS[id] || String(id || ''); },
 
@@ -110,13 +110,13 @@ const ResponseRungs = {
         const active = m.mode === 'active';
         const id = this._esc(m.harness);
         const hl = this._esc(this.harnessLabel(m.harness));
-        const state = active ? 'Active' : (m.can_activate ? 'Shadow, ready' : 'Shadow');
+        const state = active ? 'On' : (m.can_activate ? 'Test mode (logged only), ready' : 'Test mode (logged only)');
         const prog = this.progressText(m) + (m.early_ended && !m.complete ? ', ended early' : '');
         const acts = active
-            ? `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to shadow for ${hl}">Back to shadow</button>`
-            : `<button type="button" class="btn btn-sm btn-primary" data-rung-on="${id}"${m.can_activate ? '' : ' disabled'} aria-label="Turn on response steps for ${hl}">Turn on</button>`
-              + (m.can_activate ? '' : `<button type="button" class="btn btn-sm" data-rung-early="${id}" aria-label="End shadow early for ${hl}">End shadow early</button>`)
-              + `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to shadow for ${hl}">Back to shadow</button>`;
+            ? `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to test mode for ${hl}">Back to test mode</button>`
+            : `<button type="button" class="btn btn-sm btn-primary" data-rung-on="${id}"${m.can_activate ? '' : ' disabled'} aria-label="Turn on automatic actions for ${hl}">Turn on</button>`
+              + (m.can_activate ? '' : `<button type="button" class="btn btn-sm" data-rung-early="${id}" aria-label="End test mode early for ${hl}">End test mode early</button>`)
+              + `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to test mode for ${hl}">Back to test mode</button>`;
         return `<div class="rung-mode-row" data-rung-row="${id}"><div class="rung-mode-head"><strong>${this._esc(this.harnessLabel(m.harness))}</strong>`
             + `<span class="rung-mode-state">${this._esc(state)}</span></div>`
             + `<div class="rung-mode-progress">${this._esc(prog)}</div>`
@@ -124,9 +124,9 @@ const ResponseRungs = {
     },
 
     wouldHaveText(w) {
-        if (!w || !w.count) return 'Shadow has not stepped up any session so far.';
+        if (!w || !w.count) return 'In test mode, no session would have asked you yet.';
         const top = (w.top_reasons || []).map(x => `${this.REASON_WORDS[x.signal] || x.signal} (${x.sessions})`).join(', ');
-        return `Shadow would have stepped up ${w.count} ${w.count === 1 ? 'session' : 'sessions'}${top ? `, mostly ${top}` : ''}.`;
+        return `Test mode would have asked you in ${w.count} ${w.count === 1 ? 'session' : 'sessions'}${top ? `, mostly ${top}` : ''}.`;
     },
 
     /** Fill `host` with one row per harness and wire its buttons. */
@@ -134,11 +134,11 @@ const ResponseRungs = {
         if (!host) return;
         let data;
         try { data = await api.terminalsRungModes(); } catch (e) {
-            host.innerHTML = '<div class="rung-mode-empty">Response rungs could not be loaded.</div>'; return;
+            host.innerHTML = '<div class="rung-mode-empty">Automatic actions could not be loaded.</div>'; return;
         }
         const modes = (data && data.modes) || [];
         if (!modes.length) {
-            host.innerHTML = '<div class="rung-mode-empty">No agent sessions have run yet. Rungs start in shadow, where they only record.</div>';
+            host.innerHTML = '<div class="rung-mode-empty">No agent sessions have run yet. Automatic actions start in test mode, where they are logged only.</div>';
             return;
         }
         host.innerHTML = modes.map(m => this.modeRowHtml(m)).join('');
@@ -160,7 +160,7 @@ const ResponseRungs = {
         host.querySelectorAll('[data-rung-on]').forEach(b => {
             b.onclick = () => {
                 const id = b.getAttribute('data-rung-on');
-                ask(id, 'Step-up calls in a flagged session will wait for your approval in that session only.', 'Turn on',
+                ask(id, 'Risky calls in a flagged session will wait for your approval in that session only.', 'Turn on',
                     () => api.terminalsRungMode(id, { mode: 'active' }));
             };
         });
@@ -178,8 +178,8 @@ const ResponseRungs = {
                 const id = b.getAttribute('data-rung-early');
                 let w = null;
                 try { w = (await api.terminalsRungHarness(id)).would_have; } catch (e) { /* confirm still shows */ }
-                ask(id, `${this.wouldHaveText(w)} Ending shadow early lets you turn rungs on before the sample is complete.`,
-                    'End shadow early', () => api.terminalsRungMode(id, { end_shadow_early: true }));
+                ask(id, `${this.wouldHaveText(w)} Ending test mode early lets you turn automatic actions on before the sample is complete.`,
+                    'End test mode early', () => api.terminalsRungMode(id, { end_shadow_early: true }));
             };
         });
     },

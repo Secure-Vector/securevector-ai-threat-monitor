@@ -472,7 +472,7 @@ def test_mid_session_recheck_is_stat_gated_and_debounced(home, db, tmp_path):
     assert run(ct.recheck_once(db))["tasks"] == 1
     assert run(ct.recheck_once(db))["tasks"] == 0
     summary = run(ct.session_summary(db, "t1"))
-    assert summary["moved"] is True and summary["text"] == "Setup changed during this session (1)."
+    assert summary["moved"] is True and summary["text"] == "Config changed during this session (1)."
     assert summary["changes"][0]["text"] == "Rules file CLAUDE.md changed."
 
 
@@ -481,7 +481,7 @@ def test_session_summary_reassures_when_nothing_moved(home, db, tmp_path):
     run(ct.approve(db, "claude-code"))
     run(ct.session_check(db, harness="claude-code", workspace=None, phase="start", task_id="t2"))
     run(ct.session_check(db, harness="claude-code", workspace=None, phase="exit", task_id="t2"))
-    assert run(ct.session_summary(db, "t2"))["text"] == "Setup unchanged during this session."
+    assert run(ct.session_summary(db, "t2"))["text"] == "Config unchanged during this session."
     assert run(ct.session_summary(db, "nope"))["state"] == "unchecked"
 
 

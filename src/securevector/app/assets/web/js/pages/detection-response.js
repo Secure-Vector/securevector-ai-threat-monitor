@@ -196,13 +196,69 @@ const DetectionResponsePage = {
     /** The honest pending-work line: sessions to review and config changes. */
     _pendingLine(data) {
         if (!data) return '';
-        const n = (data.sessions || []).filter(r => r && (r.band === 'watch' || r.band === 'high')).length;
+        // One count everywhere: the server's sessions to review (watch or
+        // high, rung 2 or above, or a red config change). Config changes to
+        // approve are a breakdown, not a second count of sessions.
+        const n = Math.max(0, Number(data.detect && data.detect.to_review) || 0);
         const m = Number(data.harden && data.harden.changes) || 0;
         const parts = [];
-        if (n) parts.push(`${n} ${n === 1 ? 'session' : 'sessions'}`);
-        if (m) parts.push(`${m} config ${m === 1 ? 'change' : 'changes'}`);
+        if (n) parts.push(`${n} ${n === 1 ? 'session needs' : 'sessions need'} a look.`);
+        if (m) parts.push(`${m} config ${m === 1 ? 'change' : 'changes'} to approve.`);
         if (!parts.length) return '';
-        return `<p class="dr-spot-pending">${this._esc(parts.join(' and '))} ${parts.length === 1 && (n === 1 || m === 1) ? 'needs' : 'need'} a look.</p>`;
+        return `<p class="dr-spot-pending">${this._esc(parts.join(' '))}</p>`;
+    },
+
+    // --- getting started -----------------------------------------------------
+
+    START_NOTE: 'Then it fills in on its own: launching from here registers the policy check tools, you are asked once to approve the agent\'s config, scores start after 5 sessions in a folder, and automatic actions stay in test mode until you turn them on.',
+
+    /** Two first steps with done marks, then one plain paragraph. Full list
+     *  until a session is scored (it is the empty state); after that one
+     *  muted line while a step is still open, and nothing once both are done. */
+    _startHtml(data, expanded) {
+        const st = data && data.setup;
+        if (!st) return '';
+        const steps = [
+            { done: st.guard_installed === true, text: 'Connect the Guard for your agent tool',
+              link: '<a href="/guide-connect-agents" class="dr-link" data-dr-start-connect>Connect Agents</a>' },
+            { done: st.governed_session === true, text: 'Launch a session from this app',
+              link: '<a href="/terminals" class="dr-link" data-dr-start-launch>Launch</a>' },
+        ];
+        const done = steps.filter(x => x.done).length;
+        if (st.scored && done === steps.length) return '';
+        if (st.scored && !expanded) {
+            return `<p class="dr-muted dr-start-line">Set up: ${done} of ${steps.length} done \u00b7 <a href="#" class="dr-link" data-dr-start-show>Show</a></p>`;
+        }
+        const rows = steps.map(x => `<li class="dr-start-row${x.done ? ' is-done' : ''}">
+              <span class="dr-start-mark" aria-hidden="true">${x.done ? '\u2713' : ''}</span>
+              <span class="dr-start-text">${this._esc(x.text)}</span>
+              <span class="dr-start-state">${x.done ? 'Done' : 'Not yet'}</span>
+              ${x.link}</li>`).join('');
+        const b = st.baseline;
+        const progress = st.governed_session && !st.scored && b && b.folder
+            ? `<p class="dr-muted dr-start-progress">${this._esc(`${b.sessions} of ${b.needed} sessions in ${b.folder}${b.harness_label ? ` with ${b.harness_label}` : ''}`)}</p>` : '';
+        return `<section class="dr-card dr-start" aria-labelledby="dr-start-h">
+            <div class="dr-card-head"><h3 id="dr-start-h">Getting started</h3><span class="dr-muted">${this._esc(`${done} of ${steps.length} done`)}</span></div>
+            <ol class="dr-start-list">${rows}</ol>
+            ${progress}
+            <p class="dr-muted dr-start-note">${this._esc(this.START_NOTE)}</p>
+        </section>`;
+    },
+
+    _bindStart(host, data) {
+        if (!host || !host.querySelector) return;
+        const show = host.querySelector('[data-dr-start-show]');
+        if (show) show.onclick = (ev) => { ev.preventDefault(); host.innerHTML = this._startHtml(data, true); this._bindStart(host, data); };
+        const connect = host.querySelector('[data-dr-start-connect]');
+        if (connect) connect.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('guide-connect-agents'); };
+        const launch = host.querySelector('[data-dr-start-launch]');
+        if (launch) launch.onclick = (ev) => {
+            ev.preventDefault();
+            // Opens the board with the launch form open.
+            if (window.TerminalsPage && !TerminalsPage._launchDraft) TerminalsPage._launchDraft = { executor: '', workspace: '', title: '', session: '' };
+            try { sessionStorage.setItem('sv-agent-tasks-board', '1'); } catch (e) { /* storage unavailable */ }
+            if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');
+        };
     },
 
     _spotlightHtml(data) {
@@ -249,8 +305,9 @@ const DetectionResponsePage = {
                 ${why ? `<ul class="dr-why">${why}</ul>` : '<p class="dr-muted">No signal stood out.</p>'}
               </div>
             </div>
+            <p class="dr-muted dr-spot-trust">Scored on this device from its own history. Nothing leaves your machine.</p>
             <div class="dr-spot-actions">
-              ${sp.ended_at && sp.to_review !== false ? `<div class="dr-act"><button type="button" class="btn btn-sm" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span></div>` : ''}
+              ${sp.ended_at && sp.to_review !== false ? `<div class="dr-act"><button type="button" class="btn btn-sm btn-secondary" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span></div>` : ''}
               <div class="dr-act"><button type="button" class="btn btn-sm btn-primary" data-dr-open="${id}">Open session</button></div>
             </div>
         </section>`;
@@ -312,7 +369,7 @@ const DetectionResponsePage = {
               <span class="dr-row-reason">${this._reasonHtml(row)}</span>
             </button>
             <div class="dr-row-actions" data-dr-actions="${id}">
-              <div class="dr-act">${canNormal ? `<button type="button" class="btn btn-sm" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span>` : ''}</div>
+              <div class="dr-act">${canNormal ? `<button type="button" class="btn btn-sm btn-secondary" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span>` : ''}</div>
               <div class="dr-act">${canApprove ? `<button type="button" class="btn btn-sm" data-dr-approve="${id}">Approve this setup</button><span class="dr-act-cap">Trust these config files from now on</span>` : ''}</div>
             </div>
         </li>`;
@@ -748,6 +805,7 @@ const DetectionResponsePage = {
         const focus = this.focusSession || _drInitialFocus || null;
         this.focusSession = null;
         container.innerHTML = `<div class="dr-wrap">
+            <div data-dr-start></div>
             <div data-dr-spot></div>
             <section class="dr-card" aria-labelledby="dr-review-h">
               <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted">Newest first. Open a row for its session summary.</span></div>
@@ -783,6 +841,8 @@ const DetectionResponsePage = {
         list.innerHTML = this._listHtml(data, focus);
         if (cfg) cfg.innerHTML = this._configHtml(data);
         if (spotEl) spotEl.innerHTML = this._spotlightHtml(data);
+        const startEl = container.querySelector('[data-dr-start]');
+        if (startEl) { startEl.innerHTML = this._startHtml(data); this._bindStart(startEl, data); }
         this._bind(container);
         this._renderFleet(container);
         const hit = focus ? container.querySelector(`[data-dr-row="${CSS.escape(focus)}"]`) : null;

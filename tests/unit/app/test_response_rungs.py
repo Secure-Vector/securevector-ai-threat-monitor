@@ -1128,3 +1128,23 @@ def test_board_items_carry_the_stored_rung_and_a_read_writes_nothing(world):
     assert "rung_word" not in items[1] and "rung_mode" not in items[1]
     assert "rung_word" not in items[2]
     assert world.one("SELECT COUNT(*) FROM session_rungs")[0] == before
+
+
+def test_board_items_carry_rung_reasons_and_would_ask(world):
+    from securevector.app.terminals import routes
+
+    repo = ResponseRungsRepository(world.db)
+    asyncio.run(repo.upsert("s-r", None, HARNESS, "shadow", rr.RungState(rung=3, peak_rung=3, reasons=["drift"]),
+                            rr._iso(T0), False))
+    asyncio.run(repo.add_would_ask("s-r"))
+    items = [{"session_id": "s-r"}]
+
+    class _Store:
+        db = world.db
+
+    class _Mgr:
+        store = _Store()
+
+    asyncio.run(routes._with_rung(_Mgr(), items))
+    assert items[0]["rung_reasons"] == ["drift"]
+    assert items[0]["rung_would_ask"] == 1

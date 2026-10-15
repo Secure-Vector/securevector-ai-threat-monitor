@@ -46,8 +46,20 @@ def _registered():
         return None
 
 
+async def _guard_installed():
+    """True when any agent tool has the Guard plugin installed and on."""
+    try:
+        from securevector.app.server.routes import governance
+        states = await governance._plugin_statuses()
+        return any(bool(v.get("installed")) and v.get("enabled", True) is not False for v in states.values())
+    except Exception:  # noqa: BLE001 - unknown, not "not installed"
+        logger.debug("detection response: plugin status unavailable", exc_info=True)
+        return None
+
+
 @router.get("/summary", dependencies=[Depends(require_read)])
 async def summary(request: Request):
     """Detect, Harden and Pre-flight counts, and the sessions to review."""
     db = _db(request)
-    return await detection_response.summary(db, setup=await _setup(db), registered=_registered())
+    return await detection_response.summary(db, setup=await _setup(db), registered=_registered(),
+                                            guard=await _guard_installed())
