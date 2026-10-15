@@ -1275,35 +1275,16 @@ const Sidebar = {
         } catch (e) { /* no count */ }
     },
 
-    /** The Detection & Response panel: one row per section of the page, in
-     *  this order. Getting started shows only while setup is incomplete.
-     *  Rows marked inDetails sit inside the page's closed Details disclosure:
-     *  they are indented under Details, and a click opens it first. */
+    /** The Detection & Response panel keeps the two main page anchors. */
     DR_SECTIONS: [
-        { id: 'dr-sec-start', label: 'Getting started', onlyIncomplete: true },
         { id: 'dr-sec-sessions', label: 'Sessions to review', count: 'review' },
         { id: 'dr-sec-details', label: 'Details' },
-        { id: 'dr-sec-why', label: 'Why this score', inDetails: true },
-        { id: 'dr-sec-actions', label: 'Automatic actions', inDetails: true },
-        { id: 'dr-sec-checks', label: 'Permission checks', inDetails: true },
-        { id: 'dr-sec-fleet', label: 'Across your devices', inDetails: true, onlyIfShown: true },
-        { id: 'dr-sec-config', label: 'Config changes', count: 'config', inDetails: true },
-        { id: 'dr-sec-how', label: 'How it works', inDetails: true },
     ],
-
-    /** Setup is incomplete until a session is scored and both steps are done
-     *  (the same rule the page uses to drop its Getting started card). */
-    _drStartIncomplete(d) {
-        const st = d && d.setup;
-        if (!st) return false;
-        return !(st.scored && st.guard_installed === true && st.governed_session === true);
-    },
 
     /** Counts beside the panel rows, from the cached summary the badge reads. */
     _drCounts(d) {
         const n = (v) => Math.max(0, Number(v) || 0);
-        const h = (d && d.harden) || {};
-        return { review: n(d && d.detect && d.detect.to_review), config: h.available === false ? 0 : n(h.changes) };
+        return { review: n(d && d.detect && d.detect.to_review) };
     },
 
     _createDrSections() {
@@ -1343,10 +1324,7 @@ const Sidebar = {
     _paintDrSections(d, root) {
         if (typeof document === 'undefined') return;
         const counts = this._drCounts(d);
-        const start = this._drStartIncomplete(d);
         this._drRows(root).forEach(row => {
-            const sec = this.DR_SECTIONS.find(s => s.id === row.dataset.drSection);
-            if (sec && sec.onlyIncomplete) row.hidden = !start;
             const ct = row.querySelector ? row.querySelector('[data-dr-count]') : null;
             if (ct) {
                 const n = counts[ct.dataset.drCount] || 0;
