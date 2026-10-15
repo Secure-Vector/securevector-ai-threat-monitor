@@ -112,9 +112,9 @@ test('facts line part and the session Setup row reassure or name what changed', 
   assert.equal(CT.factsPart({ setup_state: 'pinned' }), '');
   assert.equal(CT.factsPart({ setup_state: 'new' }), '');
   assert.equal(CT.factsPart({}), '');
-  assert.match(CT.summaryHtml({ state: 'pinned', moved: false, text: 'Setup unchanged during this session.', changes: [] }),
-    /is-neutral">Setup unchanged during this session\./);
-  const moved = CT.summaryHtml({ state: 'changed', moved: true, text: 'Setup changed during this session (1).',
+  assert.match(CT.summaryHtml({ state: 'pinned', moved: false, text: 'Config unchanged during this session.', changes: [] }),
+    /is-neutral">Config unchanged during this session\./);
+  const moved = CT.summaryHtml({ state: 'changed', moved: true, text: 'Config changed during this session (1).',
     changes: [{ severity: 'amber', text: 'Rules file CLAUDE.md changed.' }] });
   assert.match(moved, /ct-summary is-red/);
   assert.match(moved, /Rules file CLAUDE\.md changed\./);
@@ -184,8 +184,8 @@ test('launch dialog asks for the folder verdict and renders it before the first 
 test('session summary gets a Setup row from the session check', () => {
   const Page = loadTerminals({});
   const s = Page._summaryBuild({ id: 'abc12345', executor_id: 'claude-code', workspace: '/w/app', created_at: '2026-10-08T10:00:00Z' },
-    { setup: { state: 'pinned', moved: false, text: 'Setup unchanged during this session.', changes: [] } });
-  assert.match(Page._summaryHtml(s), /<dt>Agent config<\/dt><dd><span class="ct-summary is-neutral">Setup unchanged during this session\./);
+    { setup: { state: 'pinned', moved: false, text: 'Config unchanged during this session.', changes: [] } });
+  assert.match(Page._summaryHtml(s), /<dt>Agent config<\/dt><dd><span class="ct-summary is-neutral">Config unchanged during this session\./);
   const none = Page._summaryBuild({ id: 'x', created_at: '2026-10-08T10:00:00Z' }, { setup: { state: 'unchecked' } });
   assert.ok(!Page._summaryHtml(none).includes('<dt>Setup'));
 });
@@ -210,7 +210,7 @@ test('approve buttons carry what the user saw, and a stale view re-renders', asy
   assert.match(card, /data-expected="vh2">Approve this setup/);
   let sent = null;
   let rerendered = 0;
-  const api = { configTrustApprove: async (b) => { sent = b; throw new Error('The setup changed after it was shown. Review the current changes and approve again.'); } };
+  const api = { configTrustApprove: async (b) => { sent = b; throw new Error('The config changed after it was shown. Review the current changes and approve again.'); } };
   const window = {};
   vm.runInNewContext(read('js/components/config-trust.js'), { window, API: api });
   let click = null;

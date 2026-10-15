@@ -76,6 +76,11 @@ class Executor:
     # older release that lacks one still launches. Each must also be accepted
     # by the resume subcommand, since they are appended after it.
     optional_args: tuple[str, ...] = ()
+    # A delegated prompt pasted with no ready signal can be lost while the
+    # harness is still starting up (a self-update, for one). With this set,
+    # a paste that brings no hook within PROMPT_RESUBMIT_S is sent once more
+    # before the Guard check decides the session is ungoverned.
+    prompt_resubmit: bool = False
 
 
 _EXECUTORS: dict[str, Executor] = {
@@ -128,6 +133,7 @@ _EXECUTORS: dict[str, Executor] = {
         # without sending it. Its Guard relays SessionStart from
         # session.created, which comes with the first message, so a delegated
         # prompt is pasted once the TUI is drawn and its output is still.
+        prompt_resubmit=True,
     ),
 }
 EXECUTORS = types.MappingProxyType(_EXECUTORS)

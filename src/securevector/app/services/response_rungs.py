@@ -232,7 +232,7 @@ async def set_mode(db, harness: str, mode: str, now: Optional[datetime] = None) 
     repo = ResponseRungsRepository(db)
     prog = await shadow_progress(db, harness, now)
     if mode == MODE_ACTIVE and not prog["can_activate"]:
-        raise ModeError("Shadow period is not complete")
+        raise ModeError("Test mode is not finished yet")
     old = prog["mode"]
     await repo.set_mode(harness, mode, _iso(now))
     if old != mode:
@@ -428,7 +428,7 @@ async def set_feedback(db, session_id: str, feedback: Optional[str]) -> None:
 
 # --- task events ----------------------------------------------------------------------
 
-SIGNAL_WORDS = {SIG_DRIFT: "drift", SIG_CONFIG: "setup change", SIG_DENY: "retry after deny"}
+SIGNAL_WORDS = {SIG_DRIFT: "drift", SIG_CONFIG: "config change", SIG_DENY: "retry after deny"}
 
 
 def event_detail(rung: int, reasons, mode: str, band: Optional[str] = None) -> str:

@@ -21,14 +21,14 @@ function loadPage(extra) {
   return ctx.window.DetectionResponsePage;
 }
 
-test('the page is routed, loaded and listed under Agents beside Settings', () => {
+test('the page is routed, loaded and has its own rail entry', () => {
   assert.match(read('js/app.js'), /'detection-response': DetectionResponsePage,/);
   assert.match(read('index.html'), /js\/pages\/detection-response\.js\?v=\d+/);
   const sidebar = read('js/components/sidebar.js');
   assert.match(sidebar, /id: 'detection-response', label: 'Agent Detection & Response', icon: 'search',\s*\n\s*tooltip: '/);
   assert.doesNotMatch(sidebar, /items: \['governance', 'detection-response'\]/);
-  assert.match(sidebar, /extraPages: \['detection-response'\]/);
-  assert.match(sidebar, /nav-sessions-dr/);
+  assert.match(sidebar, /\{ id: 'detect', label: 'Detect & Respond', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',/);
+  assert.match(sidebar, /items: \['detection-response'\]/);
 });
 
 test('tiles are four plain-word numbers with neutral counts', () => {
@@ -148,14 +148,14 @@ const fakeSummary = () => {
 };
 const twoTasks = [{ id: 'a', status: 'working' }, { id: 'b', status: 'working' }];
 
-test('count 3 puts a "3 need a look" button in the status row that opens Review', () => {
+test('count 3 puts a "3 need a look" button in the status row; with no alert row it opens Review', () => {
   const el = fakeSummary();
   const { T, sandbox } = loadSessions({}, el);
   T._drData = { detect: { to_review: 3 } };
   T._renderBoardSummary(twoTasks);
   assert.match(el.innerHTML, /<button[^>]*data-board-dr[^>]*><b>3<\/b> need a look<\/button>/);
   assert.match(el.innerHTML, /terminals-board-stat terminals-board-orphans is-amber/);
-  assert.match(el.innerHTML, /Opens Agent Detection &amp; Response\./);
+  assert.match(el.innerHTML, /Shows the alert line below\./);
   let went = null;
   sandbox.window.Sidebar = { navigate: (p) => { went = p; } };
   sandbox.Sidebar = sandbox.window.Sidebar;
@@ -296,13 +296,13 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=13/);
-  assert.match(read('index.html'), /styles\.css\?v=489/);
+  assert.match(read('index.html'), /detection-response\.js\?v=15/);
+  assert.match(read('index.html'), /styles\.css\?v=493/);
 });
 
 test('plain-language pass: Review label and heading, Launch first, one card status line', () => {
   const sidebar = read('js/components/sidebar.js');
-  assert.match(sidebar, /<span class="nav-label">Agent Detection &amp; Response<\/span>/);
+  assert.match(sidebar, /title: 'Agent Detection & Response'/);
   assert.match(read('js/components/header.js'), /'detection-response': \{ title: 'Agent Detection & Response', subtitle: 'Sessions that did something unusual, and agent config changes to check\.' \}/);
   const page = read('js/pages/terminals.js');
   assert.ok(page.indexOf('id="terminals-launch-btn"') < page.indexOf('id="terminals-settings-btn"'), 'Launch precedes Settings');
@@ -375,15 +375,15 @@ test('spotlight: empty state and list excludes the spotlight session', () => {
   assert.match(empty, /Scores start after 5 sessions in a folder\./);
   assert.doesNotMatch(empty, /dr-spot-card/);
   // Sessions to review exist (config changes) but none is watch or high: still the empty headline.
-  const cfgOnly = P._spotlightHtml({ spotlight: null, sessions: [{ task_id: 'x', score: 8, band: 'calm', setup_state: 'changed' }, { task_id: 'y', score: null, band: null, setup_state: 'changed' }], harden: { changes: 2 } });
-  assert.match(cfgOnly, /2 config changes need a look\./);
-  assert.doesNotMatch(cfgOnly, /sessions? (and|need)/, 'config-only sessions are not unusual sessions');
-  const unusual = P._spotlightHtml({ spotlight: null, sessions: [{ task_id: 'x', score: 80, band: 'high' }, { task_id: 'y', band: null }], harden: { changes: 1 } });
-  assert.match(unusual, /1 session and 1 config change need a look\./);
+  // One count: the server's sessions to review (config-changed sessions included); config changes are a breakdown.
+  const cfgOnly = P._spotlightHtml({ spotlight: null, detect: { to_review: 2 }, sessions: [{ task_id: 'x', score: 8, band: 'calm', setup_state: 'changed' }, { task_id: 'y', score: null, band: null, setup_state: 'changed' }], harden: { changes: 2 } });
+  assert.match(cfgOnly, /2 sessions need a look\. 2 config changes to approve\./);
+  const unusual = P._spotlightHtml({ spotlight: null, detect: { to_review: 2 }, sessions: [{ task_id: 'x', score: 80, band: 'high' }, { task_id: 'y', band: null }], harden: { changes: 1 } });
+  assert.match(unusual, /2 sessions need a look\. 1 config change to approve\./);
   assert.doesNotMatch(cfgOnly, /dr-spot-card/);
-  assert.match(P._spotlightHtml({ spotlight: null, sessions: [], detect: { to_review: 0 }, harden: { changes: 3 } }), /3 config changes need a look\./);
+  assert.match(P._spotlightHtml({ spotlight: null, sessions: [], detect: { to_review: 0 }, harden: { changes: 3 } }), /3 config changes to approve\./);
   const calm = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 25, features: [] }), sessions: [{ task_id: 'a', band: 'watch', score: 50 }, { task_id: 'b', band: 'high', score: 90 }], detect: { to_review: 2 }, harden: { changes: 17 } });
-  assert.match(calm, /2 sessions and 17 config changes need a look\./);
+  assert.match(calm, /2 sessions need a look\. 17 config changes to approve\./);
   assert.match(calm, /Highest score this week: 25, low\. Claude Code in billing-api\./);
   assert.match(calm, /dr-spot-score is-calm">25</);
   assert.match(calm, /Low \u00b7 below 40/);
@@ -393,13 +393,15 @@ test('spotlight: empty state and list excludes the spotlight session', () => {
   assert.doesNotMatch(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high', score: 82, band: 'high' }, { task_id: 'o', score: 50, band: 'watch' }] }), /data-dr-open="t-high"/);
 });
 
-test('Agent Detection & Response rows sit in the Agents bottom section with a count badge', () => {
+test('Detect & Respond rail button carries an amber count from the cached summary', () => {
   const src = read('js/components/sidebar.js');
-  assert.match(src, /agentFooterRows\.push\(dr, row\)/);
-  assert.match(src, /agentFooterRows\.forEach\(r => bottomSection\.appendChild\(r\)\)/);
-  assert.ok(src.indexOf('agentFooterRows.forEach') < src.indexOf('bottomSection.appendChild(statusToggle)'), 'above Plugins');
-  assert.doesNotMatch(src, /nav\.appendChild\(dr\)/);
-  assert.match(src, /nav-dr-badge/);
+  assert.match(src, /if \(group\.id === 'detect'\) \{[\s\S]*?badge\.className = 'product-rail-attention';[\s\S]*?badge\.dataset\.drProductBadge = '1';/);
+  const m = src.slice(src.indexOf('    loadDrCount() {'), src.indexOf('    _createSettingsRow() {'));
+  assert.match(m, /API\.detectionResponseSummaryQuiet \|\| API\.detectionResponseSummary/);
+  assert.match(m, /badge\.hidden = n <= 0;/);
+  assert.match(m, /d\.detect\.to_review/);
+  assert.match(src, /this\.loadLiveCounts\(\);\n\s*this\.loadDrCount\(\);/);
+  assert.match(read('css/styles.css'), /\.product-rail-attention \{[^}]*color: var\(--warning\);/);
 });
 
 test('bulk approve: plain button with live count, confirm gate, UI-token approve path, result line', async () => {
@@ -451,4 +453,47 @@ test('fallback headline uses the band word; no Looks normal when not in the revi
   assert.doesNotMatch(mk({ had_blocks: null }), /No rule had to fire/);
   assert.match(mk({ had_blocks: false }), /No rule had to fire/);
   assert.match(P._reasonHtml({ reason: 'A', setup_texts: ['A', 'B', 'C'] }), /<button type="button" class="dr-more" data-dr-more aria-expanded="false">, \+2 more<\/button>/);
+});
+
+test('the spotlight pending line uses the one sessions-to-review count', () => {
+  const P = loadPage();
+  const html = P._pendingLine({ detect: { to_review: 2 }, harden: { changes: 3 }, sessions: [{ band: 'high' }] });
+  assert.equal(html, '<p class="dr-spot-pending">2 sessions need a look. 3 config changes to approve.</p>');
+  assert.equal(P._pendingLine({ detect: { to_review: 1 }, harden: { changes: 0 } }), '<p class="dr-spot-pending">1 session needs a look.</p>');
+  assert.equal(P._pendingLine({ detect: { to_review: 0 }, harden: { changes: 0 } }), '');
+});
+
+test('Getting started: all incomplete is the full list with two Not yet marks and the note', () => {
+  const P = loadPage();
+  const html = P._startHtml({ setup: { guard_installed: false, governed_session: false, scored: false, baseline: null } });
+  assert.match(html, /<h3 id="dr-start-h">Getting started<\/h3><span class="dr-muted">0 of 2 done<\/span>/);
+  assert.equal((html.match(/class="dr-start-row"/g) || []).length, 2);
+  assert.equal((html.match(/>Not yet</g) || []).length, 2);
+  assert.match(html, /Connect the Guard for your agent tool[\s\S]*data-dr-start-connect>Connect Agents</);
+  assert.match(html, /Launch a session from this app[\s\S]*data-dr-start-launch>Launch</);
+  assert.match(html, /Then it fills in on its own: launching from here registers the policy check tools, you are asked once to approve the agent&#39;s config, scores start after 5 sessions in a folder, and automatic actions stay in test mode until you turn them on\./);
+  assert.doesNotMatch(html, /dr-start-progress/);
+  assert.doesNotMatch(html, /—|\bADR\b|firewall|Mission Control/);
+});
+
+test('Getting started: partial shows the baseline line once a session exists and nothing is scored', () => {
+  const P = loadPage();
+  const html = P._startHtml({ setup: { guard_installed: true, governed_session: true, scored: false, baseline: { sessions: 3, needed: 5, folder: 'webapp', harness_label: 'Claude Code' } } });
+  assert.match(html, /2 of 2 done/);
+  assert.match(html, /<p class="dr-muted dr-start-progress">3 of 5 sessions in webapp with Claude Code<\/p>/);
+  const one = P._startHtml({ setup: { guard_installed: true, governed_session: false, scored: false, baseline: { sessions: 1, needed: 5, folder: 'w' } } });
+  assert.match(one, /1 of 2 done/);
+  assert.equal((one.match(/class="dr-start-row is-done"/g) || []).length, 1);
+  assert.doesNotMatch(one, /dr-start-progress/, 'no baseline line before step 2 is done');
+});
+
+test('Getting started: scored collapses to one line while a step is open, and hides when all are done', () => {
+  const P = loadPage();
+  const open = { setup: { guard_installed: false, governed_session: true, scored: true, baseline: null } };
+  assert.equal(P._startHtml(open), '<p class="dr-muted dr-start-line">Set up: 1 of 2 done · <a href="#" class="dr-link" data-dr-start-show>Show</a></p>');
+  assert.match(P._startHtml(open, true), /Getting started/);
+  assert.equal(P._startHtml({ setup: { guard_installed: true, governed_session: true, scored: true } }), '');
+  assert.equal(P._startHtml({}), '');
+  const src = read('js/pages/detection-response.js');
+  assert.ok(src.indexOf('<div data-dr-start></div>') < src.indexOf('<div data-dr-spot></div>'), 'above the spotlight');
 });

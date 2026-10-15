@@ -11,6 +11,7 @@ import pytest
 from securevector.app.database.migrations import (
     ensure_config_trust_tables,
     ensure_policy_check_tables,
+    ensure_response_rung_tables,
     ensure_session_drift_table,
 )
 from securevector.app.server.routes import detection_response as dr_routes
@@ -288,3 +289,102 @@ def test_fallback_spotlight_skips_sessions_marked_normal(dr_env):
     _drift(raw, "s-m", "t-m", 12, "calm")
     raw.commit()
     assert client.get(URL, headers=AUTH).json()["spotlight"]["task_id"] == "t-m"
+
+
+def test_rung_two_or_above_counts_as_a_session_to_review(dr_env):
+    client, ws, db = dr_env
+    asyncio.run(ensure_response_rung_tables(db))
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-rung", "s-rung", ws, ended_days=0)
+    _drift(raw, "s-rung", "t-rung", 10, "calm")
+    _task(raw, "t-calm", "s-calm", ws, ended_days=0)
+    _drift(raw, "s-calm", "t-calm", 10, "calm")
+    raw.execute("INSERT INTO session_rungs (session_id, task_id, harness, rung, mode) VALUES ('s-rung', 't-rung', 'claude-code', 2, 'shadow')")
+    raw.execute("INSERT INTO session_rungs (session_id, task_id, harness, rung, mode) VALUES ('s-calm', 't-calm', 'claude-code', 1, 'shadow')")
+    raw.commit()
+    raw.close()
+    body = client.get(URL, headers=AUTH).json()
+    assert [r["task_id"] for r in body["sessions"]] == ["t-rung"]
+    assert body["sessions"][0]["reason"] == "Automatic actions flagged this session."
+    assert body["detect"]["to_review"] == 1
+
+
+def _guard(monkeypatch, states):
+    from securevector.app.server.routes import governance
+
+    async def fake():
+        return states
+    monkeypatch.setattr(governance, "_plugin_statuses", fake)
+
+
+def test_getting_started_with_nothing_set_up(dr_env, monkeypatch):
+    client, ws, db = dr_env
+    _guard(monkeypatch, {"claude-code": {"installed": False, "enabled": False}})
+    setup = client.get(URL, headers=AUTH).json()["setup"]
+    assert setup == {"guard_installed": False, "governed_session": False, "scored": False, "baseline": None}
+
+
+def test_getting_started_partial_shows_baseline_progress(dr_env, monkeypatch):
+    client, ws, db = dr_env
+    _guard(monkeypatch, {"claude-code": {"installed": True, "enabled": True}, "codex": {"installed": False}})
+    raw = sqlite3.connect(db.db_path)
+    for i in range(3):
+        _task(raw, f"t-{i}", f"s-{i}", ws, ended_days=0)
+    raw.commit()
+    raw.close()
+    setup = client.get(URL, headers=AUTH).json()["setup"]
+    assert setup["guard_installed"] is True and setup["governed_session"] is True and setup["scored"] is False
+    b = setup["baseline"]
+    assert b["sessions"] == 3 and b["needed"] == 5 and b["harness_label"]
+    assert "/" not in b["folder"]
+
+
+def test_getting_started_all_done_once_scored(dr_env, monkeypatch):
+    client, ws, db = dr_env
+    _guard(monkeypatch, {"codex": {"installed": True}})
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-s", "s-s", ws, ended_days=0)
+    _drift(raw, "s-s", "t-s", 20, "calm")
+    raw.commit()
+    raw.close()
+    setup = client.get(URL, headers=AUTH).json()["setup"]
+    assert setup["guard_installed"] is True and setup["governed_session"] is True and setup["scored"] is True
+
+
+def test_getting_started_disabled_guard_is_not_installed(dr_env, monkeypatch):
+    client, ws, db = dr_env
+    _guard(monkeypatch, {"claude-code": {"installed": True, "enabled": False}})
+    assert client.get(URL, headers=AUTH).json()["setup"]["guard_installed"] is False
+
+
+def _rung(raw, sid, tid, rung, reasons, feedback=None):
+    raw.execute("INSERT INTO session_rungs (session_id, task_id, harness, rung, mode, reasons_json, feedback) "
+                "VALUES (?, ?, 'claude-code', ?, 'shadow', ?, ?)", (sid, tid, rung, json.dumps(reasons), feedback))
+
+
+def test_looks_normal_clears_a_drift_only_rung_but_not_config_or_deny(dr_env):
+    client, ws, db = dr_env
+    asyncio.run(ensure_response_rung_tables(db))
+    raw = sqlite3.connect(db.db_path)
+    _task(raw, "t-d", "s-d", ws, ended_days=0)
+    _drift(raw, "s-d", "t-d", 55, "watch", feedback="normal")
+    _rung(raw, "s-d", "t-d", 2, ["drift"])
+    _task(raw, "t-c", "s-c", ws, ended_days=0)
+    _drift(raw, "s-c", "t-c", 55, "watch", feedback="normal")
+    _rung(raw, "s-c", "t-c", 2, ["drift", "config"])
+    _task(raw, "t-n", "s-n", ws, ended_days=0)
+    _drift(raw, "s-n", "t-n", 10, "calm")
+    _rung(raw, "s-n", "t-n", 2, ["deny"], feedback="not_needed")
+    raw.commit()
+    raw.close()
+    body = client.get(URL, headers=AUTH).json()
+    assert [r["task_id"] for r in body["sessions"]] == ["t-c"]
+    assert body["detect"]["to_review"] == 1
+    assert body["detect"]["marked_normal"] == 1
+
+
+def test_rung_mode_error_is_plain():
+    from securevector.app.services import response_rungs
+    import inspect
+    assert "Test mode is not finished yet" in inspect.getsource(response_rungs)
+    assert "Shadow period" not in inspect.getsource(response_rungs)

@@ -24,14 +24,16 @@ function productGroupsSource() {
 test('product rail order and contextual route mappings are stable', () => {
   const groups = productGroupsSource();
   const ids = [...groups.matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
-  assert.deepStrictEqual(ids, ['tasks', 'visibility', 'governance', 'policies', 'connect', 'more']);
+  assert.deepStrictEqual(ids, ['tasks', 'detect', 'visibility', 'governance', 'policies', 'connect', 'more', 'settings']);
+  assert.match(groups, /id: 'detect', label: 'Detect & Respond', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',[\s\S]*?items: \['detection-response'\]/);
+  assert.match(groups, /id: 'settings', label: 'Settings', icon: 'settings', landing: 'settings', rail: false,[\s\S]*?items: \['settings'\]/);
   assert.match(groups, /id: 'tasks'[\s\S]*?landing: 'terminals',[\s\S]*?items: \['terminals'\]/);
   assert.match(groups, /id: 'visibility'[\s\S]*?items: \['dashboard', 'agent-runs', 'threats', 'costs', 'egress'\]/);
   assert.match(groups, /id: 'governance'[\s\S]*?items: \['governance'\]/);
-  assert.match(groups, /id: 'tasks'[\s\S]*?extraPages: \['detection-response'\]/);
+  assert.doesNotMatch(groups, /extraPages: \['detection-response'\]/);
   assert.match(groups, /id: 'policies'[\s\S]*?items: \['policies'\]/);
   assert.match(groups, /id: 'connect'[\s\S]*?items: \['guide-connect-agents', 'siem-export'\]/);
-  assert.match(groups, /id: 'more'[\s\S]*?items: \['guide', 'settings'\]/);
+  assert.match(groups, /id: 'more'[\s\S]*?items: \['guide'\] \}/);
   assert.match(read('js/components/sidebar.js'), /return this\.productGroups\.find\(group => \(group\.extraPages \|\| \[\]\)\.includes\(page\) \|\| group\.items\.some/);
 });
 
@@ -67,8 +69,9 @@ test('product controls are real accessible buttons and retain the SecureVector s
   assert.match(src, /home = document\.createElement\('button'\)/);
   assert.match(src, /shield\.src = '\/images\/favicon\.png'/);
   assert.match(src, /button = document\.createElement\('button'\)/);
-  assert.match(src, /button\.setAttribute\('aria-label', group\.label\)/);
-  assert.match(src, /button\.title = group\.label/);
+  assert.match(src, /button\.setAttribute\('aria-label', group\.title \|\| group\.label\)/);
+  assert.match(src, /button\.title = group\.title \|\| group\.label/);
+  assert.match(src, /if \(group\.rail === false\) return;/);
   assert.doesNotMatch(src, /sv-nav-redesign|reference-logo|logo-mark/);
 });
 
@@ -175,12 +178,12 @@ test('the search row opens the palette and live counts hide at zero', () => {
   assert.match(read('js/api.js'), /queryParams\.set\('is_threat'/);
 });
 
-test('context rendering filters destinations and More owns Guide and Settings', () => {
+test('context rendering filters destinations; More owns Guide, Settings is pinned', () => {
   const src = read('js/components/sidebar.js');
   assert.match(src, /if \(!activeGroup\.items\.includes\(item\.id\)\) return;/);
   assert.match(src, /contextTitle\.textContent = activeGroup\.label/);
   assert.match(src, /contextSubtitle\.textContent = activeGroup\.subtitle/);
-  assert.match(productGroupsSource(), /id: 'more'.*landing: 'guide',[\s\S]*?items: \['guide', 'settings'\]/);
+  assert.match(productGroupsSource(), /id: 'more'.*landing: 'guide',[\s\S]*?items: \['guide'\] \}/);
   assert.doesNotMatch(navItemsSource(), /dock: true/);
   assert.doesNotMatch(src, /bottomSection\.appendChild\(this\._createDock\(\)\)/);
 });
@@ -191,8 +194,8 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=193/);
-  assert.match(html, /styles\.css\?v=489/);
+  assert.match(html, /sidebar\.js\?v=194/);
+  assert.match(html, /styles\.css\?v=493/);
   assert.match(html, /app\.js\?v=75/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -288,7 +291,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=489/);
+  assert.match(read('index.html'), /styles\.css\?v=493/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -611,7 +614,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=193/);
+  assert.match(read('index.html'), /sidebar\.js\?v=194/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {

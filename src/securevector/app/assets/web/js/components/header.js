@@ -2065,6 +2065,14 @@ graph.add_edge("output_security", END)`,
         if (hpt) hpt.textContent = info.title;
         const hps = document.getElementById('header-page-subtitle');
         if (hps) hps.textContent = info.subtitle;
+        this._subtitleWrap(hps, currentPage);
+    },
+
+    // Pages whose subtitle wraps under 1100px instead of clipping.
+    WRAP_SUBTITLE_PAGES: ['terminals', 'detection-response'],
+
+    _subtitleWrap(el, page) {
+        if (el && el.classList) el.classList.toggle('is-wrap', this.WRAP_SUBTITLE_PAGES.includes(page));
     },
 
     setPageInfo(title, subtitle) {
@@ -2076,6 +2084,7 @@ graph.add_edge("output_security", END)`,
             // Subtitle is clamped to one line — the full text survives as a
             // tooltip for the few pages whose description still runs long.
             hps.title = subtitle || '';
+            this._subtitleWrap(hps, window.Sidebar ? Sidebar.currentPage : '');
         }
     },
 };
