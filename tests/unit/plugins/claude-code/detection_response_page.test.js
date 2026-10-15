@@ -61,20 +61,27 @@ test('empty and partial states', () => {
   assert.match(empty, /No sessions need review\.[\s\S]*Last scored 4 min ago\./);
 });
 
-test('a review row shows harness, folder, band, setup state, reason and the two actions', () => {
+test('a review row shows harness, folder, score, band, config mark, reason and its actions', () => {
   const P = loadPage();
   const row = P._rowHtml({ task_id: 't1', harness_label: 'Claude Code', folder: 'app', score: 82, band: 'high',
     status: 'scored', setup_state: 'changed', setup_changes: 2, setup_harness: 'claude-code',
     reason: 'Tools new here: 4 of 31 calls', ended: true, at: new Date().toISOString() }, true);
   assert.match(row, /is-focused/);
   assert.match(row, /<strong>Claude Code<\/strong><span class="dr-row-folder" title="app">app</);
-  assert.match(row, /unusual activity <span class="dr-band is-high">high</);
+  assert.match(row, /<span class="dr-row-score">82<\/span> <span class="dr-band is-high">high</);
   assert.match(row, /dr-setup is-amber">Agent config changed \(2\)</);
   assert.match(row, /Tools new here: 4 of 31 calls/);
   assert.match(row, /data-dr-normal="t1">Looks normal<\/button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</);
-  assert.match(row, /btn btn-sm" data-dr-approve="t1">Approve this setup<\/button><span class="dr-act-cap">Trust these config files from now on</);
+  assert.match(row, /btn btn-sm" data-dr-approve="t1">Review config change<\/button>/);
+  // One open control per row: the row title itself.
+  assert.equal((row.match(/data-dr-open="t1"/g) || []).length, 1);
+  assert.match(row, /<button type="button" class="dr-row-open" data-dr-open="t1" aria-label="Open the session summary for Claude Code in app">/);
+  assert.doesNotMatch(row, />Open session</);
+  assert.ok(row.indexOf('>Looks normal<') < row.indexOf('>Review config change<'), 'Looks normal, then Review config change');
   const running = P._rowHtml({ task_id: 't2', score: 50, band: 'watch', ended: false, setup_state: 'pinned' }, false);
-  assert.doesNotMatch(running, /Looks normal|Approve this setup/);
+  assert.doesNotMatch(running, /Looks normal|Review config change|Agent config/);
+  assert.match(running, /class="dr-row-open" data-dr-open="t2"/);
+  assert.match(running, /dr-band is-watch">worth a look</);
 });
 
 const P_plain = () => { const P = loadPage(); return (t, h) => P._plainReason(t, h); };
@@ -92,7 +99,8 @@ test('copy rules: full name, docs link, no em dash, no banned words', () => {
   const r = P_plain();
   assert.equal(r('Mod code-review changed (manifest or files).', 'Claude Code'), 'The code-review plugin changed.');
   assert.equal(r('Mod settings changed in ~/.codex/config.toml.', 'Codex'), 'Codex settings changed (~/.codex/config.toml).');
-  assert.match(src, /Drift Score \$\{this\._esc\(row\.score\)\} of 100/);
+  assert.match(src, /title="Score \$\{this\._esc\(row\.score\)\} of 100\. Compared with this agent's earlier sessions in this folder\."/);
+  assert.doesNotMatch(src, /Drift [Ss]core/);
 });
 
 test('Agent Sessions links to the page from the card and the Unusual activity and Agent config rows', () => {
@@ -296,14 +304,14 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=17/);
-  assert.match(read('index.html'), /styles\.css\?v=494/);
+  assert.match(read('index.html'), /detection-response\.js\?v=18/);
+  assert.match(read('index.html'), /styles\.css\?v=495/);
 });
 
 test('plain-language pass: Review label and heading, Launch first, one card status line', () => {
   const sidebar = read('js/components/sidebar.js');
   assert.match(sidebar, /title: 'Agent Detection & Response'/);
-  assert.match(read('js/components/header.js'), /'detection-response': \{ title: 'Agent Detection & Response', subtitle: 'Sessions that did something unusual, and agent config changes to check\.' \}/);
+  assert.match(read('js/components/header.js'), /'detection-response': \{ title: 'Agent Detection & Response', subtitle: 'Watches each agent session for behaviour unlike its earlier sessions and shows you which ones to look at\.' \}/);
   const page = read('js/pages/terminals.js');
   assert.ok(page.indexOf('id="terminals-launch-btn"') < page.indexOf('id="terminals-settings-btn"'), 'Launch precedes Settings');
   assert.match(page, /btn btn-primary btn-sm terminals-launch-button/);
@@ -350,10 +358,9 @@ test('spotlight: headline, subline, band chip, folder name only, points and sent
   assert.match(html, /Called 3 hosts new for this folder\./);
   assert.doesNotMatch(html, /Kept asking after a denial/, 'at most five rows');
   assert.doesNotMatch(html, /\/Users|\\\\/);
-  assert.match(html, /data-dr-open="t-high"/);
-  assert.doesNotMatch(html, /data-dr-normal/, 'a running session cannot be marked normal');
+  assert.doesNotMatch(html, /data-dr-open|data-dr-normal/, 'actions live on the rows');
   assert.doesNotMatch(P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { had_blocks: true }) }), /No rule had to fire/);
-  assert.match(P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { ended_at: SPOT.computed_at }) }), /data-dr-normal="t-high"[\s\S]*Hide from this list and count it as normal for future scores/);
+  assert.doesNotMatch(P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { ended_at: SPOT.computed_at }) }), /data-dr-normal/);
 });
 
 test('spotlight: sparkline has N points and highlights the last; watch and low chips', () => {
@@ -368,7 +375,7 @@ test('spotlight: sparkline has N points and highlights the last; watch and low c
   assert.match(P.BAND_RANGE.calm, /Low \u00b7 below 40/);
 });
 
-test('spotlight: empty state and list excludes the spotlight session', () => {
+test('spotlight: empty state; the list now includes the spotlight session', () => {
   const P = loadPage();
   const empty = P._spotlightHtml({ spotlight: null, sessions: [] });
   assert.match(empty, /No scored sessions yet\./);
@@ -390,8 +397,9 @@ test('spotlight: empty state and list excludes the spotlight session', () => {
   assert.match(calm, /Low \u00b7 below 40/);
   assert.match(calm, /No signal stood out\./);
   assert.match(calm, /dr-spark is-calm/);
-  assert.match(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high' }] }), /No other sessions need review\./);
-  assert.doesNotMatch(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high', score: 82, band: 'high' }, { task_id: 'o', score: 50, band: 'watch' }] }), /data-dr-open="t-high"/);
+  // The fixes live on the rows, so the top session is listed too.
+  assert.match(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high', score: 82, band: 'high' }, { task_id: 'o', score: 50, band: 'watch' }] }), /data-dr-row="t-high"[\s\S]*data-dr-row="o"/);
+  assert.doesNotMatch(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high' }] }), /No other sessions need review/);
 });
 
 test('Detection & Response rail button carries an amber count from the cached summary', () => {
@@ -449,8 +457,11 @@ test('fallback headline uses the band word; no Looks normal when not in the revi
   const P = loadPage();
   const mk = (o) => P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { ended_at: SPOT.computed_at }, o), detect: {}, harden: {} });
   assert.match(mk({ to_review: false, band: 'calm', score: 20 }), /Highest score this week: 20, low\./);
-  assert.doesNotMatch(mk({ to_review: false, band: 'calm' }), /data-dr-normal/);
-  assert.match(mk({ to_review: true }), /data-dr-normal/);
+  // Actions live on the rows only: the spotlight under Details has none.
+  assert.doesNotMatch(mk({ to_review: false, band: 'calm' }), /data-dr-normal|data-dr-open|dr-spot-actions/);
+  assert.doesNotMatch(mk({ to_review: true }), /data-dr-normal|data-dr-open|dr-spot-actions/);
+  const normal = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 20 }), detect: { marked_normal: 2 }, harden: {} });
+  assert.match(normal, /Highest score this week, not counting sessions marked normal: 20, low\./);
   assert.doesNotMatch(mk({ had_blocks: null }), /No rule had to fire/);
   assert.match(mk({ had_blocks: false }), /No rule had to fire/);
   assert.match(P._reasonHtml({ reason: 'A', setup_texts: ['A', 'B', 'C'] }), /<button type="button" class="dr-more" data-dr-more aria-expanded="false">, \+2 more<\/button>/);
@@ -496,7 +507,8 @@ test('Getting started: scored collapses to one line while a step is open, and hi
   assert.equal(P._startHtml({ setup: { guard_installed: true, governed_session: true, scored: true } }), '');
   assert.equal(P._startHtml({}), '');
   const src = read('js/pages/detection-response.js');
-  assert.ok(src.indexOf('<div data-dr-start></div>') < src.indexOf('<div data-dr-spot></div>'), 'above the spotlight');
+  assert.ok(src.indexOf('<div data-dr-start id="dr-sec-start"></div>') > 0, 'start slot present');
+  assert.ok(src.indexOf('<div data-dr-start id="dr-sec-start"></div>') < src.indexOf('<div data-dr-top></div>'), 'above the top score');
 });
 
 
@@ -509,4 +521,50 @@ test('spotlight compare line: first session, still settling, settled', () => {
   assert.match(first, /First session here, nothing to compare with yet\./);
   const settling = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { baseline: { sessions: 3, median: 11, confidence: 0.6 } }) });
   assert.match(settling, /Compared with 3 earlier sessions, comparison still settling\./);
+});
+
+// ---- simple page (2026-10-14): top, review list, one closed Details ----
+
+test('Details is closed by default, sits below the list and holds the six sections in order', () => {
+  const P = loadPage();
+  const d = P._detailsHtml();
+  assert.match(d, /^<details class="dr-loop dr-details" id="dr-sec-details">\s*<summary>Details<\/summary>/);
+  assert.doesNotMatch(d.slice(0, d.indexOf('>') + 1), /\bopen\b/, 'closed by default');
+  const ids = ['dr-sec-why', 'dr-sec-actions', 'dr-sec-checks', 'dr-sec-fleet', 'dr-sec-config', 'dr-sec-how'];
+  const at = ids.map(id => d.indexOf(`id="${id}"`));
+  at.forEach((i, k) => assert.ok(i > 0, ids[k]));
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'why, actions, checks, devices, config, how');
+  assert.ok(d.lastIndexOf('</details>') === d.length - '</details>'.length, 'the six sit inside');
+  const src = read('js/pages/detection-response.js');
+  const tpl = src.slice(src.indexOf('container.innerHTML = `<div class="dr-wrap">'), src.indexOf('const soft = (f) =>'));
+  assert.ok(tpl.indexOf('data-dr-top') < tpl.indexOf('id="dr-sec-sessions"') && tpl.indexOf('id="dr-sec-sessions"') < tpl.indexOf('this._detailsHtml()'), 'top, list, Details');
+  assert.doesNotMatch(tpl, /data-dr-spot|data-dr-tiles|data-dr-config|data-dr-cloud|dr-copy-stats/, 'nothing else outside Details');
+});
+
+test('the top shows only the score, band word, one reason and the compare line', () => {
+  const P = loadPage();
+  const top = P._topHtml({ spotlight: SPOT });
+  assert.match(top, /data-dr-top-score>82</);
+  assert.match(top, /dr-band dr-top-band is-high" data-dr-top-band>high</);
+  assert.match(top, /data-dr-top-reason>Used 4 tools it had never used here before\.</);
+  assert.match(top, /data-dr-top-compare>Compared with 3 earlier sessions\.</);
+  assert.equal((top.match(/<p\b/g) || []).length, 2, 'reason and compare only');
+  assert.doesNotMatch(top, /<svg|dr-spark|dr-why|Hit 6 errors|<button|data-dr-normal|data-dr-open|sessions? need/);
+  assert.match(top, /data-dr-top-label>Highest score to review</);
+  assert.match(P._topHtml({ spotlight: Object.assign({}, SPOT, { to_review: false }), detect: {} }), /data-dr-top-label>Highest score this week</);
+  assert.match(P._topHtml({ spotlight: Object.assign({}, SPOT, { to_review: false }), detect: { marked_normal: 1 } }), /data-dr-top-label>Highest score this week, not counting sessions marked normal</);
+  const watch = P._topHtml({ spotlight: Object.assign({}, SPOT, { band: 'watch', score: 55, baseline: { sessions: 3, confidence: 0.5 } }) });
+  assert.match(watch, /is-watch" data-dr-top-band>worth a look</);
+  assert.match(watch, /Compared with 3 earlier sessions, comparison still settling\./);
+  const first = P._topHtml({ spotlight: Object.assign({}, SPOT, { band: 'calm', score: 12, features: [], recent_scores: [], baseline: { sessions: 0, confidence: 0 } }) });
+  assert.match(first, /data-dr-top-band>low</);
+  assert.match(first, /No signal stood out\./);
+  assert.match(first, /First session here, nothing to compare with yet\./);
+  assert.match(P._topHtml({ spotlight: null }), /No score yet\. A score appears after the first tool calls\./);
+  assert.equal(P._topHtml(null), '');
+});
+
+test('the approve panel says approval lasts until the files change again', () => {
+  const src = read('js/pages/detection-response.js');
+  assert.match(src, /<p class="dr-muted dr-approve-note">Approving trusts these files until they change again\.<\/p>/);
 });

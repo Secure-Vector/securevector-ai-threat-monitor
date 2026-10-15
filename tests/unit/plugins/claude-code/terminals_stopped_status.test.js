@@ -64,5 +64,5 @@ test('the rail shows a user-stopped task as not active and "stopped by you"', ()
   assert.notStrictEqual(state, 'active');
   assert.notStrictEqual(state, 'failed');
   assert.strictEqual(o._taskSubtitle(task, state), 'Claude Code · stopped by you');
-  assert.match(read('index.html'), /sidebar\.js\?v=195"/);
+  assert.match(read('index.html'), /sidebar\.js\?v=196"/);
 });

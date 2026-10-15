@@ -10261,6 +10261,22 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .dr-footer { display: flex; justify-content: flex-end; margin-top: 10px; }
 .dr-copy-stats { background: none; border: 0; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 4px 6px; text-decoration: underline; }
 .dr-copy-stats:hover { color: var(--text-primary); }
+/* The simple page (2026-10-14): the highest score this week on top, the
+   review list, and one closed Details disclosure holding the rest. */
+.dr-top { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-card); }
+.dr-top-line { display: flex; align-items: baseline; gap: 10px; }
+.dr-top-score { font-family: var(--font-display, inherit); font-size: 34px; font-weight: 600; line-height: 1.1; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.dr-top-score.is-watch { color: var(--warning, #f59e0b); }
+.dr-top-score.is-high { color: var(--danger, #ef4444); }
+.dr-top-band { font-size: 14px; font-weight: 600; }
+.dr-top-reason { margin: 0; font-size: 13.5px; color: var(--text-primary); }
+.dr-top-empty { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.dr-row-score { font-weight: 600; color: var(--text-primary); }
+.dr-details > summary { font-size: 14px; }
+.dr-details-body { display: flex; flex-direction: column; gap: 16px; margin-top: 12px; }
+.dr-details .dr-loop { background: var(--bg-secondary); }
+.dr-details .dr-fleet { margin-top: 0; }
+.nav-views.nav-views-flat .nav-item.nav-view.nav-dr-sub { padding-left: 30px; }
 .terminals-task-dr, .terminals-summary-dr { font-size: 11.5px; color: var(--accent-primary); text-decoration: none; }
 .terminals-task-dr:hover, .terminals-summary-dr:hover { text-decoration: underline; }
 @media (max-width: 960px) {
