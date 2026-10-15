@@ -391,12 +391,19 @@ test('spotlight: empty state; the list now includes the spotlight session', () =
   assert.match(empty, /A score appears after the first tool calls\./);
   assert.doesNotMatch(empty, /5 sessions/);
   assert.doesNotMatch(empty, /dr-spot-card/);
-  // Sessions to review exist (config changes) but none is watch or high: still the empty headline.
-  // One count: the server's sessions to review (config-changed sessions included); config changes are a breakdown.
+  // Sessions to review exist (config changes) but none is watch or high. Show
+  // the highest listed score honestly while retaining the pending breakdown.
   const cfgOnly = P._spotlightHtml({ spotlight: null, detect: { to_review: 2 }, sessions: [{ task_id: 'x', score: 8, band: 'calm', setup_state: 'changed' }, { task_id: 'y', score: null, band: null, setup_state: 'changed' }], harden: { changes: 2 } });
   assert.match(cfgOnly, /2 sessions need a look\. 2 config changes to approve\./);
+  assert.match(cfgOnly, /Highest listed session: <span class="dr-top-score is-calm">8<\/span>, low\./);
+  assert.match(cfgOnly, /not enough same-folder history to show a trend yet/);
+  assert.doesNotMatch(cfgOnly, /No scored sessions yet|trend.*up|trend.*down/i);
+  const invalidSpotlight = P._spotlightHtml({ spotlight: { score: null }, sessions: [{ score: 17, band: 'calm' }] });
+  assert.match(invalidSpotlight, /Highest listed session: <span class="dr-top-score is-calm">17<\/span>, low\./);
+  assert.match(invalidSpotlight, /not enough same-folder history to show a trend yet/);
   const unusual = P._spotlightHtml({ spotlight: null, detect: { to_review: 2 }, sessions: [{ task_id: 'x', score: 80, band: 'high' }, { task_id: 'y', band: null }], harden: { changes: 1 } });
   assert.match(unusual, /2 sessions need a look\. 1 config change to approve\./);
+  assert.match(unusual, /Highest listed session: <span class="dr-top-score is-high">80<\/span>, high\./);
   assert.doesNotMatch(cfgOnly, /dr-spot-card/);
   assert.match(P._spotlightHtml({ spotlight: null, sessions: [], detect: { to_review: 0 }, harden: { changes: 3 } }), /3 config changes to approve\./);
   const calm = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 25, features: [] }), sessions: [{ task_id: 'a', band: 'watch', score: 50 }, { task_id: 'b', band: 'high', score: 90 }], detect: { to_review: 2 }, harden: { changes: 17 } });
@@ -587,4 +594,15 @@ test('the top shows only the score, band word, one reason and the compare line',
 test('the approve panel says approval lasts until the files change again', () => {
   const src = read('js/pages/detection-response.js');
   assert.match(src, /<p class="dr-muted dr-approve-note">Approving trusts these files until they change again\.<\/p>/);
+});
+
+test('the +N reasons control is a transparent, keyboard-visible text button', () => {
+  const css = read('css/styles.css');
+  const moreCss = css.slice(css.indexOf('.dr-more {'), css.indexOf('.dr-more-list {'));
+  assert.match(moreCss, /\.dr-more \{[^}]*background: transparent;/);
+  assert.match(moreCss, /\.dr-more \{[^}]*border: 0;/);
+  assert.match(moreCss, /\.dr-more \{[^}]*font: inherit;/);
+  assert.match(moreCss, /\.dr-more \{[^}]*text-decoration: underline;/);
+  assert.match(moreCss, /\.dr-more:focus-visible \{[^}]*outline: 2px solid var\(--accent-primary\);/);
+  assert.match(loadPage()._reasonHtml({ reason: 'A', setup_texts: ['A', 'B'] }), /<button type="button" class="dr-more"[^>]*>.*\+1 more<\/button>/);
 });

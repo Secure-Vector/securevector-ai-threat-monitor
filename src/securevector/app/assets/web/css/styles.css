@@ -10455,7 +10455,9 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 
 .dr-row-folder { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-row-head strong { white-space: nowrap; }
-.dr-more { color: var(--accent-primary, #2dd4bf); cursor: pointer; }
+.dr-more { appearance: none; -webkit-appearance: none; padding: 0 2px; border: 0; border-radius: 3px; background: transparent; color: var(--accent-primary, #2dd4bf); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.dr-more:hover { color: var(--text-primary); }
+.dr-more:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .dr-more-list { margin: 4px 0 0; padding-left: 16px; }
 .dr-more-list[hidden] { display: none; }
 .dr-tile-sub { overflow-wrap: anywhere; }

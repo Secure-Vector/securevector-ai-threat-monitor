@@ -295,15 +295,28 @@ const DetectionResponsePage = {
         return normal > 0 ? 'Highest score this week, not counting sessions marked normal' : 'Highest score this week';
     },
 
+    _hasNumericScore(value) {
+        return value !== null && value !== '' && Number.isFinite(Number(value));
+    },
+
+    /** Highest numeric score in the listed sessions, for honest no-spotlight states. */
+    _highestListedScore(data) {
+        const sessions = (data && Array.isArray(data.sessions) ? data.sessions : [])
+            .filter(s => s && this._hasNumericScore(s.score));
+        if (!sessions.length) return null;
+        const session = sessions.reduce((best, current) => Number(current.score) > Number(best.score) ? current : best);
+        const score = Number(session.score);
+        const band = score >= 70 ? 'high' : score >= 40 ? 'watch' : 'calm';
+        return { score, band };
+    },
+
     _topHtml(data) {
         if (!data) return '';
         const sp = data.spotlight;
-        if (!sp || !Number.isFinite(Number(sp.score))) {
-            const sessions = (data.sessions || []).filter(s => s && s.score !== null && s.score !== '' && Number.isFinite(Number(s.score)));
-            if (sessions.length) {
-                const highest = sessions.reduce((best, session) => Number(session.score) > Number(best.score) ? session : best);
-                const score = Number(highest.score);
-                const band = this._bandOf(highest.band || (score >= 70 ? 'high' : score >= 40 ? 'watch' : 'calm'));
+        if (!sp || !this._hasNumericScore(sp.score)) {
+            const listed = this._highestListedScore(data);
+            if (listed) {
+                const { score, band } = listed;
                 return `<section class="dr-top" aria-label="Highest listed session score">
                     <div class="dr-caps">Highest listed session score</div>
                     <div class="dr-top-line"><span class="dr-top-score is-${band}">${this._esc(score)}</span><span class="dr-band dr-top-band is-${band}">${this._esc(this._bandWord(band))}</span></div>
@@ -329,8 +342,15 @@ const DetectionResponsePage = {
     _spotlightHtml(data) {
         const sp = data && data.spotlight;
         const pending = this._pendingLine(data);
-        if (!sp) {
+        if (!sp || !this._hasNumericScore(sp.score)) {
             if (!data) return '';
+            const listed = this._highestListedScore(data);
+            if (listed) {
+                return `<section class="dr-spot dr-spot-empty" aria-label="Spotlight">${pending}
+                    <h2 class="dr-spot-h">Highest listed session: <span class="dr-top-score is-${listed.band}">${this._esc(listed.score)}</span>, ${this._esc(this._bandWord(listed.band))}.</h2>
+                    <p class="dr-spot-sub">There is not enough same-folder history to show a trend yet.</p>
+                </section>`;
+            }
             return `<section class="dr-spot dr-spot-empty" aria-label="Spotlight">${pending}
                 <h2 class="dr-spot-h">No scored sessions yet.</h2>
                 <p class="dr-spot-sub">A score appears after the first tool calls.</p>
