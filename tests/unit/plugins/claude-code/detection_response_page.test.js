@@ -27,7 +27,7 @@ test('the page is routed, loaded and has its own rail entry', () => {
   const sidebar = read('js/components/sidebar.js');
   assert.match(sidebar, /id: 'detection-response', label: 'Agent Detection & Response', icon: 'search',\s*\n\s*tooltip: '/);
   assert.doesNotMatch(sidebar, /items: \['governance', 'detection-response'\]/);
-  assert.match(sidebar, /\{ id: 'detect', label: 'Detect & Respond', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',/);
+  assert.match(sidebar, /\{ id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',/);
   assert.match(sidebar, /items: \['detection-response'\]/);
 });
 
@@ -296,8 +296,8 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=15/);
-  assert.match(read('index.html'), /styles\.css\?v=493/);
+  assert.match(read('index.html'), /detection-response\.js\?v=16/);
+  assert.match(read('index.html'), /styles\.css\?v=494/);
 });
 
 test('plain-language pass: Review label and heading, Launch first, one card status line', () => {
@@ -393,7 +393,7 @@ test('spotlight: empty state and list excludes the spotlight session', () => {
   assert.doesNotMatch(P._listHtml({ spotlight: SPOT, sessions: [{ task_id: 't-high', score: 82, band: 'high' }, { task_id: 'o', score: 50, band: 'watch' }] }), /data-dr-open="t-high"/);
 });
 
-test('Detect & Respond rail button carries an amber count from the cached summary', () => {
+test('Detection & Response rail button carries an amber count from the cached summary', () => {
   const src = read('js/components/sidebar.js');
   assert.match(src, /if \(group\.id === 'detect'\) \{[\s\S]*?badge\.className = 'product-rail-attention';[\s\S]*?badge\.dataset\.drProductBadge = '1';/);
   const m = src.slice(src.indexOf('    loadDrCount() {'), src.indexOf('    _createSettingsRow() {'));
