@@ -51,8 +51,8 @@ const DetectionResponsePage = {
 
     // --- tiles --------------------------------------------------------------
 
-    _tile(label, value, sub, extra) {
-        return `<section class="dr-tile" aria-label="${this._esc(label)}">
+    _tile(label, value, sub, extra, id) {
+        return `<section class="dr-tile"${id ? ` id="${this._esc(id)}"` : ''} aria-label="${this._esc(label)}">
             <div class="dr-tile-label">${this._esc(label)}</div>
             <div class="dr-tile-value">${value}</div>
             ${sub ? `<div class="dr-tile-sub">${sub}</div>` : ''}
@@ -96,7 +96,7 @@ const DetectionResponsePage = {
         const mode = r && typeof r === 'object' ? String(r.mode || r.global_mode || 'shadow').toLowerCase() : 'shadow';
         const test = mode === 'shadow';
         const cap = test ? ((Number.isFinite(taken) && taken > 0) ? 'test mode (logged only)' : 'nothing enforced (test mode)') : `<span class="dr-rung is-active">on</span>`;
-        return this._tile('Automatic actions', this._esc(this._num(Number.isFinite(taken) ? taken : 0)), cap);
+        return this._tile('Automatic actions', this._esc(this._num(Number.isFinite(taken) ? taken : 0)), cap, '', 'dr-sec-actions');
     },
 
     _preflightTile(p) {
@@ -104,16 +104,17 @@ const DetectionResponsePage = {
         const n = p.checked || 0;
         if (!n && p.registered === false) {
             return this._tile('Permission checks', '<span class="dr-tile-state">0</span>', 'MCP tools not registered',
-                '<a href="/guide-connect-agents" class="dr-link" data-dr-nav="guide-connect-agents">Register the MCP tools</a>');
+                '<a href="/guide-connect-agents" class="dr-link" data-dr-nav="guide-connect-agents">Register the MCP tools</a>', 'dr-sec-checks');
         }
         const avoided = p.avoided_denials || 0;
         return this._tile('Permission checks', this._esc(this._num(n)),
-            `${this._esc(this._num(n))} ${n === 1 ? 'check' : 'checks'} \u00b7 ${this._esc(this._num(avoided))} denied before ${avoided === 1 ? 'it' : 'they'} ran`);
+            `${this._esc(this._num(n))} ${n === 1 ? 'check' : 'checks'} \u00b7 ${this._esc(this._num(avoided))} denied before ${avoided === 1 ? 'it' : 'they'} ran`, '', 'dr-sec-checks');
     },
 
     _skeletonHtml() {
         const t = ['Unusual sessions', 'Config changes to review', 'Automatic actions', 'Permission checks']
-            .map((l) => this._tile(l, '<span class="dr-tile-state dr-muted">…</span>', '')).join('');
+            .map((l) => this._tile(l, '<span class="dr-tile-state dr-muted">…</span>', '', '',
+                { 'Automatic actions': 'dr-sec-actions', 'Permission checks': 'dr-sec-checks' }[l])).join('');
         return `<div class="dr-tiles is-loading" aria-busy="true">${t}</div>`;
     },
 
@@ -397,7 +398,7 @@ const DetectionResponsePage = {
 
     _loopHtml(open) {
         const items = this.LOOP.map(s => `<li><strong>${this._esc(s.verb)}</strong><span>${this._esc(s.text)}</span></li>`).join('');
-        return `<details class="dr-loop"${open ? ' open' : ''}>
+        return `<details class="dr-loop" id="dr-sec-how"${open ? ' open' : ''}>
             <summary>How it works</summary>
             <ol class="dr-loop-list">${items}</ol>
             <a class="dr-link" href="${this.DOCS_URL}" target="_blank" rel="noopener noreferrer">Read the Agent Detection &amp; Response docs</a>
@@ -805,13 +806,15 @@ const DetectionResponsePage = {
         const focus = this.focusSession || _drInitialFocus || null;
         this.focusSession = null;
         container.innerHTML = `<div class="dr-wrap">
-            <div data-dr-start></div>
+            <div data-dr-start id="dr-sec-start"></div>
+            <div id="dr-sec-sessions">
             <div data-dr-spot></div>
             <section class="dr-card" aria-labelledby="dr-review-h">
               <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted">Newest first. Open a row for its session summary.</span></div>
               <div data-dr-list><p class="dr-muted">Loading sessions…</p></div>
             </section>
-            <div data-dr-config></div>
+            </div>
+            <div data-dr-config id="dr-sec-config"></div>
             <div data-dr-tiles>${this._skeletonHtml()}</div>
             ${this._loopHtml(false)}
             <div data-dr-cloud></div>
@@ -835,6 +838,7 @@ const DetectionResponsePage = {
             tiles.innerHTML = this._tilesHtml(null, rungs);
             list.innerHTML = '<p class="dr-muted">Could not read sessions. Try again in a moment.</p>';
             this._bind(container);
+            this._sectionsReady();
             return;
         }
         tiles.innerHTML = this._tilesHtml(data, rungs);
@@ -847,6 +851,13 @@ const DetectionResponsePage = {
         this._renderFleet(container);
         const hit = focus ? container.querySelector(`[data-dr-row="${CSS.escape(focus)}"]`) : null;
         if (hit && hit.scrollIntoView) hit.scrollIntoView({ block: 'center' });
+        this._sectionsReady();
+    },
+
+    /** Sections are filled in: the panel scrolls to a section it was asked
+     *  for and lights the one in view. */
+    _sectionsReady() {
+        if (window.Sidebar && Sidebar.drPageReady) Sidebar.drPageReady();
     },
 };
 

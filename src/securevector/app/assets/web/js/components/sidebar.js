@@ -74,7 +74,7 @@ const Sidebar = {
     productGroups: [
         { id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',
           subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
-        { id: 'detect', label: 'Detect & Respond', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',
+        { id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',
           subtitle: 'Sessions that did something unusual, and agent config changes to check', items: ['detection-response'] },
         { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
           subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
@@ -268,7 +268,7 @@ const Sidebar = {
         contextHeading.className = 'sidebar-context-heading';
         const contextTitle = document.createElement('div');
         contextTitle.className = 'sidebar-context-title';
-        contextTitle.textContent = activeGroup.label;
+        contextTitle.textContent = activeGroup.title || activeGroup.label;
         const contextSubtitle = document.createElement('div');
         contextSubtitle.className = 'sidebar-context-subtitle';
         contextSubtitle.textContent = activeGroup.subtitle;
@@ -288,7 +288,7 @@ const Sidebar = {
                 this.navigate(activeGroup.landing);
             };
             contextHeading.classList.add('is-clickable');
-            contextHeading.title = `Open ${activeGroup.label}`;
+            contextHeading.title = `Open ${activeGroup.title || activeGroup.label}`;
             contextHeading.addEventListener('click', goToLanding);
             this._makeRowFocusable(contextHeading, goToLanding);
         }
@@ -333,6 +333,8 @@ const Sidebar = {
             // it has any) straight into the list instead, so every page
             // behind it stays reachable without the redundant parent.
             if (activeGroup.items.length === 1 && activeGroup.landing === item.id) {
+                // Detection & Response lists the page's own sections instead.
+                if (activeGroup.id === 'detect') { nav.appendChild(this._createDrSections()); return; }
                 if (item.views && item.views.length) {
                     const viewsEl = this._renderViews(item, true);
                     viewsEl.classList.add('nav-views-flat');
@@ -1248,7 +1250,7 @@ const Sidebar = {
         })) || this.productGroups[0];
     },
 
-    /** Sessions to review on the Detect & Respond rail button, from the
+    /** Sessions to review on the Detection & Response rail button, from the
      *  shared quiet summary read (cached 15 s by the API). Zero hides it. */
     loadDrCount() {
         if (!window.API || typeof document === 'undefined') return;
@@ -1265,8 +1267,191 @@ const Sidebar = {
         };
         try {
             Promise.resolve((API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API))
-                .then(d => paint(Math.max(0, Number(d && d.detect && d.detect.to_review) || 0))).catch(() => {});
+                .then(d => {
+                    this._drSummary = d || null;
+                    paint(Math.max(0, Number(d && d.detect && d.detect.to_review) || 0));
+                    this._paintDrSections(this._drSummary);
+                }).catch(() => {});
         } catch (e) { /* no count */ }
+    },
+
+    /** The Detection & Response panel: one row per section of the page, in
+     *  this order. Getting started shows only while setup is incomplete. */
+    DR_SECTIONS: [
+        { id: 'dr-sec-start', label: 'Getting started', onlyIncomplete: true },
+        { id: 'dr-sec-sessions', label: 'Sessions to review', count: 'review' },
+        { id: 'dr-sec-config', label: 'Config changes', count: 'config' },
+        { id: 'dr-sec-actions', label: 'Automatic actions' },
+        { id: 'dr-sec-checks', label: 'Permission checks' },
+        { id: 'dr-sec-how', label: 'How it works' },
+    ],
+
+    /** Setup is incomplete until a session is scored and both steps are done
+     *  (the same rule the page uses to drop its Getting started card). */
+    _drStartIncomplete(d) {
+        const st = d && d.setup;
+        if (!st) return false;
+        return !(st.scored && st.guard_installed === true && st.governed_session === true);
+    },
+
+    /** Counts beside the panel rows, from the cached summary the badge reads. */
+    _drCounts(d) {
+        const n = (v) => Math.max(0, Number(v) || 0);
+        const h = (d && d.harden) || {};
+        return { review: n(d && d.detect && d.detect.to_review), config: h.available === false ? 0 : n(h.changes) };
+    },
+
+    _createDrSections() {
+        const wrap = document.createElement('div');
+        wrap.className = 'nav-views open nav-views-flat nav-dr-sections';
+        this.DR_SECTIONS.forEach(sec => {
+            const row = document.createElement('div');
+            row.className = 'nav-item nav-view nav-dr-section';
+            row.dataset.drSection = sec.id;
+            row.title = sec.label;
+            if (sec.onlyIncomplete) row.hidden = true;
+            const lbl = document.createElement('span');
+            lbl.textContent = sec.label;
+            row.appendChild(lbl);
+            if (sec.count) {
+                const ct = document.createElement('span');
+                ct.className = 'nav-count nav-count-warn';
+                ct.dataset.drCount = sec.count;
+                ct.hidden = true;
+                row.appendChild(ct);
+            }
+            const go = (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.goToDrSection(sec.id); };
+            row.addEventListener('click', go);
+            this._makeRowFocusable(row, go);
+            wrap.appendChild(row);
+        });
+        this._paintDrSections(this._drSummary, wrap);
+        this._drWatch();
+        return wrap;
+    },
+
+    _drRows(root) {
+        const from = root && root.querySelectorAll ? root : document;
+        return [...from.querySelectorAll('[data-dr-section]')];
+    },
+
+    _paintDrSections(d, root) {
+        if (typeof document === 'undefined') return;
+        const counts = this._drCounts(d);
+        const start = this._drStartIncomplete(d);
+        this._drRows(root).forEach(row => {
+            const sec = this.DR_SECTIONS.find(s => s.id === row.dataset.drSection);
+            if (sec && sec.onlyIncomplete) row.hidden = !start;
+            const ct = row.querySelector ? row.querySelector('[data-dr-count]') : null;
+            if (ct) {
+                const n = counts[ct.dataset.drCount] || 0;
+                ct.textContent = String(n);
+                ct.hidden = n <= 0;
+            }
+        });
+        this._drSyncActive(root);
+    },
+
+    /** Lights the chosen section row, or the first visible one. */
+    _drSyncActive(root) {
+        if (typeof document === 'undefined') return;
+        const rows = this._drRows(root).filter(r => !r.hidden);
+        const act = rows.find(r => r.dataset.drSection === this._drActive) || rows[0];
+        rows.concat(this._drRows(root).filter(r => r.hidden)).forEach(r => {
+            const on = r === act;
+            r.classList.toggle('active', on);
+            if (on) r.setAttribute('aria-current', 'location'); else if (r.removeAttribute) r.removeAttribute('aria-current');
+        });
+    },
+
+    /** Which section is in view: the one whose top most recently passed the
+     *  line (ties keep panel order); at the bottom of the page, the lowest
+     *  section that is on screen; before any, the first. */
+    _drPickActive(entries, line, atBottom, viewBottom) {
+        if (!entries.length) return null;
+        let best = null;
+        entries.forEach(e => {
+            const limit = atBottom ? viewBottom : line;
+            if (e.top <= limit && (!best || e.top > best.top)) best = e;
+        });
+        return (best || entries[0]).id;
+    },
+
+    goToDrSection(id) {
+        this._drActive = id;
+        this._drLockUntil = Date.now() + 900;
+        if (this.currentPage === 'detection-response' && this._drScrollTo(id)) { this._drSyncActive(); return; }
+        this._drPendingSection = id;
+        this.navigate('detection-response');
+    },
+
+    _drScrollTo(id) {
+        const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+        if (!el) return false;
+        if (el.tagName === 'DETAILS') el.open = true;
+        if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return true;
+    },
+
+    /** The page calls this once its sections are filled in. */
+    drPageReady() {
+        const id = this._drPendingSection;
+        this._drPendingSection = null;
+        if (id) { this._drActive = id; this._drLockUntil = Date.now() + 900; this._drScrollTo(id); this._drSyncActive(); return; }
+        this._drPositionPass();
+    },
+
+    /** The element that scrolls the page: the nearest scrolling ancestor of
+     *  the sessions section, else the document. */
+    _drScroller() {
+        if (typeof document === 'undefined') return null;
+        let el = document.getElementById('dr-sec-sessions');
+        while (el && el.parentElement) {
+            el = el.parentElement;
+            const oy = typeof getComputedStyle === 'function' ? getComputedStyle(el).overflowY : '';
+            if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+        }
+        return document.scrollingElement || null;
+    },
+
+    /** Lights the section in view, from where the sections sit right now. */
+    _drPositionPass(scroller) {
+        const box = scroller || this._drScroller();
+        if (!box || !box.getBoundingClientRect) { this._drSyncActive(); return; }
+        const top = box === document.scrollingElement ? 0 : box.getBoundingClientRect().top;
+        const atBottom = box.scrollTop > 0 && box.scrollTop + box.clientHeight >= box.scrollHeight - 2;
+        const entries = this._drRows().filter(r => !r.hidden).map(r => {
+            const el = document.getElementById(r.dataset.drSection);
+            return el && el.offsetParent !== null ? { id: r.dataset.drSection, top: el.getBoundingClientRect().top } : null;
+        }).filter(Boolean);
+        const id = this._drPickActive(entries, top + 96, atBottom, top + box.clientHeight - 48);
+        if (id) this._drActive = id;
+        this._drSyncActive();
+    },
+
+    /** Only the page's own scroll counts: never the nav or an inner list. */
+    _drIsPageScroll(target) {
+        if (!target || typeof document === 'undefined') return false;
+        if (target === document || target === document.scrollingElement) return true;
+        const sec = document.getElementById('dr-sec-sessions');
+        return !!(sec && target.contains && target !== sec && target.contains(sec));
+    },
+
+    _drWatch() {
+        if (this._drWatching || typeof document === 'undefined' || !document.addEventListener) return;
+        this._drWatching = true;
+        let queued = false;
+        document.addEventListener('scroll', (ev) => {
+            if (this.currentPage !== 'detection-response' || !this._drIsPageScroll(ev.target)) return;
+            // A click's own smooth scroll keeps the clicked row lit.
+            if (Date.now() < (this._drLockUntil || 0)) { this._drLockUntil = Date.now() + 150; return; }
+            if (queued) return;
+            queued = true;
+            requestAnimationFrame(() => {
+                queued = false;
+                this._drPositionPass(ev.target === document ? document.scrollingElement : ev.target);
+            });
+        }, true);
     },
 
     /** Settings, pinned above Theme at the foot of the panel on every page. */
@@ -3017,6 +3202,8 @@ const Sidebar = {
 
         this.currentPage = page;
         this.markSeen(page);
+        if (page === 'detection-response') this._drActive = this._drPendingSection || null;
+        else this._drPendingSection = null;
 
         if (groupChanged) this.render();
 
@@ -3026,6 +3213,7 @@ const Sidebar = {
         document.querySelectorAll('.nav-item').forEach(item => {
             item.classList.toggle('active', item.dataset.page === page);
         });
+        this._drSyncActive();
 
         // Landing on a page whose section is collapsed would hide the active
         // row ("where am I?") — re-open that section. The render-time guard
@@ -3119,6 +3307,7 @@ const Sidebar = {
             v.classList.remove('peek');
             if (parent) parent.classList.toggle('nav-fold-open', open);
         });
+        this._drSyncActive();
         requestAnimationFrame(() => this._moveIndicator(false));
     },
 };

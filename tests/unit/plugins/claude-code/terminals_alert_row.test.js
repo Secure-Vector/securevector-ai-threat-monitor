@@ -253,7 +253,7 @@ function loadSidebar() {
   return S;
 }
 
-test('rail: Detect & Respond sits right after Agents, active on its page, with a badge slot', () => {
+test('rail: Detection & Response sits right after Agents, active on its page, with a badge slot', () => {
   const S = loadSidebar();
   const rail = S._createProductRail(S._activeProductGroup('detection-response'));
   const buttons = rail.children[1].children;
@@ -264,7 +264,7 @@ test('rail: Detect & Respond sits right after Agents, active on its page, with a
   assert.equal(detect.attrs['aria-current'], 'page');
   assert.equal(detect.attrs['aria-label'], 'Agent Detection & Response');
   assert.equal(detect.title, 'Agent Detection & Response');
-  assert.equal(detect.children.find(c => c.className === 'product-rail-label').textContent, 'Detect & Respond');
+  assert.equal(detect.children.find(c => c.className === 'product-rail-label').textContent, 'Detection & Response');
   const badge = detect.children.find(c => c.dataset && c.dataset.drProductBadge);
   assert.ok(badge && badge.hidden === true && badge.className === 'product-rail-attention');
   const onAgents = S._createProductRail(S._activeProductGroup('terminals')).children[1].children;
