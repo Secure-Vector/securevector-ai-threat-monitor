@@ -779,9 +779,39 @@ class TerminalManager:
         """Take a finished task off the board (the store keeps its audit)."""
         archived = await self.store.archive_task(task_id)
         if archived:
+            await self._close_approvals(task_id, "archived")
             await self._revoke_host_grants(task_id)
             await self._emit_archived(task_id, origin=origin)
         return archived
+
+    async def _close_approvals(self, task_id: str, reason: str) -> None:
+        """Approvals still waiting for a stopped or removed task close as no
+        longer needed, for its current session and every earlier one."""
+        try:
+            from securevector.app.services import response_rungs
+
+            task = await self.store.get_task(task_id)
+            # A linked row can be archived while its session still runs:
+            # archiving stops nothing, so its approvals stay open.
+            if not task or task.get("status") in RUNNING:
+                return
+            sids = [task.get("session_id")] + await self.store.session_history(task_id)
+            closable = []
+            for sid in dict.fromkeys(s for s in sids if s):
+                # A resumed task shares the session id; while it runs, the
+                # session is live and its approvals are its own.
+                others = await self.store.tasks_claiming_session(sid, exclude_task_id=task_id)
+                if any(o.get("status") in RUNNING for o in others):
+                    continue
+                closable.append(sid)
+            if not closable:
+                return
+            await response_rungs.close_pending_for_task(
+                self.store.db, {**task, "session_id": closable[0]}, reason=reason,
+                extra_session_ids=closable[1:],
+            )
+        except Exception:
+            logger.debug("could not close approvals for an ended task", exc_info=True)
 
     async def _revoke_host_grants(self, task_id: str) -> None:
         """A task's egress host grants end with it: its current session and
@@ -1144,6 +1174,7 @@ class TerminalManager:
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
+        await self._close_approvals(task_id, "ended")
         await self._revoke_host_grants(task_id)
         # A parent that exits takes the tasks it delegated with it.
         try:
