@@ -147,6 +147,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from securevector.app.services.decisions import warn_if_peer_check_off
 
     warn_if_peer_check_off()
+    from securevector.app.services.confirmations import warn_if_off as warn_if_approvals_off
+
+    warn_if_approvals_off()
 
     # Initialize database and run migrations
     from securevector.app.database.connection import get_database
@@ -544,6 +547,10 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
     app.include_router(jit_access.router, prefix="/api", tags=["JIT Access"])
+    # Decision routes answer 202 until the person confirms on this computer.
+    from securevector.app.services import confirmations
+
+    confirmations.install(app)
 
     # Agent Terminals: launch and attach to governed harness tasks.
     from securevector.app.terminals import routes as terminals_routes

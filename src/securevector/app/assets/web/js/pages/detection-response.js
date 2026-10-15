@@ -1,8 +1,14 @@
 // Agent Detection & Response: one page for the agent checks that run on this device.
-//   Unusual sessions        sessions whose activity or config state needs a look
-//   Config changes          agent config changes waiting for approval
+// Kept simple on purpose (owner, 2026-10-14): what it is for (the header
+// subtitle plus the highest score this week), how to read it (Sessions to
+// review) and how to fix it (the row actions). Everything else sits in one
+// closed Details disclosure:
+//   Why this score          the full spotlight, its signals and trend chart
 //   Automatic actions       steps taken (test mode until a mode is switched on)
 //   Permission checks       check_policy answers, and the denials they avoided
+//   Across your devices     the fleet row
+//   Config changes          agent config changes waiting for approval
+//   How it works            the short loop and the docs link
 // Counts stay neutral; colour is used only for security state.
 
 // A deep link like /detection-response?session=<task id> loses its query when
@@ -163,7 +169,7 @@ const DetectionResponsePage = {
         }
     },
 
-    /** Drift scores of this folder, oldest to newest, this session last. */
+    /** Scores of this folder, oldest to newest, this session last. */
     _sparkHtml(sp, endLabel) {
         const pts = (sp.recent_scores || []).filter(r => Number.isFinite(r.score));
         if (pts.length < 2) return '';
@@ -180,7 +186,7 @@ const DetectionResponsePage = {
         const startT = this._hhmm(sp.started_at);
         const grid = [40, 70].map(v => `<line class="dr-spark-grid" x1="${pad}" x2="${W - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>`).join('');
         return `<div class="dr-spark is-${band}">
-            <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Drift scores of recent sessions in this folder, oldest to newest" preserveAspectRatio="none">
+            <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Scores of recent sessions in this folder, oldest to newest" preserveAspectRatio="none">
               ${grid}
               ${pts.length > 2 ? `<polyline class="dr-spark-base" fill="none" points="${base}"/>` : ''}
               <polygon class="dr-spark-fill" points="${fill}"/>
@@ -269,6 +275,39 @@ const DetectionResponsePage = {
         return n > 0 && Number.isFinite(c) && c < 1 ? `${base}, comparison still settling` : base;
     },
 
+    /** The top of the page: the highest score this week with its band word,
+     *  the one top reason and the compare line. Nothing else; the full
+     *  spotlight sits under Details. */
+    /** The label over the top score. The spotlight is the highest score
+     *  still to review; with nothing to review it is the highest score this
+     *  week among sessions not marked normal, and says so when any were. */
+    _topLabel(data) {
+        const sp = data && data.spotlight;
+        if (sp && sp.to_review !== false) return 'Highest score to review';
+        const normal = Number(data && data.detect && data.detect.marked_normal) || 0;
+        return normal > 0 ? 'Highest score this week, not counting sessions marked normal' : 'Highest score this week';
+    },
+
+    _topHtml(data) {
+        if (!data) return '';
+        const sp = data.spotlight;
+        if (!sp || !Number.isFinite(Number(sp.score))) {
+            return '<section class="dr-top is-empty" aria-label="Highest score this week" data-dr-top-empty><p class="dr-top-empty">No score yet. A score appears after the first tool calls.</p></section>';
+        }
+        const band = this._bandOf(sp.band);
+        const f = (sp.features || [])[0];
+        const reason = f ? this._featureSentence(f) : 'No signal stood out.';
+        const plotted = (sp.recent_scores || []).filter(r => !r.current && Number.isFinite(r.score)).length;
+        const n = plotted || Number(sp.baseline && sp.baseline.sessions) || 0;
+        const cmp = this._compareText(n, sp.baseline && sp.baseline.confidence) + '.';
+        return `<section class="dr-top" aria-label="Highest score this week">
+            <div class="dr-caps" data-dr-top-label>${this._esc(this._topLabel(data))}</div>
+            <div class="dr-top-line"><span class="dr-top-score is-${band}" data-dr-top-score>${this._esc(sp.score)}</span><span class="dr-band dr-top-band is-${band}" data-dr-top-band>${this._esc(this._bandWord(band))}</span></div>
+            <p class="dr-top-reason" data-dr-top-reason>${this._esc(reason)}</p>
+            <p class="dr-muted dr-top-compare" data-dr-top-compare>${this._esc(cmp)}</p>
+        </section>`;
+    },
+
     _spotlightHtml(data) {
         const sp = data && data.spotlight;
         const pending = this._pendingLine(data);
@@ -294,14 +333,13 @@ const DetectionResponsePage = {
             <span class="dr-why-pts">+${this._esc(f.points)}</span>
             <span class="dr-why-text"><span>${this._esc(this._featureSentence(f))}</span>
             <span class="dr-muted">${this._esc([f.signal, f.detail].filter(Boolean).join(' \u00b7 '))}</span></span></li>`).join('');
-        const id = this._esc(sp.task_id);
         return `<section class="dr-spot" aria-label="Spotlight">
             ${pending}
-            <h2 class="dr-spot-h">${this._esc(sp.to_review === false ? `Highest score this week: ${sp.score}, ${this._bandWord(sp.band)}. ${who}${where}.` : `${who}${where} stopped behaving like itself.`)}</h2>
+            <h2 class="dr-spot-h">${this._esc(sp.to_review === false ? `${this._topLabel(data)}: ${sp.score}, ${this._bandWord(sp.band)}. ${who}${where}.` : `${who}${where} stopped behaving like itself.`)}</h2>
             <p class="dr-spot-sub">${this._esc(sub)}</p>
             <div class="dr-spot-cards">
               <div class="dr-spot-card">
-                <div class="dr-caps">Drift score</div>
+                <div class="dr-caps">Score</div>
                 <div class="dr-spot-score is-${band}">${this._esc(sp.score)}</div>
                 <span class="dr-spot-chip is-${band}">${this._esc(this.BAND_RANGE[band])}</span>
                 ${median !== null ? `<p class="dr-muted">Typical score for this folder over ${this._esc(n)} sessions: ${this._esc(median)}.</p>` : ''}
@@ -315,10 +353,6 @@ const DetectionResponsePage = {
               </div>
             </div>
             <p class="dr-muted dr-spot-trust">Scored on this device from its own history. Nothing leaves your machine.</p>
-            <div class="dr-spot-actions">
-              ${sp.ended_at && sp.to_review !== false ? `<div class="dr-act"><button type="button" class="btn btn-sm btn-secondary" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span></div>` : ''}
-              <div class="dr-act"><button type="button" class="btn btn-sm btn-primary" data-dr-open="${id}">Open session</button></div>
-            </div>
         </section>`;
     },
 
@@ -330,15 +364,15 @@ const DetectionResponsePage = {
         }
         const band = ['calm', 'watch', 'high'].includes(row.band) ? row.band : 'calm';
         const partial = row.status === 'partial' ? ' <span class="dr-row-partial">(comparison still settling)</span>' : '';
-        const w = band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low';
-        return `<span class="dr-row-drift"><span title="Drift Score ${this._esc(row.score)} of 100. Compared with this agent's own recent sessions in this folder.">unusual activity <span class="dr-band is-${band}">${w}</span> <span class="dr-muted">(${this._esc(row.score)} of 100)</span></span>${partial}</span>`;
+        return `<span class="dr-row-drift" title="Score ${this._esc(row.score)} of 100. Compared with this agent's earlier sessions in this folder."><span class="dr-row-score">${this._esc(row.score)}</span> <span class="dr-band is-${band}">${this._bandWord(band)}</span>${partial}</span>`;
     },
 
+    /** A config mark only when the session's agent config changed or was
+     *  never approved; an approved or unchecked config adds nothing. */
     _setupHtml(row) {
         if (row.setup_state === 'changed') return `<span class="dr-setup is-amber">Agent config changed (${this._esc(row.setup_changes || 0)})</span>`;
         if (row.setup_state === 'new') return '<span class="dr-setup is-amber">Agent config not reviewed yet</span>';
-        if (row.setup_state === 'pinned') return '<span class="dr-setup">Agent config approved</span>';
-        return '<span class="dr-setup">Agent config not checked</span>';
+        return '';
     },
 
     /** Backend change text in plain words; paths shrink to the file name. */
@@ -362,31 +396,32 @@ const DetectionResponsePage = {
         return `${this._esc(texts[0].replace(/\.$/, ''))}<button type="button" class="dr-more" data-dr-more aria-expanded="false">, +${rest.length} more</button><ul class="dr-more-list" hidden>${rest.map(t => `<li>${this._esc(t)}</li>`).join('')}</ul>`;
     },
 
+    /** One row: who and where, when, the score with its band word, a config
+     *  mark when the config changed, the one reason, and the fixes: the row
+     *  itself opens the session, then Looks normal and Review config change. */
     _rowHtml(row, focused) {
         const id = this._esc(row.task_id);
         const canNormal = row.ended && typeof row.score === 'number';
         const canApprove = !!row.setup_harness && (row.setup_state === 'changed' || row.setup_state === 'new');
         const who = row.harness_label || row.harness || 'Session';
+        const setup = this._setupHtml(row);
         return `<li class="dr-row${focused ? ' is-focused' : ''}" data-dr-row="${id}">
             <button type="button" class="dr-row-open" data-dr-open="${id}" aria-label="Open the session summary for ${this._esc(who)} in ${this._esc(row.folder || 'this folder')}">
               <span class="dr-row-head"><strong>${this._esc(who)}</strong><span class="dr-row-folder" title="${this._esc(row.folder || '')}">${this._esc(row.folder || 'unknown folder')}</span><span class="dr-row-when">${this._esc(this._ago(row.at))}</span></span>
-              <span class="dr-row-facts">${this._bandHtml(row)}<span class="dr-sep" aria-hidden="true"> · </span>${this._setupHtml(row)}</span>
+              <span class="dr-row-facts">${this._bandHtml(row)}${setup ? `<span class="dr-sep" aria-hidden="true"> · </span>${setup}` : ''}</span>
               <span class="dr-row-reason">${this._reasonHtml(row)}</span>
             </button>
             <div class="dr-row-actions" data-dr-actions="${id}">
               <div class="dr-act">${canNormal ? `<button type="button" class="btn btn-sm btn-secondary" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span>` : ''}</div>
-              <div class="dr-act">${canApprove ? `<button type="button" class="btn btn-sm" data-dr-approve="${id}">Approve this setup</button><span class="dr-act-cap">Trust these config files from now on</span>` : ''}</div>
+              <div class="dr-act">${canApprove ? `<button type="button" class="btn btn-sm" data-dr-approve="${id}">Review config change</button>` : ''}</div>
             </div>
         </li>`;
     },
 
     _listHtml(data, focus) {
-        const spot = data && data.spotlight;
-        let rows = (data && data.sessions) || [];
-        if (spot) {
-            rows = rows.filter(r => r.task_id !== spot.task_id);
-            if (!rows.length) return '<p class="dr-muted">No other sessions need review.</p>';
-        }
+        // Every session to review is listed, the top one included: the
+        // fixes live on the rows.
+        const rows = (data && data.sessions) || [];
         if (!rows.length) {
             const ago = this._ago(data && data.detect && data.detect.last_scored_at);
             const tail = ago ? ` Last scored ${this._esc(ago)}.` : '';
@@ -396,6 +431,25 @@ const DetectionResponsePage = {
         const missing = focus && !rows.some(r => r.task_id === focus)
             ? '<p class="dr-muted">That session is not on the review list.</p>' : '';
         return `${missing}<ul class="dr-list">${rows.map(r => this._rowHtml(r, r.task_id === focus)).join('')}</ul>`;
+    },
+
+    // --- details ------------------------------------------------------------
+
+    /** One closed disclosure at the bottom, in this order: why this score,
+     *  automatic actions, permission checks, across your devices, config
+     *  changes, how it works. The rail's deep links open it. */
+    _detailsHtml() {
+        return `<details class="dr-loop dr-details" id="dr-sec-details">
+            <summary>Details</summary>
+            <div class="dr-details-body">
+              <div data-dr-spot id="dr-sec-why"></div>
+              <div data-dr-tiles>${this._skeletonHtml()}</div>
+              <div data-dr-cloud id="dr-sec-fleet"></div>
+              <div data-dr-config id="dr-sec-config"></div>
+              ${this._loopHtml(false)}
+              <div class="dr-footer"><button type="button" class="dr-copy-stats" data-dr-copy-stats>Copy stats</button></div>
+            </div>
+        </details>`;
     },
 
     // --- loop card ----------------------------------------------------------
@@ -551,6 +605,7 @@ const DetectionResponsePage = {
             try { localStorage.setItem(this.CLOUD_DISMISS_KEY, String(Date.now())); } catch (e) { /* storage unavailable */ }
             this._bump('cloudDismissed');
             slot.innerHTML = '';
+            if (window.Sidebar && Sidebar._drHideEmpty) Sidebar._drHideEmpty();
         };
     },
 
@@ -686,12 +741,13 @@ const DetectionResponsePage = {
         const panel = document.createElement('div');
         panel.className = 'dr-confirm';
         panel.innerHTML = targets.map((t, i) => this._targetHtml(t, i)).join('')
+            + '<p class="dr-muted dr-approve-note">Approving trusts these files until they change again.</p>'
             + '<div class="dr-confirm-actions"><button type="button" class="btn btn-sm" data-dr-cancel>Close</button></div>';
         btn.hidden = true;
         actions.appendChild(panel);
         const left = new Set(targets.map((t, i) => i).filter(i => !targets[i].truncated));
         panel.querySelector('[data-dr-cancel]').onclick = () => {
-            panel.remove(); btn.hidden = false; btn.disabled = false; btn.textContent = 'Approve this setup';
+            panel.remove(); btn.hidden = false; btn.disabled = false; btn.textContent = 'Review config change';
         };
         panel.querySelectorAll('[data-dr-nav]').forEach(a => {
             a.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(a.dataset.drNav); };
@@ -707,6 +763,7 @@ const DetectionResponsePage = {
                     left.delete(i);
                     if (!left.size) this.render(document.getElementById('page-content'), true);
                 } catch (e) {
+                    if (/Not confirmed/i.test(String(e && e.message))) { b.disabled = false; return; }
                     b.outerHTML = '<span class="dr-done">The config changed after it was shown. Close and open again to see the current changes.</span>';
                 }
             };
@@ -747,11 +804,14 @@ const DetectionResponsePage = {
         yes.onclick = async () => {
             yes.disabled = true;
             try {
-                for (const t of targets) { await API.configTrustApprove(t.body); }
+                // One call: the person confirms the whole batch once.
+                await API.configTrustApproveAll(targets.map(t => t.body));
                 this._bump('approvals');
                 panel.innerHTML = `<span class="dr-done">Approved ${this._esc(total)} config ${total === 1 ? 'change' : 'changes'}.</span>`;
             } catch (e) {
-                panel.innerHTML = '<span class="dr-done">The config changed after it was shown. Reload and try again.</span>';
+                panel.innerHTML = /Not confirmed/i.test(String(e && e.message))
+                    ? '<span class="dr-done">Not confirmed</span>'
+                    : '<span class="dr-done">The config changed after it was shown. Reload and try again.</span>';
                 btn.hidden = false;
             }
         };
@@ -811,18 +871,14 @@ const DetectionResponsePage = {
         this.focusSession = null;
         container.innerHTML = `<div class="dr-wrap">
             <div data-dr-start id="dr-sec-start"></div>
+            <div data-dr-top></div>
             <div id="dr-sec-sessions">
-            <div data-dr-spot></div>
             <section class="dr-card" aria-labelledby="dr-review-h">
-              <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted">Newest first. Open a row for its session summary.</span></div>
+              <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted">Newest first. A higher score means less like earlier sessions.</span></div>
               <div data-dr-list><p class="dr-muted">Loading sessions…</p></div>
             </section>
             </div>
-            <div data-dr-config id="dr-sec-config"></div>
-            <div data-dr-tiles>${this._skeletonHtml()}</div>
-            ${this._loopHtml(false)}
-            <div data-dr-cloud></div>
-            <div class="dr-footer"><button type="button" class="dr-copy-stats" data-dr-copy-stats>Copy stats</button></div>
+            ${this._detailsHtml()}
         </div>`;
         const soft = (f) => { try { return Promise.resolve(f()).catch(() => null); } catch (e) { return Promise.resolve(null); } };
         const [data, rungs, cloud] = await Promise.all([
@@ -838,6 +894,7 @@ const DetectionResponsePage = {
         const list = container.querySelector('[data-dr-list]');
         const cfg = container.querySelector('[data-dr-config]');
         const spotEl = container.querySelector('[data-dr-spot]');
+        const topEl = container.querySelector('[data-dr-top]');
         if (!data) {
             tiles.innerHTML = this._tilesHtml(null, rungs);
             list.innerHTML = '<p class="dr-muted">Could not read sessions. Try again in a moment.</p>';
@@ -849,6 +906,7 @@ const DetectionResponsePage = {
         list.innerHTML = this._listHtml(data, focus);
         if (cfg) cfg.innerHTML = this._configHtml(data);
         if (spotEl) spotEl.innerHTML = this._spotlightHtml(data);
+        if (topEl) topEl.innerHTML = this._topHtml(data);
         const startEl = container.querySelector('[data-dr-start]');
         if (startEl) { startEl.innerHTML = this._startHtml(data); this._bindStart(startEl, data); }
         this._bind(container);

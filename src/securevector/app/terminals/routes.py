@@ -455,8 +455,25 @@ async def git_repo(folder: str = ""):
 async def remove_worktree(task_id: str, body: WorktreeRemoveRequest, request: Request,
                           manager: TerminalManager = Depends(get_manager)):
     """Remove a task's worktree on the person's request. With changed files
-    and no `confirm`, nothing is removed and needs_confirm comes back."""
-    _require_ui_token(request)
+    and no `confirm`, nothing is removed and needs_confirm comes back.
+    Only a call that would actually remove asks the person on the computer;
+    the needs_confirm answer is read only and asks nothing."""
+    from securevector.app.services import confirmations, decisions
+
+    if not confirmations.is_replay(request):
+        _require_ui_token(request)
+        await decisions.refuse_governed_caller(request, manager)
+        try:
+            held = await manager.worktree_removal_check(task_id, confirm=body.confirm, dirty_seen=body.dirty_seen)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Unknown task") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except worktrees.WorktreeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if held is not None:
+            raise HTTPException(status_code=409, detail=held)
+        await confirmations.gate(request)
     try:
         result = await manager.remove_worktree(task_id, confirm=body.confirm, origin="ui",
                                                dirty_seen=body.dirty_seen)
@@ -764,10 +781,13 @@ def _require_ui_token(request: Request) -> None:
 async def _require_person(request: Request, manager) -> None:
     """The UI token, and the request is not from a governed task (see
     services/decisions.py for what that check covers and its limits)."""
-    from securevector.app.services import decisions
+    from securevector.app.services import confirmations, decisions
 
+    if confirmations.is_replay(request):
+        return
     _require_ui_token(request)
     await decisions.refuse_governed_caller(request, manager)
+    await confirmations.gate(request)
 
 
 @router.post("/tasks/{task_id}/rung/release", dependencies=[Depends(require_write)])

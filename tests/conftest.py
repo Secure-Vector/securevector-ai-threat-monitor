@@ -10,6 +10,11 @@ import pytest
 # Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+# Native approvals hold every decision route until a person confirms on the
+# computer. Tests that are not about that apply directly; the native
+# approval tests turn it back on.
+os.environ.setdefault("SV_NATIVE_APPROVALS", "0")
+
 
 # ---------------------------------------------------------------------------
 # Home isolation (safety net for every test)

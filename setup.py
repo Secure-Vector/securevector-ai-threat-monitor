@@ -60,6 +60,8 @@ setup(
         "app": [
             # Desktop application dependencies
             "pywebview>=5.0",  # Lightweight cross-platform webview
+            # Touch ID or the account password for decisions (native approvals)
+            "pyobjc-framework-LocalAuthentication>=9.0; sys_platform == 'darwin'",
             "fastapi>=0.100.0",  # Local API server
             "uvicorn[standard]>=0.20.0",  # ASGI server
             "aiosqlite>=0.19.0",  # Async SQLite
@@ -108,6 +110,7 @@ setup(
             "mcp>=1.23.0",  # Security fix
             "fastmcp>=2.13.0",  # Security fix
             "pywebview>=5.0",  # Lightweight cross-platform webview
+            "pyobjc-framework-LocalAuthentication>=9.0; sys_platform == 'darwin'",
             "fastapi>=0.100.0",
             "uvicorn[standard]>=0.20.0",
             "aiosqlite>=0.19.0",

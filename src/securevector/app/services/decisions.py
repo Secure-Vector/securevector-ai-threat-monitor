@@ -56,7 +56,9 @@ loopback nor the address the request arrived on is another machine and is
 not looked up. Sessions linked from the person's own terminal have no pid
 here and are not covered by the peer check. A same-user process can also
 read the app's memory or files. The boundary that closes this is an
-approval the operating system asks the person for, which is planned.
+approval the operating system asks the person for: `require_person` ends
+with a confirmation the person answers on this computer
+(services/confirmations.py).
 """
 
 from __future__ import annotations
@@ -449,6 +451,12 @@ async def refuse_governed_caller(request: Any, manager: Any = None) -> None:
     with a governed task running, the asker cannot be confirmed."""
     from fastapi import HTTPException
 
+    from securevector.app.services import confirmations
+
+    # The in-process replay of a request the person already confirmed: its
+    # caller was checked when the confirmation was created.
+    if confirmations.is_replay(request):
+        return
     if identifies_as_harness(request):
         raise HTTPException(status_code=403, detail=REFUSED)
     if manager is None:
@@ -470,13 +478,20 @@ async def refuse_governed_caller(request: Any, manager: Any = None) -> None:
         raise HTTPException(status_code=403, detail=REFUSED)
 
 
-async def require_person(http_request: Any, token: Optional[str], manager: Any = None) -> None:
+async def require_person(http_request: Any, token: Optional[str], manager: Any = None,
+                         summary: Optional[str] = None) -> None:
     """The per-run UI token, then the check above. For routes that change
     what agents may do."""
     from securevector.app.server.routes.jit_access import _require_ui_token
+    from securevector.app.services import confirmations
 
+    if confirmations.is_replay(http_request):
+        return
     _require_ui_token(token)
     await refuse_governed_caller(http_request, manager)
+    # Nothing is applied on the page's request alone: the person confirms
+    # on this computer first (services/confirmations.py).
+    await confirmations.gate(http_request, summary=summary)
 
 
 def decision_secrets() -> tuple:
@@ -519,7 +534,8 @@ async def _task_id(db, session_id: Optional[str]) -> Optional[str]:
 
 async def audit(db, decision: str, *, session_id: Optional[str], task_id: Optional[str] = None,
                 klass: str = "", tool_id: Optional[str] = None, request_id: Optional[str] = None,
-                by: str = BY_PERSON, harness: Optional[str] = None, reason: Optional[str] = None) -> None:
+                by: str = BY_PERSON, harness: Optional[str] = None, reason: Optional[str] = None,
+                method: Optional[str] = None) -> None:
     """One chained audit row per decision: what, who, the call class and the
     task. When is the row's own timestamp. Never arguments or hook values."""
     from securevector.app.database.repositories.custom_tools import CustomToolsRepository
@@ -530,6 +546,11 @@ async def audit(db, decision: str, *, session_id: Optional[str], task_id: Option
         "block" if decision in ("deny", "timeout_deny") else "log_only")
     preview = (f"decision={decision} by={by} class={klass or 'none'} task={task_id or 'none'}"
                f" tool={tool_id or 'none'} request={request_id or 'none'}")
+    from securevector.app.services import confirmations
+
+    method = method or confirmations.current_method.get()
+    if method:
+        preview += f" method={method}"
     try:
         await CustomToolsRepository(db).log_tool_call_audit(
             AUDIT_TOOL_ID, f"decision.{decision}", action,

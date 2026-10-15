@@ -938,3 +938,57 @@ def payload(row: Optional[Mapping[str, Any]]) -> dict:
         "last_eval_at": row.get("last_eval_at"),
         "would_ask": int(row.get("would_ask") or 0),
     }
+
+
+# --- closing approvals when a session stops ---------------------------------------------
+
+CLOSED_BY = "not_needed"
+CLOSE_REASONS = {"ended": "Session ended", "archived": "Session removed"}
+
+
+async def close_pending_for_task(db, task: Optional[Mapping[str, Any]], *, reason: str,
+                                 extra_session_ids=()) -> int:
+    """Close every approval still waiting for a task's session: step-up
+    holds and ordinary requests alike move to expired with decided_by
+    not_needed and one audit row each, so nothing can be approved for a
+    session that no longer runs. Returns the count. Never raises."""
+    try:
+        task = task or {}
+        sids = [s for s in [task.get("session_id"), *list(extra_session_ids or ())] if s]
+        done = 0
+        for sid in dict.fromkeys(sids):
+            done += await _locked(sid, _close_pending, db, sid, task, reason)
+        return done
+    except Exception:  # noqa: BLE001 - closing is best effort, the exit path goes on
+        logger.debug("closing pending approvals failed", exc_info=True)
+        return 0
+
+
+async def _close_pending(db, session_id: str, task: Mapping[str, Any], reason: str) -> int:
+    from securevector.app.services import decisions
+
+    try:
+        rows = await db.fetch_all(
+            "SELECT * FROM jit_access_requests WHERE status = 'pending' AND session_id = ? LIMIT 500",
+            (session_id,),
+        )
+    except Exception:  # noqa: BLE001 - no request table, nothing waiting
+        return 0
+    text = CLOSE_REASONS.get(reason, "No longer needed")
+    done = 0
+    for r in rows or []:
+        req = dict(r)
+        cur = await db.execute(
+            "UPDATE jit_access_requests SET status = 'expired', decided_at = CURRENT_TIMESTAMP, "
+            "decided_by = ?, deny_reason = ? WHERE id = ? AND status = 'pending'",
+            (CLOSED_BY, text, req["id"]),
+        )
+        if getattr(cur, "rowcount", 0) == 0:
+            continue   # decided at the same moment; that decision stands
+        done += 1
+        klass = "hold" if req.get("rule_source") == RUNG_SOURCE else "jit"
+        await decisions.audit(db, FEEDBACK_NOT_NEEDED, session_id=session_id, task_id=task.get("id"),
+                              klass=klass, tool_id=req.get("tool_id"), request_id=req["id"],
+                              by=f"session {reason}", harness=task.get("executor_id") or req.get("runtime_kind"),
+                              reason=text)
+    return done

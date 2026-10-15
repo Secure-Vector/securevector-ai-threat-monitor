@@ -279,7 +279,7 @@ async def _detect(db, now: datetime) -> dict:
             "rung": int(r.get("rung") or 1) if r else None,
             "setup_changes": len(c.get("diff") or []),
             "setup_texts": [str(x["text"]) for x in (c.get("diff") or []) if isinstance(x, dict) and x.get("text")][:30],
-            "reason": reason or "Drift above the usual range for this harness.",
+            "reason": reason or "Score above the usual range for this agent tool.",
             "ended": bool(t.get("ended_at")),
             "at": t["_at"].isoformat(timespec="seconds"),
         })

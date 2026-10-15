@@ -130,6 +130,30 @@ async def trust_pin(body: PinRequest, request: Request, x_sv_ui_token: Optional[
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class PinBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[PinRequest] = Field(..., min_length=1, max_length=50)
+
+
+@router.post("/pins/batch", dependencies=[Depends(require_write)])
+async def trust_pin_batch(body: PinBatch, request: Request, x_sv_ui_token: Optional[str] = Header(None)):
+    """Approve all: one confirmation for the whole batch, then each pin the
+    same way as the single route. Stops at the first stale view."""
+    # The confirmation text is built from the items themselves.
+    await decisions.require_person(request, x_sv_ui_token)
+    db = _db(request)
+    done = []
+    for item in body.items:
+        try:
+            done.append(await config_trust.approve(db, _harness(item.harness), _workspace(item.workspace),
+                                                   target=item.target, key=item.key, expected=item.expected))
+        except config_trust.StaleView as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"approved": len(done), "items": done}
+
+
 @router.post("/probe", dependencies=[Depends(require_write)])
 async def trust_probe(body: ProbeRequest, request: Request):
     """Turn the read-only tools/list probe on or off for one HTTP server, and

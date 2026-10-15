@@ -1276,14 +1276,19 @@ const Sidebar = {
     },
 
     /** The Detection & Response panel: one row per section of the page, in
-     *  this order. Getting started shows only while setup is incomplete. */
+     *  this order. Getting started shows only while setup is incomplete.
+     *  Rows marked inDetails sit inside the page's closed Details disclosure:
+     *  they are indented under Details, and a click opens it first. */
     DR_SECTIONS: [
         { id: 'dr-sec-start', label: 'Getting started', onlyIncomplete: true },
         { id: 'dr-sec-sessions', label: 'Sessions to review', count: 'review' },
-        { id: 'dr-sec-config', label: 'Config changes', count: 'config' },
-        { id: 'dr-sec-actions', label: 'Automatic actions' },
-        { id: 'dr-sec-checks', label: 'Permission checks' },
-        { id: 'dr-sec-how', label: 'How it works' },
+        { id: 'dr-sec-details', label: 'Details' },
+        { id: 'dr-sec-why', label: 'Why this score', inDetails: true },
+        { id: 'dr-sec-actions', label: 'Automatic actions', inDetails: true },
+        { id: 'dr-sec-checks', label: 'Permission checks', inDetails: true },
+        { id: 'dr-sec-fleet', label: 'Across your devices', inDetails: true, onlyIfShown: true },
+        { id: 'dr-sec-config', label: 'Config changes', count: 'config', inDetails: true },
+        { id: 'dr-sec-how', label: 'How it works', inDetails: true },
     ],
 
     /** Setup is incomplete until a session is scored and both steps are done
@@ -1306,10 +1311,10 @@ const Sidebar = {
         wrap.className = 'nav-views open nav-views-flat nav-dr-sections';
         this.DR_SECTIONS.forEach(sec => {
             const row = document.createElement('div');
-            row.className = 'nav-item nav-view nav-dr-section';
+            row.className = 'nav-item nav-view nav-dr-section' + (sec.inDetails ? ' nav-dr-sub' : '');
             row.dataset.drSection = sec.id;
             row.title = sec.label;
-            if (sec.onlyIncomplete) row.hidden = true;
+            if (sec.onlyIncomplete || sec.onlyIfShown) row.hidden = true;
             const lbl = document.createElement('span');
             lbl.textContent = sec.label;
             row.appendChild(lbl);
@@ -1349,7 +1354,20 @@ const Sidebar = {
                 ct.hidden = n <= 0;
             }
         });
+        this._drHideEmpty(root);
         this._drSyncActive(root);
+    },
+
+    /** Rows marked onlyIfShown hide while their section is not on the page
+     *  or is empty (the devices card is rendered only when it is due). */
+    _drHideEmpty(root) {
+        if (typeof document === 'undefined' || !document.getElementById) return;
+        this._drRows(root).forEach(row => {
+            const sec = this.DR_SECTIONS.find(s => s.id === row.dataset.drSection);
+            if (!sec || !sec.onlyIfShown) return;
+            const el = document.getElementById(sec.id);
+            row.hidden = !(el && el.children && el.children.length);
+        });
     },
 
     /** Lights the chosen section row, or the first visible one. */
@@ -1388,7 +1406,9 @@ const Sidebar = {
     _drScrollTo(id) {
         const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
         if (!el) return false;
-        if (el.tagName === 'DETAILS') el.open = true;
+        // Open every disclosure on the way: the target itself and the
+        // closed Details it sits in.
+        for (let n = el; n; n = n.parentElement) { if (n.tagName === 'DETAILS') n.open = true; }
         if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return true;
     },
@@ -1397,6 +1417,7 @@ const Sidebar = {
     drPageReady() {
         const id = this._drPendingSection;
         this._drPendingSection = null;
+        this._drHideEmpty();
         if (id) { this._drActive = id; this._drLockUntil = Date.now() + 900; this._drScrollTo(id); this._drSyncActive(); return; }
         this._drPositionPass();
     },
@@ -1414,7 +1435,18 @@ const Sidebar = {
         return document.scrollingElement || null;
     },
 
-    /** Lights the section in view, from where the sections sit right now. */
+    /** The closed disclosure an element sits inside (not the element itself),
+     *  or null. A section inside a closed Details has no position of its own. */
+    _drClosedAround(el) {
+        for (let n = el && el.parentElement; n; n = n.parentElement) {
+            if (n.tagName === 'DETAILS' && !n.open) return n;
+        }
+        return null;
+    },
+
+    /** Lights the section in view, from where the sections sit right now.
+     *  While Details is closed its sections drop out and the Details row
+     *  stands for all of them. */
     _drPositionPass(scroller) {
         const box = scroller || this._drScroller();
         if (!box || !box.getBoundingClientRect) { this._drSyncActive(); return; }
@@ -1422,7 +1454,8 @@ const Sidebar = {
         const atBottom = box.scrollTop > 0 && box.scrollTop + box.clientHeight >= box.scrollHeight - 2;
         const entries = this._drRows().filter(r => !r.hidden).map(r => {
             const el = document.getElementById(r.dataset.drSection);
-            return el && el.offsetParent !== null ? { id: r.dataset.drSection, top: el.getBoundingClientRect().top } : null;
+            if (!el || this._drClosedAround(el)) return null;
+            return el.offsetParent !== null ? { id: r.dataset.drSection, top: el.getBoundingClientRect().top } : null;
         }).filter(Boolean);
         const id = this._drPickActive(entries, top + 96, atBottom, top + box.clientHeight - 48);
         if (id) this._drActive = id;
