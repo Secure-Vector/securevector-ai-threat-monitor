@@ -10532,3 +10532,37 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .dr-start-progress { margin: 0 0 6px 30px; font-size: 12.5px; }
 .dr-start-note { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; }
 .dr-start-line { margin: 0 2px 12px; font-size: 12.5px; }
+
+/* Native approvals: the confirmation the person answers on the computer. */
+.sv-confirm {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 10000;
+    max-width: 360px;
+    padding: 12px 14px;
+    background: var(--bg-card, var(--bg-secondary));
+    color: var(--text-primary);
+    border: 1px solid var(--accent-primary);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    font-size: 13px;
+}
+.sv-confirm-title { font-weight: 600; margin-bottom: 4px; }
+.sv-confirm-summary { color: var(--text-secondary); margin-bottom: 8px; word-break: break-word; }
+.sv-confirm-form { display: flex; gap: 6px; align-items: center; }
+.sv-confirm-code {
+    width: 9ch;
+    padding: 4px 6px;
+    font-family: monospace;
+    font-size: 15px;
+    letter-spacing: 0.2em;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm, 4px);
+}
+.sv-confirm-msg { color: var(--danger); margin-top: 6px; min-height: 1em; }
+.sv-confirm-msg:empty { display: none; }
+.sv-confirm-failed { border-color: var(--danger); }
+.sv-confirm-cancel { margin-top: 8px; }

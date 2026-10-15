@@ -304,8 +304,8 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=18/);
-  assert.match(read('index.html'), /styles\.css\?v=495/);
+  assert.match(read('index.html'), /detection-response\.js\?v=19/);
+  assert.match(read('index.html'), /styles\.css\?v=496/);
 });
 
 test('plain-language pass: Review label and heading, Launch first, one card status line', () => {
@@ -426,7 +426,10 @@ test('bulk approve: plain button with live count, confirm gate, UI-token approve
     { harness: 'claude-code', label: 'Claude Code', state: 'changed', view_hash: 'h1', changes: new Array(11).fill({}) },
     { harness: 'codex', label: 'Codex', state: 'new', view_hash: 'h2', changes: [{}] },
     { harness: 'x', label: 'X', state: 'pinned', view_hash: 'h3' }] }),
-    configTrustApprove: async (b) => { calls.push(b); return {}; } };
+    configTrustApprove: async (b) => { calls.push(b); return {}; },
+    // One batch call: the person confirms the whole batch once.
+    configTrustApproveAll: async (items) => { batches.push(items.length); items.forEach(b => calls.push(b)); return {}; } };
+  const batches = [];
   const P2 = loadPage({ API: sandboxApi });
   const btn = { disabled: false, hidden: false };
   const yes = { disabled: false }; const no = {};
@@ -439,6 +442,7 @@ test('bulk approve: plain button with live count, confirm gate, UI-token approve
   assert.match(panel.innerHTML, /data-dr-bulk-yes[^>]*>Approve all/);
   await yes.onclick();
   assert.deepEqual(calls.map(c => c.harness), ['claude-code', 'codex']);
+  assert.deepEqual(batches, [2], 'one batch call for the whole set');
   assert.ok(calls.every(c => c.target === 'setup' && c.expected));
   assert.match(panel.innerHTML, /Approved 12 config changes\./);
   assert.match(read('js/api.js'), /configTrustApprove\(body\) \{\s*return this\._terminalsWrite\('\/api\/terminals\/config-trust\/pins', body\);/);

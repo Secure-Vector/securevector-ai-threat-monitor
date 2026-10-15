@@ -626,6 +626,182 @@ def make_activate_callback(window: Any) -> Callable[[], None]:
 
 
 # ---------------------------------------------------------------------------
+# Native approvals: the prompt the server's confirmations hand to the shell
+# ---------------------------------------------------------------------------
+
+#: LAPolicyDeviceOwnerAuthentication: Touch ID, else the account password.
+LA_POLICY_DEVICE_OWNER = 2
+CONFIRM_TITLE = "Confirm in SecureVector"
+#: An answer sooner than this after the prompt appeared is not trusted to be
+#: the person's (a held Return key, a queued click): the prompt is shown once
+#: more, and a second early answer is a no.
+EARLY_ANSWER_SECONDS = 0.7
+#: NSAlertSecondButtonReturn: "Allow" is the second button; Cancel is first.
+_NS_ALERT_SECOND_BUTTON = 1001
+
+
+def _local_authentication() -> Any:
+    """The LocalAuthentication bridge (pyobjc-framework-LocalAuthentication,
+    a macOS dependency of the app extra), or None and the alert is used."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import LocalAuthentication  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    return LocalAuthentication
+
+
+def owner_authenticate(summary: str, la: Any = None, timeout: float = 115.0) -> Optional[bool]:
+    """Ask the operating system for the device owner (Touch ID or the
+    password). True or False is the person's answer; None means it is not
+    available here and the caller falls back to the alert. At the timeout the
+    context is invalidated, which closes the prompt, and the answer is no."""
+    la = la if la is not None else _local_authentication()
+    if la is None:
+        return None
+    try:
+        ctx = la.LAContext.alloc().init()
+        can, _err = ctx.canEvaluatePolicy_error_(LA_POLICY_DEVICE_OWNER, None)
+        if not can:
+            return None
+        done = threading.Event()
+        out = {"ok": False}
+
+        def _reply(success, _error):
+            out["ok"] = bool(success)
+            done.set()
+
+        ctx.evaluatePolicy_localizedReason_reply_(LA_POLICY_DEVICE_OWNER, summary, _reply)
+        if not done.wait(max(0.0, timeout)):
+            try:
+                ctx.invalidate()
+            except Exception as exc:
+                logger.debug("LAContext invalidate failed: %s", exc)
+            return False
+        return out["ok"]
+    except Exception as exc:
+        logger.debug("LocalAuthentication unavailable: %s", exc)
+        return None
+
+
+def cancel_default_alert(title: str, message: str, timeout: float) -> Optional[bool]:
+    """macOS: an NSAlert run on the main thread whose default button (Return)
+    is Cancel; Allow has no key equivalent. At the timeout the modal is
+    aborted only when it is this alert; otherwise it is left alone and its
+    late answer is discarded. Either way the timeout counts as no. None when
+    AppKit is not available (not macOS)."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+    except Exception:
+        return None
+    done = threading.Event()
+    out = {"ok": False, "alert": None}
+
+    def _run() -> None:
+        try:
+            alert = AppKit.NSAlert.alloc().init()
+            alert.setMessageText_(title)
+            alert.setInformativeText_(message)
+            cancel = alert.addButtonWithTitle_("Cancel")
+            allow = alert.addButtonWithTitle_("Allow")
+            cancel.setKeyEquivalent_("\r")
+            allow.setKeyEquivalent_("")
+            out["alert"] = alert
+            AppKit.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            out["ok"] = alert.runModal() == _NS_ALERT_SECOND_BUTTON
+        except Exception as exc:
+            logger.debug("confirmation alert failed: %s", exc)
+            out["ok"] = False
+        finally:
+            done.set()
+
+    def _abort_if_ours() -> None:
+        try:
+            app = AppKit.NSApplication.sharedApplication()
+            alert = out["alert"]
+            if alert is not None and not done.is_set() and app.modalWindow() == alert.window():
+                app.abortModal()
+        except Exception as exc:
+            logger.debug("confirmation alert abort failed: %s", exc)
+
+    AppHelper.callAfter(_run)
+    if done.wait(max(0.0, timeout)):
+        return out["ok"]
+    AppHelper.callAfter(_abort_if_ours)
+    done.wait(2.0)
+    return False
+
+
+def ask_with_early_answer_guard(ask: Callable[[float], tuple], timeout: float,
+                                clock: Callable[[], float] = time.monotonic) -> tuple:
+    """ask(remaining) -> (ok, how). An answer within EARLY_ANSWER_SECONDS of
+    the prompt appearing is discarded and the prompt is shown once more; a
+    second early answer counts as not confirmed."""
+    deadline = clock() + max(0.0, timeout)
+    how = None
+    for _attempt in range(2):
+        start = clock()
+        remaining = deadline - start
+        if remaining <= 0:
+            break
+        ok, how = ask(remaining)
+        if clock() - start >= EARLY_ANSWER_SECONDS:
+            return bool(ok), how
+    return False, how
+
+
+def make_code_display(window: Any, activate: Optional[Callable[[], None]] = None) -> Callable[[str, str], None]:
+    """Windows and Linux: show a confirmation code in a pywebview dialog. The
+    dialog only shows text; its answer is ignored, so Return just closes it.
+    pywebview marshals the dialog to the GUI thread, as for the quit dialog."""
+    from securevector.app.services.confirmations import code_text
+
+    def _show(code: str, summary: str) -> None:
+        if activate is not None:
+            try:
+                activate()
+            except Exception as exc:
+                logger.debug("activate before showing the code failed: %s", exc)
+        window.create_confirmation_dialog(CONFIRM_TITLE, code_text(code, summary))
+
+    return _show
+
+
+def make_confirm_prompt(window: Any, activate: Optional[Callable[[], None]] = None,
+                        la: Any = None, alert: Optional[Callable[..., Optional[bool]]] = None,
+                        clock: Callable[[], float] = time.monotonic) -> Callable[..., tuple]:
+    """prompt(summary, timeout) -> (ok, how), run on the confirmations
+    thread, macOS only: LocalAuthentication first, then an alert whose
+    default is Cancel. Without either the answer is no (Windows and Linux use
+    `make_code_display` instead)."""
+    alert = alert if alert is not None else cancel_default_alert
+
+    def _ask(summary: str, remaining: float) -> tuple:
+        ok = owner_authenticate(summary, la=la, timeout=remaining)
+        if ok is not None:
+            return ok, "touch_id"
+        ok = alert(CONFIRM_TITLE, summary, remaining)
+        if ok is not None:
+            return ok, "dialog"
+        # No dialog whose default is Cancel: never decide through one.
+        return False, "dialog"
+
+    def _prompt(summary: str, timeout: float = 120.0) -> tuple:
+        if activate is not None:
+            try:
+                activate()
+            except Exception as exc:
+                logger.debug("activate before confirmation failed: %s", exc)
+        return ask_with_early_answer_guard(lambda remaining: _ask(summary, remaining), timeout, clock)
+
+    return _prompt
+
+
+# ---------------------------------------------------------------------------
 # Window chrome: unified title bar, theme-aware appearance, menu order
 # ---------------------------------------------------------------------------
 

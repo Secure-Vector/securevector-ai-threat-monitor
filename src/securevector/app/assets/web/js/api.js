@@ -1248,6 +1248,10 @@ const API = {
     async configTrustApprove(body) {
         return this._terminalsWrite('/api/terminals/config-trust/pins', body);
     },
+    // Approve all: one call, so the person confirms the whole batch once.
+    async configTrustApproveAll(items) {
+        return this._terminalsWrite('/api/terminals/config-trust/pins/batch', { items });
+    },
     async configTrustProbe(body) {
         return this._terminalsWrite('/api/terminals/config-trust/probe', body);
     },
@@ -1310,7 +1314,7 @@ API.PERSON_WRITE_PATHS = [
     /^\/api\/v1\/cloud-forwarding$/,
     /^\/api\/siem-forwarders(\/[^/]+)?(\/reset-breaker)?$/,
     /^\/api\/proxy\/(stop|revert)$/,
-    /^\/api\/terminals\/config-trust\/pins$/,
+    /^\/api\/terminals\/config-trust\/pins(\/batch)?$/,
 ];
 API.needsPerson = function (input, init) {
     const method = String((init && init.method) || 'GET').toUpperCase();
@@ -1327,7 +1331,11 @@ API.needsPerson = function (input, init) {
         try { return String((await res.clone().json()).detail || ''); } catch (e) { return ''; }
     };
     window.fetch = async function (input, init) {
-        if (!API.needsPerson(input, init)) return plainFetch(input, init);
+        if (!API.needsPerson(input, init)) {
+            const plain = await plainFetch(input, init);
+            const method = String((init && init.method) || 'GET').toUpperCase();
+            return method === 'GET' || method === 'HEAD' ? plain : API.confirmThen(plain);
+        }
         const headers = new Headers((init && init.headers) || {});
         if (headers.has('X-SV-UI-Token')) return plainFetch(input, init);
         const send = async () => {
@@ -1344,6 +1352,153 @@ API.needsPerson = function (input, init) {
             await new Promise((resolve) => setTimeout(resolve, 1000));
             res = await send();
         }
-        return res;
+        return API.confirmThen(res);
     };
 })();
+
+// Native approvals: a decision route answers 202 with a confirmation id and
+// applies nothing until the person confirms on the computer (the desktop
+// shell's prompt, or a code shown on the computer in a browser). The
+// wrapper above hands every write through confirmThen, so callers see the
+// original route's final answer, or a 409 "Not confirmed".
+API.CONFIRM_POLL_MS = 1000;
+API._confirmResponse = function (status, body) {
+    const R = (typeof Response !== 'undefined') ? Response : window.Response;
+    if (status === 204) return new R(null, { status: 204 });
+    return new R(JSON.stringify(body == null ? {} : body), { status, headers: { 'Content-Type': 'application/json' } });
+};
+API.confirmThen = async function (res) {
+    if (!res || res.status !== 202) return res;
+    let info;
+    try { info = await res.clone().json(); } catch (e) { return res; }
+    if (info && !info.confirmation_id && info.detail && info.detail.confirmation_id) info = info.detail;
+    if (!info || !info.confirmation_id) return res;
+    const ui = API._confirmPanel(info);
+    let done = null;
+    try { done = await API._awaitConfirmation(info, ui); } catch (e) { done = null; }
+    if (!done) {
+        ui.fail();
+        return API._confirmResponse(409, { detail: 'Not confirmed' });
+    }
+    ui.close();
+    const result = done.result || {};
+    return API._confirmResponse(result.status_code || 200, result.body);
+};
+API._awaitConfirmation = function (info, ui) {
+    const url = `/api/confirmations/${encodeURIComponent(info.confirmation_id)}`;
+    const deadline = Date.now() + ((Number(info.expires_in) || 120) + 5) * 1000;
+    const headers = async () => ({ 'Content-Type': 'application/json', 'X-SV-UI-Token': await API._getJitToken() });
+    return new Promise((resolve) => {
+        let finished = false;
+        let timer = null;
+        const finish = (v) => {
+            if (finished) return;
+            finished = true;
+            if (timer) clearTimeout(timer);
+            resolve(v);
+        };
+        const poll = async () => {
+            if (finished) return;
+            try {
+                const r = await fetch(url, { headers: await headers() });
+                const v = await r.json().catch(() => ({}));
+                if (r.ok && v.status === 'confirmed') return finish(v);
+                if (v.status === 'denied' || v.status === 'expired' || r.status === 404) return finish(null);
+            } catch (e) { /* the next poll tries again */ }
+            if (Date.now() > deadline) return finish(null);
+            timer = setTimeout(poll, API.CONFIRM_POLL_MS);
+        };
+        // Cancel on the page denies it on the server too, so a prompt still
+        // open on the computer can no longer apply it.
+        ui.onCancel = async () => {
+            try { await fetch(`${url}/cancel`, { method: 'POST', headers: await headers(), body: '{}' }); } catch (e) { /* expires anyway */ }
+            finish(null);
+        };
+        ui.onCode = async (code) => {
+            if (finished) return;
+            try {
+                const r = await fetch(`${url}/code`, { method: 'POST', headers: await headers(), body: JSON.stringify({ code }) });
+                const v = await r.json().catch(() => ({}));
+                if (r.ok && v.status === 'confirmed') return finish(v);
+                if (r.status === 400) { ui.error(v.detail || 'Wrong code.'); return; }
+                if (r.status === 429 && v.detail) ui.error(String(v.detail));
+                finish(null);
+            } catch (e) { ui.error('Could not send the code, try again.'); }
+        };
+        poll();
+    });
+};
+API.confirmPrompt = function (info) {
+    if (info && info.method === 'code') return 'Enter the code shown on your computer';
+    const nav = (typeof navigator !== 'undefined' && navigator) || {};
+    const mac = /Mac/i.test(String(nav.platform || nav.userAgent || ''));
+    return mac ? 'Confirm on your Mac\u2026' : 'Confirm on your computer\u2026';
+};
+API._confirmPanel = function (info) {
+    const ui = { onCancel: null, onCode: null, el: null };
+    const doc = (typeof document !== 'undefined') ? document : null;
+    if (!doc || typeof doc.createElement !== 'function' || !doc.body) {
+        ui.fail = () => {}; ui.close = () => {}; ui.error = () => {};
+        return ui;
+    }
+    const el = doc.createElement('div');
+    el.className = 'sv-confirm';
+    el.setAttribute('role', 'alertdialog');
+    el.setAttribute('aria-live', 'assertive');
+    const title = doc.createElement('div');
+    title.className = 'sv-confirm-title';
+    title.textContent = API.confirmPrompt(info);
+    const summary = doc.createElement('div');
+    summary.className = 'sv-confirm-summary';
+    summary.textContent = String(info.summary || '');
+    const msg = doc.createElement('div');
+    msg.className = 'sv-confirm-msg';
+    el.appendChild(title);
+    el.appendChild(summary);
+    if (info.method === 'code') {
+        const form = doc.createElement('form');
+        form.className = 'sv-confirm-form';
+        const input = doc.createElement('input');
+        input.className = 'sv-confirm-code';
+        input.setAttribute('inputmode', 'numeric');
+        input.setAttribute('autocomplete', 'one-time-code');
+        input.setAttribute('maxlength', '6');
+        input.setAttribute('aria-label', 'Six-digit code');
+        const ok = doc.createElement('button');
+        ok.type = 'submit';
+        ok.className = 'btn btn-sm';
+        ok.textContent = 'Confirm';
+        form.onsubmit = (e) => {
+            if (e && e.preventDefault) e.preventDefault();
+            const code = String(input.value || '').replace(/\D/g, '');
+            if (code.length !== 6) { ui.error('Enter all six digits.'); return; }
+            msg.textContent = '';
+            if (ui.onCode) ui.onCode(code);
+        };
+        form.appendChild(input);
+        form.appendChild(ok);
+        el.appendChild(form);
+        setTimeout(() => { try { input.focus(); } catch (e) { /* not focusable */ } }, 0);
+    }
+    const cancel = doc.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-sm sv-confirm-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = () => { if (ui.onCancel) ui.onCancel(); };
+    el.appendChild(cancel);
+    el.appendChild(msg);
+    doc.body.appendChild(el);
+    ui.el = el;
+    const remove = () => { if (el.parentNode) el.parentNode.removeChild(el); };
+    ui.error = (text) => { msg.textContent = text; };
+    ui.close = remove;
+    ui.fail = () => {
+        title.textContent = 'Not confirmed';
+        el.classList.add('sv-confirm-failed');
+        const form = el.querySelector && el.querySelector('form');
+        if (form && form.parentNode) form.parentNode.removeChild(form);
+        if (cancel.parentNode) cancel.parentNode.removeChild(cancel);
+        setTimeout(remove, msg.textContent ? 8000 : 2500);
+    };
+    return ui;
+};

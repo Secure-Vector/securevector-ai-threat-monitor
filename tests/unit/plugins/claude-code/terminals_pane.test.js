@@ -139,9 +139,9 @@ test('the pane and rail styles are defined and survive the collapsed rail', () =
 
 test('index.html pins the versions this change ships', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=495/);
-  assert.match(html, /sidebar\.js\?v=196/);
-  assert.match(html, /terminals\.js\?v=127/);
+  assert.match(html, /styles\.css\?v=496/);
+  assert.match(html, /sidebar\.js\?v=197/);
+  assert.match(html, /terminals\.js\?v=128/);
 });
 
 // --- DOM stub for the behavioural pane tests ---------------------------
