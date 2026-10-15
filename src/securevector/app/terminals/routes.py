@@ -66,6 +66,15 @@ async def require_write(request: Request, auth: TerminalAuth = Depends(get_auth)
     await auth.require_write(request)
 
 
+async def _not_a_governed_task(request: Request) -> None:
+    """Launching, linking or stopping a session, or removing its worktree,
+    is a person's action, from the page or from their own terminal (the CLI
+    has no UI token), never from a running task: the caller check."""
+    from securevector.app.services import decisions
+
+    await decisions.refuse_governed_caller(request)
+
+
 def _with_branch(items):
     # Runs in a worker thread (see the callers): every branch lookup is a
     # blocking read of a folder the app does not control.
@@ -362,7 +371,7 @@ async def list_tasks(manager: TerminalManager = Depends(get_manager)):
     return {"items": items, "running": manager.running_count()}
 
 
-@router.post("/tasks", status_code=201, dependencies=[Depends(require_write)])
+@router.post("/tasks", status_code=201, dependencies=[Depends(require_write), Depends(_not_a_governed_task)])
 async def spawn_task(body: SpawnRequest, manager: TerminalManager = Depends(get_manager)):
     try:
         task = await manager.spawn(
@@ -395,7 +404,7 @@ async def spawn_task(body: SpawnRequest, manager: TerminalManager = Depends(get_
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
-@router.post("/tasks/link", status_code=201, dependencies=[Depends(require_write)])
+@router.post("/tasks/link", status_code=201, dependencies=[Depends(require_write), Depends(_not_a_governed_task)])
 async def link_task(body: LinkRequest, manager: TerminalManager = Depends(get_manager)):
     """Put a harness session started outside the app on the board."""
     try:
@@ -442,7 +451,7 @@ async def git_repo(folder: str = ""):
     return result
 
 
-@router.post("/tasks/{task_id}/worktree/remove", dependencies=[Depends(require_write)])
+@router.post("/tasks/{task_id}/worktree/remove", dependencies=[Depends(require_write), Depends(_not_a_governed_task)])
 async def remove_worktree(task_id: str, body: WorktreeRemoveRequest, request: Request,
                           manager: TerminalManager = Depends(get_manager)):
     """Remove a task's worktree on the person's request. With changed files
@@ -489,7 +498,7 @@ async def open_worktree(task_id: str, request: Request, manager: TerminalManager
     return {"ok": True, "folder": folder}
 
 
-@router.post("/tasks/{task_id}/stop", dependencies=[Depends(require_write)])
+@router.post("/tasks/{task_id}/stop", dependencies=[Depends(require_write), Depends(_not_a_governed_task)])
 async def stop_task(
     task_id: str,
     origin: Optional[str] = None,
@@ -526,7 +535,7 @@ async def archive_task(task_id: str, manager: TerminalManager = Depends(get_mana
     }
 
 
-@router.post("/stop-all", dependencies=[Depends(require_write)])
+@router.post("/stop-all", dependencies=[Depends(require_write), Depends(_not_a_governed_task)])
 async def stop_all(
     origin: Optional[str] = None, manager: TerminalManager = Depends(get_manager)
 ):
@@ -666,11 +675,14 @@ class DriftFeedback(BaseModel):
 @router.post("/tasks/{task_id}/drift/feedback", dependencies=[Depends(require_write)])
 async def drift_feedback(
     task_id: str,
+    request: Request,
     body: Optional[DriftFeedback] = None,
     manager: TerminalManager = Depends(get_manager),
 ):
     """Record "looks normal": the session joins the baseline for later
-    sessions and counts toward the published false-flag rate."""
+    sessions and counts toward the published false-flag rate. A decision,
+    so it needs the per-run UI token like the other decision routes."""
+    await _require_person(request, manager)
     task = await manager.store.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Unknown task")
@@ -687,6 +699,9 @@ async def drift_feedback(
         await session_drift.score_for(sid, db=manager.store.db, task=task)
     await repo.set_feedback(sid, session_drift.FEEDBACK_NORMAL)
     session_drift.clear_cache()
+    from securevector.app.services import decisions
+    await decisions.audit(manager.store.db, "looks_normal", session_id=sid, task_id=task_id,
+                          klass="drift", harness=task.get("executor_id"))
     return {"ok": True, "feedback": session_drift.FEEDBACK_NORMAL}
 
 
@@ -746,15 +761,27 @@ def _require_ui_token(request: Request) -> None:
     check(request.headers.get("x-sv-ui-token"))
 
 
+async def _require_person(request: Request, manager) -> None:
+    """The UI token, and the request is not from a governed task (see
+    services/decisions.py for what that check covers and its limits)."""
+    from securevector.app.services import decisions
+
+    _require_ui_token(request)
+    await decisions.refuse_governed_caller(request, manager)
+
+
 @router.post("/tasks/{task_id}/rung/release", dependencies=[Depends(require_write)])
 async def task_rung_release(task_id: str, request: Request, manager: TerminalManager = Depends(get_manager)):
     """Back to observe for this session: pinned to rung 1, its rung grants
     revoked and its pending rung requests cancelled. One call."""
-    _require_ui_token(request)
+    await _require_person(request, manager)
     sid = await _task_session(manager, task_id)
     row = await response_rungs.release_session(manager.store.db, sid, origin="ui")
     if row is None:
         raise HTTPException(status_code=409, detail="No rung is recorded for this session yet")
+    from securevector.app.services import decisions
+    await decisions.audit(manager.store.db, "release", session_id=sid, task_id=task_id,
+                          klass="step_up", harness=row.get("harness"))
     return response_rungs.payload(row)
 
 
@@ -767,9 +794,12 @@ class RungFeedback(BaseModel):
 async def task_rung_feedback(task_id: str, body: RungFeedback, request: Request,
                              manager: TerminalManager = Depends(get_manager)):
     """Mark a step-up "Not needed" (or clear the mark)."""
-    _require_ui_token(request)
+    await _require_person(request, manager)
     sid = await _task_session(manager, task_id)
     await response_rungs.set_feedback(manager.store.db, sid, body.feedback)
+    from securevector.app.services import decisions
+    await decisions.audit(manager.store.db, body.feedback or "feedback_cleared", session_id=sid,
+                          task_id=task_id, klass="step_up")
     return {"ok": True, "feedback": body.feedback}
 
 
@@ -787,7 +817,7 @@ async def set_rung_mode(harness: str, body: RungModeChange, request: Request,
     refused until the shadow period is complete or ended early."""
     from securevector.app.services.config_trust_scan import HARNESS_LABELS
 
-    _require_ui_token(request)
+    await _require_person(request, manager)
     if harness not in HARNESS_LABELS:
         raise HTTPException(status_code=404, detail="Unknown harness")
     if (body.mode is None) == (not body.end_shadow_early):
@@ -1010,7 +1040,7 @@ async def task_delegations(task_id: str, manager: TerminalManager = Depends(get_
 async def delegation_release(delegation_id: str, request: Request,
                              manager: TerminalManager = Depends(get_manager)):
     """Hand a held result to the task that asked for it."""
-    _require_ui_token(request)
+    await _require_person(request, manager)
     from securevector.app.services import delegation
 
     out = await delegation.release(manager.store.db, manager, delegation_id)
@@ -1023,7 +1053,7 @@ async def delegation_release(delegation_id: str, request: Request,
 async def delegation_discard(delegation_id: str, request: Request,
                              manager: TerminalManager = Depends(get_manager)):
     """Drop a held result; the task that asked gets no text."""
-    _require_ui_token(request)
+    await _require_person(request, manager)
     from securevector.app.services import delegation
 
     out = await delegation.discard(manager.store.db, manager, delegation_id)

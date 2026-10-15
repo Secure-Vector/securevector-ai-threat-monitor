@@ -268,10 +268,24 @@ class InProcessPtyHost:
             return
         self._signal_group(proc, signal.SIGTERM)
         deadline = time.monotonic() + grace
-        while time.monotonic() < deadline and proc.isalive():
+        # Wait for the whole group, not just the harness: a child that
+        # ignores SIGTERM (a shell tool, a background server) must not
+        # outlive a Stop because the harness itself exited in time.
+        while time.monotonic() < deadline and (proc.isalive() or self._group_alive(proc.pid)):
             time.sleep(0.05)
-        if proc.isalive():
+        if proc.isalive() or self._group_alive(proc.pid):
             self._signal_group(proc, signal.SIGKILL)
+
+    @staticmethod
+    def _group_alive(pgid: int) -> bool:
+        """True while any process is left in the task's process group. A
+        child that starts its own session (setsid) leaves the group and is
+        not reached by a group signal."""
+        try:
+            os.killpg(pgid, 0)
+        except OSError:
+            return False
+        return True
 
     def stop(self, task_id: str, grace: float = 3.0) -> None:
         session = self._get(task_id)

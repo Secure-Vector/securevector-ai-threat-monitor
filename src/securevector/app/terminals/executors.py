@@ -11,6 +11,7 @@ The --settings flag is additive: the workspace's own project settings and
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -228,6 +229,14 @@ def build_child_env(
     # contract. Pin it to this app instance rather than relying on its 8741
     # default, which would misroute a terminal launched on a custom port.
     env["SECUREVECTOR_ENGINE_ENDPOINT"] = f"http://127.0.0.1:{port}"
+    # Decisions come from a person in the app: the per-run UI token and page
+    # secret never reach a governed task, whatever name a parent gave them.
+    from securevector.app.services.decisions import decision_secrets
+
+    secrets_ = decision_secrets()
+    for key in [k for k, v in env.items() if any(s and s in str(v) for s in secrets_)]:
+        logging.getLogger(__name__).warning("Dropped %s from a task environment: it carries an app decision value", key)
+        del env[key]
     return env
 
 

@@ -319,10 +319,7 @@ const API = {
     },
 
     async toggleRule(ruleId, enabled) {
-        return this.request(`/api/rules/${ruleId}/toggle`, {
-            method: 'POST',
-            body: JSON.stringify({ enabled }),
-        });
+        return this._jitDecision(`/api/rules/${ruleId}/toggle`, { enabled });
     },
 
     async generatePatterns(description) {
@@ -333,10 +330,7 @@ const API = {
     },
 
     async createRule(ruleData) {
-        return this.request('/api/rules/custom', {
-            method: 'POST',
-            body: JSON.stringify(ruleData),
-        });
+        return this._jitDecision('/api/rules/custom', ruleData);
     },
 
     async getCustomRulesCount() {
@@ -550,10 +544,7 @@ const API = {
         const body = { action };
         // null/undefined → omit (global, all runtimes); a slug scopes the rule.
         if (runtimeKind) body.runtime_kind = runtimeKind;
-        return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
-            method: 'PUT',
-            body: JSON.stringify(body),
-        });
+        return this._jitDecision(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, body, 'PUT');
     },
 
     async updateEssentialToolRateLimit(toolId, maxCalls, windowSeconds) {
@@ -567,9 +558,7 @@ const API = {
     },
 
     async deleteToolOverride(toolId) {
-        return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
-            method: 'DELETE',
-        });
+        return this._jitDecision(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {}, 'DELETE');
     },
 
     // ==================== JIT Access (requests + grants) ====================
@@ -582,7 +571,7 @@ const API = {
         if (!this._jitToken) {
             let r;
             try {
-                r = await this.request('/api/jit/ui-token');
+                r = await this._retryUnconfirmed(() => this.request('/api/jit/ui-token'));
             } catch (e) {
                 // The page was loaded before the app restarted: reload once.
                 if (/local web UI only/i.test(String(e && e.message))) this._reloadForUiToken();
@@ -620,12 +609,24 @@ const API = {
             body: JSON.stringify(body || {}),
         });
         try {
-            return await call();
+            return await this._retryUnconfirmed(call);
         } catch (e) {
             // Retry once ONLY for a stale token (app restarted since the
             // token was cached) — any other failure surfaces immediately.
             if (!/UI token/i.test(String(e && e.message))) throw e;
             this._jitToken = null;
+            return this._retryUnconfirmed(call);
+        }
+    },
+    // The app answers 503 "Could not confirm who asked" when it could not
+    // tell, this once, that a person is asking. Try again once after a
+    // second; a second failure shows the message.
+    async _retryUnconfirmed(call) {
+        try {
+            return await call();
+        } catch (e) {
+            if (!/Could not confirm who asked/i.test(String(e && e.message))) throw e;
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             return call();
         }
     },
@@ -661,10 +662,7 @@ const API = {
     },
 
     async createCustomTool(toolData) {
-        return this.request('/api/tool-permissions/custom', {
-            method: 'POST',
-            body: JSON.stringify(toolData),
-        });
+        return this._jitDecision('/api/tool-permissions/custom', toolData, 'POST');
     },
 
     /** Update a custom tool's label fields (name / description / risk).
@@ -673,17 +671,12 @@ const API = {
      * able to change what it is allowed to do. Partial body, so omitted
      * fields keep their current values. */
     async updateCustomTool(toolId, fields) {
-        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
-            method: 'PATCH',
-            body: JSON.stringify(fields),
-        });
+        return this._jitDecision(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, fields, 'PATCH');
     },
 
     async updateCustomToolPermission(toolId, defaultPermission) {
-        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
-            method: 'PUT',
-            body: JSON.stringify({ default_permission: defaultPermission }),
-        });
+        return this._jitDecision(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`,
+            { default_permission: defaultPermission }, 'PUT');
     },
 
     async updateCustomToolRateLimit(toolId, maxCalls, windowSeconds) {
@@ -697,9 +690,7 @@ const API = {
     },
 
     async deleteCustomTool(toolId) {
-        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
-            method: 'DELETE',
-        });
+        return this._jitDecision(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {}, 'DELETE');
     },
 
     // ==================== Tool Call Audit Log ====================
@@ -751,17 +742,11 @@ const API = {
     },
 
     async deleteToolCallAuditEntries(ids) {
-        return this.request('/api/tool-permissions/call-audit', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids }),
-        });
+        return this._jitDecision('/api/tool-permissions/call-audit', { ids }, 'DELETE');
     },
 
     async deleteRule(ruleId) {
-        return this.request(`/api/rules/custom/${encodeURIComponent(ruleId)}`, {
-            method: 'DELETE',
-        });
+        return this._jitDecision(`/api/rules/custom/${encodeURIComponent(ruleId)}`, {}, 'DELETE');
     },
 
     async getProxyStatus() {
@@ -1192,7 +1177,7 @@ const API = {
         return this._terminalsRead(`/api/terminals/drift?task_ids=${encodeURIComponent((ids || []).join(','))}`);
     },
     async terminalsDriftFeedback(id) {
-        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/drift/feedback`, { feedback: 'normal' });
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/drift/feedback`, { feedback: 'normal' });
     },
     // Response rungs: reads under the terminals token; writes also carry the
     // per-run UI token, refetched once if the app restarted.
@@ -1212,11 +1197,11 @@ const API = {
             body: JSON.stringify(body || {}),
         });
         try {
-            return await call();
+            return await this._retryUnconfirmed(call);
         } catch (e) {
             if (!/UI token|HTTP 403/.test((e && e.message) || '')) throw e;
             this._jitToken = null;
-            return call();
+            return this._retryUnconfirmed(call);
         }
     },
     async terminalsRungRelease(id) {
@@ -1305,3 +1290,60 @@ const API = {
 
 // Make API globally available
 window.API = API;
+
+// Writes that change what agents may do, or that remove what was recorded,
+// come from a person in the app: the app asks for the per-run UI token on
+// them. Pages call some of these with fetch() directly, so the token is
+// added here, once, for same-origin writes to those paths. A 503 "Could not
+// confirm who asked" is tried again once after a second; a stale token
+// (the app restarted) is fetched again once.
+API.PERSON_WRITE_PATHS = [
+    /^\/api\/settings$/,
+    /^\/api\/settings\/llm$/,
+    /^\/api\/costs\/records$/,
+    /^\/api\/costs\/budget(\/agents\/[^/]+)?$/,
+    /^\/api\/costs\/run-limits(\/exempt)?$/,
+    /^\/api\/skill-permissions(\/[^/]+)*$/,
+    /^\/api\/threat-intel(\/[^/]+)?(\/disposition)?$/,
+    /^\/api\/rules\/sync\/apply$/,
+    /^\/api\/settings\/cloud\/(credentials|mode)$/,
+    /^\/api\/v1\/cloud-forwarding$/,
+    /^\/api\/siem-forwarders(\/[^/]+)?(\/reset-breaker)?$/,
+    /^\/api\/proxy\/(stop|revert)$/,
+    /^\/api\/terminals\/config-trust\/pins$/,
+];
+API.needsPerson = function (input, init) {
+    const method = String((init && init.method) || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || typeof input !== 'string') return false;
+    let url;
+    try { url = new URL(input, window.location.href); } catch (e) { return false; }
+    if (url.origin !== window.location.origin) return false;
+    return API.PERSON_WRITE_PATHS.some((re) => re.test(url.pathname));
+};
+(function wrapFetchForPersonWrites() {
+    if (typeof window.fetch !== 'function') return;
+    const plainFetch = window.fetch.bind(window);
+    const detailOf = async (res) => {
+        try { return String((await res.clone().json()).detail || ''); } catch (e) { return ''; }
+    };
+    window.fetch = async function (input, init) {
+        if (!API.needsPerson(input, init)) return plainFetch(input, init);
+        const headers = new Headers((init && init.headers) || {});
+        if (headers.has('X-SV-UI-Token')) return plainFetch(input, init);
+        const send = async () => {
+            const h = new Headers(headers);
+            try { h.set('X-SV-UI-Token', await API._getJitToken()); } catch (e) { /* the app answers 403 */ }
+            return plainFetch(input, { ...init, headers: h });
+        };
+        let res = await send();
+        if (res.status === 403 && /UI token/i.test(await detailOf(res))) {
+            API._jitToken = null;
+            res = await send();
+        }
+        if (res.status === 503 && /Could not confirm who asked/i.test(await detailOf(res))) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            res = await send();
+        }
+        return res;
+    };
+})();

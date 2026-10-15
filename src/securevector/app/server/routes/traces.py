@@ -717,6 +717,16 @@ async def run_health_warmer(interval: float = run_health.WARM_INTERVAL_SECONDS,
             raise
         except Exception:  # noqa: BLE001
             logger.debug("session drift pass failed", exc_info=True)
+        # Step-up holds nobody decided within the hold limit resolve as
+        # denied. Readers of the queue and the approve route also run this,
+        # so the limit holds between passes too.
+        try:
+            from securevector.app.services import response_rungs
+            await response_rungs.expire_holds(get_database())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("step-up hold expiry failed", exc_info=True)
         # Agent Config Trust: stat-gated setup recheck for running sessions
         # and user scope, relay-observed MCP tools, due opt-in probes.
         try:

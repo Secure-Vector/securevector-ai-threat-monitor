@@ -144,6 +144,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Handles startup and shutdown events, including database initialization.
     """
     logger.info("API server starting up...")
+    from securevector.app.services.decisions import warn_if_peer_check_off
+
+    warn_if_peer_check_off()
 
     # Initialize database and run migrations
     from securevector.app.database.connection import get_database

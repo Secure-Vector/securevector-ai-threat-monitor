@@ -13,11 +13,12 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from securevector.app.services import config_trust
 from securevector.app.services.config_trust_scan import HARNESS_LABELS
+from securevector.app.services import decisions
 from securevector.app.terminals.routes import require_read, require_write
 
 logger = logging.getLogger(__name__)
@@ -116,8 +117,10 @@ async def trust_mods(request: Request):
 
 
 @router.post("/pins", dependencies=[Depends(require_write)])
-async def trust_pin(body: PinRequest, request: Request):
+async def trust_pin(body: PinRequest, request: Request, x_sv_ui_token: Optional[str] = Header(None)):
     """Approve: re-pin the setup, one surface, one server or one mod."""
+    # Re-pinning accepts a changed setup: a person in the app.
+    await decisions.require_person(request, x_sv_ui_token)
     try:
         return await config_trust.approve(_db(request), _harness(body.harness), _workspace(body.workspace),
                                           target=body.target, key=body.key, expected=body.expected)

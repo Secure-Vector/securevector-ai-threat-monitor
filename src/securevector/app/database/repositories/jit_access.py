@@ -148,7 +148,7 @@ class JitAccessRepository:
         )
         return dict(row) if row else None
 
-    async def approve_request(self, request_id: str, duration: str) -> Optional[dict]:
+    async def approve_request(self, request_id: str, duration: str, with_change: bool = False):
         """Approve a pending request and mint its grant. Returns the grant.
 
         Idempotent: approving an already-approved request returns the grant
@@ -156,6 +156,11 @@ class JitAccessRepository:
         click on Approve, or the UI retrying a slow request, must not hand out
         two live grants — see the rowcount gate below for the racing case.
         """
+        if with_change:
+            # (grant, True only when this call moved the request out of pending)
+            self._approve_changed = False
+            grant = await self.approve_request(request_id, duration)
+            return grant, self._approve_changed
         req = await self.get_request(request_id)
         if not req:
             return None
@@ -198,6 +203,7 @@ class JitAccessRepository:
         )
         if getattr(cur, "rowcount", 1) == 0:
             return await self._latest_grant(request_id)
+        self._approve_changed = True
         gid = f"jitgrant_{uuid.uuid4().hex[:20]}"
         if duration in _DURATION_MINUTES:
             await self.db.execute(
@@ -226,13 +232,14 @@ class JitAccessRepository:
         req = await self.get_request(request_id)
         if not req or req["status"] != "pending":
             return False
-        await self.db.execute(
+        cur = await self.db.execute(
             "UPDATE jit_access_requests SET status = 'denied', "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user', "
             "deny_reason = ? WHERE id = ? AND status = 'pending'",
             ((reason or "").strip()[:200] or None, request_id),
         )
-        return True
+        # True only when this call moved the request out of pending.
+        return getattr(cur, "rowcount", 0) > 0
 
     async def expire_stale_requests(self, older_than_hours: int = 24) -> int:
         """Pending requests nobody decided within a day auto-expire — a stale

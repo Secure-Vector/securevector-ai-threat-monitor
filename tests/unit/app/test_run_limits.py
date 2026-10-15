@@ -222,7 +222,10 @@ def _budget_client(db, monkeypatch):
     app = FastAPI()
     app.include_router(costs_routes.router, prefix="/api")
     monkeypatch.setattr(costs_routes, "get_database", lambda: db)
-    return TestClient(app)
+    from securevector.app.server.routes import jit_access
+
+    # Budget and run-limit writes come from a person in the app.
+    return TestClient(app, headers={"X-SV-UI-Token": jit_access._UI_TOKEN})
 
 
 async def _record(db, session_id, cost, tokens):

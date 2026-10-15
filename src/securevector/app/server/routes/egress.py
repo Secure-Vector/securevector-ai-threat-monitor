@@ -24,7 +24,6 @@ from pydantic import BaseModel, Field
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.egress import EgressRepository
 from securevector.app.database.repositories.jit_access import JitAccessRepository
-from securevector.app.server.routes.jit_access import _require_ui_token
 from securevector.app.services import (
     codex_web_observer,
     egress_attestation,
@@ -49,6 +48,7 @@ from securevector.core.egress import (
     summarize_replay,
 )
 
+from securevector.app.services import decisions
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -420,7 +420,7 @@ async def grant_host(
     Guard actually had blocked by a promotable rule. The harness comes from
     that audit row, not from the client.
     """
-    _require_ui_token(x_sv_ui_token)
+    await decisions.require_person(http_request, x_sv_ui_token)
     host = _normalize_host(body.host)
     if not host:
         raise HTTPException(status_code=400, detail="Invalid host")
@@ -480,9 +480,10 @@ async def get_policy():
 
 
 @router.patch("/egress/policy")
-async def patch_policy(patch: PolicyPatch, x_sv_ui_token: Optional[str] = Header(None)):
+async def patch_policy(patch: PolicyPatch, x_sv_ui_token: Optional[str] = Header(None),
+                       http_request: Request = None):
     # A preset or list change is a person's decision, like a JIT approval.
-    _require_ui_token(x_sv_ui_token)
+    await decisions.require_person(http_request, x_sv_ui_token)
     if patch.preset is not None and patch.preset not in VALID_PRESETS:
         raise HTTPException(
             status_code=400,
@@ -508,10 +509,11 @@ class DenyHostRequest(BaseModel):
 async def add_denied_host(
     body: DenyHostRequest,
     x_sv_ui_token: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """Add one host to Denied destinations. Validated, then deny-everywhere:
     the next call from any session to it (or a subdomain) is blocked."""
-    _require_ui_token(x_sv_ui_token)
+    await decisions.require_person(http_request, x_sv_ui_token)
     host = _normalize_host(body.host)
     if not host:
         raise HTTPException(status_code=400, detail="Invalid host")
@@ -527,9 +529,10 @@ async def add_denied_host(
 async def remove_denied_host(
     body: DenyHostRequest,
     x_sv_ui_token: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """Remove one host from Denied destinations."""
-    _require_ui_token(x_sv_ui_token)
+    await decisions.require_person(http_request, x_sv_ui_token)
     host = _normalize_host(body.host)
     if not host:
         raise HTTPException(status_code=400, detail="Invalid host")
@@ -549,6 +552,7 @@ class PromoteRequest(BaseModel):
 @router.post("/egress/promote")
 async def promote_destination(
     request: PromoteRequest, x_sv_ui_token: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """Allow a previously-blocked destination. The deny-time promotion path.
 
@@ -559,7 +563,7 @@ async def promote_destination(
     Device-wide and permanent, so human-only: the same UI token as JIT
     decisions.
     """
-    _require_ui_token(x_sv_ui_token)
+    await decisions.require_person(http_request, x_sv_ui_token)
     host = _normalize_host(request.host)
     if not host:
         raise HTTPException(status_code=400, detail="Invalid host")

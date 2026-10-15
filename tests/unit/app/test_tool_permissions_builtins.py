@@ -90,7 +90,9 @@ def client(tmp_path, monkeypatch):
     app = FastAPI()
     app.include_router(tp_router, prefix="/api")
     try:
-        yield TestClient(app), db_path
+        # Override writes are made by a person in the app, with the UI token.
+        from securevector.app.server.routes.jit_access import _UI_TOKEN
+        yield TestClient(app, headers={"X-SV-UI-Token": _UI_TOKEN}), db_path
     finally:
         conn_mod._db = original_db
 

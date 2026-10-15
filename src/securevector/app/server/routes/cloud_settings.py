@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -152,10 +152,14 @@ async def get_general_settings() -> GeneralSettingsResponse:
 
 
 @router.put("/settings", response_model=GeneralSettingsResponse)
-async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSettingsResponse:
+async def update_general_settings(request: GeneralSettingsUpdate, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> GeneralSettingsResponse:
     """
     Update general app settings.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         settings_repo = SettingsRepository(db)
@@ -397,10 +401,14 @@ async def configure_credentials(request: CredentialsRequest) -> CredentialsRespo
 
 
 @router.delete("/settings/cloud/credentials", response_model=MessageResponse)
-async def remove_credentials() -> MessageResponse:
+async def remove_credentials(http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> MessageResponse:
     """
     Remove credentials and disable cloud mode.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         # Delete credentials from OS keychain
         delete_credentials()
@@ -527,12 +535,16 @@ async def poll_cloud_trial(request: TrialPollRequest) -> TrialPollResponse:
 
 
 @router.put("/settings/cloud/mode", response_model=CloudModeResponse)
-async def toggle_cloud_mode(request: CloudModeRequest) -> CloudModeResponse:
+async def toggle_cloud_mode(request: CloudModeRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> CloudModeResponse:
     """
     Toggle cloud mode on/off.
 
     Requires credentials to be configured before enabling.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         # Check if credentials are configured
         if request.enabled and not credentials_configured():
@@ -583,12 +595,13 @@ async def get_delegation_policy() -> dict:
 async def update_delegation_policy(
     request: DelegationPolicyUpdate,
     x_sv_ui_token: Optional[str] = Header(None),
+    http_request: Request = None,
 ) -> dict:
     """Change the delegation policy. Requires the local web UI's token, the
     same one approvals use."""
-    from securevector.app.server.routes.jit_access import _require_ui_token
+    from securevector.app.services import decisions
 
-    _require_ui_token(x_sv_ui_token)
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         repo = SettingsRepository(get_database())
         current = await repo.get_delegation_policy()
