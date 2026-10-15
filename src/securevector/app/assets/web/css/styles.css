@@ -10348,8 +10348,6 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .deleg-when { margin: 4px 0 12px; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 .deleg-when li { margin-bottom: 4px; }
 
-.nav-sessions-settings, .nav-sessions-dr { gap: 8px; margin: 2px 0 6px; padding: 6px 16px; font-size: 12.5px; }
-.nav-sessions-settings svg, .nav-sessions-dr svg { flex: 0 0 auto; }
 
 .terminals-task-setup[data-setup-open] { cursor: pointer; text-decoration: underline; text-decoration-color: transparent; }
 .terminals-task-setup[data-setup-open]:hover, .terminals-task-setup[data-setup-open]:focus-visible { text-decoration-color: currentColor; }
@@ -10392,11 +10390,6 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .terminals-page .terminals-task-facts.is-wrap { white-space: normal; overflow: visible; text-overflow: clip; }
 .dr-config-caption { margin: 0 2px; }
 
-/* Agents panel: Detection & Response and Settings live in the bottom section. */
-.sidebar-bottom .nav-sessions-settings, .sidebar-bottom .nav-sessions-dr { margin: 0 10px; padding: 5px 12px; font-size: 12px; color: var(--text-muted); }
-.sidebar-bottom .nav-sessions-settings:hover, .sidebar-bottom .nav-sessions-dr:hover, .sidebar-bottom .nav-sessions-dr.active { color: var(--text-primary); }
-.nav-dr-badge { margin-left: auto; padding: 0 6px; border-radius: 999px; background: rgba(245, 158, 11, .16); color: var(--warning, #f59e0b); font-size: 10px; line-height: 16px; }
-.nav-dr-badge[hidden] { display: none; }
 
 /* Session summary: headline, four facts, worth a look, Details. */
 .terminals-summary-headline { margin: 0 0 6px; font-size: 15px; font-weight: 600; color: var(--text-primary); }
@@ -10440,9 +10433,6 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .terminals-summary-fact { display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; color: var(--text-primary); min-width: 0; }
 .terminals-summary-fact-k { font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
 .terminals-summary-worth .terminals-summary-all { color: var(--accent-primary, #2dd4bf); }
-.sidebar-bottom .nav-sessions-dr { white-space: nowrap; padding-left: 8px; padding-right: 8px; gap: 6px; }
-.sidebar-bottom .nav-sessions-dr .nav-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.sidebar-bottom .nav-sessions-settings { padding-left: 8px; padding-right: 8px; }
 
 .dr-row-folder { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-row-head strong { white-space: nowrap; }
@@ -10450,7 +10440,12 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .dr-more-list { margin: 4px 0 0; padding-left: 16px; }
 .dr-more-list[hidden] { display: none; }
 .dr-tile-sub { overflow-wrap: anywhere; }
-.page-header p, .page-subtitle, .header-subtitle { white-space: normal; overflow: visible; text-overflow: clip; }
+/* Agents and Agent Detection & Response: the header subtitle wraps instead
+   of clipping in narrower windows. The element carries inline nowrap, hence
+   !important; Header toggles .is-wrap for these two pages only. */
+@media (max-width: 1100px) {
+    #header-page-subtitle.is-wrap { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+}
 .terminals-summary-all { color: var(--accent-primary, #2dd4bf); }
 
 .nav-view.needs-you { box-shadow: inset 2px 0 0 var(--warning, #f59e0b); }
@@ -10472,3 +10467,50 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .dr-spark { position: relative; }
 .dr-spark-last { position: absolute; top: 0; right: 0; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 .dr-spark.is-high .dr-spark-fill { opacity: .22; } .dr-spark.is-watch .dr-spark-fill { opacity: .22; }
+
+/* Agents board: one fixed-height alert line under the status row, so the
+   board never shifts. Amber is worth a look, red is high; calm is muted. */
+.terminals-alert-row { display: flex; align-items: center; gap: 10px; box-sizing: border-box; height: 40px; min-height: 40px; max-height: 40px; overflow: hidden; margin: 0 0 10px; padding: 0 8px 0 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-card); box-shadow: inset 3px 0 0 transparent; font-size: 12.5px; color: var(--text-muted); white-space: nowrap; }
+.terminals-alert-row[hidden] { display: none; }
+.terminals-alert-row:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.terminals-alert-row.is-watch { box-shadow: inset 3px 0 0 var(--warning); color: var(--text-secondary); }
+.terminals-alert-row.is-high { box-shadow: inset 3px 0 0 var(--danger, #ef4444); color: var(--text-secondary); }
+.terminals-alert-row.is-watch b { color: var(--warning); }
+.terminals-alert-row.is-high b { color: var(--danger, #ef4444); }
+.terminals-alert-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.terminals-alert-row .btn { flex: 0 0 auto; }
+.terminals-alert-link { padding: 0; border: 0; background: none; font: inherit; color: var(--warning); cursor: pointer; text-decoration: underline; text-decoration-color: transparent; }
+.terminals-alert-link:hover, .terminals-alert-link:focus-visible { text-decoration-color: currentColor; }
+.terminals-alert-mode { flex: 0 0 auto; margin-left: auto; padding: 3px 10px; border: 1px solid var(--border-default); border-radius: 999px; background: transparent; font: inherit; font-size: 11.5px; color: var(--text-secondary); cursor: pointer; }
+.terminals-alert-mode.is-on { color: var(--accent-primary); }
+.terminals-alert-mode:hover { border-color: var(--accent-primary); }
+
+/* Session cards: a step-up call blocked until you decide is red; test mode only notes it. */
+.terminals-task-stepup-blocked { display: block; font-size: 11.5px; color: var(--danger, #ef4444); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-task-wouldblock { display: block; font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-spot-trust { margin: 8px 2px 0; font-size: 12px; }
+
+/* Rail: Detect & Respond takes two short lines under its icon. */
+.product-rail-button[data-product-group="detect"] .product-rail-label { white-space: normal; text-overflow: clip; }
+
+/* Settings, pinned above Theme at the foot of the panel on every page. In
+   rail-only layouts it shrinks to its gear. */
+.sidebar-bottom .nav-settings-pinned { gap: 8px; margin: 0 10px; padding: 5px 8px; font-size: 12px; color: var(--text-muted); }
+.sidebar-bottom .nav-settings-pinned:hover { color: var(--text-primary); }
+.sidebar-bottom .nav-settings-pinned svg { flex: 0 0 auto; }
+.sidebar.collapsed .sidebar-product-rail .nav-settings-pinned,
+.sidebar.sidebar-context-empty .sidebar-product-rail .nav-settings-pinned { justify-content: center; width: 40px; margin: 2px auto; padding: 7px 0; }
+.sidebar.collapsed .sidebar-product-rail .nav-settings-pinned .nav-label,
+.sidebar.sidebar-context-empty .sidebar-product-rail .nav-settings-pinned .nav-label { display: none; }
+
+/* Agent Detection & Response: Getting started. Marks are neutral; done is
+   teal, the one accent, never a security colour. */
+.dr-start-list { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dr-start-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; font-size: 13.5px; color: var(--text-primary); }
+.dr-start-mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--border-default); border-radius: 50%; font-size: 11px; color: var(--accent-primary); }
+.dr-start-row.is-done .dr-start-mark { border-color: var(--accent-primary); }
+.dr-start-row.is-done .dr-start-text { color: var(--text-secondary); }
+.dr-start-state { font-size: 12px; color: var(--text-muted); }
+.dr-start-progress { margin: 0 0 6px 30px; font-size: 12.5px; }
+.dr-start-note { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; }
+.dr-start-line { margin: 0 2px 12px; font-size: 12.5px; }

@@ -133,6 +133,11 @@ async def _with_rung(manager: TerminalManager, items) -> None:
         if row:
             item["rung_word"] = response_rungs.RUNG_WORDS.get(int(row["rung"]), "observe")
             item["rung_mode"] = row.get("mode")
+            try:
+                item["rung_reasons"] = [str(r) for r in json.loads(row.get("reasons_json") or "[]")][:5]
+            except (TypeError, ValueError):
+                item["rung_reasons"] = []
+            item["rung_would_ask"] = int(row.get("would_ask") or 0)
 
 
 async def _with_drift(manager: TerminalManager, items) -> None:

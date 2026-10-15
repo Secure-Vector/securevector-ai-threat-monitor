@@ -424,7 +424,7 @@ async def approve(db, harness: str, workspace: Optional[str] = None, *, target: 
         now = (_view_hash(targets, scan.unparsed) if target == "setup"
                else targets.get(f"{target}:{key}", "removed"))
         if now != expected:
-            raise StaleView("The setup changed after it was shown. Review the current changes and approve again.")
+            raise StaleView("The config changed after it was shown. Review the current changes and approve again.")
 
     async def pin_surface(key: str, s) -> None:
         nonlocal pinned_items
@@ -579,18 +579,18 @@ async def session_summary(db, task_id: Optional[str], session_id: Optional[str] 
     """The Setup row for the session summary, in plain words."""
     checks = await ConfigTrustRepository(db).checks_for(task_id, session_id)
     if not checks:
-        return {"state": "unchecked", "text": "Setup not checked for this session.", "changes": []}
+        return {"state": "unchecked", "text": "Config not checked for this session.", "changes": []}
     first, last = checks[0], checks[-1]
     moved = first["setup_hash"] != last["setup_hash"]
     changes = [{k: c.get(k) for k in ("severity", "text", "target", "key", "server", "tool")} for c in last["diff"]]
     if not moved and last["state"] == "pinned":
-        text = "Setup unchanged during this session."
+        text = "Config unchanged during this session."
     elif not moved and last["state"] == "new":
-        text = "Setup unchanged during this session (not approved yet)."
+        text = "Config unchanged during this session (not approved yet)."
     elif not moved:
-        text = f"Setup unchanged during this session; {len(changes)} unapproved change(s) from before it started."
+        text = f"Config unchanged during this session; {len(changes)} unapproved change(s) from before it started."
     else:
-        text = f"Setup changed during this session ({len(changes)})."
+        text = f"Config changed during this session ({len(changes)})."
     return {"state": "changed" if moved else last["state"], "moved": moved, "text": text, "changes": changes,
             "checks": len(checks), "last_phase": last["phase"], "harness": last["harness"]}
 

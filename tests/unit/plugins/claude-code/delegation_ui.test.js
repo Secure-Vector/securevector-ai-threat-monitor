@@ -595,21 +595,19 @@ test('settings copy: owner text, empty allowlist line, no em dashes or banned wo
   assert.ok(ui.cardHtml({}).includes('No extra folders. A child runs in its parent&#39;s folder or a subfolder.'));
   assert.ok(ui.introHtml().includes('When to use it'));
   const rung = read('js/components/response-rungs.js');
-  assert.match(rung, /Response steps watch each session's behaviour and react: observe, flag, then ask for approval on risky calls\. Each agent starts in shadow, where steps only record\./);
+  assert.match(rung, /Automatic actions watch each session's behaviour and react in steps: 1 observe, 2 flag, 3 ask you before risky calls\. Each agent starts in test mode, where actions are logged only\./);
   assert.ok(!JSON.stringify(c).includes('\u2014'));
   assert.ok(!/INTRO: [^\n]*\u2014/.test(rung));
   assert.ok(!/Agent Sessions settings live[^\n]*\u2014/.test(read('js/pages/settings.js')));
   assert.ok(!/ADR|firewall|Mission Control|GovRun/i.test(JSON.stringify(c)));
 });
 
-test('the Agents rail has a keyboard-reachable Settings row that opens the panel', () => {
+test('Agent Sessions settings open from the toolbar gear; the Agents panel has no Settings row', () => {
   const side = read('js/components/sidebar.js');
-  assert.match(side, /nav-sessions-settings/);
-  assert.match(side, /activeGroup\.id === 'tasks'/);
-  assert.match(side, /_makeRowFocusable\(row, openSettings, \{ role: 'button' \}\)/);
-  assert.match(side, /TerminalsPage\.openSettings\(\)/);
-  assert.match(side, /sessionStorage\.setItem\('sv-sessions-settings', '1'\)/);
-  assert.match(side, /<span>Settings<\/span>/);
+  assert.doesNotMatch(side, /nav-sessions-settings/);
+  const page = read('js/pages/terminals.js');
+  assert.match(page, /sBtn\.onclick = \(\) => this\.openSettings\(\)/);
+  assert.match(page, /sessionStorage\.getItem\('sv-sessions-settings'\) === '1'/);
 });
 
 
@@ -690,6 +688,6 @@ test('buttons added for delegation and rungs carry names', () => {
   const src = read('js/pages/terminals.js');
   assert.match(src, /id="terminals-settings-btn"[^>]*>\$\{this\.GEAR_SVG\}<span>Settings<\/span>/);
   const rung = read('js/components/response-rungs.js');
-  assert.match(rung, /aria-label="Turn on response steps for \$\{hl\}"/);
+  assert.match(rung, /aria-label="Turn on automatic actions for \$\{hl\}"/);
   assert.match(src, /data-remove-id="\$\{this\._esc\(t\.id\)\}"[^>]*>\$\{this\._esc\(verb\)\}/);
 });

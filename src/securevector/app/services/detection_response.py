@@ -8,6 +8,7 @@ on its own, so one missing table leaves the rest of the page intact.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
@@ -70,7 +71,25 @@ def _setup_reason(check: Mapping[str, Any]) -> str:
     first = (red or diff or [None])[0]
     if isinstance(first, dict) and first.get("text"):
         return str(first["text"])
-    return "Agent setup changed since it was approved."
+    return "Agent config changed since it was approved."
+
+
+def _rung_flag(row: Mapping[str, Any], drift_normal: bool) -> bool:
+    """Rung 2 or above lists a session, unless the person answered it: the
+    rung row's own feedback, or "Looks normal" on the drift score when drift
+    is the rung's only signal. Config and deny rungs stay listed."""
+    if int(row.get("rung") or 1) < 2:
+        return False
+    from securevector.app.services import response_rungs
+    if row.get("feedback") in (response_rungs.FEEDBACK_NOT_NEEDED, session_drift.FEEDBACK_NORMAL):
+        return False
+    try:
+        reasons = set(json.loads(row.get("reasons_json") or "[]"))
+    except (TypeError, ValueError):
+        reasons = set()
+    if drift_normal and reasons <= {response_rungs.SIG_DRIFT}:
+        return False
+    return True
 
 
 async def _tasks(db, since: datetime) -> list:
@@ -199,6 +218,12 @@ async def _detect(db, now: datetime) -> dict:
     except Exception:  # noqa: BLE001 - the page renders without detect
         logger.debug("detection response: could not read sessions", exc_info=True)
         return out
+    rungs: dict = {}
+    try:
+        from securevector.app.database.repositories.response_rungs import ResponseRungsRepository
+        rungs = await ResponseRungsRepository(db).for_sessions([t["session_id"] for t in tasks])
+    except Exception:  # noqa: BLE001 - rung state is optional
+        logger.debug("detection response: could not read rung rows", exc_info=True)
     checks: dict = {}
     try:
         from securevector.app.database.repositories.config_trust import ConfigTrustRepository
@@ -221,11 +246,15 @@ async def _detect(db, now: datetime) -> dict:
         flagged_drift = band in REVIEW_BANDS
         # Only a red-class setup change puts a session on the list.
         flagged_setup = setup_state == "changed" and _red_change(c)
-        if not (flagged_drift or flagged_setup):
+        # One rule for every count: watch or high, an automatic action at
+        # rung 2 or above, or a red config change.
+        r = rungs.get(t["session_id"]) or {}
+        flagged_rung = _rung_flag(r, d.get("feedback") == session_drift.FEEDBACK_NORMAL)
+        if not (flagged_drift or flagged_setup or flagged_rung):
             continue
         # "Looks normal" answers the drift flag only; a red setup change
         # stays listed until the setup is approved.
-        if d.get("feedback") == session_drift.FEEDBACK_NORMAL and not flagged_setup:
+        if d.get("feedback") == session_drift.FEEDBACK_NORMAL and not flagged_setup and not flagged_rung:
             out["marked_normal"] += 1
             continue
         if flagged_drift and d.get("score") is not None:
@@ -233,6 +262,9 @@ async def _detect(db, now: datetime) -> dict:
         reason = _drift_reason(d) if flagged_drift else ""
         if not reason and flagged_setup:
             reason = _setup_reason(c)
+        if not reason and flagged_rung:
+            reason = "Automatic actions flagged this session."
+
         rows.append({
             "task_id": t["id"],
             "harness": t.get("executor_id"),
@@ -243,6 +275,7 @@ async def _detect(db, now: datetime) -> dict:
             "band": band,
             "status": d.get("status"),
             "setup_state": setup_state,
+            "rung": int(r.get("rung") or 1) if r else None,
             "setup_changes": len(c.get("diff") or []),
             "setup_texts": [str(x["text"]) for x in (c.get("diff") or []) if isinstance(x, dict) and x.get("text")][:30],
             "reason": reason or "Drift above the usual range for this harness.",
@@ -311,8 +344,44 @@ def _harden(setup: Optional[Mapping[str, Any]]) -> dict:
             "checked_at": setup.get("checked_at")}
 
 
+async def _getting_started(db, now: datetime, guard: Optional[bool]) -> dict:
+    """The two first steps and the baseline progress, for the page's
+    Getting started list. Reads only."""
+    out: dict = {"guard_installed": guard, "governed_session": False, "scored": False, "baseline": None}
+    try:
+        row = await db.fetch_one("SELECT 1 AS x FROM terminal_tasks WHERE session_id IS NOT NULL LIMIT 1")
+        out["governed_session"] = bool(row)
+        cutoff = now - timedelta(days=session_drift.BASELINE_DAYS)
+        rows = await db.fetch_all(
+            "SELECT session_id, executor_id, workspace, ended_at FROM terminal_tasks "
+            "WHERE session_id IS NOT NULL AND ended_at IS NOT NULL AND workspace IS NOT NULL "
+            "AND ended_at > ? ORDER BY ended_at DESC LIMIT 500",
+            (cutoff.isoformat(),),
+        )
+        groups: dict = {}
+        for r in rows:
+            at = _parse(r["ended_at"])
+            if at is None or at <= cutoff or not _folder(r["workspace"]):
+                continue
+            groups.setdefault((r["workspace"], r["executor_id"]), set()).add(r["session_id"])
+        if groups:
+            (ws, ex), ids = max(groups.items(), key=lambda kv: (len(kv[1]), str(kv[0])))
+            need = session_drift.MIN_BASELINE_SESSIONS
+            out["baseline"] = {"sessions": min(len(ids), need), "needed": need,
+                               "folder": _folder(ws), "harness_label": _label(ex)}
+    except Exception:  # noqa: BLE001 - the list renders without it
+        logger.debug("detection response: could not read getting-started facts", exc_info=True)
+    try:
+        row = await db.fetch_one("SELECT 1 AS x FROM session_drift WHERE score IS NOT NULL LIMIT 1")
+        out["scored"] = bool(row)
+    except Exception:  # noqa: BLE001 - no drift table yet means nothing scored
+        logger.debug("detection response: could not read scores", exc_info=True)
+    return out
+
+
 async def summary(db, *, setup: Optional[Mapping[str, Any]] = None,
-                  registered: Optional[bool] = None, now: Optional[datetime] = None) -> dict:
+                  registered: Optional[bool] = None, now: Optional[datetime] = None,
+                  guard: Optional[bool] = None) -> dict:
     """The page body. `setup` is the config-trust status already read by the
     caller; `registered` says whether any harness has the MCP tools."""
     now = now or datetime.now(timezone.utc)
@@ -326,6 +395,7 @@ async def summary(db, *, setup: Optional[Mapping[str, Any]] = None,
         "harden": _harden(setup),
         "preflight": pre,
         "sessions": detect["rows"],
+        "setup": await _getting_started(db, now, guard),
         "generated_at": now.isoformat(timespec="seconds"),
     }
 

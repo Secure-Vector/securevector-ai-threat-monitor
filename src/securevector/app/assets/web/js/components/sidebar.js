@@ -73,7 +73,9 @@ const Sidebar = {
     ],
     productGroups: [
         { id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',
-          subtitle: 'Launch and return to governed agent sessions', items: ['terminals'], extraPages: ['detection-response'] },
+          subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
+        { id: 'detect', label: 'Detect & Respond', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',
+          subtitle: 'Sessions that did something unusual, and agent config changes to check', items: ['detection-response'] },
         { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
           subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
         { id: 'governance', label: 'Governance', icon: 'gauge', landing: 'governance',
@@ -83,7 +85,11 @@ const Sidebar = {
         { id: 'connect', label: 'Connect', icon: 'plug', landing: 'guide-connect-agents',
           subtitle: 'Connect agents and forward security events', items: ['guide-connect-agents', 'siem-export'] },
         { id: 'more', label: 'More', icon: 'more', landing: 'guide',
-          subtitle: 'Open product guides and settings', items: ['guide', 'settings'] },
+          subtitle: 'Open product guides', items: ['guide'] },
+        // Settings has no rail button: it is pinned beside Theme at the foot
+        // of the panel on every page. The group only gives the page a home.
+        { id: 'settings', label: 'Settings', icon: 'settings', landing: 'settings', rail: false,
+          subtitle: 'App settings', items: ['settings'] },
     ],
     currentPage: 'terminals',
 
@@ -291,39 +297,6 @@ const Sidebar = {
         // Create nav
         const nav = document.createElement('nav');
         nav.className = 'sidebar-nav';
-
-        // Agents group: Settings and Agent Detection & Response rows, placed in the bottom section above Plugins. It is a nav
-        // item, not a task, and opens the Agent Sessions settings panel.
-        const agentFooterRows = [];
-        if (activeGroup.id === 'tasks') {
-            const row = document.createElement('div');
-            row.className = 'nav-item nav-sessions-settings';
-            row.dataset.sessionsSettings = '1';
-            row.title = 'Agent Sessions settings';
-            row.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h0a1.6 1.6 0 0 0 1-1.5V5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v0a1.6 1.6 0 0 0 1.5 1H19a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span>Settings</span>';
-            const openSettings = (e) => {
-                if (e && e.stopPropagation) e.stopPropagation();
-                if (this.currentPage === 'terminals' && window.TerminalsPage && TerminalsPage.openSettings) {
-                    TerminalsPage.openSettings();
-                    return;
-                }
-                try { sessionStorage.setItem('sv-sessions-settings', '1'); } catch (err) { /* storage unavailable */ }
-                this.navigate('terminals');
-            };
-            row.addEventListener('click', openSettings);
-            this._makeRowFocusable(row, openSettings, { role: 'button' });
-
-            // Agent Detection & Response sits above Settings in the bottom section.
-            const dr = document.createElement('div');
-            dr.className = 'nav-item nav-sessions-dr' + (this.currentPage === 'detection-response' ? ' active' : '');
-            dr.dataset.page = 'detection-response';
-            dr.title = 'Sessions that did something unusual, and agent config changes to check.';
-            dr.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M16 16l4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="nav-label">Agent Detection &amp; Response</span><span class="nav-dr-badge" hidden></span>';
-            const openDr = (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.navigate('detection-response'); };
-            dr.addEventListener('click', openDr);
-            this._makeRowFocusable(dr, openDr, { role: 'button' });
-            agentFooterRows.push(dr, row);
-        }
 
         // Core features get an orange badge dot overlaid on their icon
 
@@ -740,8 +713,9 @@ const Sidebar = {
         // blocked in the last 24 hours. The rail answers "where should I look"
         // before a click; zero hides the pill so quiet is quiet.
         this.loadLiveCounts();
+        this.loadDrCount();
         if (!this._countsTimer) {
-            this._countsTimer = setInterval(() => this.loadLiveCounts(), 60000);
+            this._countsTimer = setInterval(() => { this.loadLiveCounts(); this.loadDrCount(); }, 60000);
         }
 
         // A hoisted single-item group (see the hoist above) with no views at
@@ -876,20 +850,6 @@ const Sidebar = {
         statusToggle.appendChild(statusCount);
         statusToggle.addEventListener('mouseenter', () => { statusToggle.style.color = 'var(--text-secondary)'; });
         statusToggle.addEventListener('mouseleave', () => { statusToggle.style.color = 'var(--text-muted)'; });
-        agentFooterRows.forEach(r => bottomSection.appendChild(r));
-        const drBadge = bottomSection.querySelector('.nav-dr-badge');
-        if (drBadge && window.API) {
-            const showCount = (n) => {
-                n = Number(n) || 0;
-                drBadge.textContent = String(n);
-                drBadge.hidden = n <= 0;
-                drBadge.title = `${n} ${n === 1 ? 'session needs' : 'sessions need'} a look`;
-            };
-            try {
-                Promise.resolve((API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API))
-                    .then(d => showCount(d && d.detect && d.detect.to_review)).catch(() => {});
-            } catch (e) { /* no count */ }
-        }
         bottomSection.appendChild(statusToggle);
 
         const statusStack = document.createElement('div');
@@ -1183,6 +1143,7 @@ const Sidebar = {
         // window. `.sidebar-bottom` is already `margin-top: auto` under a
         // `flex: 1; overflow-y: auto` nav, so this stays put while the nav
         // list scrolls — genuinely fixed to the bottom, not merely last.
+        bottomSection.appendChild(this._createSettingsRow());
         bottomSection.appendChild(this.createThemeFooter());
 
         contextPanel.appendChild(bottomSection);
@@ -1287,6 +1248,42 @@ const Sidebar = {
         })) || this.productGroups[0];
     },
 
+    /** Sessions to review on the Detect & Respond rail button, from the
+     *  shared quiet summary read (cached 15 s by the API). Zero hides it. */
+    loadDrCount() {
+        if (!window.API || typeof document === 'undefined') return;
+        const paint = (n) => {
+            document.querySelectorAll('[data-dr-product-badge]').forEach(badge => {
+                const meaning = n === 1 ? '1 session needs a look' : n + ' sessions need a look';
+                badge.textContent = String(n);
+                badge.title = meaning;
+                badge.setAttribute('aria-label', meaning);
+                badge.hidden = n <= 0;
+                const button = badge.closest ? badge.closest('.product-rail-button') : null;
+                if (button) button.setAttribute('aria-label', n > 0 ? `${button.dataset.baseLabel}: ${meaning}` : button.dataset.baseLabel);
+            });
+        };
+        try {
+            Promise.resolve((API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API))
+                .then(d => paint(Math.max(0, Number(d && d.detect && d.detect.to_review) || 0))).catch(() => {});
+        } catch (e) { /* no count */ }
+    },
+
+    /** Settings, pinned above Theme at the foot of the panel on every page. */
+    _createSettingsRow() {
+        const row = document.createElement('div');
+        const on = this.currentPage === 'settings' || this.currentPage === 'guardian-ml';
+        row.className = 'nav-item nav-settings-pinned' + (on ? ' active' : '');
+        row.dataset.page = 'settings';
+        row.title = 'Settings';
+        row.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h0a1.6 1.6 0 0 0 1-1.5V5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v0a1.6 1.6 0 0 0 1.5 1H19a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span class="nav-label">Settings</span>';
+        if (on) row.setAttribute('aria-current', 'page');
+        const go = (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.navigate('settings'); };
+        row.addEventListener('click', go);
+        this._makeRowFocusable(row, go);
+        return row;
+    },
+
     _createProductRail(activeGroup) {
         const rail = document.createElement('div');
         rail.className = 'sidebar-product-rail';
@@ -1310,13 +1307,14 @@ const Sidebar = {
         const groupList = document.createElement('div');
         groupList.className = 'product-rail-groups';
         this.productGroups.forEach(group => {
+            if (group.rail === false) return;
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'product-rail-button' + (group.id === activeGroup.id ? ' active' : '');
             button.dataset.productGroup = group.id;
-            button.dataset.baseLabel = group.label;
-            button.title = group.label;
-            button.setAttribute('aria-label', group.label);
+            button.dataset.baseLabel = group.title || group.label;
+            button.title = group.title || group.label;
+            button.setAttribute('aria-label', group.title || group.label);
             if (group.id === activeGroup.id) button.setAttribute('aria-current', 'page');
             button.appendChild(this.createIcon(group.icon));
 
@@ -1329,6 +1327,13 @@ const Sidebar = {
                 const badge = document.createElement('span');
                 badge.className = 'product-rail-attention';
                 badge.dataset.jitProductBadge = group.id;
+                badge.hidden = true;
+                button.appendChild(badge);
+            }
+            if (group.id === 'detect') {
+                const badge = document.createElement('span');
+                badge.className = 'product-rail-attention';
+                badge.dataset.drProductBadge = '1';
                 badge.hidden = true;
                 button.appendChild(badge);
             }
