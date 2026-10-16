@@ -30,6 +30,17 @@ CODE = 123456
 _ORIG_NOTIFY = cf._notify
 
 
+def _fresh_lock():
+    """A lock for one test. Python 3.9 binds a Lock to the current loop at
+    construction and has none set once asyncio.run() has finished, so give
+    it one; later Pythons bind lazily and need nothing."""
+    try:
+        return asyncio.Lock()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        return asyncio.Lock()
+
+
 @pytest.fixture(autouse=True)
 def _fresh(monkeypatch, tmp_path):
     monkeypatch.setenv("SV_NATIVE_APPROVALS", "1")
@@ -39,7 +50,7 @@ def _fresh(monkeypatch, tmp_path):
     monkeypatch.setattr(cf, "_database", lambda: base)
     # The audit write lock is module level; give each test's loops a fresh one.
     from securevector.app.database.repositories import custom_tools
-    monkeypatch.setattr(custom_tools, "_AUDIT_WRITE_LOCK", asyncio.Lock())
+    monkeypatch.setattr(custom_tools, "_AUDIT_WRITE_LOCK", _fresh_lock())
     cf._store.clear()
     cf._fails.clear()
     cf.detach_shell()
