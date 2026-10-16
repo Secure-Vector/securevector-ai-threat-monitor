@@ -103,6 +103,7 @@ def test_uses_the_policy_request_helper_and_loopback_only(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_schemas_and_registration():
+    pytest.importorskip("mcp.server.fastmcp")  # the MCP extra needs Python 3.10+
     from mcp.server.fastmcp import FastMCP
 
     m = FastMCP("t")

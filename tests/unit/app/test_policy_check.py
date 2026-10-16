@@ -693,6 +693,7 @@ class TestBurn:
 class TestMcpTools:
     @pytest.mark.asyncio
     async def test_schemas(self):
+        pytest.importorskip("mcp.server.fastmcp")  # the MCP extra needs Python 3.10+
         from mcp.server.fastmcp import FastMCP
 
         m = FastMCP("t")
@@ -1064,6 +1065,7 @@ class TestEnforcementContext:
 
 
 def test_registration_requires_a_server_that_accepts_tools(monkeypatch):
+    pytest.importorskip("mcp.server.fastmcp")  # availability also needs the MCP extra (Python 3.10+)
     from types import SimpleNamespace
     from securevector.app.services import mcp_registration as m
 
