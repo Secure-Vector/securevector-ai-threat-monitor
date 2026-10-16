@@ -194,7 +194,7 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=197/);
+  assert.match(html, /sidebar\.js\?v=198/);
   assert.match(html, /styles\.css\?v=496/);
   assert.match(html, /app\.js\?v=75/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
@@ -614,7 +614,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=197/);
+  assert.match(read('index.html'), /sidebar\.js\?v=198/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
@@ -686,4 +686,11 @@ test('every page id dropped from the Visibility menu still resolves to a nav ite
   const th = read('js/pages/threats.js');
   assert.match(th, /auditBtn\.textContent = 'Audit past sessions'/);
   assert.match(th, /Sidebar\.navigate\('instant-audit'\)/);
+});
+
+test('Detection & Response: the edge bar follows the lit section row, not the parent', () => {
+  const src = read('js/components/sidebar.js');
+  assert.match(src, /rows\.find\(r => r\.classList\.contains\('nav-dr-section'\)\)\s*\|\| rows\.find\(r => !r\.classList\.contains\('nav-view'\)\)/);
+  // Lighting a section moves the bar on the next frame.
+  assert.match(src, /r\.removeAttribute\('aria-current'\);\s*\}\);\s*\/\/ The edge bar follows the lit section\.\s*if \(this\._indicator && typeof requestAnimationFrame === 'function'\) requestAnimationFrame\(\(\) => this\._moveIndicator\(false\)\);/);
 });

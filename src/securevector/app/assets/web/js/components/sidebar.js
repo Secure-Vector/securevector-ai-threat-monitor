@@ -1358,6 +1358,8 @@ const Sidebar = {
             r.classList.toggle('active', on);
             if (on) r.setAttribute('aria-current', 'location'); else if (r.removeAttribute) r.removeAttribute('aria-current');
         });
+        // The edge bar follows the lit section.
+        if (this._indicator && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => this._moveIndicator(false));
     },
 
     /** Which section is in view: the one whose top most recently passed the
@@ -2259,8 +2261,11 @@ const Sidebar = {
         if (!ind || !nav || !nav.isConnected) return;
         const rows = [...nav.querySelectorAll('.nav-item.active')].filter(el => el.offsetParent !== null);
         // A view lights its label; the bar stays on the parent row so the
-        // edge marker and the tinted row always agree.
-        const el = rows.find(r => !r.classList.contains('nav-view')) || rows[rows.length - 1];
+        // edge marker and the tinted row always agree. The Detection &
+        // Response panel is the exception: its section rows are the whole
+        // panel, so the bar follows the section in view.
+        const el = rows.find(r => r.classList.contains('nav-dr-section'))
+            || rows.find(r => !r.classList.contains('nav-view')) || rows[rows.length - 1];
         if (!el) { ind.style.opacity = '0'; return; }
         if (instant) ind.style.transition = 'none';
         ind.style.top = `${el.offsetTop}px`;
