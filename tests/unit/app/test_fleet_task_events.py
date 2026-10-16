@@ -255,7 +255,9 @@ async def test_v52_recreates_a_missing_index_and_second_run_is_a_noop(tmp_path):
 
 
 def test_allow_list_is_exactly_the_live_run_keys_plus_row_type():
-    assert fwd_repo_module._TASK_EVENT_ALLOWED == frozenset(_live_payload()) | {"row_type"}
+    assert fwd_repo_module._TASK_EVENT_ALLOWED == (
+        frozenset(_live_payload()) | {"row_type"} | frozenset(live_runs.ADR_FIELDS)
+    )
 
 
 def test_builder_tags_row_type_and_keeps_every_value():
@@ -437,7 +439,10 @@ async def test_no_raw_path_title_or_activity_in_the_enqueued_payload(tmp_path):
             assert secret not in blob
         for r in rows:
             payload = json.loads(r["payload_json"])
-            assert set(payload) == fwd_repo_module._TASK_EVENT_ALLOWED
+            base = set(_live_payload()) | {"row_type"}
+            assert base <= set(payload) <= fwd_repo_module._TASK_EVENT_ALLOWED
+            if payload["event"] != "exit":
+                assert not set(payload) & set(live_runs.ADR_FIELDS)
             assert payload["row_type"] == "task_event"
             # Owner-approved labels: sanitised title and folder basename only.
             assert payload["title"] == TITLE

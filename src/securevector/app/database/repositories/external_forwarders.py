@@ -226,6 +226,23 @@ _TASK_EVENT_ALLOWED = frozenset({
     "last_activity_at",
     "ended_at",
     "archived_at",
+    # Detection and response metadata, heartbeat and exit only and each one
+    # optional: integers and closed vocabularies checked by the Live Runs
+    # adr_fields() validator (see build_task_event_payload).
+    "drift_score",
+    "drift_band",
+    "drift_top",
+    "drift_top_points",
+    "drift_top_counts",
+    "config_state",
+    "config_changed_count",
+    "mcp_changed_count",
+    "mods_unmanaged_count",
+    "rung",
+    "rung_mode",
+    "rung_reason_ids",
+    "preflight_checked",
+    "preflight_avoided",
 })
 TASK_EVENT_ROW_TYPE = "task_event"
 
@@ -420,6 +437,13 @@ def build_task_event_payload(live_run: Mapping[str, Any]) -> dict[str, Any]:
     payload = dict(live_run)
     payload["row_type"] = TASK_EVENT_ROW_TYPE
     _assert_metadata_only(payload, _TASK_EVENT_ALLOWED, kind="task_event")
+    # The optional detection and response fields go through the one
+    # validator again: a value outside the contract is dropped, not queued.
+    from securevector.app.terminals.live_runs import ADR_FIELDS, adr_fields
+
+    present = {k: payload.pop(k) for k in ADR_FIELDS if k in payload}
+    if present:
+        payload.update(adr_fields(present, payload.get("event")))
     for key, value in payload.items():
         if value is not None and not isinstance(value, (str, int, float, bool)):
             raise ValueError(

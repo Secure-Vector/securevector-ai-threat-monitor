@@ -168,6 +168,8 @@ def contribution_points(result: "DriftResult") -> list:
     order they mattered. Each is value x weight scaled to the 0 to 100 score
     (over the weight of every feature that took part), rounded, with the
     rounding remainder given to the top row so the points add up to the score."""
+    if result.score is None:
+        return []
     parts = [f for f in result.features if not f.get("skipped")]
     total = sum(f["weight"] for f in parts)
     live = [f for f in parts if f.get("value", 0) > 0]
@@ -175,7 +177,7 @@ def contribution_points(result: "DriftResult") -> list:
     if not live or not total:
         return []
     pts = [int(round(100.0 * f["weight"] * f["value"] / total)) for f in live]
-    if result.score is not None and sum(pts) != result.score:
+    if sum(pts) != result.score:
         pts[0] = max(0, pts[0] + (result.score - sum(pts)))
     return [(f["id"], p) for f, p in zip(live, pts)]
 

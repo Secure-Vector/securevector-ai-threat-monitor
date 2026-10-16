@@ -124,6 +124,9 @@ UNKNOWN_WORKSPACE = "(unknown folder)"
 WORKTREE_REFRESH_S = 10.0
 
 
+# Overall cap on one heartbeat tick's detection and response reads.
+HEARTBEAT_ADR_BUDGET_SECONDS = 3.0
+
 class GuardHooksMissing(RuntimeError):
     """Kept for the routes/tests import surface. A missing Guard no longer
     refuses a launch: the task runs ungoverned and says so, so nothing raises
@@ -361,14 +364,44 @@ class TerminalManager:
             # pays one small read a minute and schedules nothing.
             if not await live_runs.fleet_enrolled():
                 continue
-            for task_id in list(self._running):
-                try:
-                    task = await self.store.get_task(task_id)
-                except Exception:
-                    logger.debug("heartbeat read failed for %s", task_id, exc_info=True)
-                    continue
-                if task is not None and task.get("archived_at") is None:
-                    live_runs.emit_nowait(task, "heartbeat")
+            await self._heartbeat_tick()
+
+    async def _heartbeat_tick(self) -> None:
+        """One beat for every running task. The metadata reads run
+        concurrently, each capped by the collector and all of them by
+        HEARTBEAT_ADR_BUDGET_SECONDS; a task that misses the budget beats
+        without the fields. Never raises."""
+        stamp = datetime.now(timezone.utc)
+        # Device-wide, so read once per tick rather than once per task.
+        mods = await live_runs.unmanaged_mod_count(self.store.db)
+
+        async def one(task_id: str):
+            try:
+                task = await self.store.get_task(task_id)
+            except Exception:
+                logger.debug("heartbeat read failed for %s", task_id, exc_info=True)
+                return None
+            if task is None or task.get("archived_at") is not None:
+                return None
+            box["tasks"][task_id] = task
+            box["adr"][task_id] = await live_runs.collect_adr(task, self.store.db, mods_unmanaged=mods)
+            return task_id
+
+        box: dict = {"tasks": {}, "adr": {}}
+        ids = list(self._running)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(one(t) for t in ids), return_exceptions=True),
+                HEARTBEAT_ADR_BUDGET_SECONDS,
+            )
+        except Exception:
+            logger.debug("heartbeat metadata budget exceeded", exc_info=True)
+        if not live_runs.has_sink():
+            return
+        for task_id in ids:
+            task = box["tasks"].get(task_id)
+            if task is not None:
+                live_runs.emit_nowait(task, "heartbeat", adr=box["adr"].get(task_id, {}), now=stamp)
 
     def _reap(self, task: Mapping) -> None:
         """Startup reaper. Only signals a pid that is alive AND still runs the
@@ -1168,12 +1201,32 @@ class TerminalManager:
         timer = self._prompt_timers.pop(task_id, None)
         if timer is not None:
             timer.cancel()
+        # Detection and response metadata for the exit event is read before
+        # the task is marked ended (bounded by the collector's timeout), so
+        # nothing that follows the exit, such as an archive, can overtake it.
+        # The values reflect state at send time.
+        adr = None
+        # Stamped before the read, so an archive that lands meanwhile still
+        # carries the later emitted_at.
+        stamp = datetime.now(timezone.utc)
+        if live_runs.has_sink():
+            try:
+                adr = await live_runs.collect_adr(await self.store.get_task(task_id) or {}, self.store.db)
+            except Exception:
+                adr = None
         await self.store.set_exit(
             task_id, code, stopped=stop_requested and code in _STOP_SIGNAL_EXITS
         )
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
+        if live_runs.has_sink():
+            try:
+                exited = await self.store.get_task(task_id)
+            except Exception:
+                exited = None
+            if exited is not None and exited.get("archived_at") is None:
+                live_runs.emit_nowait(exited, "exit", origin="process", adr=adr, now=stamp)
         await self._close_approvals(task_id, "ended")
         await self._revoke_host_grants(task_id)
         # A parent that exits takes the tasks it delegated with it.
@@ -1198,12 +1251,6 @@ class TerminalManager:
             delegation.forget_task(task_id)
         except Exception:
             logger.debug("delegation cleanup failed for %s", task_id, exc_info=True)
-        if live_runs.has_sink():
-            try:
-                exited = await self.store.get_task(task_id)
-            except Exception:
-                exited = None
-            live_runs.emit_nowait(exited, "exit", origin="process")
         # Bound how many finished sessions the host keeps alive: each one
         # holds a ring buffer up to the host's ring capacity, so an
         # unbounded backlog of finished tasks is a slow memory leak. The
