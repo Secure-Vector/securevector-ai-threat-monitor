@@ -173,26 +173,33 @@ const DetectionResponsePage = {
     _sparkHtml(sp, endLabel) {
         const pts = (sp.recent_scores || []).filter(r => Number.isFinite(r.score));
         if (pts.length < 2) return '';
-        const W = 320, H = 84, pad = 8, padR = 22;
-        const x = (i) => pad + (i * (W - pad - padR)) / (pts.length - 1);
-        const y = (v) => H - pad - (Math.max(0, Math.min(100, v)) / 100) * (H - 2 * pad);
+        const W = 500, H = 80, padL = 30, padR = 8, padT = 9, padB = 10;
+        const x = (i) => padL + (i * (W - padL - padR)) / (pts.length - 1);
+        const y = (v) => H - padB - (Math.max(0, Math.min(100, v)) / 100) * (H - padT - padB);
         const xy = (i) => `${x(i).toFixed(1)},${y(pts[i].score).toFixed(1)}`;
         const last = pts.length - 1;
         const band = this._bandOf(sp.band);
         const base = pts.slice(0, last).map((_, i) => xy(i)).join(' ');
         const rise = `${xy(last - 1)} ${xy(last)}`;
-        const fill = `${x(last - 1).toFixed(1)},${H - pad} ${rise} ${x(last).toFixed(1)},${H - pad}`;
+        const fill = `${x(last - 1).toFixed(1)},${H - padB} ${rise} ${x(last).toFixed(1)},${H - padB}`;
         const normal = pts.filter(r => !r.current).length;
         const startT = this._hhmm(sp.started_at);
-        const grid = [40, 70].map(v => `<line class="dr-spark-grid" x1="${pad}" x2="${W - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>`).join('');
+        const axis = [0, 40, 70, 100].map(v => `<g class="dr-spark-tick"><line class="dr-spark-grid" x1="${padL}" x2="${W - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text x="${padL - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${v}</text></g>`).join('');
+        const pointLabels = pts.map((p, i) => {
+            if (p.current) return `<li>Current session: score ${this._esc(p.score)}</li>`;
+            const time = this._hhmm(p.at || p.computed_at || p.timestamp);
+            const label = time ? `Session ${i + 1} at ${time}` : `Session ${i + 1}`;
+            return `<li>${this._esc(label)}: score ${this._esc(p.score)}</li>`;
+        }).join('');
         return `<div class="dr-spark is-${band}">
-            <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Scores of recent sessions in this folder, oldest to newest" preserveAspectRatio="none">
-              ${grid}
+            <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Recent session scores on a scale from 0 to 100, oldest to newest" preserveAspectRatio="xMidYMid meet">
+              ${axis}
               ${pts.length > 2 ? `<polyline class="dr-spark-base" fill="none" points="${base}"/>` : ''}
               <polygon class="dr-spark-fill" points="${fill}"/>
               <polyline class="dr-spark-rise" fill="none" points="${rise}"/>
               <circle class="dr-spark-dot" cx="${x(last).toFixed(1)}" cy="${y(pts[last].score).toFixed(1)}" r="3.5"/>
             </svg>
+            <ol class="dr-spark-a11y">${pointLabels}</ol>
             <div class="dr-spark-x"><span>${this._esc(normal)} ${normal === 1 ? 'session' : 'sessions'} of normal</span>${startT ? `<span>${this._esc(startT)}</span>` : ''}<span>${this._esc(endLabel || 'now')}</span></div>
             <div class="dr-spark-last">${this._esc(pts[last].score)}</div>
         </div>`;
@@ -288,10 +295,34 @@ const DetectionResponsePage = {
         return normal > 0 ? 'Highest score this week, not counting sessions marked normal' : 'Highest score this week';
     },
 
+    _hasNumericScore(value) {
+        return value !== null && value !== '' && Number.isFinite(Number(value));
+    },
+
+    /** Highest numeric score in the listed sessions, for honest no-spotlight states. */
+    _highestListedScore(data) {
+        const sessions = (data && Array.isArray(data.sessions) ? data.sessions : [])
+            .filter(s => s && this._hasNumericScore(s.score));
+        if (!sessions.length) return null;
+        const session = sessions.reduce((best, current) => Number(current.score) > Number(best.score) ? current : best);
+        const score = Number(session.score);
+        const band = score >= 70 ? 'high' : score >= 40 ? 'watch' : 'calm';
+        return { score, band };
+    },
+
     _topHtml(data) {
         if (!data) return '';
         const sp = data.spotlight;
-        if (!sp || !Number.isFinite(Number(sp.score))) {
+        if (!sp || !this._hasNumericScore(sp.score)) {
+            const listed = this._highestListedScore(data);
+            if (listed) {
+                const { score, band } = listed;
+                return `<section class="dr-top" aria-label="Highest listed session score">
+                    <div class="dr-caps">Highest listed session score</div>
+                    <div class="dr-top-line"><span class="dr-top-score is-${band}">${this._esc(score)}</span><span class="dr-band dr-top-band is-${band}">${this._esc(this._bandWord(band))}</span></div>
+                    <p class="dr-muted dr-top-compare">There is not enough same-folder history to show a trend yet.</p>
+                </section>`;
+            }
             return '<section class="dr-top is-empty" aria-label="Highest score this week" data-dr-top-empty><p class="dr-top-empty">No score yet. A score appears after the first tool calls.</p></section>';
         }
         const band = this._bandOf(sp.band);
@@ -311,8 +342,15 @@ const DetectionResponsePage = {
     _spotlightHtml(data) {
         const sp = data && data.spotlight;
         const pending = this._pendingLine(data);
-        if (!sp) {
+        if (!sp || !this._hasNumericScore(sp.score)) {
             if (!data) return '';
+            const listed = this._highestListedScore(data);
+            if (listed) {
+                return `<section class="dr-spot dr-spot-empty" aria-label="Spotlight">${pending}
+                    <h2 class="dr-spot-h">Highest listed session: <span class="dr-top-score is-${listed.band}">${this._esc(listed.score)}</span>, ${this._esc(this._bandWord(listed.band))}.</h2>
+                    <p class="dr-spot-sub">There is not enough same-folder history to show a trend yet.</p>
+                </section>`;
+            }
             return `<section class="dr-spot dr-spot-empty" aria-label="Spotlight">${pending}
                 <h2 class="dr-spot-h">No scored sessions yet.</h2>
                 <p class="dr-spot-sub">A score appears after the first tool calls.</p>

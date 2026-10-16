@@ -74,38 +74,26 @@ test('panel title is the full name and the hoist renders the section list', () =
   assert.match(src, /\{ id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',\s*\n\s*subtitle: 'Launch and return to governed agent sessions', items: \['terminals'\] \}/);
 });
 
-test('section rows in order; Getting started hidden until setup is incomplete', () => {
+test('the panel keeps only Sessions to review and Details', () => {
   const S = loadSidebar();
   const wrap = S._createDrSections();
   const rows = sections(wrap);
-  assert.deepEqual(rows.map(label), ['Getting started', 'Sessions to review', 'Details', 'Why this score', 'Automatic actions', 'Permission checks', 'Across your devices', 'Config changes', 'How it works']);
-  assert.deepEqual(rows.map(r => r.dataset.drSection), ['dr-sec-start', 'dr-sec-sessions', 'dr-sec-details', 'dr-sec-why', 'dr-sec-actions', 'dr-sec-checks', 'dr-sec-fleet', 'dr-sec-config', 'dr-sec-how']);
-  // The six Details sections sit indented under the Details row, in page order.
-  assert.deepEqual(rows.map(r => /\bnav-dr-sub\b/.test(r.className)), [false, false, false, true, true, true, true, true, true]);
-  assert.equal(rows[0].hidden, true);
-  S._paintDrSections({ setup: { scored: false, guard_installed: true, governed_session: false } }, wrap);
-  assert.equal(rows[0].hidden, false);
-  S._paintDrSections({ setup: { scored: true, guard_installed: true, governed_session: true } }, wrap);
-  assert.equal(rows[0].hidden, true);
+  assert.deepEqual(rows.map(label), ['Sessions to review', 'Details']);
+  assert.deepEqual(rows.map(r => r.dataset.drSection), ['dr-sec-sessions', 'dr-sec-details']);
+  assert.deepEqual(rows.map(r => /\bnav-dr-sub\b/.test(r.className)), [false, false]);
 });
 
-test('counts beside Sessions to review and Config changes only when above zero', () => {
+test('only Sessions to review has a count, and it hides at zero', () => {
   const S = loadSidebar();
   const wrap = S._createDrSections();
   const rows = sections(wrap);
-  const CFG = rows.findIndex(r => r.dataset.drSection === 'dr-sec-config');
-  assert.equal(count(rows[1]).hidden, true);
-  assert.equal(count(rows[CFG]).hidden, true);
-  assert.equal(count(rows[2]), undefined);
-  assert.equal(count(rows[4]), undefined);
-  assert.equal(count(rows[3]), undefined);
+  assert.equal(count(rows[0]).hidden, true);
+  assert.equal(count(rows[1]), undefined);
   S._paintDrSections({ detect: { to_review: 3 }, harden: { available: true, changes: 2 } }, wrap);
-  assert.equal(count(rows[1]).textContent, '3');
-  assert.equal(count(rows[1]).hidden, false);
-  assert.equal(count(rows[CFG]).textContent, '2');
+  assert.equal(count(rows[0]).textContent, '3');
+  assert.equal(count(rows[0]).hidden, false);
   S._paintDrSections({ detect: { to_review: 0 }, harden: { available: false, changes: 4 } }, wrap);
-  assert.equal(count(rows[1]).hidden, true);
-  assert.equal(count(rows[CFG]).hidden, true);
+  assert.equal(count(rows[0]).hidden, true);
   // Same cached summary the rail badge reads.
   assert.match(read('js/components/sidebar.js'), /this\._drSummary = d \|\| null;[\s\S]{0,140}this\._paintDrSections\(this\._drSummary\);/);
 });
@@ -115,16 +103,16 @@ test('first visible row active on load; a clicked or in-view section takes over'
   S._drActive = null;
   const wrap = S._createDrSections();
   const rows = sections(wrap);
+  assert.match(rows[0].className, /\bactive\b/);
+  assert.equal(rows[0].attrs['aria-current'], 'location');
+  S._drActive = 'dr-sec-details';
+  S._drSyncActive(wrap);
+  assert.doesNotMatch(rows[0].className, /\bactive\b/);
   assert.match(rows[1].className, /\bactive\b/);
-  assert.equal(rows[1].attrs['aria-current'], 'location');
+  // A legacy subsection id no longer in the menu falls back to a visible primary anchor.
   S._drActive = 'dr-sec-checks';
   S._drSyncActive(wrap);
-  assert.doesNotMatch(rows[1].className, /\bactive\b/);
-  assert.match(rows.find(r => r.dataset.drSection === 'dr-sec-checks').className, /\bactive\b/);
-  // Hidden Getting started falls back to the first visible row.
-  S._drActive = 'dr-sec-start';
-  S._drSyncActive(wrap);
-  assert.match(rows[1].className, /\bactive\b/);
+  assert.match(rows[0].className, /\bactive\b/);
   const e = [{ id: 'dr-sec-sessions', top: -400 }, { id: 'dr-sec-config', top: -20 }, { id: 'dr-sec-actions', top: 300 }, { id: 'dr-sec-checks', top: 300 }, { id: 'dr-sec-how', top: 700 }];
   assert.equal(S._drPickActive(e, 96, false, 800), 'dr-sec-config');
   assert.equal(S._drPickActive(e.map(x => ({ ...x, top: x.top + 1000 })), 96, false, 800), 'dr-sec-sessions');
@@ -214,7 +202,7 @@ test('a deep link to Config changes opens the closed Details first', () => {
   assert.equal(details.open, true);
 });
 
-test('while Details is closed its sections drop out and the Details row stands for them', () => {
+test('the Details anchor remains active across its disclosure contents', () => {
   const S = loadSidebar();
   const doc = S._drTestDoc;
   const wrap = S._createDrSections();
@@ -232,25 +220,17 @@ test('while Details is closed its sections drop out and the Details row stands f
   assert.equal(S._drClosedAround(details), null, 'never the element itself');
   details.open = true;
   S._drPositionPass(box);
-  assert.equal(S._drActive, 'dr-sec-config');
+  assert.equal(S._drActive, 'dr-sec-details');
 });
 
-test('Across your devices hides while its card is not rendered', () => {
+test('legacy detail section IDs remain available for direct navigation', () => {
   const S = loadSidebar();
   const doc = S._drTestDoc;
-  const wrap = S._createDrSections();
-  doc.querySelectorAll = (sel) => wrap.querySelectorAll(sel);
-  const fleet = sections(wrap).find(r => r.dataset.drSection === 'dr-sec-fleet');
-  assert.equal(fleet.hidden, true, 'hidden before the page renders');
-  const slot = { children: [] };
-  doc.getElementById = (id) => (id === 'dr-sec-fleet' ? slot : null);
-  S.drPageReady();
-  assert.equal(fleet.hidden, true, 'empty slot: hidden');
-  slot.children = [{}];
-  S.drPageReady();
-  assert.equal(fleet.hidden, false, 'card rendered: shown');
-  slot.children = [];
-  S._drHideEmpty();
-  assert.equal(fleet.hidden, true, 'dismissed: hidden again');
-  assert.match(read('js/pages/detection-response.js'), /slot\.innerHTML = '';\s*if \(window\.Sidebar && Sidebar\._drHideEmpty\) Sidebar\._drHideEmpty\(\);/);
+  const details = { tagName: 'DETAILS', open: false, parentElement: null };
+  const target = { tagName: 'DIV', parentElement: details, scrollIntoView() {} };
+  doc.getElementById = (id) => (id === 'dr-sec-fleet' ? target : null);
+  S.currentPage = 'detection-response';
+  assert.equal(S._drScrollTo('dr-sec-fleet'), true);
+  assert.equal(details.open, true);
+  assert.match(read('js/pages/detection-response.js'), /id="dr-sec-fleet"/);
 });
