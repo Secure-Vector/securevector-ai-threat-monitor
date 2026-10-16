@@ -20,6 +20,7 @@ prunes git's bookkeeping for worktrees already removed.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -213,18 +214,49 @@ def check_folder(folder: str) -> dict:
 
 
 def has_required_filter(repo: str) -> bool:
-    """Whether the configuration marks any filter driver required (Git LFS
-    does). Such a checkout cannot run with filters blanked."""
+    """Whether this repository relies on a filter driver the configuration
+    marks required (Git LFS does). Such a checkout cannot run with filters
+    blanked. The required flag alone is not enough: `git lfs install` writes
+    it to the global configuration on every machine with LFS installed, so
+    the repository's own attributes must also route files through that
+    filter."""
     out = git(repo, "config", "-z", "--type=bool", "--get-regexp", r"^filter\..*\.required$")
     if out.returncode == 1:
         return False
     if out.returncode != 0:
         return True
+    names = set()
     for entry in out.stdout.split("\0"):
         parts = entry.split("\n", 1)
         if len(parts) == 2 and parts[1].strip() == "true":
-            return True
-    return False
+            names.add(parts[0][len("filter."):-len(".required")])
+    if not names:
+        return False
+    text = _attribute_text(repo)
+    return any(re.search(r"(^|\s)filter=" + re.escape(name) + r"(\s|$)", text, re.M) for name in names)
+
+
+_ATTR_FILE_LIMIT = 1024 * 1024
+
+
+def _attribute_text(repo: str) -> str:
+    """The attribute files that apply to the checkout: every tracked
+    .gitattributes plus the repository's info/attributes. Read directly,
+    bounded, never raising."""
+    chunks = []
+    listed = git(repo, "ls-files", "-z", "--", ".gitattributes", "**/.gitattributes")
+    paths = [p for p in listed.stdout.split("\0") if p] if listed.returncode == 0 else []
+    info = git(repo, "rev-parse", "--git-path", "info/attributes")
+    if info.returncode == 0 and info.stdout.strip():
+        paths.append(info.stdout.strip())
+    for rel in paths:
+        path = rel if os.path.isabs(rel) else os.path.join(repo, rel)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                chunks.append(fh.read(_ATTR_FILE_LIMIT))
+        except OSError:
+            continue
+    return "\n".join(chunks)
 
 
 def branch_for(task_id: str) -> str:

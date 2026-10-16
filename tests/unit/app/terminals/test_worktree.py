@@ -658,6 +658,9 @@ def test_lfs_style_required_filter_is_refused_up_front(tmp_path):
     repo = _repo(tmp_path / "proj")
     _git(repo, "config", "filter.lfs.required", "true")
     _git(repo, "config", "filter.lfs.smudge", "git-lfs smudge -- %f")
+    (repo / ".gitattributes").write_text("*.bin filter=lfs diff=lfs merge=lfs -text\n")
+    _git(repo, "add", ".gitattributes")
+    _git(repo, "commit", "-q", "-m", "track binaries with lfs")
     with pytest.raises(worktrees.WorktreeError) as exc:
         worktrees.create(str(repo), tmp_path / "task", "acacacacacac")
     assert str(exc.value) == worktrees.LFS_UNSUPPORTED
@@ -706,3 +709,27 @@ async def test_board_list_refreshes_kept_worktree_counts(tmp_path, monkeypatch):
     body = await routes.list_tasks(m)
     row = {i["id"]: i for i in body["items"]}[task["id"]]
     assert row["worktree_dirty"] == 1
+
+
+
+def test_a_required_filter_only_in_global_config_does_not_make_the_repo_lfs(tmp_path, monkeypatch):
+    # `git lfs install` writes filter.lfs.required=true to the global config on
+    # every machine with LFS installed (CI runners included). Without the
+    # repository routing files through that filter, worktrees stay available.
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text(
+        "[filter \"lfs\"]\n\trequired = true\n\tsmudge = git-lfs smudge -- %f\n\tclean = git-lfs clean -- %f\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    repo = _repo(tmp_path / "proj")
+    assert worktrees.has_required_filter(str(repo)) is False
+    assert worktrees.check_folder(str(repo))["worktree_ok"] is True
+    created = worktrees.create(str(repo), tmp_path / "task", "adadadadadad")
+    assert Path(created.root).is_dir()
+    # The same global config plus an info/attributes rule makes it an LFS checkout.
+    info = Path(_git(repo, "rev-parse", "--git-path", "info/attributes"))
+    info = info if info.is_absolute() else repo / info
+    info.parent.mkdir(parents=True, exist_ok=True)
+    info.write_text("*.psd filter=lfs\n")
+    assert worktrees.has_required_filter(str(repo)) is True

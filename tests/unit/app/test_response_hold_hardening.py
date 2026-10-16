@@ -57,8 +57,8 @@ def _audit_rows(db, fn):
         "WHERE function_name = ?", (fn,)))
 
 
-def _req(headers=None, client=None, manager=None):
-    return SimpleNamespace(headers=headers or {}, client=client, url=SimpleNamespace(port=8741),
+def _req(headers=None, client=None, manager=None, server_port=8741):
+    return SimpleNamespace(headers=headers or {}, client=client, url=SimpleNamespace(port=server_port),
                            app=SimpleNamespace(state=SimpleNamespace(terminal_manager=manager)))
 
 
@@ -307,13 +307,13 @@ def test_peer_inside_a_governed_tree_is_refused(half_close):
         manager = _manager_for(child.pid)
         with pytest.raises(HTTPException) as exc:
             asyncio.run(decisions.refuse_governed_caller(
-                _req(client=SimpleNamespace(host=host, port=peer_port), manager=manager)))
+                _req(client=SimpleNamespace(host=host, port=peer_port), manager=manager, server_port=port)))
         assert exc.value.status_code == 403
         # A process outside the task's tree (the page, say) passes.
         outsider = _client_proc(port, governed=False)
         conn2, (h2, p2) = srv.accept()
         asyncio.run(decisions.refuse_governed_caller(
-            _req(client=SimpleNamespace(host=h2, port=p2), manager=manager)))
+            _req(client=SimpleNamespace(host=h2, port=p2), manager=manager, server_port=port)))
         conn.close()
         conn2.close()
     finally:
