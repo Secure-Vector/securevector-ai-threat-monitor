@@ -281,8 +281,8 @@ test('Show steps toggle: one run open, lazy fetch cached per trace, errors not c
   const toggle = (id) => ({ dataset: { traceId: id } });
   buttons.push(toggle('a1'), toggle('b2'));
   P._renderTraceList(tEl);
-  assert.match(tEl.innerHTML, /6m ago · 1 blocked · 4 spans/);
-  assert.match(tEl.innerHTML, /6m ago · 2 flagged · 3 spans/);
+  assert.match(tEl.innerHTML, /1 blocked · 4 spans/);
+  assert.match(tEl.innerHTML, /2 flagged · 3 spans/);
   assert.match(tEl.innerHTML, /aria-expanded="false"[^>]*>Show steps ▾/);
 
   buttons[0].onclick();
@@ -593,10 +593,10 @@ test('footer: governed and blocked, with the session egress denies added once', 
   P._egressSid = 's1';
   P._egress = { blocked_calls: 1, destinations: [{ host: 'evil.example', blocked: 1 }, { host: 'evil2.example', blocked: 1 }] };
   P._renderPaneFoot();
-  assert.match(foot.innerHTML, /2 governed · 1 blocked/);
+  assert.match(foot.innerHTML, /2 calls · 1 blocked/);
   // Another session's egress reading is not this task's.
   P._egressSid = 's2';
   P._footSig = null;
   P._renderPaneFoot();
-  assert.match(foot.innerHTML, /2 governed · 0 blocked/);
+  assert.match(foot.innerHTML, /2 calls · 0 blocked/);
 });

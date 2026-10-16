@@ -1849,8 +1849,14 @@ const AgentRunsPage = {
      *  the evidence lives. Best-effort: no report, no chips, no errors. */
     async _annotateOptimizer(trace) {
         if (this._optReport === undefined) {
-            this._optReport = await fetch('/api/cost-optimizer/report')
+            // Ask the status route first: the report route answers 404 until
+            // a scan has run, which would show as a failed request.
+            const st = await fetch('/api/cost-optimizer/status')
                 .then(r => (r.ok ? r.json() : null)).catch(() => null);
+            this._optReport = (st && st.has_report)
+                ? await fetch('/api/cost-optimizer/report')
+                    .then(r => (r.ok ? r.json() : null)).catch(() => null)
+                : null;
         }
         const rep = this._optReport;
         if (!rep || !trace.session_id || this._trace !== trace) return;

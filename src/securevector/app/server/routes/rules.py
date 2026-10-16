@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -26,6 +26,7 @@ from securevector.app.database.repositories.rules import (
 )
 from securevector.app.services.nlp_rule_generator import NLPRuleGenerator
 
+from securevector.app.services import decisions
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -275,8 +276,10 @@ async def sync_preview_page_endpoint(
 
 
 @router.post("/rules/sync/apply")
-async def sync_apply_endpoint(request: SyncApplyRequest) -> dict:
+async def sync_apply_endpoint(request: SyncApplyRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict:
     """Persist the previewed rules into the local cache."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     from securevector.app.services.cloud_rules_preview import apply_preview
     from securevector.app.services.cloud_rules_sync import CloudRulesSyncError
 
@@ -428,10 +431,13 @@ async def list_rules(
 
 
 @router.post("/rules/custom", response_model=RuleResponse, status_code=201)
-async def create_custom_rule(request: CreateRuleRequest) -> RuleResponse:
+async def create_custom_rule(request: CreateRuleRequest, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)) -> RuleResponse:
     """
     Create a new custom detection rule.
     """
+    # Changes what is detected: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = RulesRepository(db)
@@ -505,10 +511,13 @@ async def get_custom_rule(rule_id: str) -> RuleResponse:
 
 
 @router.put("/rules/custom/{rule_id}", response_model=RuleResponse)
-async def update_custom_rule(rule_id: str, request: UpdateRuleRequest) -> RuleResponse:
+async def update_custom_rule(rule_id: str, request: UpdateRuleRequest, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)) -> RuleResponse:
     """
     Update a custom rule.
     """
+    # Changes what is detected: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = RulesRepository(db)
@@ -552,10 +561,13 @@ async def update_custom_rule(rule_id: str, request: UpdateRuleRequest) -> RuleRe
 
 
 @router.delete("/rules/custom/{rule_id}", status_code=204)
-async def delete_custom_rule(rule_id: str) -> None:
+async def delete_custom_rule(rule_id: str, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)) -> None:
     """
     Delete a custom rule.
     """
+    # Changes what is detected: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = RulesRepository(db)
@@ -605,10 +617,13 @@ def _community_rule_response(rule, override) -> RuleResponse:
 
 
 @router.put("/rules/{rule_id}/override", response_model=RuleResponse)
-async def set_rule_override(rule_id: str, request: RuleOverrideRequest) -> RuleResponse:
+async def set_rule_override(rule_id: str, request: RuleOverrideRequest, http_request: Request = None,
+                            x_sv_ui_token: Optional[str] = Header(None)) -> RuleResponse:
     """
     Create or update an override for a community rule.
     """
+    # Changes what is detected: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = RulesRepository(db)
@@ -648,10 +663,13 @@ async def set_rule_override(rule_id: str, request: RuleOverrideRequest) -> RuleR
 
 
 @router.delete("/rules/{rule_id}/override", response_model=RuleResponse)
-async def reset_rule_override(rule_id: str) -> RuleResponse:
+async def reset_rule_override(rule_id: str, http_request: Request = None,
+                              x_sv_ui_token: Optional[str] = Header(None)) -> RuleResponse:
     """
     Remove an override and reset to default community rule.
     """
+    # Changes what is detected: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = RulesRepository(db)
@@ -685,12 +703,15 @@ async def reset_rule_override(rule_id: str) -> RuleResponse:
 
 
 @router.post("/rules/{rule_id}/toggle", response_model=RuleResponse)
-async def toggle_rule(rule_id: str, request: ToggleRequest) -> RuleResponse:
+async def toggle_rule(rule_id: str, request: ToggleRequest, http_request: Request = None,
+                      x_sv_ui_token: Optional[str] = Header(None)) -> RuleResponse:
     """
     Toggle a rule's enabled status.
 
     Works for both custom rules and community rules (via override).
     """
+    # Changes what is detected: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = RulesRepository(db)

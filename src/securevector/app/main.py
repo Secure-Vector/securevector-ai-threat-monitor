@@ -150,6 +150,19 @@ def _app_terminating() -> bool:
         return False
 
 
+def _attach_confirmations(window: Any) -> None:
+    """Decisions are confirmed by the person through this shell, in process."""
+    from securevector.app import desktop_shell
+    from securevector.app.services import confirmations
+
+    activate = desktop_shell.make_activate_callback(window)
+    if sys.platform == "darwin":
+        confirmations.attach_shell(prompt=desktop_shell.make_confirm_prompt(window, activate))
+    else:
+        # No Cancel-default dialog here: the person types a code the shell shows.
+        confirmations.attach_shell(show_code=desktop_shell.make_code_display(window, activate))
+
+
 def run_desktop(host: str, port: int, debug: bool) -> None:
     """Run the application with a native desktop window."""
     import os
@@ -208,6 +221,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
             "configure_app": lambda app: (
                 desktop_shell.install_activation_route(app, desktop_shell.make_activate_callback(window)),
                 desktop_shell.install_chrome_routes(app, chrome),
+                _attach_confirmations(window),
             )
         },
         daemon=True,

@@ -163,8 +163,12 @@ class EgressRepository:
     # ---------------------------------------------------------------- audit
 
     async def log_attempts(self, verdicts, tool_name=None, runtime_kind=None,
-                           session_id=None, request_id=None) -> int:
-        """Persist one row per evaluated destination. Returns rows written."""
+                           session_id=None, request_id=None,
+                           session_verified: bool = False) -> int:
+        """Persist one row per evaluated destination. Returns rows written.
+
+        `session_verified` says the session id was proven by the launched
+        task's hook token; only such rows can ever be granted from."""
         conn = await self.db.connect()
         written = 0
         for verdict in list(verdicts)[:MAX_ATTEMPTS_PER_CALL]:
@@ -174,8 +178,8 @@ class EgressRepository:
                 INSERT INTO egress_audit (
                     host, port, scheme, operation, kind, action, rule_id,
                     severity, confidence, detector, tool_name, runtime_kind,
-                    session_id, request_id, evidence, reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    session_id, request_id, evidence, reason, session_verified
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     attempt.host, attempt.port, attempt.scheme, attempt.operation,
@@ -184,6 +188,7 @@ class EgressRepository:
                     session_id, request_id,
                     (attempt.evidence or "")[:MAX_EVIDENCE_CHARS],
                     verdict.reason,
+                    1 if (session_id and session_verified) else 0,
                 ),
             )
             written += 1
@@ -250,7 +255,7 @@ class EgressRepository:
     # are severe enough to cost an explicit policy edit. A UI that offers a
     # one-click allow here would be offering a button that does not work.
     NON_PROMOTABLE_RULES = ("sv.egress.package_publish", "sv.egress.cloud_metadata",
-                            "policy.denylist")
+                            "policy.denylist", "sv.self.control_api")
 
     async def destination_inventory(self, days: int = 30) -> list:
         """Distinct destinations seen, with counts. The blast-radius number.
@@ -270,6 +275,8 @@ class EgressRepository:
                    MAX(CASE WHEN action = 'block'
                              AND rule_id IN ({placeholders})
                             THEN 1 ELSE 0 END)                     AS hard_blocked,
+                   MAX(CASE WHEN action = 'block' AND session_verified = 1
+                            THEN 1 ELSE 0 END)                     AS verified_blocked,
                    MIN(timestamp)                                  AS first_seen,
                    MAX(timestamp)                                  AS last_seen
             FROM egress_audit
@@ -313,8 +320,18 @@ class EgressRepository:
                    MAX(CASE WHEN action = 'block'
                              AND rule_id IN ({placeholders})
                             THEN 1 ELSE 0 END)                     AS hard_blocked,
+                   MAX(CASE WHEN action = 'block' AND session_verified = 1
+                            THEN 1 ELSE 0 END)                     AS verified_blocked,
                    MIN(timestamp)                                  AS first_seen,
-                   MAX(timestamp)                                  AS last_seen
+                   MAX(timestamp)                                  AS last_seen,
+                   (SELECT b.rule_id FROM egress_audit b
+                     WHERE b.session_id = ? AND b.host = egress_audit.host
+                       AND b.action = 'block'
+                     ORDER BY b.timestamp DESC, b.id DESC LIMIT 1)  AS rule_id,
+                   (SELECT b.reason FROM egress_audit b
+                     WHERE b.session_id = ? AND b.host = egress_audit.host
+                       AND b.action = 'block'
+                     ORDER BY b.timestamp DESC, b.id DESC LIMIT 1)  AS reason
             FROM egress_audit
             WHERE host IS NOT NULL
               AND session_id = ?
@@ -322,12 +339,57 @@ class EgressRepository:
             ORDER BY blocked DESC, calls DESC
             LIMIT ?
             """,
-            (*self.NON_PROMOTABLE_RULES, session_id,
+            (*self.NON_PROMOTABLE_RULES, session_id, session_id, session_id,
              max(1, min(int(limit), 500))),
         )
+        # rule_id / reason: the rule behind the host's most recent block in
+        # this session (None for a host that was never blocked here).
         cols = ["host", "calls", "blocked", "observed", "writes",
-                "hard_blocked", "first_seen", "last_seen"]
+                "hard_blocked", "verified_blocked", "first_seen", "last_seen",
+                "rule_id", "reason"]
         return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
+    async def session_block(self, session_id: str, host: str) -> Optional[dict]:
+        """The most recent block of `host` in one session, or None.
+
+        A session host grant is only ever offered for a block that really
+        happened in that session; this is the row it is checked against, and
+        where the grant takes its harness from (not from the client).
+
+        Only a verified row counts: one the launched task's Guard wrote with
+        its hook token. A row a Guard from before 6.1.0 wrote, or one a
+        linked or external session claimed, is listed but never granted from.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT rule_id, reason, runtime_kind, timestamp FROM egress_audit "
+            "WHERE session_id = ? AND host = ? AND action = 'block' "
+            "AND session_verified = 1 "
+            "ORDER BY timestamp DESC, id DESC LIMIT 1",
+            (session_id, host),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return dict(zip(["rule_id", "reason", "runtime_kind", "timestamp"], row))
+
+    async def add_denied_host(self, policy_id: int, host: str) -> None:
+        """Add one (already validated) host to the policy denylist."""
+        policy = await self.get_active_policy()
+        deny = set((policy or {}).get("denylist") or [])
+        if host not in deny:
+            deny.add(host)
+            await self.update_policy(policy_id, denylist=sorted(deny))
+
+    async def remove_denied_host(self, policy_id: int, host: str) -> bool:
+        """Remove one host from the denylist. False when it was not listed."""
+        policy = await self.get_active_policy()
+        deny = set((policy or {}).get("denylist") or [])
+        if host not in deny:
+            return False
+        deny.discard(host)
+        await self.update_policy(policy_id, denylist=sorted(deny))
+        return True
 
     # One refused call: rows written for the same evaluation share a
     # request_id (one row per host); without one, the second and the tool.

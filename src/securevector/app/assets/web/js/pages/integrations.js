@@ -486,6 +486,16 @@ def chat_with_protection(user_input):
         refNote.appendChild(backLink);
         container.appendChild(refNote);
 
+        // Setup trust: this harness's config files, MCP servers with per-tool
+        // state and, on Claude Code, the mods. Read-only; filled in async.
+        const trustHarness = this.currentIntegration;
+        if (window.ConfigTrust && ['claude-code', 'codex', 'copilot-cli', 'opencode', 'cursor', 'openclaw'].includes(trustHarness)) {
+            const trustHost = document.createElement('div');
+            trustHost.className = 'ct-host';
+            container.appendChild(trustHost);
+            ConfigTrust.mountHarness(trustHost, trustHarness);
+        }
+
         // Runtime posture: the page adapts to HOW this app runs. Endpoint mode =
         // this process is itself a self-hosted engine (container OR a configured
         // public URL), so local-desktop install steps don't apply — we lead with
@@ -605,6 +615,32 @@ def chat_with_protection(user_input):
             container.appendChild(localWrap);
             if (remoteSection) container.appendChild(remoteSection);
         }
+        this._showMcpTools(container, this.currentIntegration);
+    },
+
+    // The SecureVector MCP server (check_policy, session_burn) state beside a
+    // harness's Guard status: registered, not registered, not available on
+    // this install, or an existing entry left unchanged. Read-only.
+    MCP_TOOL_HARNESSES: ['claude-code', 'codex', 'copilot-cli', 'cursor', 'opencode', 'antigravity'],
+
+    async _showMcpTools(container, harness) {
+        if (!container || !this.MCP_TOOL_HARNESSES.includes(harness)) return;
+        let data = null;
+        try {
+            const r = await fetch('/api/policy/mcp-registration');
+            if (r.ok) data = await r.json();
+        } catch (e) { data = null; }
+        const pill = container.querySelector ? container.querySelector('#' + harness + '-plugin-status') : null;
+        if (!data || !data.harnesses || !pill || !pill.parentNode) return;
+        let line = container.querySelector('#' + harness + '-mcp-tools-status');
+        if (!line) {
+            line = document.createElement('span');
+            line.id = harness + '-mcp-tools-status';
+            line.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+            pill.parentNode.insertBefore(line, pill.nextSibling);
+        }
+        const st = data.harnesses[harness];
+        line.textContent = st && typeof st.text === 'string' ? st.text : 'MCP tools: not registered';
     },
 
     // Standalone "Option N · Title" header row — pairs the local install card with
@@ -1443,7 +1479,7 @@ def chat_with_protection(user_input):
         // --- Capabilities grid ---
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -1786,7 +1822,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2039,7 +2075,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v5.2)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2249,7 +2285,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.7)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2468,7 +2504,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v6.0)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2753,7 +2789,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');

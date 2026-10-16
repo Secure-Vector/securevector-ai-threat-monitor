@@ -165,8 +165,8 @@ test('restart and the card Relaunch share one code path, and restart keeps its p
     'a restart has to come back in the pane whose banner asked for it');
   assert.match(src, /_claimPane\(taskId, paneId, group = 'replace', swapFor = null\) \{/,
     'and the pane is claimed by name, not by whichever one holds the focus');
-  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 3,
-    'two in the shared helper, one with a resume id and one without, plus the launch form');
+  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 5,
+    'three in the shared helper (resume id, worktree, plain), plus the launch form with and without a worktree');
 });
 
 // --------------------------------------------------------- remove confirm
@@ -532,8 +532,9 @@ test('the orphaned count appears only when something was orphaned', () => {
   assert.match(src, /data-board-filter="interrupted"/);
   // A control, so it must be a button: a span with an onclick takes no focus
   // and answers no keyboard.
-  assert.match(src, /<button type="button" class="terminals-board-stat terminals-board-orphans"/);
-  assert.match(src, /orphaned\s*\n?\s*\?/, 'rendered conditionally, not as a permanent 0');
+  assert.match(src, /<button type="button" class="terminals-board-stat terminals-board-orphans/);
+  assert.match(src, /btn\(orphaned, 'stopped by a restart'/);
+  assert.match(src, /n > 0\s*\n?\s*\?/, 'a button only above zero; zero is a dimmed count');
 });
 
 test('clicking orphaned narrows the board through the search everyone can see', () => {

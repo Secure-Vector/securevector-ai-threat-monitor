@@ -138,3 +138,20 @@ test('codex: an egress deny is recorded once, in egress_audit, not again as a ca
   require('node:assert/strict').match(src, /decision\.decision === 'deny' && decision\.toolId && !decision\.egress/);
   require('node:assert/strict').match(src, /tool_name: toolName,[\s\S]{0,120}session_id: sessionId/);
 });
+
+
+// --- response rung step-up marker (same check as the Claude Code Guard) ---
+
+test('marker: codex hook holds a dangerous path and leaves other sessions alone', () => {
+  const { stepUpFromMarker, findRungMarker } = require(
+    '../../../../src/securevector/plugins/codex/hooks/pre-tool-use.js');
+  const row = {
+    tool_id: 'rung step-up marker', effect: 'marker', source: 'rung_marker', session_id: 's1',
+    step_up: { paths: ['/.ssh/'], env_keys: [], known_tools: ['bash'], granted: [] },
+  };
+  assert.equal(stepUpFromMarker('read_file', { path: '/u/.ssh/id_rsa' }, row, true), 'sensitive_path');
+  assert.equal(stepUpFromMarker('bash', { command: 'ls' }, row, true), null);
+  assert.equal(findRungMarker({ synced: [row] }, 's2'), null);
+  assert.equal(stepUpFromMarker('mcp__evil__bash', {}, row, false), 'new_tool');
+  assert.equal(stepUpFromMarker('read_file', { path: 7 }, { step_up: { paths: 'x' } }, true), null);
+});

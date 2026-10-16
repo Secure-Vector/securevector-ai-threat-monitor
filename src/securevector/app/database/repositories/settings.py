@@ -118,6 +118,30 @@ class AppSettings:
         }
 
 
+DEFAULT_DELEGATION_POLICY = {"enabled": True, "cross_harness": False, "folder_allowlist": []}
+MAX_DELEGATION_ALLOWLIST = 50
+
+
+def normalize_delegation_policy(value: dict) -> dict:
+    """Keep only known keys with the right types. Allowlist entries are
+    absolute paths, at most MAX_DELEGATION_ALLOWLIST of them."""
+    out = {
+        "enabled": bool(value.get("enabled", DEFAULT_DELEGATION_POLICY["enabled"])),
+        "cross_harness": bool(value.get("cross_harness", DEFAULT_DELEGATION_POLICY["cross_harness"])),
+        "folder_allowlist": [],
+    }
+    folders = value.get("folder_allowlist")
+    if isinstance(folders, list):
+        for f in folders:
+            if isinstance(f, str) and f.startswith("/") and len(f) <= 4096 and "\x00" not in f:
+                path = f.rstrip("/") or "/"
+                if path not in out["folder_allowlist"]:
+                    out["folder_allowlist"].append(path)
+            if len(out["folder_allowlist"]) >= MAX_DELEGATION_ALLOWLIST:
+                break
+    return out
+
+
 class SettingsRepository:
     """
     Repository for application settings.
@@ -288,6 +312,34 @@ class SettingsRepository:
 
         logger.info(f"Updated settings: {list(updates.keys())}")
         return await self.get()
+
+    async def get_delegation_policy(self) -> dict:
+        """The delegation policy: {enabled, cross_harness, folder_allowlist}.
+        Defaults when unset or unreadable."""
+        policy = dict(DEFAULT_DELEGATION_POLICY)
+        policy["folder_allowlist"] = []
+        try:
+            row = await self.db.fetch_one("SELECT delegation_policy FROM app_settings WHERE id = 1")
+        except Exception:  # column absent before v60
+            return policy
+        raw = dict(row).get("delegation_policy") if row else None
+        if raw:
+            try:
+                stored = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                stored = None
+            if isinstance(stored, dict):
+                policy.update(normalize_delegation_policy(stored))
+        return policy
+
+    async def set_delegation_policy(self, policy: dict) -> dict:
+        """Store a normalized delegation policy and return it."""
+        clean = normalize_delegation_policy(policy)
+        await self.db.execute(
+            "UPDATE app_settings SET delegation_policy = ?, updated_at = ? WHERE id = 1",
+            (json.dumps(clean), datetime.utcnow().isoformat()),
+        )
+        return clean
 
     async def update_window_state(
         self,
