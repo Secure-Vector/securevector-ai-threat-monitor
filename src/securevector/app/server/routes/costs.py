@@ -17,7 +17,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Request
+
+from securevector.app.services import decisions
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -575,6 +577,8 @@ class DeleteRecordsRequest(BaseModel):
 async def delete_cost_records(
     agent_id: Optional[str] = Query(None, description="Delete only records for this agent ID"),
     body: Optional[DeleteRecordsRequest] = None,
+    http_request: Request = None,
+    x_sv_ui_token: Optional[str] = Header(None),
 ) -> dict:
     """
     Delete request history records.
@@ -582,6 +586,8 @@ async def delete_cost_records(
     If agent_id provided, deletes all records for that agent.
     Otherwise clears all records.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CostsRepository(db)
@@ -776,8 +782,10 @@ async def get_global_budget() -> BudgetConfig:
 
 
 @router.put("/costs/budget", response_model=BudgetConfig)
-async def set_global_budget(request: BudgetConfig) -> BudgetConfig:
+async def set_global_budget(request: BudgetConfig, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> BudgetConfig:
     """Update global daily budget settings."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         if request.budget_action not in ("warn", "block"):
             raise HTTPException(status_code=422, detail="budget_action must be 'warn' or 'block'")
@@ -824,8 +832,10 @@ async def list_agent_budgets() -> list[AgentBudgetEntry]:
 
 
 @router.put("/costs/budget/agents/{agent_id}", response_model=AgentBudgetEntry)
-async def set_agent_budget(agent_id: str, request: BudgetConfig) -> AgentBudgetEntry:
+async def set_agent_budget(agent_id: str, request: BudgetConfig, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> AgentBudgetEntry:
     """Set or update budget for a specific agent."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         if request.daily_budget_usd is None or request.daily_budget_usd <= 0:
             raise HTTPException(status_code=422, detail="daily_budget_usd must be a positive number")
@@ -844,8 +854,10 @@ async def set_agent_budget(agent_id: str, request: BudgetConfig) -> AgentBudgetE
 
 
 @router.delete("/costs/budget/agents/{agent_id}")
-async def delete_agent_budget(agent_id: str) -> dict:
+async def delete_agent_budget(agent_id: str, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict:
     """Remove per-agent budget override."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CostsRepository(db)
@@ -1009,9 +1021,11 @@ async def get_run_limits():
 
 
 @router.put("/costs/run-limits")
-async def put_run_limits(cfg: RunLimitsConfig):
+async def put_run_limits(cfg: RunLimitsConfig, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
     """Replace the per-run limit settings. Null clears a ceiling (off).
     Takes effect on the next decision/request — no restarts anywhere."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         from securevector.app.database.repositories.settings import SettingsRepository
 
@@ -1045,10 +1059,12 @@ async def get_run_limit_stops(window_days: int = Query(7, ge=1, le=90)):
 
 
 @router.post("/costs/run-limits/exempt")
-async def exempt_run(req: RunExemptRequest):
+async def exempt_run(req: RunExemptRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
     """One-click "approve this run to continue": a session-scoped, time-boxed
     JIT grant (tool_id='*'), revocable from the JIT grants list. The grant row
     is the promotion's audit record."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         from securevector.app.services.run_limits import create_run_exemption
 

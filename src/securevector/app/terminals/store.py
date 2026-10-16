@@ -149,7 +149,10 @@ def cwd_from_preview(preview: Any) -> Optional[str]:
             candidate = re.split(r"[;\r\n]", rest, 1)[0]
         found = _plausible_cwd(candidate)
         if found is not None:
-            return found
+            # A task running in its own worktree reports the source folder.
+            from securevector.app.terminals.worktree import source_for
+
+            return source_for(found)
         at = text.find("cwd=", at + 4)
     return None
 
@@ -189,8 +192,19 @@ class TerminalStore:
         status: str = "starting",
         session_id: Optional[str] = None,
         activity: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
     ) -> None:
         now = _now()
+        if parent_task_id is not None:
+            # A delegated task names the task that asked for it.
+            await self.db.execute(
+                "INSERT INTO terminal_tasks "
+                "(id, executor_id, workspace, title, status, session_id, pid, activity, origin, created_at, "
+                "parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, executor_id, workspace, title, status, session_id, pid,
+                 activity[:200] if activity else None, origin, now, parent_task_id),
+            )
+            return
         await self.db.execute(
             "INSERT INTO terminal_tasks "
             "(id, executor_id, workspace, title, status, session_id, pid, activity, origin, created_at) "
@@ -208,6 +222,26 @@ class TerminalStore:
                 now,
             ),
         )
+
+    async def parent_for_session(self, session_id: str) -> Optional[str]:
+        """The parent of a delegated task that carried this session, if any."""
+        try:
+            row = await self.db.fetch_one(
+                "SELECT parent_task_id FROM terminal_tasks WHERE session_id = ? AND parent_task_id IS NOT NULL "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (session_id,),
+            )
+        except Exception:  # a database from before the column existed
+            return None
+        return row["parent_task_id"] if row else None
+
+    async def children_of(self, parent_task_id: str) -> list[dict[str, Any]]:
+        """Tasks launched by delegation from this parent, oldest first."""
+        rows = await self.db.fetch_all(
+            "SELECT * FROM terminal_tasks WHERE parent_task_id = ? ORDER BY created_at ASC, rowid ASC",
+            (parent_task_id,),
+        )
+        return [dict(r) for r in rows]
 
     async def task_for_session(self, session_id: str) -> Optional[dict[str, Any]]:
         """The live (non-archived) task already carrying this session id.
@@ -426,6 +460,83 @@ class TerminalStore:
         )
         return list(dict.fromkeys(str(r["detail"]) for r in rows))
 
+    async def session_histories(self, task_ids: list[str]) -> dict[str, list[str]]:
+        """session_history for many tasks in one query (the board is polled)."""
+        out: dict[str, list[str]] = {}
+        ids = [i for i in dict.fromkeys(task_ids) if i]
+        for start in range(0, len(ids), 500):
+            batch = ids[start : start + 500]
+            placeholders = ",".join("?" for _ in batch)
+            rows = await self.db.fetch_all(
+                "SELECT task_id, detail FROM terminal_events "
+                f"WHERE kind = ? AND detail IS NOT NULL AND task_id IN ({placeholders}) "
+                "ORDER BY seq ASC",
+                (SESSION_RELINKED, *batch),
+            )
+            for r in rows:
+                lst = out.setdefault(r["task_id"], [])
+                if str(r["detail"]) not in lst:
+                    lst.append(str(r["detail"]))
+        return out
+
+    # -- worktrees ---------------------------------------------------------
+
+    async def set_worktree(
+        self, task_id: str, *, run_dir: str, branch: str, base: str, state: str
+    ) -> None:
+        await self.db.execute(
+            "UPDATE terminal_tasks SET run_dir = ?, worktree_branch = ?, worktree_base = ?, "
+            "worktree_state = ? WHERE id = ?",
+            (run_dir, branch, base, state, task_id),
+        )
+
+    async def set_worktree_state(
+        self,
+        task_id: str,
+        state: str,
+        *,
+        dirty: Optional[int] = None,
+        commits: Optional[int] = None,
+    ) -> None:
+        """State and counts for every row sharing this task's worktree (a
+        relaunch reuses the worktree, so two rows can name one branch)."""
+        task = await self.get_task(task_id)
+        if task is None or not task.get("worktree_branch"):
+            return
+        await self.db.execute(
+            "UPDATE terminal_tasks SET worktree_state = ?, worktree_dirty = ?, worktree_commits = ? "
+            "WHERE worktree_branch = ? AND run_dir IS NOT NULL",
+            (state, dirty, commits, task["worktree_branch"]),
+        )
+
+    async def set_run_dir(self, task_id: str, run_dir: str) -> None:
+        """A delegated child running in its parent's worktree: run_dir only,
+        no branch or state, so the child never owns that worktree."""
+        await self.db.execute("UPDATE terminal_tasks SET run_dir = ? WHERE id = ?", (run_dir, task_id))
+
+    async def worktree_tasks(self, states: tuple) -> list[dict[str, Any]]:
+        placeholders = ",".join("?" * len(states))
+        rows = await self.db.fetch_all(
+            f"SELECT * FROM terminal_tasks WHERE run_dir IS NOT NULL AND worktree_state IN ({placeholders}) "
+            "ORDER BY created_at, rowid",
+            tuple(states),
+        )
+        return [dict(r) for r in rows]
+
+    async def mark_active_worktrees_kept(self) -> int:
+        """Startup: a worktree still 'active' (or 'removing') belonged to a
+        process that is gone. It is kept, never deleted."""
+        rows = await self.db.fetch_all(
+            "SELECT id FROM terminal_tasks WHERE run_dir IS NOT NULL "
+            "AND worktree_state IN ('active', 'removing')"
+        )
+        if rows:
+            await self.db.execute(
+                "UPDATE terminal_tasks SET worktree_state = 'kept' "
+                "WHERE run_dir IS NOT NULL AND worktree_state IN ('active', 'removing')"
+            )
+        return len(rows)
+
     async def update_workspace(self, task_id: str, workspace: str) -> None:
         await self.db.execute(
             "UPDATE terminal_tasks SET workspace = ? WHERE id = ?", (workspace, task_id)
@@ -587,11 +698,19 @@ class TerminalStore:
             found.update(r["task_id"] for r in rows)
         return found
 
-    async def list_verdicts(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    async def list_verdicts(self, session_id, limit: int = 200) -> list[dict[str, Any]]:
+        """Newest first. `session_id` is one id or a list (a task's whole
+        session history); duplicates are dropped."""
+        ids = [session_id] if isinstance(session_id, str) else list(session_id or [])
+        ids = [i for i in dict.fromkeys(ids) if i]
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
         rows = await self.db.fetch_all(
             "SELECT tool_id, function_name, action, risk, reason, args_preview, called_at "
-            "FROM tool_call_audit WHERE session_id = ? ORDER BY called_at DESC, rowid DESC LIMIT ?",
-            (session_id, limit),
+            f"FROM tool_call_audit WHERE session_id IN ({placeholders}) "
+            "ORDER BY called_at DESC, rowid DESC LIMIT ?",
+            (*ids, limit),
         )
         return [dict(r) for r in rows]
 

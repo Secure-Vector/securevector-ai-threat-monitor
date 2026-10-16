@@ -54,6 +54,7 @@ from pydantic import BaseModel
 
 from . import _hooks_common
 from ._plugin_guard import require_local_origin
+from securevector.app.services import mcp_registration
 
 logger = logging.getLogger(__name__)
 
@@ -383,11 +384,15 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"Cursor plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "Bundled plugin assets are missing from the installed package — verify "
+                "Bundled plugin assets are missing from the installed package. Verify "
                 "setup.py:package_data and MANIFEST.in include plugins/cursor/**/* "
                 "AND plugins/cursor/.cursor-plugin/*."
             ),
         )
+
+    # The SecureVector MCP tools (check_policy, session_burn) at user scope.
+    # Agent Config Trust treats it as the app's own entry. Best effort.
+    mcp_registration.register("cursor")
 
     if CURSOR_HOME.is_dir():
         try:
@@ -412,7 +417,7 @@ async def install_plugin():
             commands=[],
             next_step=(
                 "Installed as a Cursor plugin. Reload Cursor (Cmd+Shift+P → "
-                "\"Developer: Reload Window\", or restart) — it then appears in "
+                "\"Developer: Reload Window\", or restart). It then appears in "
                 "Settings → Plugins and its hooks activate (Settings → Hooks)."
             ),
         )
@@ -438,6 +443,7 @@ async def uninstall_plugin():
     """Remove the plugin everywhere we wrote it: the staged tree, the local
     plugin dir under ~/.cursor/plugins/local, and any legacy global-hooks
     artifacts. Idempotent."""
+    mcp_registration.unregister("cursor")
     # 1. Staged source-of-truth tree.
     if STAGING_DIR.is_dir():
         shutil.rmtree(STAGING_DIR, ignore_errors=True)

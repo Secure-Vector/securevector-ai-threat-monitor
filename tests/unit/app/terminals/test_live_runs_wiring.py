@@ -82,7 +82,8 @@ async def test_stop_exit_and_archive_each_emit(tmp_path, sent):
         await _drain()
         events = [p["event"] for p in sent]
         assert events == ["spawn", "stop", "exit", "archived"]
-        exit_event = sent[2]
+        by_event = {p["event"]: p for p in sent}
+        exit_event = by_event["exit"]
         assert exit_event["event_origin"] == "process"
         # A user Stop is "stopped" locally and "done" on the wire (cloud enum).
         assert exit_event["status"] == "done" and exit_event["exit_code"] == -15
@@ -282,3 +283,103 @@ def test_shutdown_stops_the_heartbeat_before_stopping_tasks_and_drains_before_un
     ).read_text(encoding="utf-8")
     assert src.index("stop_heartbeat()") < src.index('stop_all(origin="shutdown")')
     assert src.index("drain_pending(") < src.index("fleet_task_events.uninstall()")
+
+
+@pytest.mark.asyncio
+async def test_exit_with_slow_metadata_is_queued_before_a_following_archive(tmp_path, sent, monkeypatch):
+    """The exit handler reads the detection metadata before it queues the
+    event, so an archive right after exit cannot overtake it, and the exit
+    row carries the fields."""
+    async def slow_collect(task, db=None, **kw):
+        await asyncio.sleep(0.05)
+        return {"rung": 2, "rung_mode": "shadow", "drift_score": 41}
+
+    monkeypatch.setattr(live_runs, "collect_adr", slow_collect)
+    m, ws = await _manager(tmp_path)
+    try:
+        task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+        tid = task["id"]
+        m.host.exit(tid, 0)
+        await _until_done(m.store, tid)
+        assert await m.archive_task(tid) is True
+        await _drain()
+        await asyncio.sleep(0.1)
+        await _drain()
+        events = [p["event"] for p in sent]
+        assert events.index("exit") < events.index("archived")
+        exit_event = sent[events.index("exit")]
+        assert (exit_event["rung"], exit_event["drift_score"]) == (2, 41)
+        assert exit_event["emitted_at"] < sent[events.index("archived")]["emitted_at"]
+        assert "rung" not in sent[events.index("archived")]
+    finally:
+        await m.stop_heartbeat()
+
+
+@pytest.mark.asyncio
+async def test_exit_is_not_sent_when_archived_during_its_metadata_read(tmp_path, sent, monkeypatch):
+    """An archive that lands while the exit reads its metadata wins: the
+    exit event is not sent, so the cloud cannot flip back from archived."""
+    m, ws = await _manager(tmp_path)
+    holder = {}
+
+    async def archive_meanwhile(task, db=None, **kw):
+        if task.get("id") == holder.get("tid"):
+            conn = await m.store.db.connect()
+            await conn.execute("UPDATE terminal_tasks SET archived_at = ? WHERE id = ?",
+                               ("2026-10-13T10:00:00.000+00:00", task["id"]))
+            await conn.commit()
+        return {"rung": 2}
+
+    try:
+        task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+        holder["tid"] = task["id"]
+        monkeypatch.setattr(live_runs, "collect_adr", archive_meanwhile)
+        m.host.exit(task["id"], 0)
+        await _until_done(m.store, task["id"])
+        await _drain()
+        assert "exit" not in [p["event"] for p in sent]
+    finally:
+        await m.stop_heartbeat()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_tick_reads_metadata_concurrently_and_within_budget(tmp_path, sent, monkeypatch):
+    import time
+
+    from securevector.app.terminals import manager as manager_mod
+
+    m, ws = await _manager(tmp_path)
+    try:
+        for _ in range(4):
+            await m.spawn("claude-code", str(ws), title=None, origin="ui")
+        await _drain()
+        sent.clear()
+
+        async def slow(task, db=None, **kw):
+            await asyncio.sleep(0.3)
+            return {"rung": 1}
+
+        monkeypatch.setattr(live_runs, "collect_adr", slow)
+        start = time.monotonic()
+        await m._heartbeat_tick()
+        assert time.monotonic() - start < 0.9  # four reads of 0.3 s, not 1.2 s in a row
+        await _drain()
+        beats = [p for p in sent if p["event"] == "heartbeat"]
+        assert len(beats) == 4 and all(b["rung"] == 1 for b in beats)
+
+        # Past the overall budget every task still beats, without the fields.
+        sent.clear()
+
+        async def hang(task, db=None, **kw):
+            await asyncio.sleep(10)
+
+        monkeypatch.setattr(live_runs, "collect_adr", hang)
+        monkeypatch.setattr(manager_mod, "HEARTBEAT_ADR_BUDGET_SECONDS", 0.1)
+        start = time.monotonic()
+        await m._heartbeat_tick()
+        assert time.monotonic() - start < 1.0
+        await _drain()
+        beats = [p for p in sent if p["event"] == "heartbeat"]
+        assert len(beats) == 4 and not any("rung" in b for b in beats)
+    finally:
+        await m.stop_heartbeat()

@@ -2023,10 +2023,11 @@ graph.add_edge("output_security", END)`,
         'bill-of-tools':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called: two tabs, one dataset' },
         'redactions':      { title: 'Secret Detections',   subtitle: 'Redactions audit log: credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.' },
         governance:        { title: 'Agent Governance',          subtitle: 'This device’s local protection posture: operational, not a legal/compliance assessment' },
+        'detection-response': { title: 'Agent Detection & Response', subtitle: 'Watches each agent session for behaviour unlike its earlier sessions and shows you which ones to look at.' },
         'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         'guardian-ml':     { title: 'Guardian ML',         subtitle: 'Local ML threat detection: runs offline alongside the regex rules' },
         costs:             { title: 'Cost & Tokens',       subtitle: 'Track LLM token spend per agent' },
-        terminals:         { title: 'Agent Sessions',         subtitle: 'Launch or return to governed harness work, with verdicts and approvals beside it' },
+        terminals:         { title: 'Agent Sessions',         subtitle: 'Launch agents and watch every tool call, with approvals beside it.' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
         'guide-connect-agents': { title: 'Connect Your Agents', subtitle: 'Point your existing agents at this engine: Framework SDKs or coding-agent plugins, local or self-host' },
@@ -2064,6 +2065,14 @@ graph.add_edge("output_security", END)`,
         if (hpt) hpt.textContent = info.title;
         const hps = document.getElementById('header-page-subtitle');
         if (hps) hps.textContent = info.subtitle;
+        this._subtitleWrap(hps, currentPage);
+    },
+
+    // Pages whose subtitle wraps under 1100px instead of clipping.
+    WRAP_SUBTITLE_PAGES: ['terminals', 'detection-response'],
+
+    _subtitleWrap(el, page) {
+        if (el && el.classList) el.classList.toggle('is-wrap', this.WRAP_SUBTITLE_PAGES.includes(page));
     },
 
     setPageInfo(title, subtitle) {
@@ -2075,6 +2084,7 @@ graph.add_edge("output_security", END)`,
             // Subtitle is clamped to one line — the full text survives as a
             // tooltip for the few pages whose description still runs long.
             hps.title = subtitle || '';
+            this._subtitleWrap(hps, window.Sidebar ? Sidebar.currentPage : '');
         }
     },
 };

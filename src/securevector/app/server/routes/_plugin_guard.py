@@ -67,6 +67,7 @@ async def require_local_origin(request: Request) -> None:
         # Origin is REQUIRED, not merely validated when present: treating
         # "absent" as acceptable is what left these reachable from a bare curl.
         if headers.get("host", "") in hosts and origin is not None and origin in origins:
+            await _not_a_governed_task(request)
             return
         raise HTTPException(status_code=403, detail="Forbidden")
     auth: Optional[TerminalAuth] = getattr(request.app.state, "terminal_auth", None)
@@ -76,3 +77,14 @@ async def require_local_origin(request: Request) -> None:
             detail="The local app is still starting up. Try again in a moment.",
         )
     await auth.require_local_write(request)
+    await _not_a_governed_task(request)
+
+
+async def _not_a_governed_task(request: Request) -> None:
+    """Installing or removing a Guard is a person's change: a governed task
+    may not change its own Guard (services/decisions.py)."""
+    from securevector.app.services import confirmations, decisions
+
+    await decisions.refuse_governed_caller(request)
+    # The person confirms the install or removal on this computer first.
+    await confirmations.gate(request)

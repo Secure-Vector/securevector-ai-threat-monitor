@@ -606,6 +606,11 @@ def _fleet_task_event_row(p: dict[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {"row_type": "task_event"}
     for key in _FLEET_TASK_EVENT_FIELDS:
         row[key] = p.get(key)
+    # Optional detection and response fields: present only when the payload
+    # carries a value the contract allows, never as null.
+    from securevector.app.terminals.live_runs import ADR_FIELDS, adr_fields
+
+    row.update(adr_fields({k: p.get(k) for k in ADR_FIELDS if k in p}, p.get("event")))
     return row
 
 

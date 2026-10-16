@@ -83,7 +83,12 @@ class AuditLogger:
         self.logger = logging.getLogger("securevector.mcp.audit")
 
         if enabled and log_path:
-            handler = logging.FileHandler(log_path)
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
+                handler = logging.FileHandler(log_path)
+            except OSError:
+                self.enabled = False
+                return
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
@@ -460,6 +465,18 @@ class SecureVectorMCPServer:
 
         if "check_tool_permission" in self.config.enabled_tools:
             setup_tool_permissions_tool(self.mcp, self)
+
+        policy_tools = [n for n in ("check_policy", "session_burn") if n in self.config.enabled_tools]
+        if policy_tools:
+            from .tools.policy_tools import setup_policy_tools
+
+            setup_policy_tools(self.mcp, self, policy_tools)
+
+        delegation_tools = [n for n in ("delegate", "delegation_result") if n in self.config.enabled_tools]
+        if delegation_tools:
+            from .tools.delegation_tools import setup_delegation_tools
+
+            setup_delegation_tools(self.mcp, self, delegation_tools)
 
         self.logger.info(f"MCP tools enabled: {self.config.enabled_tools}")
 

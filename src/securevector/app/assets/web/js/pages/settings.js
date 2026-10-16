@@ -165,6 +165,29 @@ const SettingsPage = {
         refreshSection.appendChild(refreshCard);
         container.appendChild(refreshSection);
 
+        // Agent Sessions settings (Delegation, Response rungs) live on that page.
+        {
+            const sessSection = this.createSection('Agent Sessions', 'Delegation and response steps.');
+            const sessCard = Card.create({ gradient: true });
+            const sessBody = sessCard.querySelector('.card-body');
+            sessBody.setAttribute('data-sessions-pointer', '');
+            const line = document.createElement('p');
+            line.textContent = 'Agent Sessions settings live in Agent Sessions, Settings. ';
+            const link = document.createElement('a');
+            link.href = '#terminals?settings=1';
+            link.textContent = 'Open Agent Sessions settings';
+            link.setAttribute('data-open-sessions-settings', '');
+            link.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                try { sessionStorage.setItem('sv-sessions-settings', '1'); } catch (e) { /* storage unavailable */ }
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');
+            });
+            line.appendChild(link);
+            sessBody.appendChild(line);
+            sessSection.appendChild(sessCard);
+            container.appendChild(sessSection);
+        }
+
         // Uninstall Section
         const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from your system');
         const uninstallCard = Card.create({ gradient: true });

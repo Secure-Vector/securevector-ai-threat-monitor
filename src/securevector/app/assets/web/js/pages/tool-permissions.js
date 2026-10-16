@@ -2545,6 +2545,37 @@ const ToolPermissionsPage = {
         const card = document.createElement('div');
         card.className = 'jit-card';
 
+        // A delegation request shows the full prompt, not a tool grant.
+        if (window.DelegationUI && DelegationUI.isDelegate(req)) {
+            card.innerHTML = DelegationUI.inboxHtml(req, null);
+            const pid = DelegationUI.parseRequest(req).taskId;
+            if (pid && API.terminalsTasks) {
+                API.terminalsTasks().then(r => {
+                    const t = ((r && r.items) || []).find(x => x.id === pid);
+                    const el = card.querySelector('[data-deleg-parent-title]');
+                    if (t && el) el.textContent = t.title || DelegationUI.harnessLabel(t.executor_id);
+                }).catch(() => {});
+            }
+            card.querySelectorAll('button[data-act]').forEach(b => {
+                b.addEventListener('click', async () => {
+                    card.querySelectorAll('button').forEach(x => { x.disabled = true; });
+                    try {
+                        if (b.dataset.act === 'approve') {
+                            await API.approveJitRequest(req.id, '15m');
+                            if (window.Toast) Toast.success('Delegation approved.');
+                        } else {
+                            await API.denyJitRequest(req.id);
+                            if (window.Toast) Toast.info('Delegation denied.');
+                        }
+                    } catch (e) {
+                        if (window.Toast) Toast.error('Decision failed: ' + e.message);
+                    }
+                    refresh();
+                });
+            });
+            return card;
+        }
+
         const line1 = document.createElement('div');
         line1.className = 'jit-line1';
         const tool = document.createElement('span');
