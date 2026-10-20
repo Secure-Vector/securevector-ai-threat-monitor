@@ -135,6 +135,22 @@ class ResponseRungsRepository:
         )
         return [dict(r) for r in rows]
 
+    async def record_hold(self, session_id: str, harness: str, mode: str, rule: str, ts: Optional[str] = None) -> None:
+        """One automatic hold event: the mode at event time and the rule."""
+        from datetime import datetime, timezone
+
+        await self.db.execute(
+            "INSERT INTO response_holds (ts, session_id, harness, mode, rule) VALUES (?, ?, ?, ?, ?)",
+            (ts or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), session_id, harness, mode, rule),
+        )
+
+    async def holds_since(self, since_ts: str) -> dict:
+        """Hold events since a timestamp, counted per mode. Read only."""
+        rows = await self.db.fetch_all(
+            "SELECT mode, COUNT(*) AS n FROM response_holds WHERE ts >= ? GROUP BY mode", (since_ts,)
+        )
+        return {r["mode"]: int(r["n"] or 0) for r in rows}
+
     async def all_modes(self) -> list:
         rows = await self.db.fetch_all("SELECT * FROM rung_modes ORDER BY harness")
         return [dict(r) for r in rows]

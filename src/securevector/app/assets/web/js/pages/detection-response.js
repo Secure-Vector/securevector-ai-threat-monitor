@@ -95,12 +95,26 @@ const DetectionResponsePage = {
 
     _respondTile(r) {
         // The response modes route may not exist yet on this install: that
-        // reads as test mode, never as a failure.
-        const taken = r && typeof r === 'object' ? [r.steps_taken, r.taken, r.count].find(x => Number.isFinite(x)) : undefined;
-        const mode = r && typeof r === 'object' ? String(r.mode || r.global_mode || 'shadow').toLowerCase() : 'shadow';
-        const test = mode === 'shadow';
-        const cap = test ? ((Number.isFinite(taken) && taken > 0) ? 'test mode (logged only)' : 'nothing enforced (test mode)') : `<span class="dr-rung is-active">on</span>`;
-        return this._tile('Automatic actions', this._esc(this._num(Number.isFinite(taken) ? taken : 0)), cap, '', 'dr-sec-actions');
+        // reads as test mode, never as a failure. `taken` counts real holds
+        // (On mode) and `would_have` counts what test mode would have held,
+        // both over the last 7 days.
+        const o = r && typeof r === 'object' ? r : {};
+        const num = (v) => (Number.isFinite(v) ? v : 0);
+        const anyOn = Array.isArray(o.modes)
+            ? o.modes.some(m => m && String(m.mode).toLowerCase() === 'active')
+            : String(o.mode || o.global_mode || 'shadow').toLowerCase() !== 'shadow';
+        const taken = num([o.steps_taken, o.taken, o.count].find(x => Number.isFinite(x)));
+        const would = num(o.would_have);
+        let shown; let cap;
+        if (anyOn) {
+            shown = taken;
+            cap = taken > 0 ? `${this._esc(this._num(taken))} held` : `<span class="dr-rung is-active">on</span>`;
+            if (would > 0) cap = `${taken > 0 ? `${this._esc(this._num(taken))} held` : 'none held'}, would have held ${this._esc(this._num(would))} (test mode)`;
+        } else {
+            shown = would;
+            cap = would > 0 ? `would have held ${this._esc(this._num(would))} (test mode)` : 'nothing enforced (test mode)';
+        }
+        return this._tile('Automatic actions', this._esc(this._num(shown)), cap, '', 'dr-sec-actions');
     },
 
     _preflightTile(p) {

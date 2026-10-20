@@ -746,7 +746,7 @@ async def rung_modes(manager: TerminalManager = Depends(get_manager)):
     out = []
     for row in await ResponseRungsRepository(manager.store.db).all_modes():
         out.append(await response_rungs.shadow_progress(manager.store.db, row["harness"], read_only=True))
-    return {"modes": out}
+    return {"modes": out, **await response_rungs.window_counts(manager.store.db)}
 
 
 @router.get("/rungs/modes/{harness}", dependencies=[Depends(require_read)])
