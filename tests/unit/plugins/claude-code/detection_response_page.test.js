@@ -308,7 +308,7 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=25/);
+  assert.match(read('index.html'), /detection-response\.js\?v=26/);
   assert.match(read('index.html'), /styles\.css\?v=499/);
 });
 
@@ -569,34 +569,10 @@ test('Details is closed by default, sits below the list and holds the remaining 
   assert.doesNotMatch(tpl, /data-dr-config|data-dr-cloud|dr-copy-stats/, 'nothing else outside Details');
 });
 
-test('the top shows only the score, band word, one reason and the compare line', () => {
+test('an inherited key renders no stop mark', () => {
   const P = loadPage();
-  const top = P._topHtml({ spotlight: SPOT });
-  assert.match(top, /data-dr-top-score>82</);
-  assert.match(top, /dr-band dr-top-band is-high" data-dr-top-band>high</);
-  assert.match(top, /data-dr-top-reason>Used 4 tools it had never used here before\.</);
-  assert.match(top, /data-dr-top-compare>Compared with 3 earlier sessions\.</);
-  assert.equal((top.match(/<p\b/g) || []).length, 2, 'reason and compare only');
-  assert.doesNotMatch(top, /<svg|dr-spark|dr-why|Hit 6 errors|<button|data-dr-normal|data-dr-open|sessions? need/);
-  assert.match(top, /data-dr-top-label>Highest score to review</);
-  assert.match(P._topHtml({ spotlight: Object.assign({}, SPOT, { to_review: false }), detect: {} }), /data-dr-top-label>Highest score this week</);
-  assert.match(P._topHtml({ spotlight: Object.assign({}, SPOT, { to_review: false }), detect: { marked_normal: 1 } }), /data-dr-top-label>Highest score this week, not counting sessions marked normal</);
-  const watch = P._topHtml({ spotlight: Object.assign({}, SPOT, { band: 'watch', score: 55, baseline: { sessions: 3, confidence: 0.5 } }) });
-  assert.match(watch, /is-watch" data-dr-top-band>worth a look</);
-  assert.match(watch, /Compared with 3 earlier sessions, comparison still settling\./);
-  const first = P._topHtml({ spotlight: Object.assign({}, SPOT, { band: 'calm', score: 12, features: [], recent_scores: [], baseline: { sessions: 0, confidence: 0 } }) });
-  assert.match(first, /data-dr-top-band>low</);
-  assert.match(first, /No signal stood out\./);
-  assert.match(first, /First session here, nothing to compare with yet\./);
-  assert.match(P._topHtml({ spotlight: null }), /No score yet\. A score appears after the first tool calls\./);
-  const listed = P._topHtml({ spotlight: null, sessions: [{ score: 21, band: 'calm' }, { score: 73, band: 'high' }, { score: null }] });
-  assert.match(listed, /Highest listed session score/);
-  assert.match(listed, /dr-top-score is-high">73</);
-  assert.match(listed, /dr-top-band is-high">high</);
-  assert.match(listed, /not enough same-folder history to show a trend yet/);
-  assert.doesNotMatch(listed, /No score yet|trend.*up|trend.*down/i);
-  assert.match(P._topHtml({ spotlight: null, sessions: [{ score: null }] }), /No score yet/);
-  assert.equal(P._topHtml(null), '');
+  assert.equal(P._stopMarkHtml({ stop: 'constructor' }), '');
+  assert.match(P._stopMarkHtml({ stop: 'stopped' }), /Stopped/);
 });
 
 test('the approve panel says approval lasts until the files change again', () => {

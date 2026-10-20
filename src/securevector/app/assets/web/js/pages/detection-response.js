@@ -324,37 +324,6 @@ const DetectionResponsePage = {
         return { score, band };
     },
 
-    /** The score card's text, kept for the card's tests; the page renders
-     *  the score card through the spotlight section. */
-    _topHtml(data) {
-        if (!data) return '';
-        const sp = data.spotlight;
-        if (!sp || !this._hasNumericScore(sp.score)) {
-            const listed = this._highestListedScore(data);
-            if (listed) {
-                const { score, band } = listed;
-                return `<section class="dr-top" aria-label="Highest listed session score">
-                    <div class="dr-caps">Highest listed session score</div>
-                    <div class="dr-top-line"><span class="dr-top-score is-${band}">${this._esc(score)}</span><span class="dr-band dr-top-band is-${band}">${this._esc(this._bandWord(band))}</span></div>
-                    <p class="dr-muted dr-top-compare">There is not enough same-folder history to show a trend yet.</p>
-                </section>`;
-            }
-            return '<section class="dr-top is-empty" aria-label="Highest score this week" data-dr-top-empty><p class="dr-top-empty">No score yet. A score appears after the first tool calls.</p></section>';
-        }
-        const band = this._bandOf(sp.band);
-        const f = (sp.features || [])[0];
-        const reason = f ? this._featureSentence(f) : 'No signal stood out.';
-        const plotted = (sp.recent_scores || []).filter(r => !r.current && Number.isFinite(r.score)).length;
-        const n = plotted || Number(sp.baseline && sp.baseline.sessions) || 0;
-        const cmp = this._compareText(n, sp.baseline && sp.baseline.confidence) + '.';
-        return `<section class="dr-top" aria-label="Highest score this week">
-            <div class="dr-caps" data-dr-top-label>${this._esc(this._topLabel(data))}</div>
-            <div class="dr-top-line"><span class="dr-top-score is-${band}" data-dr-top-score>${this._esc(sp.score)}</span><span class="dr-band dr-top-band is-${band}" data-dr-top-band>${this._esc(this._bandWord(band))}</span></div>
-            <p class="dr-top-reason" data-dr-top-reason>${this._esc(reason)}</p>
-            <p class="dr-muted dr-top-compare" data-dr-top-compare>${this._esc(cmp)}</p>
-        </section>`;
-    },
-
     _spotlightHtml(data) {
         const sp = data && data.spotlight;
         const pending = this._pendingLine(data);
@@ -412,15 +381,6 @@ const DetectionResponsePage = {
 
     // --- review list --------------------------------------------------------
 
-    _bandHtml(row) {
-        if (typeof row.score !== 'number' || !row.band) {
-            return `<span class="dr-row-drift">${row.status === 'building_baseline' ? 'no score yet, a score appears after the first tool calls' : 'no score'}</span>`;
-        }
-        const band = ['calm', 'watch', 'high'].includes(row.band) ? row.band : 'calm';
-        const partial = row.status === 'partial' ? ' <span class="dr-row-partial">(comparison still settling)</span>' : '';
-        return `<span class="dr-row-drift" title="Score ${this._esc(row.score)} of 100. Compared with this agent's earlier sessions in this folder."><span class="dr-row-score">${this._esc(row.score)}</span> <span class="dr-band is-${band}">${this._bandWord(band)}</span>${partial}</span>`;
-    },
-
     /** What "High: stop the session and alert" did to this session. */
     STOP_MARKS: {
         stopped: ['is-red', 'Stopped'],
@@ -429,7 +389,7 @@ const DetectionResponsePage = {
     },
 
     _stopMarkHtml(row) {
-        const m = row && this.STOP_MARKS[row.stop];
+        const m = row && Object.prototype.hasOwnProperty.call(this.STOP_MARKS, row.stop) ? this.STOP_MARKS[row.stop] : null;
         return m ? `<span class="dr-setup dr-stop-mark ${m[0]}">${this._esc(m[1])}</span>` : '';
     },
 
