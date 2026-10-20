@@ -117,6 +117,67 @@ def network_capable(tool_name: Any, harness: Optional[str] = None) -> bool:
     return low in _network_names() or low.startswith("mcp__")
 
 
+def _is_shell(tool_name: Any) -> bool:
+    low = str(tool_name or "").strip().lower()
+    return low in _network_names() and low not in _OUTSIDE_FETCH
+
+
+def _command_of(tool_input: Any) -> str:
+    if isinstance(tool_input, str):
+        try:
+            tool_input = json.loads(tool_input)
+        except (TypeError, ValueError):
+            return tool_input
+    if isinstance(tool_input, Mapping):
+        for key in ("command", "cmd", "script"):
+            value = tool_input.get(key)
+            if isinstance(value, str):
+                return value
+    return ""
+
+
+_UNPARSED_SEND = re.compile(
+    r"\b(?:python[0-9.]*|node|perl|ruby|php)\s+-(?:c|e)\b"
+    r"|\b(?:ssh|nc|ncat|socat|telnet|ftp|sftp|rsync)\b|\beval\b"
+)
+
+
+def shell_sends(tool_input: Any) -> bool:
+    """True when a shell command has at least one network attempt that can
+    send: any http or raw socket attempt, or a write (git push, scp to a
+    remote). Package installs, git reads and commands with no attempt do
+    not count. Commands the shell parser cannot read as network attempts
+    (inline interpreters, remote shells, eval) count as able to send.
+    In On mode a credential read through the shell is held by the
+    synced-overrides marker; if that fetch times out the call is allowed."""
+    from securevector.core.egress.destinations import WRITE, extract_from_bash
+
+    command = _command_of(tool_input)
+    if not command:
+        return False
+    if _UNPARSED_SEND.search(command):
+        return True
+    try:
+        attempts = extract_from_bash(command).attempts or []
+    except Exception:  # noqa: BLE001 - an unreadable command is not counted as sending
+        return False
+    for a in attempts:
+        kind = getattr(a, "kind", None)
+        if kind in ("http", "raw_socket"):
+            return True
+        if kind != "package" and getattr(a, "operation", None) == WRITE:
+            return True
+    return False
+
+
+def sends(tool_name: Any, tool_input: Any, harness: Optional[str] = None) -> bool:
+    """A network call that can send: a shell call only by what its command
+    does; other network-capable tools by name, as before."""
+    if not network_capable(tool_name, harness):
+        return False
+    return shell_sends(tool_input) if _is_shell(tool_name) else True
+
+
 # The outside rule's network half: shell-family calls and MCP tools whose
 # name carries a write verb. Read-only fetches arm the rule but do not
 # trigger it.
@@ -356,7 +417,7 @@ async def check_network(db, tool_name: str, runtime_kind: Optional[str], session
     from securevector.app.database.repositories.call_rules import CallRulesRepository
     from securevector.app.services.policy_check import tool_candidates
 
-    if not session_id or not network_capable(tool_name, runtime_kind):
+    if not session_id or not sends(tool_name, tool_input, runtime_kind):
         return None
     stored = armed(await CallRulesRepository(db).get(session_id))
     in_call = bool(tool_input) and credential_read(rr._input_text(tool_input))
@@ -409,7 +470,7 @@ async def note_call(db, tool_name: Optional[str], session_id: Optional[str], act
         now = now or datetime.now(timezone.utc)
         repo = CallRulesRepository(db)
         # A network-capable call was decided at the egress check.
-        if cred and not network_capable(tool_name, runtime_kind) \
+        if cred and not sends(tool_name, args_preview, runtime_kind) \
                 and RULE_OUTSIDE in armed(await repo.get(session_id)):
             mode = await session_mode(db, session_id, runtime_kind)
             await _record(db, session_id, runtime_kind, [RULE_OUTSIDE], mode, _outcome(mode, False), now)
