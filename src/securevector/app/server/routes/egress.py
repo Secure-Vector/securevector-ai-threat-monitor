@@ -169,6 +169,23 @@ async def evaluate_egress(request: EvaluateRequest, http_request: Request = None
         # the step-up class waits for a human approval (filed here). Shadow
         # mode only counts it. Never turns a block into anything else.
         action, reason = evaluation.action, evaluation.reason
+        # Named call-time rules (credential then network, outside content
+        # then credential or network): On mode holds a verified session's
+        # call and files one request; otherwise the event is recorded. An
+        # MCP tool counts even when no remote endpoint is known here.
+        from securevector.app.services import call_rules
+        if (evaluation.network_capable or call_rules.network_capable(request.tool_name, request.runtime_kind)) \
+                and action == ALLOW and audit_session:
+            try:
+                rule = await call_rules.check_network(
+                    db, request.tool_name, request.runtime_kind, audit_session, request.tool_input or {},
+                    verified=verified, file=True)
+            except Exception as e:  # noqa: BLE001 - the verdict above stands
+                logger.warning("Call rule check skipped: %s", e)
+                rule = None
+            if rule:
+                action = BLOCK
+                reason = call_rules.HOLD_NETWORK[rule]
         if evaluation.network_capable and action == ALLOW and audit_session:
             try:
                 kind = await response_rungs.check_call(

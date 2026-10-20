@@ -171,7 +171,7 @@ async def get_ui_token(request: Request):
 
 
 @router.post("/jit/requests")
-async def create_request(body: JitRequestCreate):
+async def create_request(body: JitRequestCreate, http_request: Request = None):
     """File a JIT access request (the agent-facing surface)."""
     # Host approvals are filed by the egress evaluator itself, for a block it
     # just decided.
@@ -209,6 +209,21 @@ async def create_request(body: JitRequestCreate):
             if body.session_id and await response_rungs.holds_tool(db, body.session_id, body.tool_id):
                 req = await response_rungs.file_request(
                     db, body.tool_id, body.function_name, body.runtime_kind, body.session_id)
+                if req is not None:
+                    return {"request": req}
+                raise HTTPException(
+                    status_code=429,
+                    detail={"error": "queue_full",
+                            "message": "The approval queue is full; try again later."},
+                )
+            # A call the Guard held under a named call-time rule.
+            # Only for a session the Guard proved with its task's hook token.
+            from securevector.app.server.routes.egress import _session_binding
+            from securevector.app.services import call_rules
+            _bound, verified = await _session_binding(http_request, body.session_id)
+            handled, req = await call_rules.file_marker_hold(
+                db, body.session_id, body.tool_id, body.function_name, body.runtime_kind, verified=verified)
+            if handled:
                 if req is not None:
                     return {"request": req}
                 raise HTTPException(
@@ -329,6 +344,8 @@ async def approve_request(
             raise HTTPException(status_code=404, detail="No such pending request")
         if changed:
             await decisions.audit_request(db, "allow", pending)
+            from securevector.app.services import call_rules
+            await call_rules.on_approved(db, pending)
         logger.info(
             "JIT grant %s: %s for %s (%s)",
             grant["id"], grant["tool_id"], grant["duration"], request_id,

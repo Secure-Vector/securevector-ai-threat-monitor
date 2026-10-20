@@ -243,6 +243,10 @@ _TASK_EVENT_ALLOWED = frozenset({
     "rung_reason_ids",
     "preflight_checked",
     "preflight_avoided",
+    # Named call-time rules: up to two ids from a closed set and two counts.
+    "rule_ids",
+    "held_count",
+    "would_hold_count",
 })
 TASK_EVENT_ROW_TYPE = "task_event"
 

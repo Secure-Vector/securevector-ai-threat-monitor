@@ -62,6 +62,9 @@ FULL = {
     "rung_reason_ids": ["config", "drift"],
     "preflight_checked": 12,
     "preflight_avoided": 4,
+    "rule_ids": ["cred_then_net", "outside_then_reach"],
+    "held_count": 1,
+    "would_hold_count": 2,
 }
 
 
@@ -82,7 +85,7 @@ def test_every_field_passes_when_inside_the_contract():
     out = live_runs.adr_fields(FULL, "exit")
     assert out == {**FULL, "drift_top": "new_hosts,enumeration,secrets_reach",
                    "drift_top_points": "15,8,7", "drift_top_counts": "3,10,2",
-                   "rung_reason_ids": "config,drift"}
+                   "rung_reason_ids": "config,drift", "rule_ids": "cred_then_net,outside_then_reach"}
     assert set(out) == set(live_runs.ADR_FIELDS)
 
 

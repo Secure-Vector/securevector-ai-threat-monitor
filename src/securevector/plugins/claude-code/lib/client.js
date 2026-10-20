@@ -47,7 +47,7 @@ async function getJson(url, opts = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(url, { signal: controller.signal, headers: authHeaders() });
+    const resp = await fetch(url, { signal: controller.signal, headers: { ...authHeaders(), ...(opts.headers || {}) } });
     if (!resp || !resp.ok) return {};
     try {
       const data = await resp.json();
@@ -82,13 +82,13 @@ const POST_TIMEOUT_MS = 2000;
  * @param {object} body
  * @returns {undefined}
  */
-function postJsonAndForget(url, body) {
+function postJsonAndForget(url, body, extraHeaders = {}) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
     const p = fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...(extraHeaders || {}) },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -128,7 +128,10 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
   // older servers simply ignore the parameter.
   if (opts.sessionId) params.set('session_id', opts.sessionId);
   const qs = params.toString();
-  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${qs ? `?${qs}` : ''}`, opts);
+  // Inside a launched task, the task id and hook token bind the session so
+  // the app can send its per-session hold marker.
+  const headers = opts.sessionId ? terminalHeaderFields() : {};
+  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${qs ? `?${qs}` : ''}`, { ...opts, headers });
 }
 
 /**
@@ -275,5 +278,5 @@ function resolveBaseUrl() {
 module.exports = {
   resolveBaseUrl,
   getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress, reportAttempt,
-  authHeaders, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS,
+  authHeaders, terminalHeaderFields, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS,
 };

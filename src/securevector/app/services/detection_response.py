@@ -225,6 +225,12 @@ async def _detect(db, now: datetime) -> dict:
         rungs = await ResponseRungsRepository(db).for_sessions([t["session_id"] for t in tasks])
     except Exception:  # noqa: BLE001 - rung state is optional
         logger.debug("detection response: could not read rung rows", exc_info=True)
+    fired: dict = {}
+    try:
+        from securevector.app.database.repositories.call_rules import CallRulesRepository
+        fired = await CallRulesRepository(db).fired_for([t["session_id"] for t in tasks])
+    except Exception:  # noqa: BLE001 - rule state is optional
+        logger.debug("detection response: could not read call rule state", exc_info=True)
     checks: dict = {}
     try:
         from securevector.app.database.repositories.config_trust import ConfigTrustRepository
@@ -251,7 +257,8 @@ async def _detect(db, now: datetime) -> dict:
         # rung 2 or above, or a red config change.
         r = rungs.get(t["session_id"]) or {}
         flagged_rung = _rung_flag(r, d.get("feedback") == session_drift.FEEDBACK_NORMAL)
-        if not (flagged_drift or flagged_setup or flagged_rung):
+        rules = fired.get(t["session_id"]) or []
+        if not (flagged_drift or flagged_setup or flagged_rung or rules):
             continue
         # "Looks normal" answers the drift flag only; a red setup change
         # stays listed until the setup is approved.
@@ -265,6 +272,11 @@ async def _detect(db, now: datetime) -> dict:
             reason = _setup_reason(c)
         if not reason and flagged_rung:
             reason = "Automatic actions flagged this session."
+        # A named rule that fired leads the Why with its plain name.
+        if rules:
+            from securevector.app.services import call_rules
+            lead = call_rules.why(rules) + "."
+            reason = f"{lead} {reason}" if reason else lead
 
         rows.append({
             "task_id": t["id"],

@@ -550,6 +550,9 @@ ADR_FIELDS = (
     "rung_reason_ids",
     "preflight_checked",
     "preflight_avoided",
+    "rule_ids",
+    "held_count",
+    "would_hold_count",
 )
 DRIFT_BANDS = frozenset({"calm", "watch", "high"})
 CONFIG_STATES = frozenset({"approved", "changed", "new", "unknown"})
@@ -559,6 +562,11 @@ RUNG_MAX = 3
 # keeps the two in step; any other id is dropped, never sent.
 RUNG_REASON_IDS = frozenset({"drift", "config", "deny"})
 RUNG_REASON_MAX = 3
+# The named call-time rule ids (services/call_rules RULE_IDS). A test keeps
+# the two in step; any other id is dropped, never sent.
+CALL_RULE_IDS = frozenset({"cred_then_net", "outside_then_reach"})
+CALL_RULE_MAX = 2
+HOLD_COUNT_MAX = 100000
 DRIFT_POINTS_MAX = 100
 DRIFT_COUNT_MAX = 100000
 SETUP_COUNT_MAX = 10000
@@ -680,6 +688,16 @@ def adr_fields(values: Any, event: Any = None) -> dict:
             out["rung_reason_ids"] = ",".join(reasons[:RUNG_REASON_MAX])
         for name in ("preflight_checked", "preflight_avoided"):
             number = _count(src.get(name), PREFLIGHT_COUNT_MAX)
+            if number is not None:
+                out[name] = number
+        rules: list = []
+        for rid in _ids(src.get("rule_ids")):
+            if isinstance(rid, str) and rid in CALL_RULE_IDS and rid not in rules:
+                rules.append(rid)
+        if rules:
+            out["rule_ids"] = ",".join(rules[:CALL_RULE_MAX])
+        for name in ("held_count", "would_hold_count"):
+            number = _count(src.get(name), HOLD_COUNT_MAX)
             if number is not None:
                 out[name] = number
     except Exception:
@@ -823,6 +841,25 @@ async def _collect_adr(task: Mapping[str, Any], db: Any, mods_unmanaged: Any) ->
                 out["rung_reason_ids"] = reasons if isinstance(reasons, list) else []
         except Exception:
             logger.debug("live_runs: rung metadata unavailable", exc_info=True)
+
+        # Named call-time rules: the ids that fired (Off mode included), and
+        # this session's hold events by mode, only when there is something.
+        if session_id:
+            try:
+                from securevector.app.database.repositories.call_rules import CallRulesRepository
+
+                crepo = CallRulesRepository(db)
+                fired = (await crepo.fired_for([session_id])).get(session_id) or []
+                from securevector.app.services.call_rules import RULE_IDS
+
+                holds = await crepo.holds_by_mode(session_id, RULE_IDS)
+                if fired:
+                    out["rule_ids"] = fired
+                if fired or any(holds.values()):
+                    out["held_count"] = holds.get("active", 0)
+                    out["would_hold_count"] = holds.get("shadow", 0)
+            except Exception:
+                logger.debug("live_runs: call rule metadata unavailable", exc_info=True)
 
         try:
             from securevector.app.database.repositories.policy_decisions import PolicyDecisionsRepository

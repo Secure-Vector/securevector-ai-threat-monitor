@@ -31,6 +31,7 @@
 const { normalize } = require('../lib/normalize.js');
 const {
   resolveBaseUrl, fetchSyncedOverrides, postJsonAndForget, evaluateEgress, reportAttempt,
+  terminalHeaderFields,
 } = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
 
@@ -496,7 +497,7 @@ async function main() {
         function_name: toolName,
         runtime_kind: RUNTIME_KIND,
         session_id: sessionId,
-      });
+      }, terminalHeaderFields());
       decision = {
         ...decision,
         reason: `${decision.reason} — an access request was filed; a human can approve ` +
