@@ -215,6 +215,7 @@ def progress_of(mode_row: Mapping[str, Any], sessions: int, unintended: int, now
         "unintended": unintended,
         "complete": complete, "early_ended": early,
         "can_activate": complete or early,
+        "stop_high": bool(mode_row.get("stop_high")),
     }
 
 
@@ -361,8 +362,16 @@ async def _locked(session_id: str, fn, *args, **kwargs):
 
 
 async def evaluate(db, session_id: str, *args, **kwargs) -> Optional[dict]:
-    """Evaluate one session's rung, serialised per session."""
-    return await _locked(session_id, _evaluate, db, session_id, *args, **kwargs)
+    """Evaluate one session's rung, serialised per session. The stop switch
+    runs after the lock is released: a stop closes the session's approvals,
+    which takes the same lock."""
+    row = await _locked(session_id, _evaluate, db, session_id, *args, **kwargs)
+    result = kwargs.get("result") if "result" in kwargs else (args[1] if len(args) > 1 else None)
+    if row is not None:
+        from securevector.app.services import stop_switch
+
+        await stop_switch.on_evaluated(db, session_id, result, row.get("harness"))
+    return row
 
 
 async def _evaluate(db, session_id: str, task: Optional[Mapping[str, Any]] = None, result=None,
@@ -958,7 +967,7 @@ def payload(row: Optional[Mapping[str, Any]]) -> dict:
 # --- closing approvals when a session stops ---------------------------------------------
 
 CLOSED_BY = "not_needed"
-CLOSE_REASONS = {"ended": "Session ended", "archived": "Session removed"}
+CLOSE_REASONS = {"ended": "Session ended", "archived": "Session removed", "stopped": "Session stopped"}
 
 
 async def close_pending_for_task(db, task: Optional[Mapping[str, Any]], *, reason: str,

@@ -421,6 +421,68 @@ const DetectionResponsePage = {
         return `<span class="dr-row-drift" title="Score ${this._esc(row.score)} of 100. Compared with this agent's earlier sessions in this folder."><span class="dr-row-score">${this._esc(row.score)}</span> <span class="dr-band is-${band}">${this._bandWord(band)}</span>${partial}</span>`;
     },
 
+    /** What "High: stop the session and alert" did to this session. */
+    STOP_MARKS: {
+        stopped: ['is-red', 'Stopped'],
+        would_stop: ['is-amber', 'Would have stopped (test mode)'],
+        outside: ['is-amber', 'Not stopped: started outside SecureVector'],
+    },
+
+    _stopMarkHtml(row) {
+        const m = row && this.STOP_MARKS[row.stop];
+        return m ? `<span class="dr-setup dr-stop-mark ${m[0]}">${this._esc(m[1])}</span>` : '';
+    },
+
+    _toolLabel(id) {
+        const R = (typeof window !== 'undefined' && window.ResponseRungs) || null;
+        return R && R.harnessLabel ? R.harnessLabel(id) : String(id || '');
+    },
+
+    /** The per agent tool switch, in the Automatic actions part of Details. */
+    _stopHtml(rungs) {
+        const modes = (rungs && Array.isArray(rungs.modes)) ? rungs.modes.filter(m => m && m.harness) : [];
+        const head = '<h4 class="dr-stop-h">Automatic actions</h4>';
+        if (!modes.length) {
+            return `${head}<p class="dr-muted">No agent sessions have run yet. Automatic actions start in test mode, where they are logged only.</p>`;
+        }
+        const rows = modes.map((m) => {
+            const id = this._esc(m.harness);
+            const on = !!m.stop_high;
+            const test = String(m.mode || 'shadow') !== 'active';
+            const note = on && test ? '<span class="rung-mode-progress">In test mode: records what it would stop, stops nothing.</span>' : '';
+            return `<div class="rung-mode-row dr-stop-row" data-dr-stop-row="${id}">
+              <div class="rung-mode-head"><strong>${this._esc(this._toolLabel(m.harness))}</strong><span class="rung-mode-state">${test ? 'Test mode' : 'On'}</span></div>
+              <label class="dr-stop-switch"><input type="checkbox" role="switch" data-dr-stop="${id}"${on ? ' checked' : ''} aria-describedby="dr-stop-cap-${id}"> High: stop the session and alert</label>
+              <span class="rung-mode-progress" id="dr-stop-cap-${id}">Off by default. Turning it off needs your approval.</span>
+              ${note}
+              <span class="rung-mode-error" data-dr-stop-err="${id}" hidden></span>
+            </div>`;
+        }).join('');
+        return `${head}<p class="dr-muted">When on, a session of that agent tool with a high score, or one where a named rule fires, is stopped and you get an alert. Sessions started outside SecureVector are alerted only.</p>${rows}`;
+    },
+
+    _bindStop(host) {
+        host.querySelectorAll('[data-dr-stop]').forEach((box) => {
+            box.onchange = async () => {
+                const id = box.dataset.drStop;
+                const want = !!box.checked;
+                const err = host.querySelector(`[data-dr-stop-err="${CSS.escape(id)}"]`);
+                if (err) { err.hidden = true; err.textContent = ''; }
+                box.disabled = true;
+                try {
+                    await API.terminalsStopSwitch(id, want);
+                    const m = ((this._rungs && this._rungs.modes) || []).find(x => x && x.harness === id);
+                    if (m) m.stop_high = want;
+                } catch (e) {
+                    box.checked = !want;
+                    if (err) { err.hidden = false; err.textContent = (e && e.message) || 'Could not change the switch'; }
+                } finally {
+                    box.disabled = false;
+                }
+            };
+        });
+    },
+
     /** A config mark only when the session's agent config changed or was
      *  never approved; an approved or unchecked config adds nothing. */
     _setupHtml(row) {
@@ -458,7 +520,7 @@ const DetectionResponsePage = {
         const canNormal = row.ended && typeof row.score === 'number';
         const canApprove = !!row.setup_harness && (row.setup_state === 'changed' || row.setup_state === 'new');
         const who = row.harness_label || row.harness || 'Session';
-        const setup = this._setupHtml(row);
+        const setup = this._setupHtml(row) + this._stopMarkHtml(row);
         const scored = typeof row.score === 'number' && !!row.band;
         const band = scored && ['calm', 'watch', 'high'].includes(row.band) ? row.band : 'calm';
         const scoreCell = scored
@@ -503,6 +565,7 @@ const DetectionResponsePage = {
         return `<details class="dr-loop dr-details" id="dr-sec-details">
             <summary>Details</summary>
             <div class="dr-details-body">
+              <div data-dr-stop-host id="dr-sec-stop"></div>
               <div data-dr-cloud id="dr-sec-fleet"></div>
               <div data-dr-config id="dr-sec-config"></div>
               ${this._loopHtml(false)}
@@ -954,6 +1017,8 @@ const DetectionResponsePage = {
         const list = container.querySelector('[data-dr-list]');
         const cfg = container.querySelector('[data-dr-config]');
         const spotEl = container.querySelector('[data-dr-spot]');
+        const stopEl = container.querySelector('[data-dr-stop-host]');
+        if (stopEl && API.terminalsStopSwitch) { stopEl.innerHTML = this._stopHtml(rungs); this._bindStop(stopEl); }
         if (!data) {
             tiles.innerHTML = this._tilesHtml(null, rungs);
             list.innerHTML = '<p class="dr-muted">Could not read sessions. Try again in a moment.</p>';

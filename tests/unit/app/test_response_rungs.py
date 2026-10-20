@@ -249,12 +249,12 @@ def world(tmp_path):
 def test_v59_tables_and_idempotent(world):
     from securevector.app.database.models import CURRENT_SCHEMA_VERSION
 
-    assert CURRENT_SCHEMA_VERSION == 63
+    assert CURRENT_SCHEMA_VERSION == 64
     names = {r[0] for r in world.raw.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"session_rungs", "rung_modes"} <= names
     asyncio.run(migrate_to_v59(world.db))
     asyncio.run(migrate_to_v59(world.db))
-    assert world.one("SELECT MAX(version) FROM schema_version")[0] == 63
+    assert world.one("SELECT MAX(version) FROM schema_version")[0] == 64
 
 
 def test_default_mode_is_shadow_and_active_is_refused_early(world):
@@ -406,7 +406,7 @@ def test_routes_are_registered_under_terminals():
             "/terminals/rungs/modes/{harness}"} <= paths
     posts = {r.path for r in router.routes if "rung" in r.path and "POST" in r.methods}
     assert posts == {"/terminals/tasks/{task_id}/rung/release", "/terminals/tasks/{task_id}/rung/feedback",
-                     "/terminals/rungs/modes/{harness}"}
+                     "/terminals/rungs/modes/{harness}", "/terminals/rungs/stop/{harness}"}
 
 
 # --- review fixes -------------------------------------------------------------------

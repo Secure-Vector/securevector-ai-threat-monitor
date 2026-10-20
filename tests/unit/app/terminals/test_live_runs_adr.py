@@ -65,6 +65,7 @@ FULL = {
     "rule_ids": ["cred_then_net", "outside_then_reach"],
     "held_count": 1,
     "would_hold_count": 2,
+    "response_action": "stopped",
 }
 
 

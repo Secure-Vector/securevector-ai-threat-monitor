@@ -308,7 +308,7 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=24/);
+  assert.match(read('index.html'), /detection-response\.js\?v=25/);
   assert.match(read('index.html'), /styles\.css\?v=499/);
 });
 
@@ -644,4 +644,35 @@ test('automatic actions tile in mixed modes shows both counts', () => {
   const html = P._respondTile({ modes: [{ mode: 'shadow' }, { mode: 'active' }], would_have: 3, taken: 2 });
   assert.match(html, /2 held/);
   assert.match(html, /would have held 3 \(test mode\)/);
+});
+
+test('stop switch: one per agent tool, off by default, with the approval caption', () => {
+  const P = loadPage();
+  const html = P._stopHtml({ modes: [
+    { harness: 'claude-code', mode: 'active', stop_high: false },
+    { harness: 'codex', mode: 'shadow', stop_high: true },
+  ] });
+  assert.match(html, /Automatic actions/);
+  assert.equal((html.match(/High: stop the session and alert/g) || []).length, 2);
+  assert.equal((html.match(/Off by default\. Turning it off needs your approval\./g) || []).length, 2);
+  assert.match(html, /data-dr-stop="claude-code" aria-describedby/);
+  assert.match(html, /data-dr-stop="codex" checked/);
+  assert.match(html, /In test mode: records what it would stop, stops nothing\./);
+  assert.doesNotMatch(html.replace(/<[^>]+>/g, ' '), /\u2014|rung|drift|attack|rogue|trifecta|\bADR\b/i);
+  assert.match(P._stopHtml({ modes: [] }), /start in test mode/);
+});
+
+test('session rows show Stopped or Would have stopped (test mode)', () => {
+  const P = loadPage();
+  const base = { task_id: 't1', harness_label: 'Claude Code', folder: 'app', score: 82, band: 'high', status: 'scored', reason: 'x', at: new Date().toISOString() };
+  assert.match(P._rowHtml({ ...base, stop: 'stopped' }), /dr-stop-mark is-red">Stopped</);
+  assert.match(P._rowHtml({ ...base, stop: 'would_stop' }), />Would have stopped \(test mode\)</);
+  assert.match(P._rowHtml({ ...base, stop: 'outside' }), />Not stopped: started outside SecureVector</);
+  assert.doesNotMatch(P._rowHtml({ ...base, stop: null }), /dr-stop-mark/);
+});
+
+test('the stop switch posts on or off through the UI-token write', () => {
+  const api = read('js/api.js');
+  assert.match(api, /async terminalsStopSwitch\(harness, on\) \{\n\s+return this\._terminalsUiWrite\(`\/api\/terminals\/rungs\/stop\/\$\{encodeURIComponent\(harness\)\}`, \{ on: !!on \}\);/);
+  assert.match(read('js/pages/detection-response.js'), /<div data-dr-stop-host id="dr-sec-stop"><\/div>/);
 });
