@@ -107,7 +107,7 @@ const DetectionResponsePage = {
         p = p || {};
         const n = p.checked || 0;
         if (!n && p.registered === false) {
-            return this._tile('Permission checks', '<span class="dr-tile-state">0</span>', 'MCP tools not registered',
+            return this._tile('Permission checks', '0', 'MCP tools not registered',
                 '<a href="/guide-connect-agents" class="dr-link" data-dr-nav="guide-connect-agents">Register the MCP tools</a>', 'dr-sec-checks');
         }
         const avoided = p.avoided_denials || 0;
@@ -310,6 +310,8 @@ const DetectionResponsePage = {
         return { score, band };
     },
 
+    /** The score card's text, kept for the card's tests; the page renders
+     *  the score card through the spotlight section. */
     _topHtml(data) {
         if (!data) return '';
         const sp = data.spotlight;
@@ -434,24 +436,31 @@ const DetectionResponsePage = {
         return `${this._esc(texts[0].replace(/\.$/, ''))}<button type="button" class="dr-more" data-dr-more aria-expanded="false">, +${rest.length} more</button><ul class="dr-more-list" hidden>${rest.map(t => `<li>${this._esc(t)}</li>`).join('')}</ul>`;
     },
 
-    /** One row: who and where, when, the score with its band word, a config
-     *  mark when the config changed, the one reason, and the fixes: the row
-     *  itself opens the session, then Looks normal and Review config change. */
+    /** One review row, four aligned columns: the score with its band, the
+     *  session (agent, folder, the one reason, a config mark when there is
+     *  one), when it ran, and its actions on the right. */
     _rowHtml(row, focused) {
         const id = this._esc(row.task_id);
         const canNormal = row.ended && typeof row.score === 'number';
         const canApprove = !!row.setup_harness && (row.setup_state === 'changed' || row.setup_state === 'new');
         const who = row.harness_label || row.harness || 'Session';
         const setup = this._setupHtml(row);
+        const scored = typeof row.score === 'number' && !!row.band;
+        const band = scored && ['calm', 'watch', 'high'].includes(row.band) ? row.band : 'calm';
+        const scoreCell = scored
+            ? `<span class="dr-row-score is-${band}" title="Score ${this._esc(row.score)} of 100. Compared with this agent's earlier sessions in this folder.">${this._esc(row.score)}</span><span class="dr-band is-${band}">${this._esc(this._bandWord(row.band))}</span>${row.status === 'partial' ? '<span class="dr-row-partial">settling</span>' : ''}`
+            : `<span class="dr-row-score is-none">\u2013</span><span class="dr-row-partial">${row.status === 'building_baseline' ? 'no score yet' : 'no score'}</span>`;
         return `<li class="dr-row${focused ? ' is-focused' : ''}" data-dr-row="${id}">
-            <button type="button" class="dr-row-open" data-dr-open="${id}" aria-label="Open the session summary for ${this._esc(who)} in ${this._esc(row.folder || 'this folder')}">
-              <span class="dr-row-head"><strong>${this._esc(who)}</strong><span class="dr-row-folder" title="${this._esc(row.folder || '')}">${this._esc(row.folder || 'unknown folder')}</span><span class="dr-row-when">${this._esc(this._ago(row.at))}</span></span>
-              <span class="dr-row-facts">${this._bandHtml(row)}${setup ? `<span class="dr-sep" aria-hidden="true"> · </span>${setup}` : ''}</span>
+            <div class="dr-row-scorecell">${scoreCell}</div>
+            <div class="dr-row-main">
+              <button type="button" class="dr-row-open" data-dr-open="${id}" aria-label="Open the session summary for ${this._esc(who)} in ${this._esc(row.folder || 'this folder')}"><span class="dr-row-head"><strong>${this._esc(who)}</strong><span class="dr-row-folder" title="${this._esc(row.folder || '')}">${this._esc(row.folder || 'unknown folder')}</span></span></button>
               <span class="dr-row-reason">${this._reasonHtml(row)}</span>
-            </button>
+              ${setup ? `<span class="dr-row-facts">${setup}</span>` : ''}
+            </div>
+            <span class="dr-row-when">${this._esc(this._ago(row.at))}</span>
             <div class="dr-row-actions" data-dr-actions="${id}">
-              <div class="dr-act">${canNormal ? `<button type="button" class="btn btn-sm btn-secondary" data-dr-normal="${id}">Looks normal</button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</span>` : ''}</div>
-              <div class="dr-act">${canApprove ? `<button type="button" class="btn btn-sm" data-dr-approve="${id}">Review config change</button>` : ''}</div>
+              ${canNormal ? `<div class="dr-act"><button type="button" class="btn btn-sm btn-secondary" data-dr-normal="${id}" title="Hide from this list and count it as normal for future scores" aria-describedby="dr-cap-${id}">Looks normal</button><span class="dr-act-cap" id="dr-cap-${id}">Hide from this list and count it as normal for future scores</span></div>` : ''}
+              ${canApprove ? `<div class="dr-act"><button type="button" class="btn btn-sm" data-dr-approve="${id}">Review config change</button></div>` : ''}
             </div>
         </li>`;
     },
@@ -468,20 +477,18 @@ const DetectionResponsePage = {
         }
         const missing = focus && !rows.some(r => r.task_id === focus)
             ? '<p class="dr-muted">That session is not on the review list.</p>' : '';
-        return `${missing}<ul class="dr-list">${rows.map(r => this._rowHtml(r, r.task_id === focus)).join('')}</ul>`;
+        const head = '<div class="dr-list-head" aria-hidden="true"><span>Score</span><span>Session</span><span>When</span><span></span></div>';
+        return `${missing}${head}<ul class="dr-list">${rows.map(r => this._rowHtml(r, r.task_id === focus)).join('')}</ul>`;
     },
 
     // --- details ------------------------------------------------------------
 
-    /** One closed disclosure at the bottom, in this order: why this score,
-     *  automatic actions, permission checks, across your devices, config
+    /** One closed disclosure at the bottom, in this order: automatic actions, permission checks, across your devices, config
      *  changes, how it works. The rail's deep links open it. */
     _detailsHtml() {
         return `<details class="dr-loop dr-details" id="dr-sec-details">
             <summary>Details</summary>
             <div class="dr-details-body">
-              <div data-dr-spot id="dr-sec-why"></div>
-              <div data-dr-tiles>${this._skeletonHtml()}</div>
               <div data-dr-cloud id="dr-sec-fleet"></div>
               <div data-dr-config id="dr-sec-config"></div>
               ${this._loopHtml(false)}
@@ -909,7 +916,8 @@ const DetectionResponsePage = {
         this.focusSession = null;
         container.innerHTML = `<div class="dr-wrap">
             <div data-dr-start id="dr-sec-start"></div>
-            <div data-dr-top></div>
+            <div data-dr-spot id="dr-sec-why"></div>
+            <div data-dr-tiles>${this._skeletonHtml()}</div>
             <div id="dr-sec-sessions">
             <section class="dr-card" aria-labelledby="dr-review-h">
               <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted">Newest first. A higher score means less like earlier sessions.</span></div>
@@ -932,7 +940,6 @@ const DetectionResponsePage = {
         const list = container.querySelector('[data-dr-list]');
         const cfg = container.querySelector('[data-dr-config]');
         const spotEl = container.querySelector('[data-dr-spot]');
-        const topEl = container.querySelector('[data-dr-top]');
         if (!data) {
             tiles.innerHTML = this._tilesHtml(null, rungs);
             list.innerHTML = '<p class="dr-muted">Could not read sessions. Try again in a moment.</p>';
@@ -944,7 +951,6 @@ const DetectionResponsePage = {
         list.innerHTML = this._listHtml(data, focus);
         if (cfg) cfg.innerHTML = this._configHtml(data);
         if (spotEl) spotEl.innerHTML = this._spotlightHtml(data);
-        if (topEl) topEl.innerHTML = this._topHtml(data);
         const startEl = container.querySelector('[data-dr-start]');
         if (startEl) { startEl.innerHTML = this._startHtml(data); this._bindStart(startEl, data); }
         this._bind(container);

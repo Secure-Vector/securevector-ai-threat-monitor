@@ -68,10 +68,14 @@ test('a review row shows harness, folder, score, band, config mark, reason and i
     reason: 'Tools new here: 4 of 31 calls', ended: true, at: new Date().toISOString() }, true);
   assert.match(row, /is-focused/);
   assert.match(row, /<strong>Claude Code<\/strong><span class="dr-row-folder" title="app">app</);
-  assert.match(row, /<span class="dr-row-score">82<\/span> <span class="dr-band is-high">high</);
+  // Score column: the number in the band colour, the band word under it.
+  assert.match(row, /<div class="dr-row-scorecell"><span class="dr-row-score is-high"[^>]*>82<\/span><span class="dr-band is-high">high</);
+  assert.ok(row.indexOf('dr-row-scorecell') < row.indexOf('dr-row-open') && row.indexOf('dr-row-open') < row.indexOf('dr-row-when')
+    && row.indexOf('dr-row-when') < row.indexOf('dr-row-actions'), 'score, session, when, actions');
   assert.match(row, /dr-setup is-amber">Agent config changed \(2\)</);
   assert.match(row, /Tools new here: 4 of 31 calls/);
-  assert.match(row, /data-dr-normal="t1">Looks normal<\/button><span class="dr-act-cap">Hide from this list and count it as normal for future scores</);
+  assert.ok(!/class="dr-row-open"[^>]*>(?:(?!<\/button>).)*data-dr-more/s.test(row), '+N more is not inside the open button');
+  assert.match(row, /data-dr-normal="t1" title="Hide from this list and count it as normal for future scores" aria-describedby="dr-cap-t1">Looks normal<\/button><span class="dr-act-cap" id="dr-cap-t1">Hide from this list and count it as normal for future scores</);
   assert.match(row, /btn btn-sm" data-dr-approve="t1">Review config change<\/button>/);
   // One open control per row: the row title itself.
   assert.equal((row.match(/data-dr-open="t1"/g) || []).length, 1);
@@ -304,8 +308,8 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=19/);
-  assert.match(read('index.html'), /styles\.css\?v=496/);
+  assert.match(read('index.html'), /detection-response\.js\?v=23/);
+  assert.match(read('index.html'), /styles\.css\?v=499/);
 });
 
 test('plain-language pass: Review label and heading, Launch first, one card status line', () => {
@@ -528,7 +532,7 @@ test('Getting started: scored collapses to one line while a step is open, and hi
   assert.equal(P._startHtml({}), '');
   const src = read('js/pages/detection-response.js');
   assert.ok(src.indexOf('<div data-dr-start id="dr-sec-start"></div>') > 0, 'start slot present');
-  assert.ok(src.indexOf('<div data-dr-start id="dr-sec-start"></div>') < src.indexOf('<div data-dr-top></div>'), 'above the top score');
+  assert.ok(src.indexOf('<div data-dr-start id="dr-sec-start"></div>') < src.indexOf('<div data-dr-spot id="dr-sec-why"></div>'), 'above the score card');
 });
 
 
@@ -545,20 +549,24 @@ test('spotlight compare line: first session, still settling, settled', () => {
 
 // ---- simple page (2026-10-14): top, review list, one closed Details ----
 
-test('Details is closed by default, sits below the list and holds the six sections in order', () => {
+test('Details is closed by default, sits below the list and holds the remaining sections in order', () => {
   const P = loadPage();
   const d = P._detailsHtml();
   assert.match(d, /^<details class="dr-loop dr-details" id="dr-sec-details">\s*<summary>Details<\/summary>/);
   assert.doesNotMatch(d.slice(0, d.indexOf('>') + 1), /\bopen\b/, 'closed by default');
-  const ids = ['dr-sec-why', 'dr-sec-actions', 'dr-sec-checks', 'dr-sec-fleet', 'dr-sec-config', 'dr-sec-how'];
+  // The score card sits at the top of the page, above the list (owner, 2026-10-19).
+  assert.equal(d.indexOf('id="dr-sec-why"'), -1, 'score card is not inside Details');
+  // The four number cards sit under the score card (owner, 2026-10-19).
+  assert.equal(d.indexOf('data-dr-tiles'), -1, 'number cards are not inside Details');
+  const ids = ['dr-sec-fleet', 'dr-sec-config', 'dr-sec-how'];
   const at = ids.map(id => d.indexOf(`id="${id}"`));
   at.forEach((i, k) => assert.ok(i > 0, ids[k]));
-  assert.deepEqual([...at].sort((a, b) => a - b), at, 'why, actions, checks, devices, config, how');
-  assert.ok(d.lastIndexOf('</details>') === d.length - '</details>'.length, 'the six sit inside');
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'devices, config, how');
+  assert.ok(d.lastIndexOf('</details>') === d.length - '</details>'.length, 'the three sit inside');
   const src = read('js/pages/detection-response.js');
   const tpl = src.slice(src.indexOf('container.innerHTML = `<div class="dr-wrap">'), src.indexOf('const soft = (f) =>'));
-  assert.ok(tpl.indexOf('data-dr-top') < tpl.indexOf('id="dr-sec-sessions"') && tpl.indexOf('id="dr-sec-sessions"') < tpl.indexOf('this._detailsHtml()'), 'top, list, Details');
-  assert.doesNotMatch(tpl, /data-dr-spot|data-dr-tiles|data-dr-config|data-dr-cloud|dr-copy-stats/, 'nothing else outside Details');
+  assert.ok(tpl.indexOf('id="dr-sec-why"') < tpl.indexOf('id="dr-sec-sessions"') && tpl.indexOf('id="dr-sec-sessions"') < tpl.indexOf('this._detailsHtml()'), 'score card, list, Details');
+  assert.doesNotMatch(tpl, /data-dr-config|data-dr-cloud|dr-copy-stats/, 'nothing else outside Details');
 });
 
 test('the top shows only the score, band word, one reason and the compare line', () => {
@@ -605,4 +613,12 @@ test('the +N reasons control is a transparent, keyboard-visible text button', ()
   assert.match(moreCss, /\.dr-more \{[^}]*text-decoration: underline;/);
   assert.match(moreCss, /\.dr-more:focus-visible \{[^}]*outline: 2px solid var\(--accent-primary\);/);
   assert.match(loadPage()._reasonHtml({ reason: 'A', setup_texts: ['A', 'B'] }), /<button type="button" class="dr-more"[^>]*>.*\+1 more<\/button>/);
+});
+
+test('Sessions to review: a column header above the rows, and the rows share its grid', () => {
+  const P = loadPage();
+  const html = P._listHtml({ sessions: [{ task_id: 'a', score: 50, band: 'watch', ended: true, harness_label: 'Codex', folder: 'api' }] });
+  assert.match(html, /<div class="dr-list-head" aria-hidden="true"><span>Score<\/span><span>Session<\/span><span>When<\/span><span><\/span><\/div><ul class="dr-list">/);
+  const css = read('css/styles.css');
+  assert.match(css, /\.dr-list-head, \.dr-row \{ display: grid; grid-template-columns: 84px minmax\(0, 1fr\) 110px 260px;/);
 });
