@@ -291,6 +291,9 @@ _ROUTES: tuple = (
      lambda m, d: (f"Turn automatic actions on for {_label(m.group('h'))}" if d.get("mode") == "active"
                    else f"Turn automatic actions off for {_label(m.group('h'))}" if d.get("mode") == "shadow"
                    else f"End the observe period early for {_label(m.group('h'))}")),
+    ("POST", r"/terminals/rungs/stop/(?P<h>[^/]+)$",
+     lambda m, d: (f"Turn on stop the session and alert for {_label(m.group('h'))}" if d.get("on")
+                   else f"Turn off stop the session and alert for {_label(m.group('h'))}")),
     ("POST", r"/terminals/delegations/(?P<x>[^/]+)/release$",
      lambda m, d: f"Hand the held result of delegation {_seg(m, 'x')} to its task"),
     ("POST", r"/terminals/delegations/(?P<x>[^/]+)/discard$",

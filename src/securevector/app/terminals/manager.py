@@ -1269,7 +1269,7 @@ class TerminalManager:
             except Exception:
                 logger.debug("failed to forget retired task %s", old_id, exc_info=True)
 
-    async def stop(self, task_id: str, *, origin: str) -> None:
+    async def stop(self, task_id: str, *, origin: str, detail: Optional[str] = None) -> None:
         task = await self.store.get_task(task_id)
         if task is not None and task.get("origin") == "linked":
             # There is no process here to signal: the harness belongs to the
@@ -1288,7 +1288,7 @@ class TerminalManager:
         # Marked before any await, so an exit that races the audit write
         # below still reads as the user's stop.
         self._stop_requested.add(task_id)
-        await self.store.add_event(task_id, kind="stop", origin=origin)
+        await self.store.add_event(task_id, kind="stop", origin=origin, detail=detail)
         # Before host.stop(), matching the ordering above: the stop is recorded
         # while the row still reads as running, so an exit cannot race it.
         # `task`, fetched above, is that same still-running row: add_event()

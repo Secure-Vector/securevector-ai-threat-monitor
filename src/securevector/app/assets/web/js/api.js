@@ -1213,6 +1213,11 @@ const API = {
     async terminalsRungMode(harness, body) {
         return this._terminalsUiWrite(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`, body);
     },
+    // "High: stop the session and alert": on needs the UI token only; off
+    // is a decision the app asks the person to confirm.
+    async terminalsStopSwitch(harness, on) {
+        return this._terminalsUiWrite(`/api/terminals/rungs/stop/${encodeURIComponent(harness)}`, { on: !!on });
+    },
     // Governed delegation: reads under the terminals token, decisions with the UI token.
     async terminalsDelegations(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/delegations`);

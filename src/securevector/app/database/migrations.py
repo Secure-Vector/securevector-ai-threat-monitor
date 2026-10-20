@@ -210,6 +210,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         61: migrate_to_v61,
         62: migrate_to_v62,
         63: migrate_to_v63,
+        64: migrate_to_v64,
     }
 
     if version in migrations:
@@ -2156,6 +2157,8 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_worktree_columns(db)
     await ensure_response_holds_table(db)
     await ensure_session_rule_state_table(db)
+    await ensure_stop_switch_storage(db)
+    await ensure_outbox_alert_kind(db)
     await cleanup_old_policy_decisions(db)
     await cleanup_old_response_holds(db)
 
@@ -3582,3 +3585,114 @@ async def migrate_to_v63(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v63: named call-time rule state")
+
+
+async def ensure_stop_switch_storage(db: DatabaseConnection) -> None:
+    """The per agent tool "stop the session and alert" switch and the
+    per-session stop record. ``rung_modes.stop_high`` (0 or 1, off by
+    default) sits next to the automatic actions mode; ``session_stops`` has
+    one row per session the switch acted on: the trigger id, the outcome
+    and the time. Ids and states only. Idempotent."""
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(rung_modes)")
+    cols = [r[1] for r in await cursor.fetchall()]
+    if cols and "stop_high" not in cols:
+        await conn.execute("ALTER TABLE rung_modes ADD COLUMN stop_high INTEGER NOT NULL DEFAULT 0")
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS session_stops ("
+        "session_id TEXT PRIMARY KEY, task_id TEXT, harness TEXT NOT NULL DEFAULT '', "
+        "trigger TEXT NOT NULL DEFAULT '', outcome TEXT NOT NULL DEFAULT '', "
+        "test_mode INTEGER NOT NULL DEFAULT 0, alerted INTEGER NOT NULL DEFAULT 0, ts TEXT NOT NULL)"
+    )
+    await conn.commit()
+
+
+async def ensure_outbox_alert_kind(db: DatabaseConnection) -> None:
+    """Widen the forward-outbox kind vocabulary with `alert`, by the same
+    staged rebuild v53 uses inside one ``BEGIN IMMEDIATE``. A widened
+    constraint is left alone and an interrupted rebuild is repaired first.
+    Idempotent."""
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    async def _create_indexes() -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+            "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+            "WHERE delivered_at IS NULL"
+        )
+
+    leftover = await _table_sql("external_forward_outbox_v64")
+    if leftover:
+        if await _table_sql("external_forward_outbox"):
+            await conn.execute("DROP TABLE external_forward_outbox_v64")
+        else:
+            await conn.execute(
+                "ALTER TABLE external_forward_outbox_v64 RENAME TO external_forward_outbox"
+            )
+            await _create_indexes()
+        await conn.commit()
+
+    existing = await _table_sql("external_forward_outbox")
+    if existing and "CHECK" in existing and "'alert'" not in existing:
+        try:
+            await conn.executescript(
+            """
+            BEGIN IMMEDIATE;
+            CREATE TABLE external_forward_outbox_v64 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+                kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit', 'task_event', 'generation', 'alert')),
+                payload_json  TEXT NOT NULL,
+                created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                delivered_at  TIMESTAMP,
+                last_error    TEXT
+            );
+            INSERT INTO external_forward_outbox_v64 (
+                id, forwarder_id, kind, payload_json, created_at,
+                attempts, delivered_at, last_error
+            )
+            SELECT id, forwarder_id, kind, payload_json, created_at,
+                   attempts, delivered_at, last_error
+            FROM external_forward_outbox;
+            DROP TABLE external_forward_outbox;
+            ALTER TABLE external_forward_outbox_v64 RENAME TO external_forward_outbox;
+            CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending
+                ON external_forward_outbox (forwarder_id, delivered_at, id)
+                WHERE delivered_at IS NULL;
+            COMMIT;
+            """
+            )
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    if await _table_sql("external_forward_outbox"):
+        await _create_indexes()
+    await conn.commit()
+
+
+async def migrate_to_v64(db: DatabaseConnection) -> None:
+    """v63 -> v64: the "stop the session and alert" switch. A per agent tool
+    column, the per-session stop record, and `alert` in the forward-outbox
+    kind vocabulary. Idempotent."""
+    await ensure_response_rung_tables(db)
+    await ensure_stop_switch_storage(db)
+    await ensure_outbox_alert_kind(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (64, CURRENT_TIMESTAMP, 'Stop the session and alert')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v64: stop the session and alert")

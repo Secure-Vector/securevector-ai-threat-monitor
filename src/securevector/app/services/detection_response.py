@@ -231,6 +231,12 @@ async def _detect(db, now: datetime) -> dict:
         fired = await CallRulesRepository(db).fired_for([t["session_id"] for t in tasks])
     except Exception:  # noqa: BLE001 - rule state is optional
         logger.debug("detection response: could not read call rule state", exc_info=True)
+    stops: dict = {}
+    try:
+        from securevector.app.database.repositories.session_stops import SessionStopsRepository
+        stops = await SessionStopsRepository(db).for_sessions([t["session_id"] for t in tasks])
+    except Exception:  # noqa: BLE001 - stop state is optional
+        logger.debug("detection response: could not read stop state", exc_info=True)
     checks: dict = {}
     try:
         from securevector.app.database.repositories.config_trust import ConfigTrustRepository
@@ -258,7 +264,8 @@ async def _detect(db, now: datetime) -> dict:
         r = rungs.get(t["session_id"]) or {}
         flagged_rung = _rung_flag(r, d.get("feedback") == session_drift.FEEDBACK_NORMAL)
         rules = fired.get(t["session_id"]) or []
-        if not (flagged_drift or flagged_setup or flagged_rung or rules):
+        stop = (stops.get(t["session_id"]) or {}).get("outcome") or None
+        if not (flagged_drift or flagged_setup or flagged_rung or rules or stop):
             continue
         # "Looks normal" answers the drift flag only; a red setup change
         # stays listed until the setup is approved.
@@ -294,6 +301,9 @@ async def _detect(db, now: datetime) -> dict:
             "reason": reason or "Score above the usual range for this agent tool.",
             "ended": bool(t.get("ended_at")),
             "at": t["_at"].isoformat(timespec="seconds"),
+            # What "stop the session and alert" did: stopped, would_stop
+            # (test mode) or outside (started outside SecureVector).
+            "stop": stop,
         })
     out["spotlight"] = await _spotlight(db, candidates, scored_all)
     out["to_review"] = len(rows)

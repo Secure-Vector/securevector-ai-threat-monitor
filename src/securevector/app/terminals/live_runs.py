@@ -553,6 +553,7 @@ ADR_FIELDS = (
     "rule_ids",
     "held_count",
     "would_hold_count",
+    "response_action",
 )
 DRIFT_BANDS = frozenset({"calm", "watch", "high"})
 CONFIG_STATES = frozenset({"approved", "changed", "new", "unknown"})
@@ -567,6 +568,8 @@ RUNG_REASON_MAX = 3
 CALL_RULE_IDS = frozenset({"cred_then_net", "outside_then_reach"})
 CALL_RULE_MAX = 2
 HOLD_COUNT_MAX = 100000
+# What the "stop the session and alert" switch did to the session.
+RESPONSE_ACTIONS = frozenset({"stopped"})
 DRIFT_POINTS_MAX = 100
 DRIFT_COUNT_MAX = 100000
 SETUP_COUNT_MAX = 10000
@@ -700,6 +703,9 @@ def adr_fields(values: Any, event: Any = None) -> dict:
             number = _count(src.get(name), HOLD_COUNT_MAX)
             if number is not None:
                 out[name] = number
+        action = src.get("response_action")
+        if isinstance(action, str) and action in RESPONSE_ACTIONS:
+            out["response_action"] = action
     except Exception:
         logger.debug("live_runs: adr fields dropped", exc_info=True)
         return {}
@@ -860,6 +866,15 @@ async def _collect_adr(task: Mapping[str, Any], db: Any, mods_unmanaged: Any) ->
                     out["would_hold_count"] = holds.get("shadow", 0)
             except Exception:
                 logger.debug("live_runs: call rule metadata unavailable", exc_info=True)
+
+            try:
+                from securevector.app.database.repositories.session_stops import SessionStopsRepository
+
+                stop = await SessionStopsRepository(db).get(session_id)
+                if stop and stop.get("outcome") == "stopped":
+                    out["response_action"] = "stopped"
+            except Exception:
+                logger.debug("live_runs: stop metadata unavailable", exc_info=True)
 
         try:
             from securevector.app.database.repositories.policy_decisions import PolicyDecisionsRepository

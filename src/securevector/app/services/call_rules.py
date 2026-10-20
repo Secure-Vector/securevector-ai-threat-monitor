@@ -315,6 +315,11 @@ async def _record(db, session_id: str, harness_hint: Optional[str], rules: list,
         await ResponseRungsRepository(db).record_hold(
             session_id, harness, rr.MODE_ACTIVE if outcome == OUTCOME_HELD else rr.MODE_SHADOW,
             primary, rr._iso(now))
+        # The agent tool's "stop the session and alert" switch, when on:
+        # On mode stops the session, test mode records what it would do.
+        from securevector.app.services import stop_switch
+
+        await stop_switch.on_rule(db, session_id, harness, primary, now=now)
     if outcome in (OUTCOME_OFF, OUTCOME_WOULD):
         await repo.clear(session_id, stamp, cred=RULE_CRED_NET in rules, outside=RULE_OUTSIDE in rules)
 

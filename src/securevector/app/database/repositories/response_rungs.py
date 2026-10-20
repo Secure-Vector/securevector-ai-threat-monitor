@@ -145,9 +145,11 @@ class ResponseRungsRepository:
         )
 
     async def holds_since(self, since_ts: str) -> dict:
-        """Hold events since a timestamp, counted per mode. Read only."""
+        """Hold events since a timestamp, counted per mode. Read only. A
+        session stop (rule `stop`) is not a held call and is left out."""
         rows = await self.db.fetch_all(
-            "SELECT mode, COUNT(*) AS n FROM response_holds WHERE ts >= ? GROUP BY mode", (since_ts,)
+            "SELECT mode, COUNT(*) AS n FROM response_holds WHERE ts >= ? AND rule != 'stop' GROUP BY mode",
+            (since_ts,),
         )
         return {r["mode"]: int(r["n"] or 0) for r in rows}
 

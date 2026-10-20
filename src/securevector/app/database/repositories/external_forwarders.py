@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, Mapping, Optional
 
@@ -55,7 +56,7 @@ def _sanitize_for_log(value: Any, cap: int = 80) -> str:
     return s[:cap]
 
 
-OutboxKind = Literal["scan", "output_scan", "tool_audit", "task_event", "generation"]
+OutboxKind = Literal["scan", "output_scan", "tool_audit", "task_event", "generation", "alert"]
 # `file` = local NDJSON append, indie-friendly destination with zero
 # infra. URL column is reinterpreted as a filesystem path for this kind.
 ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http", "file"]
@@ -247,8 +248,33 @@ _TASK_EVENT_ALLOWED = frozenset({
     "rule_ids",
     "held_count",
     "would_hold_count",
+    # The "stop the session and alert" switch: one closed value, "stopped".
+    "response_action",
 })
 TASK_EVENT_ROW_TYPE = "task_event"
+
+# Stop-switch alerts (v64): one row per session the switch acted on. Exactly
+# these keys, each value checked by _check_alert_values: a session id, an
+# agent tool id, a folder basename, a closed rule id and outcome, the test
+# mode flag, two small counts and an ISO time. Never a path, a host, tool
+# arguments or content. Goes to SIEM destinations, never to the fleet one.
+_ALERT_ALLOWED = frozenset({
+    "emitted_at",
+    "session_id",
+    "agent_tool",
+    "folder_name",
+    "rule",
+    "outcome",
+    "test_mode",
+    "score",
+    "held_count",
+})
+ALERT_RULES = frozenset({"cred_then_net", "outside_then_reach", "high_score"})
+ALERT_OUTCOMES = frozenset({"stopped", "would_stop", "outside"})
+_ALERT_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_ALERT_TOOL_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
+_ALERT_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$")
+_ALERT_FOLDER_MAX = 64
 
 # Model generation rows (v53): one per model turn of a governed run, derived
 # from the harness transcript. Exactly the flat wire keys, nothing else:
@@ -345,6 +371,8 @@ def _redact_for_destination(
         return {k: v for k, v in payload.items() if k in _TASK_EVENT_ALLOWED}
     if kind == "generation":
         return {k: v for k, v in payload.items() if k in _GENERATION_ALLOWED}
+    if kind == "alert":
+        return {k: v for k, v in payload.items() if k in _ALERT_ALLOWED}
     if kind in ("scan", "output_scan"):
         allowed = _SCAN_FIELDS_BY_LEVEL.get(redaction_level, _SCAN_STANDARD)
     else:
@@ -454,6 +482,58 @@ def build_task_event_payload(live_run: Mapping[str, Any]) -> dict[str, Any]:
                 f"external_forwarders: refusing to enqueue task_event with a "
                 f"non-scalar value in field {key!r}."
             )
+    return payload
+
+
+def _check_alert_values(payload: Mapping[str, Any]) -> None:
+    """Every alert value against its own contract. A value outside it (a
+    path-like folder, a host, free text, a nested structure) is a hard
+    reject, never a strip."""
+    def bad(key: str) -> None:
+        raise ValueError(f"external_forwarders: refusing to enqueue alert with a bad value in field {key!r}.")
+
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if key in ("session_id",):
+            if not isinstance(value, str) or not _ALERT_ID_RE.match(value):
+                bad(key)
+        elif key == "agent_tool":
+            if not isinstance(value, str) or not _ALERT_TOOL_RE.match(value):
+                bad(key)
+        elif key == "folder_name":
+            if (not isinstance(value, str) or not value or len(value) > _ALERT_FOLDER_MAX
+                    or any(c in value for c in "/\\:") or value in (".", "..") or value.startswith("~")
+                    or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+                bad(key)
+        elif key == "rule":
+            if value not in ALERT_RULES:
+                bad(key)
+        elif key == "outcome":
+            if value not in ALERT_OUTCOMES:
+                bad(key)
+        elif key == "test_mode":
+            if not isinstance(value, bool):
+                bad(key)
+        elif key in ("score", "held_count"):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 100000:
+                bad(key)
+            if key == "score" and value > 100:
+                bad(key)
+        elif key == "emitted_at":
+            if not isinstance(value, str) or not _ALERT_TIME_RE.match(value):
+                bad(key)
+        else:
+            bad(key)
+
+
+def build_alert_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Check a stop-switch alert against its allow-list and value contract.
+    A key that is not on the list, or a value outside its contract, is a
+    hard reject."""
+    payload = dict(row)
+    _assert_metadata_only(payload, _ALERT_ALLOWED, kind="alert")
+    _check_alert_values(payload)
     return payload
 
 
@@ -1030,6 +1110,9 @@ class ExternalForwardOutboxRepository:
             _assert_metadata_only(payload, _TASK_EVENT_ALLOWED, kind=kind)
         elif kind == "generation":
             _assert_metadata_only(payload, _GENERATION_ALLOWED, kind=kind)
+        elif kind == "alert":
+            _assert_metadata_only(payload, _ALERT_ALLOWED, kind=kind)
+            _check_alert_values(payload)
         else:
             raise ValueError(f"unknown outbox kind: {kind!r}")
 
@@ -1043,8 +1126,13 @@ class ExternalForwardOutboxRepository:
             # rate limit. When allowed, the guard returns any suppressed
             # count accumulated since the last allowed event so we can
             # surface it in the payload.
-            rate_limit = int(fwd.get("rate_limit_per_minute") or 0)
-            allow, suppressed = _BURST_GUARD.check(int(fwd["id"]), rate_limit)
+            # Stop-switch alerts skip the burst guard: at most one per
+            # session, and a dropped one would hide a stopped session.
+            if kind == "alert":
+                allow, suppressed = True, 0
+            else:
+                rate_limit = int(fwd.get("rate_limit_per_minute") or 0)
+                allow, suppressed = _BURST_GUARD.check(int(fwd["id"]), rate_limit)
             if not allow:
                 continue
 
@@ -1253,6 +1341,10 @@ def _passes_filter(fwd: dict[str, Any], kind: str, payload: dict[str, Any]) -> b
       2. Severity threshold — scan events must meet min_severity.
          Added in v26; default 'review' drops WARN-tier noise.
     """
+    if kind == "alert":
+        # Stop-switch alerts go to every SIEM destination whatever its
+        # filters say, and never to the fleet (enrollment) destination.
+        return str(fwd.get("source") or "") != "enrollment"
     if kind in ("task_event", "generation"):
         # Agent Task lifecycle rows and model generation rows belong to the
         # fleet destination only. A SIEM destination never receives them,

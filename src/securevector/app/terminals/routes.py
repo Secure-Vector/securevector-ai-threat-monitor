@@ -851,6 +851,32 @@ async def set_rung_mode(harness: str, body: RungModeChange, request: Request,
         raise HTTPException(status_code=409, detail=str(e))
 
 
+class StopSwitchChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    on: bool
+
+
+@router.post("/rungs/stop/{harness}", dependencies=[Depends(require_write)])
+async def set_stop_switch(harness: str, body: StopSwitchChange, request: Request,
+                          manager: TerminalManager = Depends(get_manager)):
+    """The "High: stop the session and alert" switch for one agent tool.
+    Turning it on raises protection, so it needs the UI token only; turning
+    it off needs the person's approval. A governed agent can do neither."""
+    from securevector.app.services import confirmations, decisions, stop_switch
+    from securevector.app.services.config_trust_scan import HARNESS_LABELS
+
+    # An unknown agent tool is refused before any approval prompt.
+    if harness not in HARNESS_LABELS:
+        raise HTTPException(status_code=404, detail="Unknown harness")
+    if body.on:
+        if not confirmations.is_replay(request):
+            _require_ui_token(request)
+            await decisions.refuse_governed_caller(request, manager)
+    else:
+        await _require_person(request, manager)
+    return await stop_switch.set_switch(manager.store.db, harness, body.on)
+
+
 @router.post("/tasks/{task_id}/events", status_code=204)
 async def hook_event(
     task_id: str, request: Request, manager: TerminalManager = Depends(get_manager)

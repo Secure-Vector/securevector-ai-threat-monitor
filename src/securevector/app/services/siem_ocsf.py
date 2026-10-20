@@ -442,6 +442,58 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
     return event
 
 
+_ALERT_TITLES = {
+    "stopped": "Session stopped",
+    "would_stop": "Session would have been stopped (test mode)",
+    "outside": "Session not stopped: started outside SecureVector",
+}
+_ALERT_RULE_WORDS = {
+    "cred_then_net": "Credential, then network",
+    "outside_then_reach": "Outside content, then credential or network",
+    "high_score": "high score",
+}
+
+
+def encode_alert_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """Encode a stop-switch alert as an OCSF 2001 Security Finding. Only the
+    alert's own allow-listed keys are read; the same metadata goes out at
+    every redaction tier, since there is nothing in it to redact."""
+    outcome = str(payload.get("outcome") or "")
+    rule = str(payload.get("rule") or "")
+    title = _ALERT_TITLES.get(outcome, "Session alert")
+    unmapped: dict[str, Any] = {
+        "alert": "stop_session",
+        "outcome": outcome,
+        "rule": rule,
+        "test_mode": bool(payload.get("test_mode")),
+    }
+    for key in ("session_id", "agent_tool", "folder_name"):
+        if payload.get(key):
+            unmapped[key] = str(payload[key])
+    for key in ("score", "held_count"):
+        if payload.get(key) is not None:
+            unmapped[key] = int(payload[key])
+    meta = _metadata_block()
+    meta["log_name"] = "securevector-local-alert"
+    return {
+        "metadata": meta,
+        "category_uid": 2,
+        "class_uid": 2001,
+        "class_name": "Security Finding",
+        "activity_id": _ACTIVITY_CREATE,
+        "severity_id": 4 if outcome == "stopped" else 3,
+        "severity": "High" if outcome == "stopped" else "Medium",
+        "time": _iso_to_millis(payload.get("emitted_at")),
+        "finding": {
+            "title": title,
+            "desc": f"{title}: {_ALERT_RULE_WORDS.get(rule, 'rule')}",
+            "uid": str(payload.get("session_id") or ""),
+            "types": ["stop_session"],
+        },
+        "unmapped": unmapped,
+    }
+
+
 def encode_batch(batch: list[dict[str, Any]], *, redaction: str = "standard") -> list[dict[str, Any]]:
     """Encode a batch of outbox rows into OCSF events, preserving order."""
     out: list[dict[str, Any]] = []
@@ -452,6 +504,8 @@ def encode_batch(batch: list[dict[str, Any]], *, redaction: str = "standard") ->
             out.append(encode_scan_event(payload, redaction=redaction))
         elif kind == "tool_audit":
             out.append(encode_tool_audit_event(payload, redaction=redaction))
+        elif kind == "alert":
+            out.append(encode_alert_event(payload))
         # `task_event` and `generation` rows are fleet-only metadata; they
         # are never encoded for a SIEM, so they fall through here too.
         # Unknown kinds are silently dropped — the outbox CHECK constraint
