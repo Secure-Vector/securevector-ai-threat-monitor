@@ -531,6 +531,14 @@ async def decide(db, tool_name: str, tool_input: dict, *, harness: Optional[str]
         marker = response_rungs.find_marker(rows, harness_session_id)
         if marker and response_rungs.marker_kind(tool_name, tool_input, marker, explicit):
             tool_decision = NEEDS_APPROVAL
+        # Outside content, then a credential read: the same marker the Guard
+        # reads, for a verified session in On mode.
+        if tool_decision == ALLOW and marker is None:
+            from securevector.app.services import call_rules
+
+            rule_marker = await call_rules.marker_row(db, harness_session_id, runtime=harness, verified=verified)
+            if rule_marker and response_rungs.marker_kind(tool_name, tool_input, rule_marker, explicit):
+                tool_decision = NEEDS_APPROVAL
     if await _enforcement_on(db):
         if _last_resort(candidates):
             tool_decision = DENY
@@ -552,6 +560,14 @@ async def decide(db, tool_name: str, tool_input: dict, *, harness: Optional[str]
     egress_decision = DENY if evaluation.action == BLOCK else ALLOW
     # Response rung 3, active mode: the same step-up check the Guard's
     # egress path runs, without filing a request (a check is a question).
+    # Named call-time rules: the Guard's egress-path check, nothing written.
+    from securevector.app.services import call_rules
+
+    if tool_decision == ALLOW and egress_decision == ALLOW \
+            and (evaluation.network_capable or call_rules.network_capable(tool_name, harness)):
+        if await call_rules.check_network(db, tool_name, harness, harness_session_id, tool_input or {},
+                                          verified=verified, file=False):
+            egress_decision = NEEDS_APPROVAL
     if tool_decision == ALLOW and egress_decision == ALLOW and evaluation.network_capable:
         from securevector.app.services import response_rungs
 

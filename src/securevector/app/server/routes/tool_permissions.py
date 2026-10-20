@@ -728,7 +728,8 @@ async def get_overrides():
 
 @router.get("/tool-permissions/synced-overrides")
 async def get_synced_overrides(runtime: Optional[str] = None,
-                               session_id: Optional[str] = None):
+                               session_id: Optional[str] = None,
+                               http_request: Request = None):
     """Effective tool-permission decisions, in proxy-friendly shape.
 
     ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
@@ -974,6 +975,16 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                 merged[0:0] = await response_rungs.step_up_rows(db, _sid, merged)
             except Exception as e:
                 logger.warning("Response rung rows skipped in /synced-overrides: %s", e)
+            # Outside content, then a credential read: a marker for a verified
+            # session in On mode, unless the step-up marker already covers it.
+            try:
+                from securevector.app.services import call_rules, response_rungs
+                if response_rungs.find_marker(merged, _sid) is None:
+                    rule_marker = await call_rules.marker_row(db, _sid, http_request, _rt)
+                    if rule_marker:
+                        merged.append(rule_marker)
+            except Exception as e:
+                logger.warning("Call rule marker skipped in /synced-overrides: %s", e)
         return {"synced": merged, "total": len(merged)}
 
     except Exception as e:
@@ -1319,6 +1330,11 @@ async def record_call_audit(request: AuditLogRequest):
             await response_rungs.note_call(
                 db, request.function_name or request.tool_id, request.session_id, request.action,
                 request.args_preview,
+            )
+            from securevector.app.services import call_rules
+            await call_rules.note_call(
+                db, request.function_name or request.tool_id, request.session_id, request.action,
+                request.args_preview, request.runtime_kind,
             )
         return {"ok": True}
 

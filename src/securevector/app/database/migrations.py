@@ -209,6 +209,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         60: migrate_to_v60,
         61: migrate_to_v61,
         62: migrate_to_v62,
+        63: migrate_to_v63,
     }
 
     if version in migrations:
@@ -2154,7 +2155,9 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_delegation_tables(db)
     await ensure_worktree_columns(db)
     await ensure_response_holds_table(db)
+    await ensure_session_rule_state_table(db)
     await cleanup_old_policy_decisions(db)
+    await cleanup_old_response_holds(db)
 
     # Load community rules after schema is ready
     await load_community_rules(db)
@@ -3528,3 +3531,54 @@ async def migrate_to_v62(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v62: automatic hold events")
+
+
+RESPONSE_HOLD_RETENTION_DAYS = 30
+
+
+async def cleanup_old_response_holds(db: DatabaseConnection) -> None:
+    """Drop hold events and per-session rule state older than the 30-day
+    retention. Best effort, startup only."""
+    try:
+        conn = await db.connect()
+        window = f"-{RESPONSE_HOLD_RETENTION_DAYS} days"
+        await conn.execute(
+            "DELETE FROM response_holds WHERE ts < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)", (window,)
+        )
+        await conn.execute(
+            "DELETE FROM session_rule_state WHERE updated_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)",
+            (window,),
+        )
+        await conn.commit()
+    except Exception as e:  # noqa: BLE001 - retention never blocks startup
+        logger.warning("Hold event cleanup skipped: %s", e)
+
+
+async def ensure_session_rule_state_table(db: DatabaseConnection) -> None:
+    """Create ``session_rule_state``: one row per session with the times
+    the named call-time rules were armed and cleared, and the rule ids that
+    fired. Timestamps and rule ids only. Idempotent."""
+    conn = await db.connect()
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS session_rule_state ("
+        "session_id TEXT PRIMARY KEY, cred_read_at TEXT, outside_read_at TEXT, "
+        "cleared_cred_at TEXT, cleared_outside_at TEXT, last_held_at TEXT, "
+        "fired_rules TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')"
+    )
+    cursor = await conn.execute("PRAGMA table_info(session_rule_state)")
+    cols = [r[1] for r in await cursor.fetchall()]
+    if "last_held_at" not in cols:
+        await conn.execute("ALTER TABLE session_rule_state ADD COLUMN last_held_at TEXT")
+    await conn.commit()
+
+
+async def migrate_to_v63(db: DatabaseConnection) -> None:
+    """v62 -> v63: per-session state for the named call-time rules. Idempotent."""
+    await ensure_session_rule_state_table(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (63, CURRENT_TIMESTAMP, 'Named call-time rule state')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v63: named call-time rule state")

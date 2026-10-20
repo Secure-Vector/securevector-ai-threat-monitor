@@ -794,7 +794,7 @@ def marker_kind(tool_name: Any, tool_input: Any, marker: Optional[Mapping[str, A
 
 
 async def file_request(db, tool_id: str, function_name: Optional[str], runtime_kind: Optional[str],
-                       session_id: str) -> Optional[dict]:
+                       session_id: str, justification: str = "Session at step-up") -> Optional[dict]:
     """File one rung approval request, deduped per tool, runtime and session.
     Past 20 in an hour for one session, new asks collapse into the pending
     request (None when there is none)."""
@@ -817,7 +817,7 @@ async def file_request(db, tool_id: str, function_name: Optional[str], runtime_k
         return await repo.latest_pending(session_id)
     return await jit.create_request(tool_id=tool_id, rule_source=RUNG_SOURCE, function_name=function_name,
                                     runtime_kind=runtime_kind, session_id=session_id,
-                                    justification="Session at step-up")
+                                    justification=justification)
 
 
 async def expire_holds(db, now: Optional[datetime] = None, limit_s: int = HOLD_LIMIT_S,

@@ -271,11 +271,11 @@ async def _hook(world, task_id, name, session_id=None):
 
 @pytest.mark.asyncio
 async def test_v60_schema_and_idempotent(world):
-    assert CURRENT_SCHEMA_VERSION == 62
+    assert CURRENT_SCHEMA_VERSION == 63
     await ensure_delegation_tables(world.db)
     await migrate_to_v60(world.db)
     row = await world.db.fetch_one("SELECT MAX(version) AS v FROM schema_version")
-    assert row["v"] == 62
+    assert row["v"] == 63
     cols = {r["name"] for r in await world.db.fetch_all("PRAGMA table_info(terminal_tasks)")}
     assert "parent_task_id" in cols
     sql = (await world.db.fetch_one(
