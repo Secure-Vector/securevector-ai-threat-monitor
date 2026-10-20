@@ -10395,14 +10395,46 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .terminals-task-drift.is-calm { color: var(--text-muted); }
 .terminals-task-setup.is-amber { color: var(--warning); }
 
-/* Review page: aligned row grid, captioned actions. */
-.dr-row { display: grid; grid-template-columns: minmax(0, 1fr) 190px 220px; align-items: center; gap: 12px; }
-.dr-row-actions { display: contents; }
-.dr-act { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
-.dr-act:empty { visibility: hidden; }
+/* Review page, Sessions to review: one aligned table. Score with its band,
+   the session, when, and the actions on the right. The Looks normal caption
+   is the button's tooltip and stays for screen readers. */
+.dr-list-head, .dr-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) 110px 260px; align-items: center; column-gap: 16px; }
+.dr-list-head { padding: 0 8px 8px; border-bottom: 1px solid var(--border-default); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.dr-list { list-style: none; margin: 0; padding: 0; }
+.dr-row { margin: 0; padding: 12px 8px; border-top: 1px solid var(--border-default); }
+.dr-row:first-child { border-top: none; }
+.dr-row:hover { background: var(--bg-hover); }
+.dr-row.is-focused { margin: 0; padding: 12px 8px; }
+.dr-row-scorecell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.dr-row-scorecell .dr-row-score { font-family: var(--font-display, inherit); font-size: 24px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.dr-row-scorecell .dr-row-score.is-high { color: var(--danger, #ef4444); }
+.dr-row-scorecell .dr-row-score.is-watch { color: var(--warning); }
+.dr-row-scorecell .dr-row-score.is-none { color: var(--text-muted); }
+.dr-row-scorecell .dr-band { font-size: 11px; }
+.dr-row-scorecell .dr-row-partial { font-size: 11px; color: var(--text-muted); }
+.dr-row-main { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.dr-row-open { padding: 0; gap: 4px; max-width: 100%; }
+.dr-row-open:hover { background: none; }
+.dr-row-open:hover .dr-row-head strong { text-decoration: underline; }
+.dr-row-head { font-size: 13.5px; }
+.dr-row-reason { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-row .dr-row-when { margin: 0; justify-self: start; text-align: left; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.dr-row-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 8px; max-width: none; }
+.dr-row .dr-act { display: block; }
+.dr-row .dr-act-cap { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 900px) {
+  .dr-list-head { display: none; }
+  .dr-row { grid-template-columns: 64px minmax(0, 1fr); row-gap: 8px; }
+  .dr-row .dr-row-when { grid-column: 2; }
+  .dr-row-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+}
+[data-dr-tiles] { margin: 4px 0 16px; }
+.dr-act { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; }
+.dr-act:empty { display: none; }
+
 .dr-act-cap { font-size: 11px; color: var(--text-muted); }
 .dr-row-when { margin-left: auto; min-width: 84px; text-align: right; flex: none; }
-@media (max-width: 760px) { .dr-row { grid-template-columns: 1fr; } .dr-act:empty { display: none; } }
+@media (max-width: 760px) { .dr-row { grid-template-columns: 1fr; } .dr-row .dr-row-when { grid-column: auto; text-align: left; } .dr-act:empty { display: none; } }
 .terminals-page .terminals-task-facts.is-wrap { white-space: normal; overflow: visible; text-overflow: clip; }
 .dr-config-caption { margin: 0 2px; }
 
@@ -10458,7 +10490,7 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .dr-more { appearance: none; -webkit-appearance: none; padding: 0 2px; border: 0; border-radius: 3px; background: transparent; color: var(--accent-primary, #2dd4bf); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .dr-more:hover { color: var(--text-primary); }
 .dr-more:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-.dr-more-list { margin: 4px 0 0; padding-left: 16px; }
+.dr-more-list { margin: 4px 0 0; padding-left: 16px; white-space: normal; }
 .dr-more-list[hidden] { display: none; }
 .dr-tile-sub { overflow-wrap: anywhere; }
 /* Agents and Agent Detection & Response: the header subtitle wraps instead

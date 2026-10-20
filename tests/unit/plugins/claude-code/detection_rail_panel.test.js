@@ -138,7 +138,7 @@ test('a row navigates to the page with its section pending, or scrolls in place'
 
 test('the page carries a stable id for every panel row', () => {
   const dr = read('js/pages/detection-response.js');
-  assert.match(dr, /<div data-dr-start id="dr-sec-start"><\/div>\s*<div data-dr-top><\/div>\s*<div id="dr-sec-sessions">/);
+  assert.match(dr, /<div data-dr-start id="dr-sec-start"><\/div>\s*<div data-dr-spot id="dr-sec-why"><\/div>\s*<div data-dr-tiles>\$\{this\._skeletonHtml\(\)\}<\/div>\s*<div id="dr-sec-sessions">/);
   assert.match(dr, /<details class="dr-loop dr-details" id="dr-sec-details">/);
   assert.match(dr, /<div data-dr-spot id="dr-sec-why"><\/div>/);
   assert.match(dr, /<div data-dr-cloud id="dr-sec-fleet"><\/div>/);
