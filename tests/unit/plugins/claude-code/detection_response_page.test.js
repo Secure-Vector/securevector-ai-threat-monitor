@@ -308,7 +308,7 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=23/);
+  assert.match(read('index.html'), /detection-response\.js\?v=24/);
   assert.match(read('index.html'), /styles\.css\?v=499/);
 });
 
@@ -621,4 +621,27 @@ test('Sessions to review: a column header above the rows, and the rows share its
   assert.match(html, /<div class="dr-list-head" aria-hidden="true"><span>Score<\/span><span>Session<\/span><span>When<\/span><span><\/span><\/div><ul class="dr-list">/);
   const css = read('css/styles.css');
   assert.match(css, /\.dr-list-head, \.dr-row \{ display: grid; grid-template-columns: 84px minmax\(0, 1fr\) 110px 260px;/);
+});
+
+test('automatic actions tile captions: test mode says would have held, On mode says held', () => {
+  const ctx = { window: { location: { search: '' } }, URLSearchParams, console };
+  vm.runInNewContext(read('js/pages/detection-response.js'), ctx);
+  const P = ctx.window.DetectionResponsePage;
+  const test = P._respondTile({ modes: [{ mode: 'shadow' }], would_have: 3, taken: 0 });
+  assert.match(test, /would have held 3 \(test mode\)/);
+  assert.doesNotMatch(test, /\d+ held/);
+  assert.match(P._respondTile({ modes: [{ mode: 'shadow' }], would_have: 0, taken: 0 }), /nothing enforced \(test mode\)/);
+  const on = P._respondTile({ modes: [{ mode: 'shadow' }, { mode: 'active' }], would_have: 0, taken: 2 });
+  assert.match(on, /2 held/);
+  assert.doesNotMatch(on, /would have held/);
+  assert.match(P._respondTile({ modes: [{ mode: 'active' }], would_have: 0, taken: 0 }), /dr-rung is-active/);
+});
+
+test('automatic actions tile in mixed modes shows both counts', () => {
+  const ctx = { window: { location: { search: '' } }, URLSearchParams, console };
+  vm.runInNewContext(read('js/pages/detection-response.js'), ctx);
+  const P = ctx.window.DetectionResponsePage;
+  const html = P._respondTile({ modes: [{ mode: 'shadow' }, { mode: 'active' }], would_have: 3, taken: 2 });
+  assert.match(html, /2 held/);
+  assert.match(html, /would have held 3 \(test mode\)/);
 });

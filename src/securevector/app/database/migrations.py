@@ -208,6 +208,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         59: migrate_to_v59,
         60: migrate_to_v60,
         61: migrate_to_v61,
+        62: migrate_to_v62,
     }
 
     if version in migrations:
@@ -2152,6 +2153,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_response_rung_tables(db)
     await ensure_delegation_tables(db)
     await ensure_worktree_columns(db)
+    await ensure_response_holds_table(db)
     await cleanup_old_policy_decisions(db)
 
     # Load community rules after schema is ready
@@ -3501,3 +3503,28 @@ async def migrate_to_v61(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v61: worktree isolation")
+
+
+async def ensure_response_holds_table(db: DatabaseConnection) -> None:
+    """Create ``response_holds``: one row per automatic hold event, with the
+    mode at event time and the rule that fired. Idempotent."""
+    conn = await db.connect()
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS response_holds ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, session_id TEXT NOT NULL DEFAULT '', "
+        "harness TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'shadow', rule TEXT NOT NULL DEFAULT '')"
+    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_response_holds_mode_ts ON response_holds (mode, ts)")
+    await conn.commit()
+
+
+async def migrate_to_v62(db: DatabaseConnection) -> None:
+    """v61 -> v62: hold events for the Automatic actions count. Idempotent."""
+    await ensure_response_holds_table(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (62, CURRENT_TIMESTAMP, 'Automatic hold events')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v62: automatic hold events")

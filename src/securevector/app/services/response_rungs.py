@@ -299,6 +299,19 @@ async def shadow_would_have(db, harness: str, now: Optional[datetime] = None, re
             "would_need_approval": asks}
 
 
+async def window_counts(db, days: int = 7, now: Optional[datetime] = None) -> dict:
+    """Counts for the Automatic actions tile over the last `days` days:
+    `would_have` (hold events recorded in test mode) and `taken` (hold
+    events recorded in On mode), from response_holds. Read only."""
+    from securevector.app.database.repositories.response_rungs import ResponseRungsRepository
+
+    now = now or datetime.now(timezone.utc)
+    since = _iso(now - timedelta(days=days))
+    repo = ResponseRungsRepository(db)
+    by_mode = await repo.holds_since(since)
+    return {"would_have": by_mode.get(MODE_SHADOW, 0), "taken": by_mode.get(MODE_ACTIVE, 0), "window_days": days}
+
+
 # --- gathering and recording ----------------------------------------------------------
 
 
@@ -382,6 +395,8 @@ async def _evaluate(db, session_id: str, task: Optional[Mapping[str, Any]] = Non
     new = step(prev, sig, now)
     ended = bool(task.get("ended_at")) if ended is None else ended
     await repo.upsert(session_id, task.get("id"), harness, mode, new, _iso(now), ended)
+    if new.last_r3_at and not prev.last_r3_at:
+        await repo.record_hold(session_id, harness, mode, "step_up", _iso(now))
     if new.rung != prev.rung or (prev_row is None and new.rung != OBSERVE):
         kinds = ",".join(new.reasons) or "none"
         await _audit(db, function_for(prev.rung, new.rung, mode), harness, session_id,

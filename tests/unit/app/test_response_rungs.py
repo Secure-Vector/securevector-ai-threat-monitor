@@ -249,12 +249,12 @@ def world(tmp_path):
 def test_v59_tables_and_idempotent(world):
     from securevector.app.database.models import CURRENT_SCHEMA_VERSION
 
-    assert CURRENT_SCHEMA_VERSION == 61
+    assert CURRENT_SCHEMA_VERSION == 62
     names = {r[0] for r in world.raw.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"session_rungs", "rung_modes"} <= names
     asyncio.run(migrate_to_v59(world.db))
     asyncio.run(migrate_to_v59(world.db))
-    assert world.one("SELECT MAX(version) FROM schema_version")[0] == 61
+    assert world.one("SELECT MAX(version) FROM schema_version")[0] == 62
 
 
 def test_default_mode_is_shadow_and_active_is_refused_early(world):
@@ -1176,3 +1176,13 @@ def test_config_signature_carries_the_scoring_version(monkeypatch):
     before = rr.config_signature()
     monkeypatch.setattr(drift, "SCORING_VERSION", drift.SCORING_VERSION + 1)
     assert rr.config_signature() != before
+
+
+def test_reaching_rung_three_writes_one_hold_row_even_when_evaluated_again(world):
+    world.baseline()
+    world.drifting("s-drift")
+    for _ in range(5):
+        _, row = world.compute("s-drift")
+    assert row["rung"] == 3
+    rows = world.raw.execute("SELECT mode, rule, session_id FROM response_holds").fetchall()
+    assert [tuple(r) for r in rows] == [("shadow", "step_up", "s-drift")]
