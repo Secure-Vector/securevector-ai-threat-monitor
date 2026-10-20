@@ -14,8 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Egress section names the rule that fired for each blocked host, with the rule id and reason behind a Details toggle.
 - Denied destinations can be added and removed on the Agent Egress page.
 
-**Session Drift Score**
-- Each governed session gets a Drift Score from 0 to 100 against what the same harness normally does in the same folder, with the top reasons in plain words on the session and in its summary. Observe only: it never changes a verdict.
+**Session score**
+- Each governed session gets a session score from 0 to 100 against what the same harness normally does in the same folder, with the top reasons in plain words on the session and in its summary. Observe only: it never changes a verdict.
 - "Looks normal" feedback on ended sessions.
 
 **Agent Config Trust**
@@ -33,8 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Guard**
 - The Guard plugins (Claude Code 5.4.0, Codex 5.4.0, Cursor 5.4.0, GitHub Copilot CLI 5.4.0, Antigravity 1.1.0, OpenCode 1.2.0, OpenClaw 1.2.0) send the task's hook token with each egress check, which binds the call to the session it names. A plugin from 6.0.0 still works: its calls keep their session counts and Egress list, but a host it had blocked cannot be approved for that session until the plugin is reinstalled from Integrations.
 
+**Agent Detection & Response**
+- The page leads with the score card, then the four counts, then Sessions to review in aligned columns; everything else sits in Details.
+- The Automatic actions count shows calls held, and calls that would have been held in test mode, over the last 7 days.
+- Two named rules act at call time: a credential file read followed by a network call, and outside content (web pages, MCP tool results, files outside the task folder) followed by a credential read or a network call. In test mode they record what would have been held; when automatic actions are On they hold the call until you approve it.
+- A per agent tool switch, "High: stop the session and alert", off by default. Turning it off needs your approval. Alerts carry the session id, agent tool, folder name, rule name and counts only.
+- SIEM forwarders receive a new `alert` event for those stops.
+- Fleet (Professional and Enterprise): the cloud panel shows held counts, rule matches and stopped sessions across devices.
+
 ### Changed
-- Database schema 58.
+- Database schema 64.
 - Reliability and security improvements.
 
 ## [6.0.1] - 2026-10-08

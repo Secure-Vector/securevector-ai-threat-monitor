@@ -459,6 +459,17 @@ def test_hold_events_and_rule_state_older_than_30_days_are_dropped(w):
     assert w.all("SELECT session_id FROM session_rule_state") == [("s-new",)]
 
 
+def test_session_stops_older_than_30_days_are_dropped(w):
+    def stamp(days):
+        return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    for sid, days in (("s-31", 31), ("s-29", 29)):
+        w.raw.execute("INSERT INTO session_stops (session_id, ts) VALUES (?, ?)", (sid, stamp(days)))
+    w.raw.commit()
+    asyncio.run(cleanup_old_response_holds(w.db))
+    assert w.all("SELECT session_id FROM session_stops") == [("s-29",)]
+
+
 def test_v63_table_and_version(w):
     from securevector.app.database.migrations import migrate_to_v63
     from securevector.app.database.models import CURRENT_SCHEMA_VERSION

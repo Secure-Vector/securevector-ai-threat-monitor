@@ -3540,7 +3540,7 @@ RESPONSE_HOLD_RETENTION_DAYS = 30
 
 
 async def cleanup_old_response_holds(db: DatabaseConnection) -> None:
-    """Drop hold events and per-session rule state older than the 30-day
+    """Drop hold events, per-session rule state and session stops older than the 30-day
     retention. Best effort, startup only."""
     try:
         conn = await db.connect()
@@ -3551,6 +3551,9 @@ async def cleanup_old_response_holds(db: DatabaseConnection) -> None:
         await conn.execute(
             "DELETE FROM session_rule_state WHERE updated_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)",
             (window,),
+        )
+        await conn.execute(
+            "DELETE FROM session_stops WHERE ts < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)", (window,)
         )
         await conn.commit()
     except Exception as e:  # noqa: BLE001 - retention never blocks startup
