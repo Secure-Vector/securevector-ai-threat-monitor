@@ -185,7 +185,10 @@ const DetectionResponsePage = {
 
     /** Scores of this folder, oldest to newest, this session last. */
     _sparkHtml(sp, endLabel) {
-        const pts = (sp.recent_scores || []).filter(r => Number.isFinite(r.score));
+        let pts = (sp.recent_scores || []).filter(r => Number.isFinite(r.score));
+        // The scored session is always the last point drawn.
+        const cur = pts.findIndex(r => r.current);
+        if (cur >= 0 && cur < pts.length - 1) pts = pts.slice(0, cur + 1);
         if (pts.length < 2) return '';
         const W = 500, H = 80, padL = 30, padR = 8, padT = 9, padB = 10;
         const x = (i) => padL + (i * (W - padL - padR)) / (pts.length - 1);

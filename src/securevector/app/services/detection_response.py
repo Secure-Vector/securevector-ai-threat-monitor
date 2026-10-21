@@ -171,10 +171,14 @@ async def _spotlight(db, candidates: list, scored_all: Optional[list] = None) ->
     workspace = d.get("workspace") or t.get("workspace")
     if workspace:
         try:
+            # Only scores up to the scored session, so it is the last point.
+            upto = d.get("computed_at")
             rows = await db.fetch_all(
                 "SELECT session_id, score, computed_at FROM session_drift "
-                "WHERE workspace = ? AND score IS NOT NULL ORDER BY computed_at DESC LIMIT ?",
-                (workspace, SPOTLIGHT_SCORES))
+                "WHERE workspace = ? AND score IS NOT NULL"
+                + (" AND computed_at <= ?" if upto else "")
+                + " ORDER BY computed_at DESC LIMIT ?",
+                (workspace, upto, SPOTLIGHT_SCORES) if upto else (workspace, SPOTLIGHT_SCORES))
             recent = [{"score": int(r["score"]), "at": r["computed_at"],
                        "current": r["session_id"] == d.get("session_id")} for r in reversed(rows)]
         except Exception:  # noqa: BLE001 - no sparkline without history
