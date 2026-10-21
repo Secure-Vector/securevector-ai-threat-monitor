@@ -249,6 +249,43 @@ def test_spotlight_falls_back_to_the_top_calm_score_and_is_none_without_scores(d
     assert sp["to_review"] is False
 
 
+def _scored_at(raw, sid, score, minutes_ago):
+    _task(raw, f"t-{sid}", sid, "/w", ended_days=0)
+    _drift(raw, sid, f"t-{sid}", score, "high" if score >= 70 else "calm")
+    raw.execute("UPDATE session_drift SET computed_at = ? WHERE session_id = ?",
+                ((NOW - timedelta(minutes=minutes_ago)).isoformat(), sid))
+
+
+def test_spotlight_history_ends_at_the_scored_session_not_newer_ones(dr_env):
+    client, ws, db = dr_env
+    raw = sqlite3.connect(db.db_path)
+    _scored_at(raw, "s-scored", 71, 60)
+    _scored_at(raw, "s-new1", 17, 30)
+    _scored_at(raw, "s-new2", 12, 10)
+    raw.commit()
+    sp = client.get(URL, headers=AUTH).json()["spotlight"]
+    assert sp["score"] == 71
+    recent = sp["recent_scores"]
+    assert recent[-1]["score"] == 71 and recent[-1]["current"] is True
+    assert [r["score"] for r in recent] == [71]
+
+
+def test_spotlight_history_is_capped_and_ends_at_the_scored_session(dr_env):
+    client, ws, db = dr_env
+    raw = sqlite3.connect(db.db_path)
+    for i in range(25):
+        _scored_at(raw, f"s-old{i}", 20 + i % 5, 600 - i)
+    _scored_at(raw, "s-scored", 71, 60)
+    _scored_at(raw, "s-new1", 17, 30)
+    _scored_at(raw, "s-new2", 12, 10)
+    raw.commit()
+    recent = client.get(URL, headers=AUTH).json()["spotlight"]["recent_scores"]
+    assert len(recent) == 20
+    assert recent[-1]["score"] == 71 and recent[-1]["current"] is True
+    assert all(not r["current"] for r in recent[:-1])
+    assert 17 not in [r["score"] for r in recent] and 12 not in [r["score"] for r in recent]
+
+
 def test_spotlight_tie_goes_to_the_newest(dr_env):
     client, ws, db = dr_env
     raw = sqlite3.connect(db.db_path)

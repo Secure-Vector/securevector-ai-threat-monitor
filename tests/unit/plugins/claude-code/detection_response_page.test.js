@@ -308,7 +308,7 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=26/);
+  assert.match(read('index.html'), /detection-response\.js\?v=27/);
   assert.match(read('index.html'), /styles\.css\?v=499/);
 });
 
@@ -383,6 +383,11 @@ test('spotlight: sparkline has N points and highlights the last; watch and low c
   assert.match(two, /Session 1: score 20/);
   assert.match(two, /Current session: score 60/);
   assert.doesNotMatch(two, /Session 2 at/);
+  const mid = P._sparkHtml({ band: 'high', recent_scores: [{ score: 20 }, { score: 71, current: true }, { score: 17 }] });
+  assert.match(mid, /<div class="dr-spark-last">71<\/div>/);
+  assert.doesNotMatch(mid, /score 17/);
+  assert.match(mid, /<polyline class="dr-spark-rise" fill="none" points="[^"]+"/);
+  assert.equal(mid.match(/<li>/g).length, 2);
   assert.equal(P._sparkHtml({ recent_scores: [{ score: 5 }] }), '');
   assert.match(P.BAND_RANGE.watch, /Worth a look \u00b7 40 to 69/);
   assert.match(P.BAND_RANGE.calm, /Low \u00b7 below 40/);
