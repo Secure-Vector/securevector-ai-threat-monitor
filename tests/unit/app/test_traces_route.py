@@ -314,3 +314,25 @@ async def test_terminal_task_decoration_covers_relinked_history(tmp_path):
     await _add_terminal_tasks(db, runs)
     assert runs[0]["terminal_task"]["id"] == "t1"
     assert runs[1]["terminal_task"]["id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_trace_detail_carries_row_hash_for_each_tool_span(tmp_path, monkeypatch):
+    """The cloud panel names a tool span by its audit row hash, so the local
+    trace detail returns it too; the producer span_id is left as is."""
+    from securevector.app.server.routes import traces as traces_mod
+    from securevector.app.utils.trace_id import derive_trace_id
+    db = await _build_db(tmp_path)
+    monkeypatch.setattr(traces_mod, "get_database", lambda: db)
+    repo = CustomToolsRepository(db)
+    await _seed_run(repo, "claude-code", "s-hash", [("Read", "allow", None), ("Bash", "allow", None)])
+    conn = await db.connect()
+    cur = await conn.execute("SELECT row_hash FROM tool_call_audit WHERE session_id = 's-hash' ORDER BY seq")
+    hashes = [r[0] for r in await cur.fetchall()]
+    assert len(hashes) == 2 and all(h and len(h) == 64 for h in hashes)
+
+    out = await traces_mod.get_trace(derive_trace_id("claude-code", "s-hash"))
+    tools = [s for s in out["spans"] if s["span_kind"] == "tool_call"]
+    assert [s["row_hash"] for s in tools] == hashes
+    assert all("span_id" in s for s in tools)
+    await db.disconnect()

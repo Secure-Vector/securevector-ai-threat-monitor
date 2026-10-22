@@ -50,6 +50,8 @@ const AgentRunsPage = {
     _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
     _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
     _pendingGenRid: null,  // one-shot: after opening, jump to the generation with this request_id (Optimizer finding click-through)
+    _timelineMem: null,    // { traceId, open }: the timeline state last set on this page, kept across rebuilds
+    _detailPointerAt: 0,   // time of the last pointerdown inside #ar-detail
     _timelineForce: null,  // trace id whose full timeline opens regardless of the saved choice (deep link, View in timeline)
     _stepsDetail: null,    // { traceId, key } the open chip in the step list (key '' = shut by hand)
     _health: null,         // trace id -> { key, data } run health findings (GET /api/traces/{id}/health), fetched once per opened run
@@ -203,6 +205,12 @@ const AgentRunsPage = {
      *  or focus (search box, a button) would be lost. */
     _detailBusy() {
         if (this._replay.on || this.runSearch) return true;
+        // An open full timeline would be rebuilt (and lose its scroll), and a
+        // click that just landed in the detail may be aimed at a node that a
+        // rebuild would replace: offer the pull-pill instead.
+        const tl = document.getElementById('ar-timeline');
+        if (tl && !tl.hidden) return true;
+        if (this._detailPointerAt && (Date.now() - this._detailPointerAt) < 1500) return true;
         const det = document.getElementById('ar-detail');
         return !!(det && (det.querySelector('.ar-span.open')
             || (det.contains(document.activeElement) && document.activeElement !== document.body)));
@@ -227,7 +235,17 @@ const AgentRunsPage = {
         this._live.pendingDetail = false;
         const se = document.scrollingElement || document.documentElement;
         const keepPage = se.scrollTop;
+        // Inner scroll owners (the detail, the step list, the full timeline)
+        // keep their position across the rebuild too.
+        const inner = ['ar-detail', 'ar-steps', 'ar-timeline'].map(id => {
+            const el = document.getElementById(id);
+            return [id, el ? el.scrollTop || 0 : 0];
+        });
         this.renderWaterfall(trace);
+        inner.forEach(([id, top]) => {
+            const el = document.getElementById(id);
+            if (el && top) el.scrollTop = top;
+        });
         se.scrollTop = keepPage;
     },
 
@@ -721,6 +739,8 @@ const AgentRunsPage = {
             .ar-sid code { font:600 11px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-primary,#e6edf3); user-select:all; }
             .ar-copy { border:1px solid var(--border-default,#30363d); background:var(--bg-card,#161b22); color:var(--text-secondary,#b1bac4);
                 border-radius:6px; padding:2px 7px; font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
+            .ar-span-hash { display:flex; align-items:center; gap:6px; margin:8px 0 0; font-size:11px; }
+            .ar-span-hash code { font:600 11px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-secondary,#b1bac4); }
             .ar-copy:hover { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#e6edf3); }
             /* Waterfall spine — gradient rail, glowing verdict dots. */
             .ar-span { position:relative; padding:0 0 20px 30px; }
@@ -1909,6 +1929,11 @@ const AgentRunsPage = {
     renderWaterfall(trace) {
         const detail = document.getElementById('ar-detail');
         if (!detail) return;
+        // #ar-detail itself outlives each rebuild, so one listener is enough.
+        if (!detail._arPointerWired && detail.addEventListener) {
+            detail._arPointerWired = true;
+            detail.addEventListener('pointerdown', () => { this._detailPointerAt = Date.now(); }, true);
+        }
         detail.textContent = '';
         const color = RUNTIME_COLOR[trace.runtime_kind] || '#64748b';
         const listed = (this.runs || []).find(r => r.trace_id === trace.trace_id);
@@ -2004,6 +2029,9 @@ const AgentRunsPage = {
      *  opened it last time, or a deep link asked for this trace. */
     _timelineIsOpen(traceId) {
         if (this._timelineForce && this._timelineForce === traceId) return true;
+        // Within this page, the state last set for this trace wins, so a
+        // rebuild keeps it even when the saved choice could not be stored.
+        if (this._timelineMem && this._timelineMem.traceId === traceId) return this._timelineMem.open;
         try { return localStorage.getItem('sv-ar-timeline') === 'open'; } catch (e) { return false; }
     },
 
@@ -2016,7 +2044,10 @@ const AgentRunsPage = {
             try { localStorage.setItem('sv-ar-timeline', open ? 'open' : 'closed'); } catch (e) { /* private mode */ }
         } else if (open) {
             this._timelineForce = traceId || null;
+        } else if (this._timelineForce && this._timelineForce === traceId) {
+            this._timelineForce = null;
         }
+        this._timelineMem = traceId ? { traceId, open: !!open } : null;
         this._timelineSync(open);
         if (!open && this._stepsFocus && this._stepsFocus.traceId === traceId) {
             this._stepsFocus = null;
@@ -2289,7 +2320,7 @@ const AgentRunsPage = {
             const search = document.createElement('input');
             search.type = 'search';
             search.className = 'ar-run-search';
-            search.placeholder = 'Filter runs: tool, model, reason…';
+            search.placeholder = 'Filter runs: tool, model, reason, span…';
             search.value = this.runSearch;
             search.addEventListener('input', () => {
                 const was = this.runSearch;
@@ -2593,7 +2624,7 @@ const AgentRunsPage = {
         }
         // Include outcome ("blocked"/"allow"/"log_only") so the natural word for
         // a verdict is searchable, not just the raw action ("block").
-        return [s.function_name, s.tool_id, s.reason, s.action, s.outcome, s.risk].join(' ').toLowerCase();
+        return [s.function_name, s.tool_id, s.reason, s.action, s.outcome, s.risk, s.row_hash].join(' ').toLowerCase();
     },
 
     /** Filter the rendered runs to those matching runSearch — pure show/hide,
@@ -2619,7 +2650,8 @@ const AgentRunsPage = {
     _deriveSearch(el) {
         const t = (el.querySelector('.ar-span-tool') || {}).textContent || '';
         const r = (el.querySelector('.ar-reason-inline') || {}).textContent || '';
-        const s = (t + ' ' + r).toLowerCase();
+        const h = (el.dataset && el.dataset.rowHash) || '';
+        const s = (t + ' ' + r + ' ' + h).toLowerCase();
         el.dataset.search = s;
         return s;
     },
@@ -2632,6 +2664,7 @@ const AgentRunsPage = {
         const span = document.createElement('div');
         span.className = 'ar-span';
         if (s._seq != null) span.dataset.seq = s._seq; // minimap jump target
+        if (s.row_hash) span.dataset.rowHash = String(s.row_hash);
         const dot = `<span class="ar-span-dot" style="background:${o.color}"></span>`;
         const caret = `<svg class="ar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
         const badge = `<span class="ar-badge" style="background:${o.color}22;color:${o.color}">` +
@@ -2653,6 +2686,8 @@ const AgentRunsPage = {
             span.classList.toggle('open');
             if (span.classList.contains('open')) this._loadScan(span);
         });
+        const hashCopy = span.querySelector('.ar-span-hash .ar-copy');
+        if (hashCopy) this._wireCopy(hashCopy);
         const detEl = span.querySelector('.ar-span-detection');
         if (detEl && detEl.dataset.rid) {
             detEl.classList.add('ar-det-clickable');
@@ -3095,7 +3130,27 @@ const AgentRunsPage = {
             det +
             kv('Time', this._fmtTime(s.called_at)) +
             kv('Reason', s.reason) +
-            `</dl>${args}${scan}</div>`;
+            `</dl>${this._spanHashLine(s)}${args}${scan}</div>`;
+    },
+
+    /** One quiet line with the span id the cloud shows for this call (the
+     *  audit row hash), shortened, with a copy button for the full value. */
+    _spanHashLine(s) {
+        if (!s || !s.row_hash) return '';
+        const full = String(s.row_hash);
+        return `<div class="ar-span-hash ar-det-dim">span <code title="${this._esc(full)}">${this._esc(full.slice(0, 12))}…</code>` +
+            `<button type="button" class="ar-copy" data-copy="${this._esc(full)}" title="Copy span id">copy</button></div>`;
+    },
+
+    /** Copy button: copies data-copy, shows "copied" briefly, and does not
+     *  toggle the row it sits in. */
+    _wireCopy(btn) {
+        btn.addEventListener('click', (e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            const txt = btn.dataset.copy, done = () => { btn.textContent = 'copied'; setTimeout(() => { btn.textContent = 'copy'; }, 1200); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => {});
+            else { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (err) { /* copy unavailable */ } document.body.removeChild(ta); }
+        });
     },
 
     /** Lazy-fetch the scanned LLM I/O excerpt for an expanded step. The app is

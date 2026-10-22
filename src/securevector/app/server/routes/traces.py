@@ -384,6 +384,10 @@ async def _build_trace(trace_id: str, generations: Optional[list] = None):
             "ml_agreement": det.get("ml_agreement") if det else None,
             "span_id": r.get("span_id"),
             "parent_span_id": r.get("parent_span_id"),
+            # The audit row hash: the id this call carries when it is sent to
+            # the cloud (siem_ocsf sends it as span_id), shown so a cloud span
+            # can be found here.
+            "row_hash": r.get("row_hash"),
             # Correlation id so a detection row can deep-link to the underlying
             # threat / secret record ("see what was detected").
             "request_id": r.get("request_id") if det else None,
