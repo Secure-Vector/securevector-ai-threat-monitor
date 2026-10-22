@@ -108,7 +108,7 @@ test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
   assert.match(html, /styles\.css\?v=499/);
   assert.match(html, /terminals\.js\?v=128/);
-  assert.match(html, /agent-runs\.js\?v=375/);
+  assert.match(html, /agent-runs\.js\?v=376/);
 });
 
 test('terminals.js coerces run counters with Number() before interpolating', () => {
