@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fleet (Professional and Enterprise): the cloud panel shows held counts, rule matches and stopped sessions across devices.
 
 ### Changed
+- OpenClaw Guard works with OpenClaw 2026.10: the tool audit and the tool output scan run on `after_tool_call`, one audit row per tool call. `securevector-app --install-plugin openclaw` sets `hooks.allowConversationAccess` for the Guard's entry so cost tracking keeps working; see docs/OPENCLAW.md.
 - Database schema 64.
 - Reliability and security improvements.
 
