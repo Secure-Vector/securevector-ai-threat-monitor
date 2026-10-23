@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Database schema 64.
 - Reliability and security improvements.
 
+### Fixed
+
+- Cost & Tokens prices Amazon Bedrock calls reported by plugins (for example Hermes and OpenClaw), including model ids with a region prefix, instead of showing $0.
+
 ## [6.0.1] - 2026-10-08
 
 ### Changed

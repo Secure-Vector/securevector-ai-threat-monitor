@@ -187,15 +187,14 @@ async def record_cost(request: RecordCostRequest) -> dict:
         db = get_database()
         repo = CostsRepository(db)
 
-        # Look up pricing
-        pricing = await repo.get_pricing(request.provider, request.model_id)
-        pricing_known = pricing is not None
+        # Look up pricing: exact first, then the same fallbacks traced calls
+        # use, so dated variants and Bedrock ids price instead of showing $0.
+        rate_in, rate_out = await repo.resolve_rates(request.provider, request.model_id)
+        pricing_known = rate_in is not None and rate_out is not None
         input_cost = 0.0
         output_cost = 0.0
 
         if pricing_known:
-            rate_in = pricing.input_per_million
-            rate_out = pricing.output_per_million
             # Cache discount rates by provider
             cache_discounts = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
             cache_rate = cache_discounts.get(request.provider, 1.0)
@@ -216,8 +215,8 @@ async def record_cost(request: RecordCostRequest) -> dict:
             input_cost_usd=round(input_cost, 8),
             output_cost_usd=round(output_cost, 8),
             total_cost_usd=round(total_cost, 8),
-            rate_input=pricing.input_per_million if pricing_known else None,
-            rate_output=pricing.output_per_million if pricing_known else None,
+            rate_input=rate_in if pricing_known else None,
+            rate_output=rate_out if pricing_known else None,
             pricing_known=pricing_known,
         )
 
