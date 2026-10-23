@@ -1935,7 +1935,7 @@ const Sidebar = {
         this._loadAgentTaskViews(true);
     },
 
-    HARNESS_LABELS: { 'claude-code': 'Claude Code', codex: 'Codex', 'copilot-cli': 'Copilot CLI', opencode: 'OpenCode' },
+    HARNESS_LABELS: { 'claude-code': 'Claude Code', codex: 'Codex', 'copilot-cli': 'Copilot CLI', opencode: 'OpenCode', govrun: 'GovRun', hermes: 'Hermes', openclaw: 'OpenClaw' },
     // The rail answers "which harness, and is it waiting on me". A live task
     // shows how long it has been going instead of repeating what the avatar
     // already says with its ring.

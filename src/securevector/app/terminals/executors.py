@@ -136,6 +136,41 @@ _EXECUTORS: dict[str, Executor] = {
         # prompt is pasted once the TUI is drawn and its output is still.
         prompt_resubmit=True,
     ),
+    # The three below report to the audit trail through their own Guard
+    # (GovRun's built-in sink, the Hermes SDK plugin, the OpenClaw plugin),
+    # but none relays this app's per-task hook events, so a launch here runs
+    # ungoverned on the board and says so. No first-prompt argument is used
+    # for any of them.
+    "govrun": Executor(
+        id="govrun",
+        label="GovRun",
+        binary="govrun",
+        # `govrun --resume <SESSION>`: "Continue an earlier session: its id
+        # or a unique prefix", looked up in the launch folder.
+        resume_argv=("--resume", "{session_id}"),
+        env_extra=("GOVRUN_HOME", "OPENAI_API_KEY"),
+    ),
+    "hermes": Executor(
+        id="hermes",
+        label="Hermes",
+        binary="hermes",
+        # `hermes --resume, -r SESSION`: "Resume a previous session by ID".
+        # The Hermes SDK plugin reports Hermes's own session id.
+        resume_argv=("--resume", "{session_id}"),
+        env_extra=("HERMES_HOME",),
+    ),
+    "openclaw": Executor(
+        id="openclaw",
+        label="OpenClaw",
+        binary="openclaw",
+        # `openclaw tui`: the interactive terminal UI. A bare `openclaw`
+        # prints help and exits.
+        extra_args=("tui",),
+        # `openclaw tui --session <key>`; the OpenClaw Guard reports the
+        # session key as the session id.
+        resume_argv=("--session", "{session_id}"),
+        env_extra=("OPENCLAW_STATE_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_PROFILE"),
+    ),
 }
 EXECUTORS = types.MappingProxyType(_EXECUTORS)
 

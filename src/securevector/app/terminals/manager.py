@@ -120,6 +120,14 @@ GUARD_HEARTBEAT_SECONDS = 300
 UNKNOWN_WORKSPACE = "(unknown folder)"
 
 
+# terminal_events.kind on a linked task whose folder came only from an audit
+# preview (the agent's own report, possibly a tool argument), so it is shown
+# as reported and never used to resume until a person names the folder.
+FOLDER_REPORTED = "folder_reported"
+# Linked harnesses whose folder this app can only scrape from audit previews.
+FOLDER_FROM_PREVIEW_ONLY = frozenset({"govrun", "hermes", "openclaw"})
+
+
 # A board read refreshes a stopped task's worktree counts at most this often.
 WORKTREE_REFRESH_S = 10.0
 
@@ -440,6 +448,13 @@ class TerminalManager:
         except OSError:
             pass
 
+    # Executors whose Guard can relay a launched task's hook events. The rest
+    # (GovRun, Hermes, OpenClaw) have no gate below: a launch of one is
+    # ungoverned whatever their Guard's install state, because a gate that
+    # opened on "plugin installed" would mark a task governed that no hook
+    # ever reaches, and its card would then read as a silent Guard.
+    _RELAY_GATED = frozenset({"claude-code", "codex", "copilot-cli", "opencode"})
+
     def _guard_gate(self, executor_id: str) -> Tuple[Callable[[], bool], str]:
         """The per-executor "its Guard plugin relays hook events" predicate.
 
@@ -485,6 +500,16 @@ class TerminalManager:
                 governed = bool(gate())
             if not installed:
                 hint = f"Install {executor.label} to launch tasks with it."
+            elif not governed and executor.id not in self._RELAY_GATED:
+                # GovRun, Hermes and OpenClaw: their Guard writes the audit
+                # trail, but nothing relays this app's per-task hook events,
+                # so "install the Guard" would be advice that cannot help.
+                hint = (
+                    f"Tasks launched here show as ungoverned: the {executor.label} "
+                    "Guard records tool calls but does not report to a task the "
+                    "app started. Sessions it reports can be linked from "
+                    "Running outside SecureVector."
+                )
             elif not governed:
                 # "Enable or reinstall": an upgraded-but-not-restaged plugin
                 # reads as enabled yet carries no relay, so "enable" alone
@@ -505,6 +530,9 @@ class TerminalManager:
                     # A harness without a resume-by-id flag never gets the
                     # offer, so the client does not hard-code harness ids.
                     "supports_resume": bool(executor.resume_argv),
+                    # False when no Guard can relay a launched task's hooks,
+                    # so the UI offers no Guard install that could not help.
+                    "guard_relay": executor.id in self._RELAY_GATED,
                     "hint": hint,
                 }
             )
@@ -571,9 +599,30 @@ class TerminalManager:
             # as the value at all and would be parsed as a flag of its own.
             if resume_session_id.startswith("-"):
                 raise ValueError("Session id must not start with a dash.")
+            # A folder scraped from an audit preview may be a tool argument,
+            # not where the session runs. It is never used as a launch folder
+            # until a person names it: relinking with an explicit folder does.
+            linked = await self.store.task_for_session(resume_session_id)
+            if linked is not None and await self.store.tasks_with_event(
+                FOLDER_REPORTED, [linked["id"]]
+            ):
+                raise ValueError(
+                    "This session's folder was reported by the agent, not confirmed. "
+                    "Unlink it, then link it again with its folder: sv-monitor session link "
+                    f"{linked.get('executor_id')} <session> --folder <path>"
+                )
             # A resumed delegated session stays a child of its parent.
             if parent_task_id is None:
                 parent_task_id = await self.store.parent_for_session(resume_session_id)
+        # A relaunch of a row whose folder only the agent reported would start
+        # a harness in a folder no person named, the same hazard as resume.
+        if from_task_id and await self.store.tasks_with_event(FOLDER_REPORTED, [from_task_id]):
+            prior = await self.store.get_task(from_task_id)
+            raise ValueError(
+                "This session's folder was reported by the agent, not confirmed. "
+                "Unlink it, then link it again with its folder: sv-monitor session link "
+                f"{(prior or {}).get('executor_id')} <session> --folder <path>"
+            )
         # A launch is never refused for a missing Guard. It runs ungoverned,
         # writes a guard_missing event, and the session carries a banner until
         # the Guard reports in.
@@ -773,6 +822,9 @@ class TerminalManager:
                 detail=(
                     f"Launched without the {EXECUTORS[executor_id].label} Guard plugin; "
                     "the task is ungoverned until it is installed"
+                    if executor_id in self._RELAY_GATED
+                    else f"Launched ungoverned: the {EXECUTORS[executor_id].label} "
+                    "Guard does not report to a task the app started"
                 ),
             )
         # A resume moves an existing harness session onto a PTY this host owns.
@@ -884,6 +936,7 @@ class TerminalManager:
         workspace: Optional[str] = None,
         title: Optional[str] = None,
         origin: str = "ui",
+        folder_confirmed: bool = False,
     ) -> dict:
         """Put a harness session that runs outside the app on the board.
 
@@ -907,6 +960,16 @@ class TerminalManager:
             if existing is not None:
                 raise SessionAlreadyLinked("This session is already on the board.")
             folder = (workspace or "").strip()
+            reported = False
+            if executor_id in FOLDER_FROM_PREVIEW_ONLY and not folder_confirmed:
+                # These harnesses keep no transcript this app reads, so the
+                # only folder on offer is the audit preview scrape. A folder
+                # equal to it (the board pre-fills it) is still the agent's
+                # report, not a person's.
+                scraped = await self._resolve_linked_workspace(executor_id, session_id)
+                if not folder:
+                    folder = scraped
+                reported = scraped != UNKNOWN_WORKSPACE and folder == scraped
             if not folder:
                 folder = await self._resolve_linked_workspace(executor_id, session_id)
             folder = worktrees.source_for(folder)
@@ -929,6 +992,10 @@ class TerminalManager:
                 origin=origin,
                 detail=f"Linked {label} session {session_id}",
             )
+            if reported:
+                await self.store.add_event(
+                    task_id, kind=FOLDER_REPORTED, origin=origin, detail=folder
+                )
         task = await self.store.get_task(task_id)
         if task is None:
             raise RuntimeError(f"terminal task {task_id} vanished immediately after linking")

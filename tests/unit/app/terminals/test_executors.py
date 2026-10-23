@@ -25,7 +25,9 @@ from securevector.app.terminals.executors import (
 
 
 def test_allowlist_contains_governed_interactive_executors():
-    assert set(EXECUTORS) == {"claude-code", "codex", "copilot-cli", "opencode"}
+    assert set(EXECUTORS) == {
+        "claude-code", "codex", "copilot-cli", "opencode", "govrun", "hermes", "openclaw",
+    }
     assert EXECUTORS["claude-code"].binary == "claude"
     assert EXECUTORS["codex"].binary == "codex"
     assert EXECUTORS["copilot-cli"].binary == "copilot"

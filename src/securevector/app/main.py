@@ -1597,6 +1597,7 @@ EXECUTOR_FOR_PLUGIN = {
     "codex": "codex",
     "copilot-cli": "copilot-cli",
     "opencode": "opencode",
+    "openclaw": "openclaw",
 }
 
 
@@ -1688,7 +1689,8 @@ def _handle_plugin_command(args) -> None:
             # None matches the route's default ("install with bundled config").
             result = asyncio.run(mod.install_plugin(None))
         else:
-            result = asyncio.run(mod.uninstall_plugin())
+            # `_uninstall_plugin`, not the route: see the claude-code branch.
+            result = asyncio.run(mod._uninstall_plugin())
     elif name == "codex":
         from securevector.app.server.routes import hooks_codex as mod
         handler = mod.install_plugin if action == "install" else mod._uninstall_plugin

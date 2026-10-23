@@ -3038,37 +3038,28 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        // Uninstall click handler
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/uninstall', { method: 'POST' });
-                const result = await res.json();
-                resultArea.style.display = 'block';
-                if (result.status === 'removed') {
-                    resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
-                    resultArea.style.border = '1px solid var(--warning)';
-                    resultArea.style.color = 'var(--text-primary)';
-                    resultArea.textContent = result.message;
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                    statusText.textContent = 'Not installed';
-                } else {
-                    resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
-                    resultArea.style.border = '1px solid var(--error)';
-                    resultArea.style.color = 'var(--text-primary)';
-                    resultArea.textContent = result.message || 'Uninstall failed';
-                }
-            } catch {
-                resultArea.style.display = 'block';
-                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
-                resultArea.style.border = '1px solid var(--error)';
-                resultArea.textContent = 'Failed to connect to SecureVector server';
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
+        // The server refuses this while OpenClaw sessions on the board are
+        // live (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        const showOpenClawResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.style.background = kind === 'error' ? 'rgba(244, 67, 54, 0.1)' : 'rgba(255, 152, 0, 0.1)';
+            resultArea.style.border = kind === 'error' ? '1px solid var(--error)' : '1px solid var(--warning)';
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
         };
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult: showOpenClawResult,
+            onRemoved: (result) => {
+                showOpenClawResult('warning', result.message || 'Plugin removed.');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+                statusText.textContent = 'Not installed';
+            },
+        });
 
         // --- Feature status grid ---
         const featuresLabel = document.createElement('div');

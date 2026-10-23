@@ -614,3 +614,19 @@ test('only a blocked count above zero is coloured', () => {
   assert.match(css, /\.terminals-task-blocked\.is-danger \{ color: var\(--danger\); \}/);
   assert.doesNotMatch(css, /\.terminals-task-(calls|age|facts)[^{]*\{[^}]*var\(--danger\)/);
 });
+
+test('an ended linked row whose folder only the agent reported offers no Relaunch', () => {
+  const { Page, els } = relaunchHarness({});
+  Page._tasks = [{
+    id: 'r1', executor_id: 'hermes', status: 'done', session_id: 'hermes-s1', origin: 'linked',
+    workspace: '/w', title: 'Reported', workspace_reported: true,
+  }];
+  Page._renderTaskList();
+  const html = els['terminals-task-list'].innerHTML;
+  assert.doesNotMatch(html, /terminals-task-relaunch/);
+  assert.match(html, /folder reported by the agent/);
+  // The same row with a person-named folder still offers it.
+  Page._tasks[0].workspace_reported = false;
+  Page._renderTaskList();
+  assert.match(els['terminals-task-list'].innerHTML, /terminals-task-relaunch/);
+});

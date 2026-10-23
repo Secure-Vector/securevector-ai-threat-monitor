@@ -135,8 +135,14 @@ def test_allowlist_matches_the_published_shape():
 
 
 def test_executor_vocabulary_tracks_the_real_executors():
-    """A fifth harness must be a conscious decision, not a silent passthrough."""
-    assert live_runs.EXECUTOR_IDS == set(EXECUTORS.keys())
+    """A new harness must be a conscious decision, not a silent passthrough.
+
+    GovRun, Hermes and OpenClaw are held back on purpose: the cloud's Live
+    Runs vocabulary does not know them yet, so they travel as None.
+    """
+    held_back = {"govrun", "hermes", "openclaw"}
+    assert live_runs.EXECUTOR_IDS == set(EXECUTORS.keys()) - held_back
+    assert not live_runs.EXECUTOR_IDS & held_back
 
 
 # -- the workspace path ----------------------------------------------------

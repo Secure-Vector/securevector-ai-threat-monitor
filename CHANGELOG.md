@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**Agent Sessions harnesses**
+- Agent Sessions launches and links GovRun, Hermes and OpenClaw sessions. Sessions launched from the app are marked ungoverned, since these Guards do not report to an app-started task.
+
 **Agent Sessions approvals**
 - A host blocked under Contained or Hardened can be approved for one session only (15 minutes, 1 hour or the rest of the session) from that session's Approval inbox or from the Egress section of its pane. Other sessions stay blocked for the same host; the grant expires on its own, is revoked when the task exits, and is audited with its scope, session id and actor.
 - The Egress section names the rule that fired for each blocked host, with the rule id and reason behind a Details toggle.

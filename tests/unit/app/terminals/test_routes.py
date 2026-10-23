@@ -76,10 +76,14 @@ def test_executors_list_includes_governed_harnesses(env):
     r = client.get("/api/terminals/executors", headers=AUTH)
     assert r.status_code == 200
     items = r.json()["items"]
-    assert [i["id"] for i in items] == ["claude-code", "codex", "copilot-cli", "opencode"]
+    assert [i["id"] for i in items] == [
+        "claude-code", "codex", "copilot-cli", "opencode", "govrun", "hermes", "openclaw",
+    ]
     assert items[0]["label"] == "Claude Code" and items[1]["label"] == "Codex"
     for item in items:
-        assert set(item) == {"id", "label", "installed", "governed", "supports_resume", "hint"}
+        assert set(item) == {
+            "id", "label", "installed", "governed", "supports_resume", "guard_relay", "hint",
+        }
         assert isinstance(item["installed"], bool)
         assert isinstance(item["governed"], bool)
         assert isinstance(item["supports_resume"], bool)
@@ -92,6 +96,9 @@ def test_executors_list_includes_governed_harnesses(env):
         "claude-code",
         "codex",
         "copilot-cli",
+        "govrun",
+        "hermes",
+        "openclaw",
     ]
 
 

@@ -1377,7 +1377,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 // rather than a path, and relaunch spawns into the folder. No
                 // real folder, no offer: the alternative is a button whose only
                 // outcome is "Workspace folder does not exist".
-                const canRelaunch = this._isEnded(t) && !!this._knownWorkspace(t.workspace);
+                const canRelaunch = this._isEnded(t) && !!this._knownWorkspace(t.workspace) && !t.workspace_reported;
                 // The launching state lives on the page, not on the button: the
                 // 3 s poll rebuilds every card, and a disabled flag set on the
                 // old DOM node would be gone by the next tick, leaving a live
@@ -1460,6 +1460,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
                       ${doing}
                       <span class="terminals-task-folder" title="${this._esc(t.workspace || 'This session never reported a working folder')}">${this._esc(this._knownWorkspace(t.workspace) ? this._shortPath(this._knownWorkspace(t.workspace)) : 'Folder not reported')}</span>
+                      ${this._folderNote(t) ? `<span class="terminals-task-folder-note" style="font-size: 10.5px; color: var(--text-muted, #94a3b8);">${this._esc(this._folderNote(t))}</span>` : ''}
                       <span class="terminals-task-meta">${guard.kind === 'ungoverned' || this._RUNNING_STATUSES.includes(t.status) ? `<span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>` : ''}${unver}${health}${stuck}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
                       ${facts}
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
@@ -3132,7 +3133,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // "Here" has to mean somewhere. A session whose cwd was never reported
         // carries the placeholder, and spawning into that fails at the host, so
         // point at the launch form where a folder can be chosen instead.
-        const folder = this._knownWorkspace(task.workspace);
+        // A folder only the agent reported is never launched into: it may be
+        // a tool argument rather than where the session runs.
+        const folder = task.workspace_reported ? null : this._knownWorkspace(task.workspace);
         let action = '';
         // Every state that names a folder gets the offer now, live included.
         // What differs by state is the acknowledgement in front of it, not
@@ -3165,7 +3168,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // button with no sentence reads as the app having decided the
             // session cannot be continued at all.
             const lost = resumes ? 'continue it' : 'start one';
-            action = `<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to ${lost}. Use + Launch to start one in a folder you pick.</p>`;
+            action = task.workspace_reported
+                ? `<p class="terminals-linked-note">This folder was reported by the agent, not confirmed. To ${lost} here, unlink this session and link it again with its folder: sv-monitor session link ${this._esc(task.executor_id)} &lt;session&gt; --folder &lt;path&gt;</p>`
+                : `<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to ${lost}. Use + Launch to start one in a folder you pick.</p>`;
         }
         // Unlinking belongs here as much as on the card: this pane is where a
         // person lands when they open the session, and the card may be scrolled
@@ -5621,6 +5626,17 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return v;
     },
 
+    /** A plain note under the folder when the folder shown is not simply
+     *  where the agent works: OpenClaw's agent works in its Gateway's
+     *  workspace, and a linked folder may be the agent's own report rather
+     *  than one a person named. Label only; nothing acts on it here. */
+    _folderNote(t) {
+        if (!t) return '';
+        if (t.executor_id === 'openclaw') return "works in the OpenClaw Gateway's workspace";
+        if (t.workspace_reported) return 'folder reported by the agent';
+        return '';
+    },
+
     _ENDED_STATUSES: ['done', 'failed', 'interrupted', 'stopped'],
 
     /** Ended means the session is over for good: no more output is
@@ -7004,7 +7020,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // it and install its Guard plugin in place; only "not installed"
             // is a hard stop.
             const selectable = e.installed !== false;
-            const suffix = ok ? '' : (e.installed === false ? ' (not installed)' : ' (Guard not enabled)');
+            const suffix = ok ? '' : (e.installed === false ? ' (not installed)' : (e.guard_relay === false ? ' (ungoverned)' : ' (Guard not enabled)'));
             return `<option value="${this._esc(e.id)}"${selectable ? '' : ' disabled'}>${this._esc(e.label + suffix)}</option>`;
         }).join('');
         // Prefer a fully governed executor by default; fall back to any
@@ -7067,7 +7083,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return;
         }
         if (hint) hint.hidden = true;
-        if (!cur.governed) {
+        if (!cur.governed && cur.guard_relay === false) {
+            // No Guard can report to a task launched here (GovRun, Hermes,
+            // OpenClaw): say so instead of offering an install.
+            if (hint) { hint.textContent = cur.hint || ''; hint.hidden = !cur.hint; }
+            if (guardRow) guardRow.hidden = true;
+        } else if (!cur.governed) {
             if (guardRow) guardRow.hidden = false;
             if (this._guardPending && this._guardPending.executorId === cur.id) {
                 if (guardText) guardText.textContent = this._guardPending.text;

@@ -18,14 +18,17 @@ RUNNING = ("starting", "working", "blocked", "idle")
 # and the Tool calls list hides them.
 SESSION_BOUNDARY = ("__session_start__", "__session_end__")
 
-# The four harnesses whose Guard plugins report a runtime_kind that maps
-# one to one onto an Agent Tasks executor id. Anything else the audit trail
-# carries (an SDK, the proxy) has no terminal to link.
+# The harnesses whose Guard reports a runtime_kind that maps one to one onto
+# an Agent Tasks executor id. Anything else the audit trail carries (an SDK,
+# the proxy) has no terminal to link.
 RUNTIME_TO_EXECUTOR = {
     "claude-code": "claude-code",
     "codex": "codex",
     "copilot-cli": "copilot-cli",
     "opencode": "opencode",
+    "govrun": "govrun",
+    "hermes": "hermes",
+    "openclaw": "openclaw",
 }
 
 

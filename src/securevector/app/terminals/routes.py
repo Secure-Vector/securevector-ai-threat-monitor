@@ -33,6 +33,7 @@ from securevector.app.terminals.auth import TerminalAuth, get_auth, retry_termin
 from securevector.app.terminals.executors import ExecutorUnavailable, UnknownExecutor
 from securevector.app.terminals.gitinfo import workspace_branch
 from securevector.app.terminals.manager import (
+    FOLDER_REPORTED,
     GuardHooksMissing,
     NotLinkable,
     SessionAlreadyLinked,
@@ -112,9 +113,14 @@ async def _decorate(manager: TerminalManager, items):
     # seconds.
     unknown = [item["id"] for item in items if item["id"] not in ungoverned]
     audited = await manager.store.tasks_with_event("guard_missing", unknown)
+    reported = await manager.store.tasks_with_event(
+        FOLDER_REPORTED, [item["id"] for item in items if item.get("origin") == "linked"]
+    )
     silent = manager.guard_silent()
     for item in items:
         item["governed_at_launch"] = not (item["id"] in ungoverned or item["id"] in audited)
+        # The folder came from the agent's own report, not a person.
+        item["workspace_reported"] = item["id"] in reported
         item["guard_warning"] = silent.get(item["id"])
     await _with_spend(manager, items)
     await _with_delegations(manager, items)
@@ -336,6 +342,9 @@ class LinkRequest(BaseModel):
     workspace: Optional[str] = Field(default=None, max_length=4096)
     title: Optional[str] = Field(default=None, max_length=120)
     origin: Optional[str] = Field(default=None, max_length=16)
+    # A person named the folder (the CLI's --folder). Without it, a folder
+    # equal to the audit-preview scrape counts as the agent's own report.
+    folder_confirmed: bool = False
 
 
 @router.get("/session")
@@ -414,6 +423,7 @@ async def link_task(body: LinkRequest, manager: TerminalManager = Depends(get_ma
             workspace=body.workspace,
             title=body.title,
             origin=_actor(body.origin),
+            folder_confirmed=body.folder_confirmed,
         )
         return (await _decorate(manager, [task]))[0]
     except UnknownExecutor as exc:

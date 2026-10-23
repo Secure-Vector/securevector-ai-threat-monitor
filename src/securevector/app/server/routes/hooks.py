@@ -12,11 +12,12 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from . import _hooks_common
-from ._plugin_guard import require_local_origin
+from securevector.app.terminals.guardrail import block_uninstall
+from ._plugin_guard import ForceBody, require_local_origin
 
 logger = logging.getLogger(__name__)
 
@@ -564,8 +565,17 @@ async def install_plugin(request: Optional[InstallRequest] = None):
 
 
 @router.post("/uninstall", dependencies=[Depends(require_local_origin)])
-async def uninstall_plugin():
+async def uninstall_plugin(request: Request, body: Optional[ForceBody] = None):
+    """Remove the SecureVector plugin, refused while OpenClaw sessions on the
+    Agent Sessions board are live (their liveness is read from the audit this
+    plugin writes). `force` writes the loss to each session trail instead."""
+    refusal = await block_uninstall(request.app, "openclaw", bool(body and body.force))
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+    return await _uninstall_plugin()
 
+
+async def _uninstall_plugin():
     """Remove the SecureVector plugin — files + config entries."""
     import asyncio
 
@@ -598,11 +608,13 @@ async def uninstall_plugin():
     if removed_files or removed_config:
         return {
             "status": "removed",
+            "ok": True,
             "message": "SecureVector plugin uninstalled successfully.",
         }
     else:
         return {
             "status": "removed",
+            "ok": True,
             "message": "Plugin files not found. It may have already been uninstalled.",
         }
 

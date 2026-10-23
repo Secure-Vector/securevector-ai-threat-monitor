@@ -164,6 +164,9 @@ GUARDED = {
     "hooks_codex.py": "codex",
     "hooks_opencode.py": "opencode",
     "hooks_copilot_cli.py": "copilot-cli",
+    # OpenClaw became an executor in 6.1.0: linked OpenClaw sessions read their
+    # liveness from the audit its Guard writes.
+    "hooks.py": "openclaw",
 }
 
 
@@ -178,12 +181,12 @@ def test_every_executor_uninstall_is_guarded_with_its_own_id(filename, executor)
     assert re.search(r"raise HTTPException\(status_code=409, detail=refusal\)", body)
 
 
-def test_openclaw_is_not_guarded_because_it_is_not_an_executor():
-    """OpenClaw has a Guard plugin but is not a Terminals executor in 6.0.0, so
-    no board session can depend on it and a refusal there would block a removal
-    for no reason."""
+def test_openclaw_is_guarded_now_that_it_is_an_executor():
+    from securevector.app.terminals.executors import EXECUTORS
+
+    assert "openclaw" in EXECUTORS
     body = (ROUTES / "hooks.py").read_text(encoding="utf-8")
-    assert "block_uninstall" not in body
+    assert 'block_uninstall(request.app, "openclaw", bool(body and body.force))' in body
 
 
 def test_no_guarded_route_forgot_its_request_parameter():

@@ -150,6 +150,9 @@ SESSION_ID_POLICY = "digest"
 
 # Closed vocabularies. A value outside these is emitted as None rather than
 # passed through: unknown means untrusted here, not "probably fine".
+# GovRun, Hermes and OpenClaw are deliberately absent until the cloud's Live
+# Runs vocabulary knows them: an unknown value could fail the upload batch, so
+# they travel as None.
 EXECUTOR_IDS = frozenset({"claude-code", "codex", "copilot-cli", "opencode"})
 STATUSES = frozenset(
     {"starting", "working", "blocked", "idle", "done", "failed", "interrupted"}
