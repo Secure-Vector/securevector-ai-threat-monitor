@@ -249,14 +249,20 @@ test('no approve or deny control outside the span panel', () => {
   assert.match(RT.headerHtml(ctx), /Run 4 of 4 in this session/);
   assert.match(RT.headerHtml(ctx), /Stop session/);
   assert.match(RT.headerHtml(ctx), /1 waiting for approval/);
-  // The runs list never decides; only the trace page's _rtDecide calls the routes.
+  // The runs list rules never decide. The routes are called only from a
+  // span panel: the trace page's _rtDecide and the runs table's inline span
+  // details (_inlineDecide), both showing the same full-context panel.
   assert.doesNotMatch(read('js/components/runs-list.js'), /approveJitRequest|denyJitRequest/);
   const page = read('js/pages/agent-runs.js');
   const calls = page.match(/API\.(approveJitRequest|denyJitRequest)\(/g) || [];
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4);
   const body = page.slice(page.indexOf('    async _rtDecide('), page.indexOf('    async _rtRevoke('));
   assert.match(body, /API\.denyJitRequest\(/);
   assert.match(body, /API\.approveJitRequest\(/);
+  const inline = page.slice(page.indexOf('    async _inlineDecide('), page.indexOf('    /** Optimizer finding'));
+  assert.match(inline, /API\.denyJitRequest\(/);
+  assert.match(inline, /API\.approveJitRequest\(/);
+  assert.match(page.slice(page.indexOf('    _spanDetailRow('), page.indexOf('    async _inlineDecide(')), /RT\.spanPanelHtml\(ctx, found\)/);
 });
 
 test('waterfall: a relative axis with five ticks; a waiting call runs to now', () => {

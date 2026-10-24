@@ -80,7 +80,9 @@ const AgentRunsPage = {
     sortKey: 'started',
     sortDir: 'desc',
     pageIdx: 0,
-    _collapsedSessions: {},
+    _openSessions: {},     // session key -> true once opened (sessions start collapsed)
+    _openRuns: [],         // trace ids open in place, oldest first (RunsList.INLINE_MAX_OPEN)
+    _inline: {},           // trace id -> { seq, sig, trace, requests, grants, loading, error, open, det }
     _expandedSessions: {},
     _extraDims: null,      // + Filter dimensions the person added (model, host, user, health)
     _liveData: null,       // GET observability/live: running sessions and their scores
@@ -223,6 +225,8 @@ const AgentRunsPage = {
             se.scrollTop = keepPage;
             if (pc) pc.scrollTop = keepPc;
         }
+        // Open runs in place: fetch again only those whose spans moved.
+        this._inlineRefresh();
         // Tab-return digest: while hidden the ticks (and snapshot saves) stop,
         // so a long-hidden tab comes back to a stale snapshot — same "away"
         // semantics as a fresh page load. Diff first, then refresh the snapshot.
@@ -1136,7 +1140,7 @@ const AgentRunsPage = {
             .rl-search { font:inherit; font-size:13px; min-height:34px; width:260px; max-width:100%; padding:6px 10px; box-sizing:border-box;
                 border:1px solid var(--border-default,#232a33); border-radius:6px; background:var(--bg-card,#12171e); color:var(--text-primary,#eef2f7); }
             .rl-search:focus-visible, .rl-btn:focus-visible, .rl-link:focus-visible, .rl-row:focus-visible, .rl-sort:focus-visible,
-            .rl-copy:focus-visible, .rl-caret-btn:focus-visible, .rl-opt:focus-visible, .rl-back:focus-visible {
+            .rl-copy:focus-visible, .rl-caret-btn:focus-visible, .rl-det:focus-visible, .rl-opt:focus-visible, .rl-back:focus-visible {
                 outline:2px solid var(--accent-primary,#5eadb8); outline-offset:1px; }
             .rl-check { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary,#aeb7c2); cursor:pointer; white-space:nowrap; }
             .rl-check input { accent-color:var(--accent-primary,#5eadb8); width:15px; height:15px; margin:0; }
@@ -1250,6 +1254,33 @@ const AgentRunsPage = {
             .rl-pager .rl-sub { margin-right:4px; }
             .ar-layout.runs-v2 .ar-listview { padding-bottom:80px; }
             .rl-page { min-width:34px; justify-content:center; }
+            /* Runs open in place. Inline rows share the run columns; their
+               tree lives in the Run column (x from --rl-namex, 20px a level),
+               drawn like the session guides: a line from each open caret, a
+               connector into each child, an elbow on the last one. */
+            .rl-table { --rl-namex:132px; }
+            .rl-table.rl-flatlist { --rl-namex:82px; }
+            .rl-tg { position:absolute; left:calc(var(--rl-namex) + var(--rl-x)); top:0; bottom:0; border-left:1px solid var(--border-light); pointer-events:none; }
+            .rl-tg.rl-tg-end { bottom:50%; }
+            .rl-tg.rl-tg-down { top:calc(50% + 12px); }
+            .rl-tc { position:absolute; left:calc(var(--rl-namex) + var(--rl-x)); top:50%; width:10px; border-top:1px solid var(--border-light); pointer-events:none; }
+            .rl-row .rl-rcaret { margin-right:0; }
+            .rl-det { font:inherit; font-size:12px; flex:0 0 auto; margin-left:auto; min-height:24px; padding:1px 9px; border-radius:6px; cursor:pointer;
+                border:1px solid var(--border-default); background:var(--bg-card); color:var(--text-secondary); }
+            .rl-det:hover { color:var(--text-primary); border-color:var(--accent-primary); }
+            .rl-det:focus-visible, .rl-spanrow:focus-visible { outline:2px solid var(--accent-primary); outline-offset:-2px; }
+            .rl-spanrow { font-size:12.5px; padding-top:6px; padding-bottom:6px; }
+            .rl-spanrow .rl-name { padding-left:var(--rl-ind); }
+            .rl-spanrow.warn { background:color-mix(in srgb, var(--warning) 6%, transparent); }
+            .rl-spanrow.rl-detopen { background:var(--bg-hover); }
+            .rl-spanmsg { cursor:default; }
+            .rl-spant { font-size:11.5px; }
+            .rl-caret-sp { flex:0 0 24px; }
+            .rl-chip { flex:0 0 auto; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:0 5px; border-radius:4px;
+                border:1px solid var(--border-default); color:var(--text-muted); }
+            .rl-spandet { position:relative; padding:4px 14px 12px calc(var(--rl-namex) + var(--rl-ind) + 24px);
+                border-bottom:1px solid var(--border-default); font-size:13px; color:var(--text-primary); }
+            .rl-spanpanel { max-width:880px; padding:10px 14px; border:1px solid var(--border-default); border-radius:8px; background:var(--bg-secondary); }
             .live-grid-placeholder { margin:0; }
         `;
         document.head.appendChild(st);
@@ -2139,19 +2170,28 @@ const AgentRunsPage = {
     _runRow(r, flat, guide, last) {
         const RL = RunsList;
         const ctx = this._ctx;
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'rl-row' + (flat ? ' rl-flat' : '') + (guide ? ' rl-child' : '') + (guide && last ? ' rl-last' : '') + (r.trace_id === this.selected ? ' sel' : '');
+        // A row, not a button: it holds its own caret and Details buttons.
+        // Clicking it (or Enter) opens the run's spans in place; Details
+        // opens the full trace.
+        const row = document.createElement('div');
+        const open = (this._openRuns || []).includes(r.trace_id);
+        row.className = 'rl-row' + (flat ? ' rl-flat' : '') + (guide ? ' rl-child' : '') + (guide && last ? ' rl-last' : '') + (r.trace_id === this.selected ? ' sel' : '') + (open ? ' rl-open' : '');
         row.dataset.trace = r.trace_id;
+        row.dataset.fk = 'run:' + r.trace_id;
+        row.tabIndex = 0;
+        row.setAttribute('role', 'group');
         if (r.trace_id === this.selected) row.setAttribute('aria-current', 'true');
         const name = RL.name(r, ctx);
-        row.setAttribute('aria-label', `${name}, ${this._sessionText(r)}. Open its trace.`);
+        row.setAttribute('aria-label', `${name}, ${this._sessionText(r)}. Enter shows its spans.`);
         const started = RL.ms(r.started_at) || RL.ms(r.ended_at);
         const health = window.TraceSteps && TraceSteps.badgesHtml(r.health);
+        const caret = `<button type="button" class="rl-caret-btn rl-rcaret" data-act="toggle" data-fk="caret:${this._esc(r.trace_id)}" aria-expanded="${open ? 'true' : 'false'}" ` +
+            `aria-label="${open ? 'Hide' : 'Show'} the spans of ${this._esc(name)}">${(window.RunTrace && RunTrace.CARET_SVG) || ''}</button>`;
         const cells = [
             `<span class="rl-c rl-mono rl-sub">${this._esc(this._clock(started))}</span>`,
-            `<span class="rl-c rl-name"><span class="ar-run-rt">${this._esc(name)}</span>` +
-                (health ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') + '</span>',
+            `<span class="rl-c rl-name">${caret}<span class="ar-run-rt">${this._esc(name)}</span>` +
+                (health ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
+                `<button type="button" class="rl-det" data-act="details" data-fk="det:${this._esc(r.trace_id)}" aria-label="Details: open the full trace of ${this._esc(name)}">Details</button></span>`,
         ];
         if (flat) {
             cells.push(`<span class="rl-c rl-ell rl-sub">${this._esc(this._sessionText(r))}</span>`);
@@ -2162,8 +2202,18 @@ const AgentRunsPage = {
         cells.push(`<span class="rl-c rl-r rl-sub">${this._esc(this._fmtDur(RL.shownDuration(r, ctx)))}</span>`);
         cells.push(`<span class="rl-c rl-r">${this._esc(this._fmtTokens(r.tokens))}</span>`);
         cells.push(`<span class="rl-c rl-r" title="${this._esc(this._costTitle(r))}">${Number(r.cost) > 0 ? '$' + Number(r.cost).toFixed(2) : '—'}</span>`);
-        row.innerHTML = (guide ? '<span class="rl-guide" aria-hidden="true"></span><span class="rl-conn" aria-hidden="true"></span>' : '') + cells.join('');
-        row.addEventListener('click', () => this.selectRun(r.trace_id));
+        row.innerHTML = (guide ? '<span class="rl-guide" aria-hidden="true"></span><span class="rl-conn" aria-hidden="true"></span>' : '') +
+            (open ? '<span class="rl-tg rl-tg-down" aria-hidden="true" style="--rl-x:12px"></span>' : '') + cells.join('');
+        row.addEventListener('click', (ev) => {
+            const btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+            if (btn && btn.dataset.act === 'details') { ev.stopPropagation(); this.selectRun(r.trace_id); return; }
+            this._inlineToggleRun(r.trace_id);
+        });
+        row.addEventListener('keydown', (ev) => {
+            if (ev.target !== row || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+            ev.preventDefault();
+            this._inlineToggleRun(r.trace_id);
+        });
         return row;
     },
 
@@ -2195,7 +2245,7 @@ const AgentRunsPage = {
         const started = Math.min(...all.map(r => RL.ms(r.started_at) || RL.ms(r.ended_at)).filter(Boolean));
         const cost = sessRuns.reduce((a, r) => a + Number(r.cost || 0), 0);
         const cov = RL.coverageFor(first.runtime_kind, ctx);
-        const closed = !!this._collapsedSessions[g.key] && !g.runs.some(r => r.trace_id === this.selected);
+        const closed = RL.sessionClosed(this._openSessions, g, this.selected);
         const head = document.createElement('div');
         head.className = 'rl-sh' + (closed ? ' closed' : '');
         head.setAttribute('role', 'group');
@@ -2261,8 +2311,8 @@ const AgentRunsPage = {
         }
         head.appendChild(right);
         caret.addEventListener('click', () => {
-            const closing = !this._collapsedSessions[g.key];
-            this._collapsedSessions[g.key] = closing;
+            const closing = !closed;
+            this._openSessions[g.key] = !closing;
             // Collapsing the session that holds the open trace closes the
             // trace too, so the collapse sticks on the next live tick.
             if (closing && g.runs.some(r => r.trace_id === this.selected)) this._showList();
@@ -2350,6 +2400,10 @@ const AgentRunsPage = {
         if (!list) return;
         const RL = window.RunsList;
         if (!RL) return;
+        // The rebuild replaces every row: keep keyboard focus on the same
+        // control (caret, row, Details, span) across it.
+        const act = document.activeElement;
+        const focusKey = act && list.contains(act) && act.dataset ? act.dataset.fk : null;
         if (!this.filters) this.filters = RL.emptyFilters();
         this._ctx = RL.buildCtx(this.runs, { live: this._liveData, pending: this._pending, coverage: this._coverage });
         const ctx = this._ctx;
@@ -2391,7 +2445,7 @@ const AgentRunsPage = {
             list.appendChild(this._sortHeader([['started', 'Started'], [null, 'Run'], ['session', 'Session'], ['host', 'Host · user'],
                 ['status', review ? 'Decision' : 'Status · decision'], ['calls', RL_CALLS_HEAD, true, 'tool calls: allowed, waiting, blocked'],
                 ['duration', 'Duration', true], ['tokens', 'Tokens', true], ['cost', 'Cost', true]]));
-            info.items.forEach(r => list.appendChild(this._runRow(r, true, false)));
+            info.items.forEach(r => { list.appendChild(this._runRow(r, true, false)); this._inlineAppend(list, r, null); });
         } else {
             list.appendChild(this._sortHeader([['started', 'Started'], [null, 'Run'], ['status', 'Status · decision'],
                 ['calls', RL_CALLS_HEAD, true, 'tool calls: allowed, waiting, blocked'], ['duration', 'Duration', true], ['tokens', 'Tokens', true], ['cost', 'Cost', true]]));
@@ -2401,7 +2455,13 @@ const AgentRunsPage = {
                 const { head, closed, moreRow } = this._sessionHead(g, hidden);
                 list.appendChild(head);
                 if (closed) return;
-                rows.forEach((r, i) => list.appendChild(this._runRow(r, false, true, !moreRow && i === rows.length - 1)));
+                rows.forEach((r, i) => {
+                    const lastRow = !moreRow && i === rows.length - 1;
+                    list.appendChild(this._runRow(r, false, true, lastRow));
+                    // Spans under a run that is not the session's last keep
+                    // the session guide running beside them.
+                    this._inlineAppend(list, r, lastRow ? 'end' : 'mid');
+                });
                 if (moreRow) list.appendChild(moreRow);
             });
         }
@@ -2414,6 +2474,10 @@ const AgentRunsPage = {
             this._renderPager(info, `Sessions ${info.from}–${info.to} of ${info.total.toLocaleString()} · ${info.totalRuns.toLocaleString()} run${info.totalRuns === 1 ? '' : 's'} in the ${rangeLabel}`);
         }
         this._liveIds = (this.runs || []).filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
+        if (focusKey) {
+            const back = [...list.querySelectorAll('[data-fk]')].find(el => el.dataset.fk === focusKey);
+            if (back && back.focus) back.focus({ preventScroll: true });
+        }
         this._fitPanes();
     },
 
@@ -2469,6 +2533,264 @@ const AgentRunsPage = {
         this._trace = trace;
         this.renderWaterfall(trace);
         this._consumePendingGenJump(trace);
+    },
+
+    // ------------------------------------------------- inline expansion
+    // A run opens in place under its row: its span tree (turns, then the
+    // tool calls each turn issued) indented in the same table, each span's
+    // details in a full-width row below it. Spans load only when their run
+    // opens, and are cached per run; a live refresh fetches an open run
+    // again only when its span count (or waiting count) moved.
+
+    /** Rebuild the list without moving any scroll owner. */
+    _renderRunsKeep() {
+        const list = document.getElementById('ar-runlist');
+        if (!list) return;
+        const se = document.scrollingElement || document.documentElement;
+        const pc = list.closest ? list.closest('.page-content') : null;
+        const keep = [list.scrollTop, se.scrollTop, pc ? pc.scrollTop : 0];
+        this.renderRuns();
+        list.scrollTop = keep[0];
+        se.scrollTop = keep[1];
+        if (pc) pc.scrollTop = keep[2];
+    },
+
+    _inlineEntry(traceId) {
+        if (!this._inline[traceId]) this._inline[traceId] = { seq: 0, sig: null, trace: null, requests: [], grants: [], tree: null, loading: false, error: false, open: {}, det: {}, raw: {} };
+        return this._inline[traceId];
+    },
+
+    _inlineToggleRun(traceId) {
+        const res = RunsList.inlineToggle(this._openRuns, traceId, RunsList.INLINE_MAX_OPEN);
+        this._openRuns = res.open;
+        // Closed or pushed out by the cap: its cached spans go too.
+        RunsList.inlinePrune(this._inline, this._openRuns);
+        if (res.opened) this._inlineFetch(traceId, false);
+        this._renderRunsKeep();
+    },
+
+    /** Fetch one run's spans and the session's requests and grants (read
+     *  only). A newer fetch for the same run voids this one's answer. */
+    async _inlineFetch(traceId, force) {
+        const RL = RunsList;
+        const e = this._inlineEntry(traceId);
+        const r = (this.runs || []).find(x => x.trace_id === traceId);
+        const sig = r ? RL.inlineSig(r) : e.sig;
+        if (!force && e.trace && e.sig === sig) return;
+        const seq = RL.inlineBegin(e);
+        e.loading = true;
+        e.error = false;
+        const safe = (p) => Promise.resolve(p).catch(() => null);
+        const [trace, reqs, grants] = await Promise.all([
+            safe(API.getTrace(traceId)),
+            safe(API.getJitRequests ? API.getJitRequests() : null),
+            safe(API.getJitGrants ? API.getJitGrants() : null),
+        ]);
+        if (!RL.inlineCurrent(e, seq)) return; // stale: a newer fetch for this run started
+        e.loading = false;
+        if (!trace) e.error = true;
+        else {
+            const sid = trace.session_id;
+            const mine = (x) => x && ((sid && x.session_id === sid) || x.trace_id === traceId);
+            e.trace = trace;
+            e.sig = sig;
+            e.requests = ((reqs && reqs.items) || []).filter(mine);
+            e.grants = ((grants && grants.items) || []).filter(mine);
+            e.tree = null;
+        }
+        if ((this._openRuns || []).includes(traceId)) this._renderRunsKeep();
+    },
+
+    /** Live poll: refetch only the open runs whose span count changed. */
+    _inlineRefresh() {
+        (this._openRuns || []).forEach(id => {
+            const e = this._inline[id];
+            const r = (this.runs || []).find(x => x.trace_id === id);
+            if (RunsList.inlineNeedsFetch(e, r)) this._inlineFetch(id, !!(e && e.error));
+        });
+    },
+
+    _inlineTree(r, e) {
+        if (!e.tree) {
+            e.tree = RunTrace.buildTree(e.trace, { requests: e.requests, grants: e.grants,
+                newest: RunsList.isNewest(r, this._ctx), title: RunsList.name(r, this._ctx) });
+        }
+        return e.tree;
+    },
+
+    /** Vertical guide lines (x relative to the name column) and the
+     *  connector for an inline row at `depth`. */
+    _inlineLines(row, forDetail) {
+        const x = (k) => 12 + 20 * k;
+        let html = '';
+        row.guides.forEach((on, k) => { if (on) html += `<span class="rl-tg" aria-hidden="true" style="--rl-x:${x(k)}px"></span>`; });
+        const own = x(row.depth - 1);
+        if (forDetail) {
+            if (!row.last) html += `<span class="rl-tg" aria-hidden="true" style="--rl-x:${own}px"></span>`;
+            if (row.expanded) html += `<span class="rl-tg" aria-hidden="true" style="--rl-x:${x(row.depth)}px"></span>`;
+        } else {
+            html += `<span class="rl-tg${row.last ? ' rl-tg-end' : ''}" aria-hidden="true" style="--rl-x:${own}px"></span>` +
+                `<span class="rl-tc" aria-hidden="true" style="--rl-x:${own}px"></span>`;
+            if (row.expanded) html += `<span class="rl-tg rl-tg-down" aria-hidden="true" style="--rl-x:${x(row.depth)}px"></span>`;
+        }
+        return html;
+    },
+
+    /** Append an open run's rows under its row. `sess`: 'mid' when more
+     *  session rows follow (the session guide continues), 'end' for the
+     *  session's last run, null in the flat list. */
+    _inlineAppend(list, r, sess) {
+        if (!(this._openRuns || []).includes(r.trace_id)) return;
+        const RL = RunsList;
+        const flat = sess === null;
+        RunTrace.injectStyle(); // decision badges and the span panel
+        const e = this._inlineEntry(r.trace_id);
+        const base = sess === 'mid' ? '<span class="rl-guide" aria-hidden="true"></span>' : '';
+        if (!e.trace) {
+            const m = document.createElement('div');
+            m.className = 'rl-row rl-spanrow rl-spanmsg' + (sess ? ' rl-child' : '');
+            const text = e.error ? 'Spans unavailable. Details opens the full trace.' : 'Loading spans…';
+            m.innerHTML = base + this._inlineLines({ depth: 1, guides: [], last: true, expanded: false }) +
+                `<span class="rl-c"></span><span class="rl-c rl-name rl-sub" style="--rl-ind:20px">${this._esc(text)}</span>`;
+            list.appendChild(m);
+            if (!e.loading && !e.error) this._inlineFetch(r.trace_id, false);
+            return;
+        }
+        const tree = this._inlineTree(r, e);
+        const rows = RL.inlineRows(tree, e.open);
+        if (!rows.length) {
+            const m = document.createElement('div');
+            m.className = 'rl-row rl-spanrow rl-spanmsg' + (sess ? ' rl-child' : '');
+            m.innerHTML = base + this._inlineLines({ depth: 1, guides: [], last: true, expanded: false }) +
+                '<span class="rl-c"></span><span class="rl-c rl-name rl-sub" style="--rl-ind:20px">No spans recorded for this run.</span>';
+            list.appendChild(m);
+            return;
+        }
+        rows.forEach(row => {
+            list.appendChild(this._spanRow(r, e, row, base, flat, sess));
+            if (e.det[row.key]) list.appendChild(this._spanDetailRow(r, e, tree, row, base, sess));
+        });
+    },
+
+    _spanRow(r, e, row, base, flat, sess) {
+        const RT = RunTrace;
+        const n = row.node;
+        const s = n.span || {};
+        const d = RT.decision(n);
+        const now = Date.now();
+        const tid = r.trace_id;
+        const t = RT.timing(n, now);
+        let dur = t.dur;
+        if (n.kind === 'tool' && !(Number(s.duration_ms) >= 0) && !(d && d.key === 'waiting')) dur = null;
+        const tone = d ? (d.key === 'waiting' ? ' warn' : (d.key === 'blocked' || d.key === 'repeat') ? ' bad' : '') : '';
+        const name = RT.spanName(n);
+        const open = !!e.det[row.key];
+        const el = document.createElement('div');
+        el.className = 'rl-row rl-spanrow' + (sess ? ' rl-child' : '') + tone + (open ? ' rl-detopen' : '');
+        el.dataset.fk = `span:${tid}:${row.key}`;
+        el.tabIndex = 0;
+        el.setAttribute('role', 'group');
+        el.setAttribute('aria-expanded', open ? 'true' : 'false');
+        el.setAttribute('aria-label', `${n.kind === 'llm' ? 'Model turn' : 'Tool call'} ${name}${d ? ', ' + d.label : ''}. Enter ${open ? 'hides' : 'shows'} its details.`);
+        const caret = row.hasKids
+            ? `<button type="button" class="rl-caret-btn" data-act="caret" data-fk="spc:${this._esc(tid)}:${this._esc(row.key)}" aria-expanded="${row.expanded ? 'true' : 'false'}" ` +
+              `aria-label="${row.expanded ? 'Hide' : 'Show'} the ${n.children.length} call${n.children.length === 1 ? '' : 's'} under ${this._esc(name)}">${RT.CARET_SVG}</button>`
+            : '<span class="rl-caret-sp" aria-hidden="true"></span>';
+        const tok = RT.nodeTokens(n);
+        const cost = RT.nodeCost(n);
+        const dec = d ? RT.badge(d) : (n.kind === 'tool' && s.action === 'allow' ? '<span class="rl-st">allowed</span>' : '');
+        const cells = [
+            `<span class="rl-c rl-mono rl-sub rl-spant">${this._esc(RT.clock(s.called_at, true))}</span>`,
+            `<span class="rl-c rl-name" style="--rl-ind:${20 * row.depth}px">${caret}<span class="rl-chip">${n.kind === 'llm' ? 'model' : 'tool'}</span>` +
+                `<span class="ar-run-rt" title="${this._esc(name)}">${this._esc(name)}</span></span>`,
+        ];
+        if (flat) cells.push('<span class="rl-c"></span>', '<span class="rl-c"></span>');
+        cells.push(`<span class="rl-c rl-stcell">${dec}</span>`);
+        cells.push(`<span class="rl-c rl-r rl-sub">${n.kind === 'llm' ? String((n.children || []).length) : ''}</span>`);
+        cells.push(`<span class="rl-c rl-r rl-sub">${this._esc(RT.fmtDur(dur))}</span>`);
+        cells.push(`<span class="rl-c rl-r">${this._esc(RT.fmtTok(tok))}</span>`);
+        cells.push(`<span class="rl-c rl-r">${cost != null ? this._esc(RT.fmtUsd(cost)) : ''}</span>`);
+        el.innerHTML = base + this._inlineLines(row, false) + cells.join('');
+        const toggleDet = () => { e.det[row.key] = !e.det[row.key]; this._renderRunsKeep(); };
+        el.addEventListener('click', (ev) => {
+            const b = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+            if (b && b.dataset.act === 'caret') { e.open[row.key] = !e.open[row.key]; this._renderRunsKeep(); return; }
+            toggleDet();
+        });
+        el.addEventListener('keydown', (ev) => {
+            if (ev.target !== el || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+            ev.preventDefault();
+            toggleDet();
+        });
+        return el;
+    },
+
+    /** The span's details, the same panel as the full trace view, in a
+     *  full-width row. A waiting call's decision lives here, with its scope. */
+    _spanDetailRow(r, e, tree, row, base, sess) {
+        const RT = RunTrace;
+        const tid = r.trace_id;
+        const found = RT.find(tree, row.key);
+        const pending = (this._pending && this._pending.items) || [];
+        const ctx = {
+            trace: e.trace,
+            coverage: RunsList.coverageFor(r.runtime_kind, this._ctx),
+            user: r.user, host: r.host,
+            expiryOf: (req) => {
+                const p = pending.find(x => x && req && x.id === req.id);
+                return (p && p.expires_at) || (req && req.expires_at) || null;
+            },
+        };
+        RT.injectStyle();
+        const html = found ? RT.spanPanelHtml(ctx, found)
+            .replace('aria-label="Close span detail, show session governance"', 'aria-label="Close these span details"') : '';
+        const el = document.createElement('div');
+        el.className = 'rl-spandet' + (sess ? ' rl-child' : '');
+        el.style.setProperty('--rl-ind', `${20 * row.depth}px`);
+        el.innerHTML = base + this._inlineLines(row, true) +
+            `<div class="rl-spanpanel" role="region" aria-label="Span details">${html}</div>`;
+        // An open "Raw arguments" stays open across rebuilds.
+        const raw = el.querySelector('details.rt-raw');
+        if (raw) {
+            if (!e.raw) e.raw = {};
+            raw.open = !!e.raw[row.key];
+            raw.addEventListener('toggle', () => { e.raw[row.key] = raw.open; });
+        }
+        el.addEventListener('click', (ev) => {
+            const b = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+            if (!b || !el.contains(b)) return;
+            const act = b.dataset.act;
+            if (act === 'copy') RT._copy(b);
+            else if (act === 'unpick') { e.det[row.key] = false; this._renderRunsKeep(); }
+            else if (act === 'approve' || act === 'deny') {
+                const req = found && found.node.req;
+                if (req && req.id === b.dataset.req) this._inlineDecide(tid, act, req, b.dataset.dur || null);
+            }
+        });
+        return el;
+    },
+
+    /** Allow or Deny one held call from its inline span details, through the
+     *  same routes as the trace view; then reload that run's spans. */
+    async _inlineDecide(traceId, act, req, duration) {
+        // Allow once needs the held call's recorded arguments.
+        if (duration === 'once' && !(req && req.call_fingerprint)) return;
+        const st = RunTrace.state(traceId);
+        if (st.busy) return;
+        st.busy = true;
+        this._renderRunsKeep();
+        try {
+            if (act === 'deny') await API.denyJitRequest(req.id, 'Denied from the runs list span details');
+            else await API.approveJitRequest(req.id, duration);
+            const what = act === 'deny' ? 'Denied' : (duration === 'once' ? 'Allowed once' : 'Allowed');
+            if (window.Toast) (Toast.success || Toast.info).call(Toast, `${what}: ${req.tool_id || 'the call'}, in this session only`);
+        } catch (err) {
+            if (window.Toast) Toast.error((err && err.message) || 'The decision did not go through');
+        } finally {
+            st.busy = false;
+            await this._inlineFetch(traceId, true);
+            this._renderRunsKeep();
+        }
     },
 
     /** Optimizer finding → turn click-through: resolve the one-shot
@@ -2714,6 +3036,8 @@ const AgentRunsPage = {
     /** Allow or Deny one held call: only from the span panel, through the
      *  JIT approve / deny routes (UI token and the app's confirmation). */
     async _rtDecide(box, act, req, duration) {
+        // Allow once needs the held call's recorded arguments.
+        if (duration === 'once' && !(req && req.call_fingerprint)) return;
         const RT = window.RunTrace;
         if (!box._rt) return;
         // Busy lives in the per-trace view state, so a live rebuild during

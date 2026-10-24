@@ -129,5 +129,5 @@ test('runs list session tree: 24px caret, guide from the caret, elbow on the las
   assert.match(src, /\.rl-row\.rl-child \{ padding-left:58px; \}/);
   assert.match(src, /\.rl-table:not\(\.rl-flatlist\) \.rl-hd \{ padding-left:58px; \}/);
   assert.match(src, /moreRow\.className = 'rl-morerow rl-last'/);
-  assert.match(src, /this\._runRow\(r, false, true, !moreRow && i === rows\.length - 1\)/);
+  assert.match(src, /const lastRow = !moreRow && i === rows\.length - 1;\s*list\.appendChild\(this\._runRow\(r, false, true, lastRow\)\);/);
 });

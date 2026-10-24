@@ -320,6 +320,83 @@ const RunsList = {
         return { rows, hidden: g.runs.length - rows.length };
     },
 
+    // ------------------------------------------------- inline expansion
+    // A run opens in place: its span tree shows indented under the run row
+    // in the same table, a span's details open as a row below it. Sessions,
+    // runs and spans all start collapsed.
+
+    /** Runs open at once; opening one more closes the oldest. */
+    INLINE_MAX_OPEN: 10,
+
+    /** A session shows only its header until opened, unless it holds the
+     *  run whose full trace is open. */
+    sessionClosed(openSessions, g, selected) {
+        if (openSessions && openSessions[g.key]) return false;
+        return !(selected && (g.runs || []).some(r => r.trace_id === selected));
+    },
+
+    /** Open or close one run. Returns the new open list (oldest first) and
+     *  the runs closed to stay within the cap. */
+    inlineToggle(open, traceId, max) {
+        max = max || this.INLINE_MAX_OPEN;
+        const list = (open || []).filter(id => id !== traceId);
+        if (list.length !== (open || []).length) return { open: list, opened: false, evicted: [] };
+        list.push(traceId);
+        const evicted = [];
+        while (list.length > max) evicted.push(list.shift());
+        return { open: list, opened: true, evicted };
+    },
+
+    /** The rows a run shows under itself: its span tree flattened depth
+     *  first, the run row being the root (depth 0, not returned). A node's
+     *  children show only when its key is in `openKeys`, so every level
+     *  starts collapsed. `guides[k]` says whether the line of the depth k+1
+     *  ancestor continues past this row; `last` ends its own connector. */
+    inlineRows(tree, openKeys) {
+        const out = [];
+        const open = openKeys || {};
+        const visit = (n, depth, guides, last) => {
+            const kids = n.children || [];
+            const expanded = !!open[n.key] && kids.length > 0;
+            out.push({ node: n, key: n.key, depth, guides, last, hasKids: kids.length > 0, expanded });
+            if (expanded) kids.forEach((c, i) => visit(c, depth + 1, guides.concat([!last]), i === kids.length - 1));
+        };
+        const top = (tree && tree.children) || [];
+        top.forEach((c, i) => visit(c, 1, [], i === top.length - 1));
+        return out;
+    },
+
+    /** What makes an open run fetch its spans again on a live refresh: its
+     *  span count, and its waiting count (a decision made elsewhere). */
+    inlineSig(r) {
+        return `${Number((r && r.spans) || 0)}|${Number((r && r.waiting) || 0)}`;
+    },
+
+    /** On a live tick: should this open run fetch again? Yes after a failed
+     *  fetch (a retry, at most once a tick since a fetch in flight blocks
+     *  another), or when its signature moved. */
+    inlineNeedsFetch(entry, r) {
+        if (!entry || entry.loading) return false;
+        if (entry.error) return true;
+        if (!entry.trace || !r) return false;
+        return this.inlineSig(r) !== entry.sig;
+    },
+
+    /** Drop the cached spans of every run that is no longer open. */
+    inlinePrune(cache, open) {
+        const keep = new Set(open || []);
+        Object.keys(cache || {}).forEach(id => { if (!keep.has(id)) delete cache[id]; });
+        return cache;
+    },
+
+    /** Per-run fetch sequence: start a fetch, then keep its answer only if
+     *  no newer fetch for the same run started since. */
+    inlineBegin(entry) {
+        entry.seq = (entry.seq || 0) + 1;
+        return entry.seq;
+    },
+    inlineCurrent(entry, seq) { return !!entry && entry.seq === seq; },
+
     /** Coverage badge text for a runtime: "partial · N paths not checked",
      *  "not enforced · recorded after the call", or "enforced before the call". */
     coverageLabel(entry) {
