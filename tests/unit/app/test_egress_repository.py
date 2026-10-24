@@ -384,7 +384,7 @@ class TestObservedMigration:
     """
 
     async def _pre_v51_db(self, tmp_path):
-        from securevector.app.database.migrations import migrate_to_v51
+        from securevector.app.database.migrations import migrate_to_v51, migrate_to_v55
 
         db = DatabaseConnection(tmp_path / "old.db")
         await run_migrations(db)
@@ -392,7 +392,25 @@ class TestObservedMigration:
         await conn.execute("DROP TABLE egress_audit")
         await conn.execute(_PRE_V51_EGRESS_AUDIT)
         await conn.commit()
-        return db, migrate_to_v51
+
+        async def migrate(db):
+            # The rebuild under test, then the column v55 adds on top of it:
+            # the repository reads the current schema.
+            await migrate_to_v51(db)
+            await migrate_to_v55(db)
+        return db, migrate
+
+    @staticmethod
+    async def _old_row(db, host, session_id):
+        """A row as the pre-v51 code wrote it (no session_verified column)."""
+        conn = await db.connect()
+        await conn.execute(
+            "INSERT INTO egress_audit (host, port, scheme, operation, kind, action, "
+            "confidence, detector, session_id, evidence) "
+            "VALUES (?, 443, 'https', 'read', 'http', 'allow', 'PARSED', 'bash', ?, 'curl ...')",
+            (host, session_id),
+        )
+        await conn.commit()
 
     @pytest.mark.asyncio
     async def test_observed_is_rejected_before_the_migration(self, tmp_path):
@@ -405,7 +423,7 @@ class TestObservedMigration:
     async def test_migration_widens_the_action_and_keeps_history(self, tmp_path):
         db, migrate_to_v51 = await self._pre_v51_db(tmp_path)
         repo = EgressRepository(db)
-        await repo.log_attempts([_verdict("kept.example.com")], session_id="s1")
+        await self._old_row(db, "kept.example.com", "s1")
         await migrate_to_v51(db)
         await repo.record(host="example.com", session_id="s1",
                           detector="codex-transcript")
@@ -445,7 +463,7 @@ class TestObservedMigration:
         """
         db, migrate_to_v51 = await self._pre_v51_db(tmp_path)
         repo = EgressRepository(db)
-        await repo.log_attempts([_verdict("kept.example.com")], session_id="s1")
+        await self._old_row(db, "kept.example.com", "s1")
         conn = await db.connect()
         await conn.execute(
             "CREATE TABLE egress_audit_v51 AS SELECT * FROM egress_audit")
@@ -464,7 +482,7 @@ class TestObservedMigration:
     async def test_a_crash_before_the_drop_discards_the_stale_copy(self, tmp_path):
         db, migrate_to_v51 = await self._pre_v51_db(tmp_path)
         repo = EgressRepository(db)
-        await repo.log_attempts([_verdict("live.example.com")], session_id="s1")
+        await self._old_row(db, "live.example.com", "s1")
         conn = await db.connect()
         await conn.execute(
             "CREATE TABLE egress_audit_v51 AS SELECT * FROM egress_audit")

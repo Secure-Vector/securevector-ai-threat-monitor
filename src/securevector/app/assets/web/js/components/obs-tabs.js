@@ -183,11 +183,15 @@ const ObsTabs = {
     //           trace_id from the session, so they're 1:1). The unit you pick.
     //   Run   = one step inside a trace: an LLM run (a model call) or a Tool
     //           run (an enforced tool call). Every row is a Run.
-    // "Session" is demoted to a provenance line ("from session <id>"), not a
-    // competing noun; "Activity / Sessions / turns / steps / spans" are retired
-    // from the UI. This is the whole fix for the Trace-vs-Run-vs-Session soup.
+    // 6.0 vocabulary (replaces the v5.2 lock above, owner ask): the
+    // conventional observability terms. Session = one agent session, Run =
+    // one task inside it, Span = one model turn or tool call inside a run.
+    // "Session" and "span" are UI words again. The tabs mirror the
+    // Observability sub-items in the left nav: Runs, Live grid, Health, Map.
+    // Map always stays.
     _TABS: [
         { label: 'Runs', page: 'agent-runs', icon: 'M4 6h16M4 12h16M4 18h10' },
+        { label: 'Live grid', page: 'live-grid', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
         { label: 'Health', page: 'run-health', icon: 'M3 12h4l3-7 4 14 3-7h4' },
         { label: 'Map',    page: 'agent-map',  icon: 'M5 7h4v4H5zM15 13h4v4h-4zM9 9h6M17 11v2' },
     ],
@@ -261,7 +265,7 @@ const ObsTabs = {
         wrap.setAttribute('aria-label', 'Observability views');
         // 'storylines' (the retired Sessions page) maps to the Activity tab so
         // a deep link still highlights the merged view.
-        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs', health: 'run-health' }[active];
+        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs', health: 'run-health', grid: 'live-grid' }[active];
         let activeBtn = null;
         this._TABS.forEach(t => {
             const b = document.createElement('button');
@@ -305,7 +309,9 @@ const ObsTabs = {
         // The Traces tab has two views: the grouped trace list ("By trace")
         // and the flat chronological feed (the pre-v5 Timeline page, now
         // "Live feed"). Render the sub-toggle right next to the tabs on both.
-        if (active === 'runs' || active === 'timeline') {
+        // The Runs tab has its own list now; the toggle stays on the Live
+        // feed page only, as the way back to Runs.
+        if (active === 'timeline') {
             container.appendChild(this._viewToggle(active));
         }
     },

@@ -97,6 +97,20 @@ const SettingsPage = {
         cloudSection.appendChild(cloudCard);
         container.appendChild(cloudSection);
 
+        // Approvals from SecureVector Cloud: off by default, changed only here.
+        {
+            const caSection = this.createSection(
+                'Approvals from SecureVector Cloud',
+                'Let a held call on this computer be answered from SecureVector Cloud. Off by default. Only this app can turn it on.',
+            );
+            const caCard = Card.create({ gradient: true });
+            const caBody = caCard.querySelector('.card-body');
+            caBody.setAttribute('data-cloud-approvals', '');
+            caSection.appendChild(caCard);
+            container.appendChild(caSection);
+            this.renderCloudApprovals(caBody);
+        }
+
         // AI Analysis Section (disabled when cloud mode is on)
         const cloudModeActive = this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled;
         const llmDesc = cloudModeActive
@@ -164,6 +178,29 @@ const SettingsPage = {
         this.renderRefreshSettings(refreshBody);
         refreshSection.appendChild(refreshCard);
         container.appendChild(refreshSection);
+
+        // Agent Sessions settings (Delegation, Response rungs) live on that page.
+        {
+            const sessSection = this.createSection('Agent Sessions', 'Delegation and response steps.');
+            const sessCard = Card.create({ gradient: true });
+            const sessBody = sessCard.querySelector('.card-body');
+            sessBody.setAttribute('data-sessions-pointer', '');
+            const line = document.createElement('p');
+            line.textContent = 'Agent Sessions settings live in Agent Sessions, Settings. ';
+            const link = document.createElement('a');
+            link.href = '#terminals?settings=1';
+            link.textContent = 'Open Agent Sessions settings';
+            link.setAttribute('data-open-sessions-settings', '');
+            link.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                try { sessionStorage.setItem('sv-sessions-settings', '1'); } catch (e) { /* storage unavailable */ }
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');
+            });
+            line.appendChild(link);
+            sessBody.appendChild(line);
+            sessSection.appendChild(sessCard);
+            container.appendChild(sessSection);
+        }
 
         // Uninstall Section
         const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from your system');
@@ -1690,6 +1727,149 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         row.appendChild(select);
         container.appendChild(row);
+    },
+
+    /** "Allow approvals from SecureVector Cloud": the switch, which answers
+     *  the cloud may give, and the rules that are approved on this computer
+     *  only. Every change goes through the app's confirmation and is audited. */
+    async renderCloudApprovals(container) {
+        let cfg;
+        try {
+            cfg = await API.getCloudApprovals();
+        } catch (e) {
+            container.textContent = 'Could not read this setting.';
+            return;
+        }
+        const LABELS = { once: 'Allow once', '15m': '15 minutes', '1h': '1 hour', session: 'This session' };
+        const RULES = { cred_then_net: 'Credential, then network', outside_then_reach: 'Outside content, then credential or network' };
+        const pausedNow = !!cfg.paused, pausedMessage = cfg.paused_message;
+        container.textContent = '';
+
+        const save = async (change, done) => {
+            try {
+                cfg = Object.assign(await API.setCloudApprovals(change), { paused: pausedNow, paused_message: pausedMessage });
+                if (window.Toast) Toast.success('Saved');
+            } catch (e) {
+                if (window.Toast) Toast.error('Not saved: ' + (e && e.message ? e.message : 'try again'));
+            }
+            done();
+        };
+
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;';
+        const info = document.createElement('div');
+        const label = document.createElement('span');
+        label.className = 'setting-label';
+        label.style.fontWeight = '600';
+        label.textContent = 'Allow approvals from SecureVector Cloud';
+        info.appendChild(label);
+        const note = document.createElement('ul');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin: 6px 0 0; padding-left: 18px; line-height: 1.6; max-width: 60ch;';
+        [
+            'When on, someone signed in to SecureVector Cloud for this computer can allow or deny a held call from there.',
+            'This computer checks every answer against its own request before using it: same session, still waiting, and the exact call for Allow once.',
+            'Deny from the cloud always works while this is on. Allow only works within the choices below.',
+            'The cloud cannot turn this on. Turn it off here at any time.',
+        ].forEach(t => { const li = document.createElement('li'); li.textContent = t; note.appendChild(li); });
+        info.appendChild(note);
+        row.appendChild(info);
+
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = !!cfg.enabled;
+        checkbox.setAttribute('data-cloud-approvals-enabled', '');
+        checkbox.setAttribute('aria-label', 'Allow approvals from SecureVector Cloud');
+        checkbox.addEventListener('change', () => {
+            const want = checkbox.checked;
+            checkbox.disabled = true;
+            save({ enabled: want }, () => {
+                checkbox.checked = !!cfg.enabled;
+                checkbox.disabled = false;
+                details.hidden = !cfg.enabled;
+            });
+        });
+        toggle.appendChild(checkbox);
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(slider);
+        row.appendChild(toggle);
+        container.appendChild(row);
+
+        // The poller stops after the cloud refuses this device's credential
+        // three times, until Cloud Connect signs in again.
+        if (cfg.paused) {
+            const warn = document.createElement('p');
+            warn.setAttribute('data-cloud-approvals-paused', '');
+            warn.style.cssText = 'margin: 10px 0 0; color: var(--warning, #f59e0b); font-size: 13px;';
+            warn.textContent = cfg.paused_message || 'Cloud approvals paused: sign-in to Cloud Connect failed';
+            container.appendChild(warn);
+        }
+
+        const details = document.createElement('div');
+        details.hidden = !cfg.enabled;
+        details.style.cssText = 'margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); font-size: 13px;';
+
+        const allowHead = document.createElement('div');
+        allowHead.style.fontWeight = '600';
+        allowHead.textContent = 'What the cloud may answer';
+        details.appendChild(allowHead);
+        const allowNote = document.createElement('p');
+        allowNote.style.cssText = 'color: var(--text-secondary); margin: 4px 0 8px;';
+        allowNote.textContent = 'Deny is always allowed. Allow once is on by default; longer approvals are off until you add them.';
+        details.appendChild(allowNote);
+        const allowBox = document.createElement('div');
+        allowBox.style.cssText = 'display: flex; gap: 14px; flex-wrap: wrap;';
+        Object.keys(LABELS).forEach(k => {
+            const l = document.createElement('label');
+            l.style.cssText = 'display: inline-flex; gap: 6px; align-items: center;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = (cfg.allowance || []).includes(k);
+            cb.setAttribute('data-cloud-allowance', k);
+            cb.addEventListener('change', () => {
+                const next = Object.keys(LABELS).filter(x => x === k ? cb.checked : (cfg.allowance || []).includes(x));
+                cb.disabled = true;
+                save({ allowance: next }, () => { cb.checked = (cfg.allowance || []).includes(k); cb.disabled = false; });
+            });
+            l.appendChild(cb);
+            l.appendChild(document.createTextNode(LABELS[k]));
+            allowBox.appendChild(l);
+        });
+        details.appendChild(allowBox);
+
+        const ruleHead = document.createElement('div');
+        ruleHead.style.cssText = 'font-weight: 600; margin-top: 14px;';
+        ruleHead.textContent = 'Approve on this computer only';
+        details.appendChild(ruleHead);
+        const ruleNote = document.createElement('p');
+        ruleNote.style.cssText = 'color: var(--text-secondary); margin: 4px 0 8px;';
+        ruleNote.textContent = 'Calls held by these rules can be denied from the cloud but only allowed here.';
+        details.appendChild(ruleNote);
+        const ruleBox = document.createElement('div');
+        ruleBox.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+        const ruleIds = Array.from(new Set(Object.keys(RULES).concat(cfg.device_only_rules || [])));
+        ruleIds.forEach(id => {
+            const l = document.createElement('label');
+            l.style.cssText = 'display: inline-flex; gap: 6px; align-items: center;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = (cfg.device_only_rules || []).includes(id);
+            cb.setAttribute('data-cloud-device-only', id);
+            cb.addEventListener('change', () => {
+                const cur = (cfg.device_only_rules || []).filter(x => x !== id);
+                const next = cb.checked ? cur.concat([id]) : cur;
+                cb.disabled = true;
+                save({ device_only_rules: next }, () => { cb.checked = (cfg.device_only_rules || []).includes(id); cb.disabled = false; });
+            });
+            l.appendChild(cb);
+            l.appendChild(document.createTextNode(RULES[id] || id));
+            ruleBox.appendChild(l);
+        });
+        details.appendChild(ruleBox);
+        container.appendChild(details);
     },
 
     createSection(title, description, badgeText) {

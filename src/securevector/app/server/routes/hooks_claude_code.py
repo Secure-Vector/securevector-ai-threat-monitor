@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from . import _hooks_common
+from securevector.app.services import mcp_registration
 from securevector.app.terminals.guardrail import block_uninstall
 from ._plugin_guard import ForceBody, require_local_origin
 
@@ -805,12 +806,16 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"Claude Code plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "The bundled plugin assets are missing from the installed package — "
+                "The bundled plugin assets are missing from the installed package. "
                 "for the wheel verify setup.py:package_data + MANIFEST.in include "
                 "plugins/claude-code/**/*; for the binary verify the PyInstaller "
                 "--add-data bundles src/securevector/plugins (build-installers.yml)."
             ),
         )
+
+    # The SecureVector MCP tools (check_policy, session_burn) at user scope.
+    # Agent Config Trust treats it as the app's own entry. Best effort.
+    mcp_registration.register("claude-code")
 
     # Try the no-marketplace auto-install. If Claude Code's plugin
     # config dir is present we copy the tree in and register it; the
@@ -898,6 +903,7 @@ async def _uninstall_plugin():
     ``~/.securevector/cost-probes/``; on uninstall, the user has
     withdrawn consent so we wipe the captured data.
     """
+    mcp_registration.unregister("claude-code")
     if STAGING_DIR.is_dir():
         shutil.rmtree(STAGING_DIR, ignore_errors=True)
         logger.info("Removed staged plugin tree at %s", STAGING_DIR)

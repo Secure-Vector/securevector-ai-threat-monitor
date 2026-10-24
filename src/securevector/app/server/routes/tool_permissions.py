@@ -10,7 +10,7 @@ DELETE /api/tool-permissions/overrides/:tool_id - Delete an override
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -26,6 +26,7 @@ from securevector.core.tool_permissions.engine import (
     get_risk_score,
 )
 
+from securevector.app.services import decisions
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -727,7 +728,8 @@ async def get_overrides():
 
 @router.get("/tool-permissions/synced-overrides")
 async def get_synced_overrides(runtime: Optional[str] = None,
-                               session_id: Optional[str] = None):
+                               session_id: Optional[str] = None,
+                               http_request: Request = None):
     """Effective tool-permission decisions, in proxy-friendly shape.
 
     ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
@@ -838,11 +840,41 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                 await jit_repo.active_grants(runtime_kind=jit_runtime)
                 if jit_runtime else []
             )
+            # Grants a response rung filed only lift that rung's own row
+            # (see step_up_rows below); they are never an allow row.
+            from securevector.app.database.repositories.response_rungs import (
+                ResponseRungsRepository,
+            )
+            rung_ids = await ResponseRungsRepository(db).rung_request_ids(
+                [g.get("request_id") for g in grants]
+            ) if grants else set()
             for g in grants:
+                if g.get("request_id") in rung_ids:
+                    continue
+                # Session isolation, whatever the duration: a grant made in
+                # one session reaches only a caller naming that session, and
+                # a sessionless grant only a caller naming none. A caller in
+                # a session never receives another session's grant or a
+                # sessionless one.
+                grant_sid = (g.get("session_id") or "").strip() or None
+                if grant_sid != _sid:
+                    continue
+                # An "Allow once" grant lifts one exact call; only the server
+                # paths that see the call's arguments may spend it.
+                if g.get("call_fingerprint"):
+                    continue
+                # A delegation approval launches a task; it is never an allow row.
+                if str(g.get("tool_id") or "").startswith("delegate:"):
+                    continue
                 # Run exemptions (tool_id='*', #203) are consumed server-side
                 # by run_limits and must NOT be emitted: a wildcard allow row
                 # would lift policy denies too, not just the run cap.
                 if g["tool_id"] == "*":
+                    continue
+                # Host approvals for a blocked egress destination are read by
+                # the egress evaluator only; as a tool allow row they would
+                # name a "tool" that does not exist, or worse, its suffix.
+                if str(g["tool_id"]).startswith("egress:"):
                     continue
                 grant_base = {
                     "effect": "allow",
@@ -854,9 +886,9 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                     "reason": f"JIT grant {g['id']} ({g['duration']})",
                     "source": "jit_grant",
                     "expires_at": g.get("expires_at"),
-                    # session-scoped grants only apply inside the requesting
-                    # session; hooks that pass their session honour this.
-                    "session_id": g.get("session_id") if g.get("duration") == "session" else None,
+                    # Every session-bound grant carries its session, so a
+                    # hook that checks the row's session also scopes it.
+                    "session_id": grant_sid,
                 }
                 merged.append({"tool_id": g["tool_id"], **grant_base})
                 if ':' in g["tool_id"]:
@@ -943,6 +975,28 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                 # the JIT request is the same human who authored the rule.
                 "requestable": effect == "deny",
             })
+
+        # Response rung 3, active mode only: the session's step-up rows go
+        # first so the hooks' first-seen-wins scan reads them. Each is a
+        # requestable deny for a tool the rows above allow; a tool they
+        # deny or prompt for gets no rung row. Fail-quiet: a rung read error
+        # leaves the rows as they were.
+        if _rt and _sid:
+            try:
+                from securevector.app.services import response_rungs
+                merged[0:0] = await response_rungs.step_up_rows(db, _sid, merged)
+            except Exception as e:
+                logger.warning("Response rung rows skipped in /synced-overrides: %s", e)
+            # Outside content, then a credential read: a marker for a verified
+            # session in On mode, unless the step-up marker already covers it.
+            try:
+                from securevector.app.services import call_rules, response_rungs
+                if response_rungs.find_marker(merged, _sid) is None:
+                    rule_marker = await call_rules.marker_row(db, _sid, http_request, _rt)
+                    if rule_marker:
+                        merged.append(rule_marker)
+            except Exception as e:
+                logger.warning("Call rule marker skipped in /synced-overrides: %s", e)
         return {"synced": merged, "total": len(merged)}
 
     except Exception as e:
@@ -951,8 +1005,11 @@ async def get_synced_overrides(runtime: Optional[str] = None,
 
 
 @router.put("/tool-permissions/overrides/{tool_id}")
-async def upsert_override(tool_id: str, request: OverrideRequest):
+async def upsert_override(tool_id: str, request: OverrideRequest, http_request: Request = None,
+                          x_sv_ui_token: Optional[str] = Header(None)):
     """Set or update an override for an essential tool."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         # Validate tool_id exists either in the YAML registry OR in the
         # built-ins list for one of the supported runtimes — the Tool
@@ -994,8 +1051,11 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
 
 
 @router.delete("/tool-permissions/overrides/{tool_id}")
-async def delete_override(tool_id: str):
+async def delete_override(tool_id: str, http_request: Request = None,
+                          x_sv_ui_token: Optional[str] = Header(None)):
     """Delete an override, reverting to registry default."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = ToolPermissionsRepository(db)
@@ -1064,8 +1124,11 @@ async def list_custom_tools():
 
 
 @router.post("/tool-permissions/custom")
-async def create_custom_tool(request: CreateCustomToolRequest):
+async def create_custom_tool(request: CreateCustomToolRequest, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)):
     """Create a new custom tool."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1106,9 +1169,12 @@ async def create_custom_tool(request: CreateCustomToolRequest):
 
 @router.put("/tool-permissions/custom/{tool_id}")
 async def update_custom_tool_permission(
-    tool_id: str, request: UpdateCustomToolPermissionRequest
+    tool_id: str, request: UpdateCustomToolPermissionRequest, http_request: Request = None,
+    x_sv_ui_token: Optional[str] = Header(None),
 ):
     """Update a custom tool's permission (block/allow)."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1134,12 +1200,15 @@ async def update_custom_tool_permission(
 
 
 @router.patch("/tool-permissions/custom/{tool_id}")
-async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest):
+async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)):
     """Update a custom tool's name / description / risk.
 
     PATCH rather than PUT because the body is a partial update; PUT on this
     path already means "set the permission" and must keep that meaning.
     """
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1168,8 +1237,11 @@ async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest):
 
 
 @router.delete("/tool-permissions/custom/{tool_id}")
-async def delete_custom_tool(tool_id: str):
+async def delete_custom_tool(tool_id: str, http_request: Request = None,
+                             x_sv_ui_token: Optional[str] = Header(None)):
     """Delete a custom tool."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -1265,6 +1337,17 @@ async def record_call_audit(request: AuditLogRequest):
             span_id=request.span_id,
             parent_span_id=request.parent_span_id,
         )
+        if request.session_id:
+            from securevector.app.services import response_rungs
+            await response_rungs.note_call(
+                db, request.function_name or request.tool_id, request.session_id, request.action,
+                request.args_preview,
+            )
+            from securevector.app.services import call_rules
+            await call_rules.note_call(
+                db, request.function_name or request.tool_id, request.session_id, request.action,
+                request.args_preview, request.runtime_kind,
+            )
         return {"ok": True}
 
     except Exception as e:
@@ -1636,8 +1719,11 @@ class AuditDeleteRequest(BaseModel):
 
 
 @router.delete("/tool-permissions/call-audit")
-async def delete_call_audit_entries(body: AuditDeleteRequest):
+async def delete_call_audit_entries(body: AuditDeleteRequest, http_request: Request = None,
+                                    x_sv_ui_token: Optional[str] = Header(None)):
     """Delete tool call audit entries by ID."""
+    # Changes what agents may do: a person in the app, with the UI token.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CustomToolsRepository(db)

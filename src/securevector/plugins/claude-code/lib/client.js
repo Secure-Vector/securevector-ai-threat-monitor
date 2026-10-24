@@ -47,7 +47,7 @@ async function getJson(url, opts = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(url, { signal: controller.signal, headers: authHeaders() });
+    const resp = await fetch(url, { signal: controller.signal, headers: { ...authHeaders(), ...(opts.headers || {}) } });
     if (!resp || !resp.ok) return {};
     try {
       const data = await resp.json();
@@ -82,13 +82,13 @@ const POST_TIMEOUT_MS = 2000;
  * @param {object} body
  * @returns {undefined}
  */
-function postJsonAndForget(url, body) {
+function postJsonAndForget(url, body, extraHeaders = {}) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
     const p = fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...(extraHeaders || {}) },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -128,7 +128,10 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
   // older servers simply ignore the parameter.
   if (opts.sessionId) params.set('session_id', opts.sessionId);
   const qs = params.toString();
-  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${qs ? `?${qs}` : ''}`, opts);
+  // Inside a launched task, the task id and hook token bind the session so
+  // the app can send its per-session hold marker.
+  const headers = opts.sessionId ? terminalHeaderFields() : {};
+  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${qs ? `?${qs}` : ''}`, { ...opts, headers });
 }
 
 /**
@@ -140,6 +143,17 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
  * which are a small fraction of tool calls.
  */
 const EGRESS_TIMEOUT_MS = 400;
+
+/**
+ * Inside a task launched by Agent Sessions, the app hands the session its task
+ * id and hook token. Sending them lets the egress check bind this call to the
+ * session it claims; without them the call is still evaluated, just not bound.
+ */
+function terminalHeaderFields() {
+  const task = (process.env.SV_TERMINAL_TASK_ID || '').trim();
+  const token = (process.env.SV_TERMINAL_HOOK_TOKEN || '').trim();
+  return task && token ? { 'x-sv-terminal-task': task, 'x-sv-terminal-hook': token } : {};
+}
 
 /**
  * Domain helper: POST a tool call to the local app's egress evaluator.
@@ -165,7 +179,7 @@ async function evaluateEgress(baseUrl, body, opts = {}) {
   try {
     const resp = await fetch(`${baseUrl}/api/egress/evaluate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...terminalHeaderFields() },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -176,6 +190,40 @@ async function evaluateEgress(baseUrl, body, opts = {}) {
     return {};
   } finally {
     clearTimeout(timer);
+  }
+}
+
+
+/**
+ * Fire-and-forget report of a PreToolUse decision the egress check did not
+ * see (a name-based deny or ask, or a call that cannot reach the network),
+ * so the app can match it against the session's recent pre-flight checks.
+ * Metrics only: it never changes the verdict and nothing waits on it. Short
+ * timeout; skipped when the tool input is too large to send.
+ */
+const ATTEMPT_TIMEOUT_MS = 150;
+const ATTEMPT_MAX_BYTES = 256 * 1024;
+
+function reportAttempt(baseUrl, body) {
+  try {
+    const payload = JSON.stringify(body);
+    if (payload.length > ATTEMPT_MAX_BYTES) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+    const p = fetch(`${baseUrl}/api/policy/attempt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...terminalHeaderFields() },
+      body: payload,
+      signal: controller.signal,
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {}).finally(() => clearTimeout(timer));
+    } else {
+      clearTimeout(timer);
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -229,6 +277,6 @@ function resolveBaseUrl() {
 
 module.exports = {
   resolveBaseUrl,
-  getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress,
-  authHeaders, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS,
+  getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress, reportAttempt,
+  authHeaders, terminalHeaderFields, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS,
 };

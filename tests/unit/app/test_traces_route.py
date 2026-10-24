@@ -294,3 +294,45 @@ async def test_deny_between_two_runs_counts_once_in_list_and_detail(tmp_path, mo
     a = await traces_mod.get_trace(runs["claude-code"]["trace_id"])
     b = await traces_mod.get_trace(runs["codex"]["trace_id"])
     assert (a["egress_blocked"], b["egress_blocked"]) == (0, 1)
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_decoration_covers_relinked_history(tmp_path):
+    db = await _build_db(tmp_path)
+    await db.execute(
+        "INSERT INTO terminal_tasks (id, executor_id, session_id, title, workspace, status, created_at) "
+        "VALUES ('t1', 'claude-code', 's-new', 'Task', '/work/a', 'working', '2026-01-02')"
+    )
+    await db.execute(
+        "INSERT INTO terminal_events (task_id, kind, origin, detail, created_at, prev_hash, row_hash) "
+        "VALUES ('t1', 'session_relinked', 'hook', 's-old', '2026-01-02', NULL, 'h')"
+    )
+    runs = [
+        {"session_id": "s-old", "runtime_kind": "claude-code", "spans": 1},
+        {"session_id": "s-new", "runtime_kind": "claude-code", "spans": 1},
+    ]
+    await _add_terminal_tasks(db, runs)
+    assert runs[0]["terminal_task"]["id"] == "t1"
+    assert runs[1]["terminal_task"]["id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_trace_detail_carries_row_hash_for_each_tool_span(tmp_path, monkeypatch):
+    """The cloud panel names a tool span by its audit row hash, so the local
+    trace detail returns it too; the producer span_id is left as is."""
+    from securevector.app.server.routes import traces as traces_mod
+    from securevector.app.utils.trace_id import derive_trace_id
+    db = await _build_db(tmp_path)
+    monkeypatch.setattr(traces_mod, "get_database", lambda: db)
+    repo = CustomToolsRepository(db)
+    await _seed_run(repo, "claude-code", "s-hash", [("Read", "allow", None), ("Bash", "allow", None)])
+    conn = await db.connect()
+    cur = await conn.execute("SELECT row_hash FROM tool_call_audit WHERE session_id = 's-hash' ORDER BY seq")
+    hashes = [r[0] for r in await cur.fetchall()]
+    assert len(hashes) == 2 and all(h and len(h) == 64 for h in hashes)
+
+    out = await traces_mod.get_trace(derive_trace_id("claude-code", "s-hash"))
+    tools = [s for s in out["spans"] if s["span_kind"] == "tool_call"]
+    assert [s["row_hash"] for s in tools] == hashes
+    assert all("span_id" in s for s in tools)
+    await db.disconnect()

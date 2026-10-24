@@ -11,6 +11,7 @@ The --settings flag is additive: the workspace's own project settings and
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -57,6 +58,17 @@ class Executor:
     # recent session rather than a named one, and silently resuming the
     # wrong conversation is worse than not offering it.
     resume_argv: tuple[str, ...] = ()
+    # How this harness takes a first prompt for its interactive session on
+    # the command line, "{prompt}" standing for the text. Each form keeps the
+    # prompt one argv element that cannot be read as a flag: after a "--"
+    # separator, or attached to its option with "=". Empty means the harness
+    # has none, and a delegated prompt is pasted once its first hook arrives.
+    prompt_argv: tuple[str, ...] = ()
+    # The harness's Guard relays a SessionStart (or first idle) when the
+    # session is ready for input. A delegated first prompt is then pasted
+    # after that hook rather than passed in argv, where other local users
+    # could read it in the process list.
+    ready_hook: bool = False
     # Harness-specific auth and config names, admitted only for THIS
     # executor's child. Kept off the global allowlist so a Copilot token or an
     # OpenAI key is never handed to an unrelated harness's process.
@@ -65,6 +77,11 @@ class Executor:
     # older release that lacks one still launches. Each must also be accepted
     # by the resume subcommand, since they are appended after it.
     optional_args: tuple[str, ...] = ()
+    # A delegated prompt pasted with no ready signal can be lost while the
+    # harness is still starting up (a self-update, for one). With this set,
+    # a paste that brings no hook within PROMPT_RESUBMIT_S is sent once more
+    # before the Guard check decides the session is ungoverned.
+    prompt_resubmit: bool = False
 
 
 _EXECUTORS: dict[str, Executor] = {
@@ -74,6 +91,9 @@ _EXECUTORS: dict[str, Executor] = {
         binary="claude",
         resume_argv=("--resume", "{session_id}"),
         supports_terminal_settings=True,
+        # `claude [options] [prompt]`: starts the interactive session with it.
+        prompt_argv=("--", "{prompt}"),
+        ready_hook=True,
     ),
     "codex": Executor(
         id="codex",
@@ -91,6 +111,9 @@ _EXECUTORS: dict[str, Executor] = {
         # A subcommand, not a flag: `codex resume <id>`.
         resume_argv=("resume", "{session_id}"),
         env_extra=("OPENAI_API_KEY",),
+        # Codex sends SessionStart only with its first turn, after a prompt
+        # is submitted, so it has no ready signal before one: a delegated
+        # prompt is pasted once the TUI is drawn and its output is still.
     ),
     "copilot-cli": Executor(
         id="copilot-cli",
@@ -98,12 +121,55 @@ _EXECUTORS: dict[str, Executor] = {
         binary="copilot",
         resume_argv=("--resume", "{session_id}"),
         env_extra=("COPILOT_HOME", "GH_TOKEN", "GITHUB_TOKEN"),
+        # `-i, --interactive <prompt>`: interactive mode, runs this prompt.
+        prompt_argv=("--interactive={prompt}",),
+        ready_hook=True,
     ),
     "opencode": Executor(
         id="opencode",
         label="OpenCode",
         binary="opencode",
         env_extra=("OPENCODE_CONFIG", "OPENAI_API_KEY"),
+        # No first-prompt argument is used: `--prompt` fills the input box
+        # without sending it. Its Guard relays SessionStart from
+        # session.created, which comes with the first message, so a delegated
+        # prompt is pasted once the TUI is drawn and its output is still.
+        prompt_resubmit=True,
+    ),
+    # The three below report to the audit trail through their own Guard
+    # (GovRun's built-in sink, the Hermes SDK plugin, the OpenClaw plugin),
+    # but none relays this app's per-task hook events, so a launch here runs
+    # ungoverned on the board and says so. No first-prompt argument is used
+    # for any of them.
+    "govrun": Executor(
+        id="govrun",
+        label="GovRun",
+        binary="govrun",
+        # `govrun --resume <SESSION>`: "Continue an earlier session: its id
+        # or a unique prefix", looked up in the launch folder.
+        resume_argv=("--resume", "{session_id}"),
+        env_extra=("GOVRUN_HOME", "OPENAI_API_KEY"),
+    ),
+    "hermes": Executor(
+        id="hermes",
+        label="Hermes",
+        binary="hermes",
+        # `hermes --resume, -r SESSION`: "Resume a previous session by ID".
+        # The Hermes SDK plugin reports Hermes's own session id.
+        resume_argv=("--resume", "{session_id}"),
+        env_extra=("HERMES_HOME",),
+    ),
+    "openclaw": Executor(
+        id="openclaw",
+        label="OpenClaw",
+        binary="openclaw",
+        # `openclaw tui`: the interactive terminal UI. A bare `openclaw`
+        # prints help and exits.
+        extra_args=("tui",),
+        # `openclaw tui --session <key>`; the OpenClaw Guard reports the
+        # session key as the session id.
+        resume_argv=("--session", "{session_id}"),
+        env_extra=("OPENCLAW_STATE_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_PROFILE"),
     ),
 }
 EXECUTORS = types.MappingProxyType(_EXECUTORS)
@@ -198,6 +264,14 @@ def build_child_env(
     # contract. Pin it to this app instance rather than relying on its 8741
     # default, which would misroute a terminal launched on a custom port.
     env["SECUREVECTOR_ENGINE_ENDPOINT"] = f"http://127.0.0.1:{port}"
+    # Decisions come from a person in the app: the per-run UI token and page
+    # secret never reach a governed task, whatever name a parent gave them.
+    from securevector.app.services.decisions import decision_secrets
+
+    secrets_ = decision_secrets()
+    for key in [k for k, v in env.items() if any(s and s in str(v) for s in secrets_)]:
+        logging.getLogger(__name__).warning("Dropped %s from a task environment: it carries an app decision value", key)
+        del env[key]
     return env
 
 
@@ -295,6 +369,7 @@ def build_launch(
     parent_env: Mapping[str, str],
     plugin_dir: Optional[Path],
     resume_session_id: Optional[str] = None,
+    initial_prompt: Optional[str] = None,
 ) -> Launch:
     executor = EXECUTORS.get(executor_id)
     if executor is None:
@@ -346,4 +421,9 @@ def build_launch(
     argv += [flag for flag in executor.optional_args if supports_flag(resolved, flag, env)]
     if resume_args and not subcommand:
         argv += resume_args
+    if initial_prompt is not None:
+        if not executor.prompt_argv or resume_args:
+            raise ValueError("This harness takes no first prompt on the command line.")
+        # One argv element per part; no shell ever reads it.
+        argv += [part.replace("{prompt}", initial_prompt) for part in executor.prompt_argv]
     return Launch(argv=argv, env=env, cwd=str(workspace))

@@ -18,6 +18,9 @@ const App = {
         'agent-runs': AgentRunsPage,
         // Observability > Health: run health findings across runs.
         'run-health': RunHealthPage,
+        // Observability > Live grid: running sessions, large pinned tiles and
+        // a compact grid for hundreds (js/pages/live-grid.js).
+        'live-grid': LiveGridPage,
         'agent-timeline': AgentTimelinePage,
         'storylines': StorylinesPage,
         // Kept routable as an alias: opens Threat Monitor on the Blocked facet.
@@ -65,6 +68,8 @@ const App = {
         // into its own Cloud-section page. Always reachable (it's the funnel),
         // not enrollment-gated.
         governance:          GovernancePage,
+        // Agent Detection & Response: detect, harden, respond, pre-flight.
+        'detection-response': DetectionResponsePage,
         'mcp-policies':      McpPoliciesPage,
         // Cloud Activity (story #113) — full in/out visibility for enrolled
         // devices. Sidebar gates its visibility on enrollment; the page also
@@ -125,6 +130,14 @@ const App = {
             const page = e.state?.page || this.getPageFromURL();
             this.loadPage(page, false);
         });
+
+        // Deep link to the Agent Sessions settings panel: the URL is rewritten
+        // while the page loads, so the request is kept in storage first.
+        try {
+            if (/[?&]settings=1(&|$)/.test(String(window.location.search || '').replace(/^\?/, '?') + String(window.location.hash || ''))) {
+                sessionStorage.setItem('sv-sessions-settings', '1');
+            }
+        } catch (e) { /* storage unavailable */ }
 
         // Load initial page from URL or default to the session-first task board.
         let initialPage = this.getPageFromURL();

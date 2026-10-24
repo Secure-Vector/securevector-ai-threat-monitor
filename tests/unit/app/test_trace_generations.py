@@ -101,3 +101,21 @@ async def test_tool_audit_round_trips_span_ids(tmp_path):
     spans = await tools.get_trace_spans(derive_trace_id("python", "run-3"))
     assert [s["span_id"] for s in spans] == ["r1", None]
     assert [s["parent_span_id"] for s in spans] == ["gen-1", None]
+
+
+@pytest.mark.asyncio
+async def test_bedrock_ids_with_a_region_prefix_price_and_track_uses_the_fallback(tmp_path, monkeypatch):
+    db = await _db(tmp_path)
+    costs = CostsRepository(db)
+    await costs.upsert_pricing(provider="anthropic", model_id="claude-haiku-4-5", display_name="claude-haiku-4-5", input_per_million=1.0, output_per_million=5.0)
+    assert await costs.resolve_rates("bedrock", "anthropic.claude-haiku-4-5-20251001-v1:0") == (1.0, 5.0)
+    assert await costs.resolve_rates("amazon-bedrock", "us.anthropic.claude-haiku-4-5-20251001-v1:0") == (1.0, 5.0)
+    assert await costs.resolve_rates("amazon-bedrock", "global.anthropic.claude-haiku-4-5-20251001-v1:0") == (1.0, 5.0)
+
+    from securevector.app.server.routes import costs as costs_routes
+    monkeypatch.setattr(costs_routes, "get_database", lambda: db)
+    r = await costs_routes.record_cost(costs_routes.RecordCostRequest(
+        agent_id="hermes-agent", provider="bedrock", model_id="anthropic.claude-haiku-4-5-20251001-v1:0",
+        input_tokens=1_000_000, output_tokens=1_000_000))
+    assert r["pricing_known"] is True
+    assert round(r["total_cost_usd"], 6) == 6.0

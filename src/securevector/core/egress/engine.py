@@ -39,9 +39,11 @@ Presets, in increasing strictness:
 
 import ipaddress
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 import yaml
 
@@ -103,6 +105,11 @@ class EgressContext:
     local_app_port: Optional[int] = None
     runtime_kind: Optional[str] = None
     session_id: Optional[str] = None
+    # Hosts a human approved for THIS session and harness, {host: grant id}.
+    # The caller loads it already scoped to (host, harness, session); the
+    # engine only ever lets it clear a promotable block, never a denylist,
+    # publish or metadata verdict.
+    host_grants: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -307,6 +314,29 @@ def _baseline_verdict(attempt, policy, ctx, pack):
 
 
 def evaluate_attempt(attempt, policy, ctx=None, pack=None) -> EgressVerdict:
+    """Decide one destination, then apply any session host grant.
+
+    A grant clears only a block the operator could have promoted, so a
+    non-promotable rule (denylist, package publish, cloud metadata) stays
+    blocked whatever the grant says.
+    """
+    ctx = ctx or EgressContext()
+    verdict = _evaluate_attempt(attempt, policy, ctx, pack)
+    host = (attempt.host or "").lower().rstrip(".")
+    grant = ctx.host_grants.get(host) if (host and ctx.host_grants) else None
+    if verdict.action == BLOCK and verdict.promotable and grant:
+        return EgressVerdict(
+            action=ALLOW, attempt=attempt, rule_id="grant.session_host",
+            rule_title="Approved for this session",
+            reason=(
+                f"{host} was approved for this session by grant {grant} "
+                f"(would otherwise be blocked by {verdict.rule_id})."
+            ),
+        )
+    return verdict
+
+
+def _evaluate_attempt(attempt, policy, ctx=None, pack=None) -> EgressVerdict:
     """Decide one destination."""
     ctx = ctx or EgressContext()
     pack = pack if pack is not None else load_baseline_pack()
@@ -376,6 +406,159 @@ def evaluate_attempt(attempt, policy, ctx=None, pack=None) -> EgressVerdict:
     )
 
 
+# ------------------------------------------------- control API rule
+#
+# Policy, grant and tool-permission routes are for the user. The Guard hooks
+# talk to the app as their own processes, never through a tool call, so a
+# network-capable tool input naming these routes at the app's port is blocked.
+#
+# The match is host-agnostic on purpose. The app listens on loopback, and
+# loopback has too many spellings to enumerate (127.1, localhost., 0x7f000001,
+# [::ffff:7f00:1], a shell variable), so the rule keys on the one thing every
+# spelling shares: the app's port followed by /api/<control route>. The input
+# is percent-decoded once first (%61pi), matched case-insensitively, and
+# tolerates repeated slashes. Only text that can reach the network is
+# scanned (a Bash command, a WebFetch URL, an MCP endpoint), never a file
+# being written or searched, so docs and tests that mention the URL pass.
+#
+# The same-origin header check on /jit/ui-token and the UI-token checks on
+# the policy and grant routes apply as well.
+
+SELF_CONTROL_RULE_ID = "sv.self.control_api"
+DEFAULT_APP_PORT = 8741
+SELF_CONTROL_PREFIXES = (
+    "jit", "egress", "tool-permissions", "skill-permissions", "settings", "terminals",
+    "policy",
+)
+_SELF_CONTROL_RE = re.compile(
+    r"(?P<host>[^\s'\"<>\\/]{0,253}?)"
+    r":(?P<port>\d{1,5})"
+    r"/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\]|$)",
+    re.IGNORECASE,
+)
+
+
+def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = None) -> list:
+    """The parts of a tool input that can reach the network: the fields
+    `extract_from_tool_call` reads, and nothing else."""
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    lowered = (tool_name or "").strip().lower()
+    if lowered.startswith("mcp__"):
+        return [mcp_endpoint] if mcp_endpoint else []
+    if lowered == "webfetch":
+        return [tool_input.get("url") or tool_input.get("URL") or ""]
+    if lowered == "websearch":
+        return []
+    return [tool_input.get("command") or tool_input.get("script") or ""]
+
+
+# The same control routes without a literal port: a match counts when the
+# host:port in front of the path is built at run time (a shell variable,
+# command substitution, quoting or string concatenation), since the port
+# cannot be read from the text. A literal port that is not the app's is
+# someone else's server and is left to the other rules. Text matching only:
+# it catches the plain spellings an agent is likely to use.
+_SELF_CONTROL_PATH_RE = re.compile(
+    r"/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\)`;|&]|$)",
+    re.IGNORECASE,
+)
+# Run-time host construction in front of the path. Leading quotes and the
+# scheme are trimmed first, so a plain quoted URL does not count.
+# A closing parenthesis or brace there ends a substitution that began
+# before the last space ($(cat port), ${VAR}).
+_BUILT_HOST_RE = re.compile(r"[$`'\"+)}]|%[sd]")
+# The app's on-disk terminals token, named in a network-capable command.
+_TOKEN_FILE_RE = re.compile(r"terminals[\\/]+ui-token\b", re.IGNORECASE)
+
+
+def _decoded_forms(text: str) -> list:
+    """The text and up to two further percent-decodings of it."""
+    forms = [text]
+    for _ in range(3):
+        nxt = unquote(forms[-1])
+        if nxt == forms[-1]:
+            break
+        forms.append(nxt)
+    return forms
+
+
+def _host_prefix(text: str, start: int) -> str:
+    """The run of text in front of a path match, back to the previous
+    whitespace or shell separator, with leading quotes and scheme trimmed."""
+    i = start
+    while i > 0 and not text[i - 1].isspace() and text[i - 1] not in ";|&<>(":
+        i -= 1
+    prefix = text[i:start].lstrip("'\"")
+    return re.sub(r"^[a-z][a-z0-9+.-]*://", "", prefix, flags=re.IGNORECASE)
+
+
+def _self_control_block(route: str, host: str, port: Optional[int], evidence: str) -> EgressVerdict:
+    attempt = EgressAttempt(
+        host=host, operation=UNKNOWN, kind="http", detector="self_control",
+        confidence="PARSED", port=port, evidence=evidence[:160],
+    )
+    return EgressVerdict(
+        action=BLOCK, attempt=attempt, rule_id=SELF_CONTROL_RULE_ID,
+        rule_title="Agent call to the SecureVector control API",
+        severity="critical",
+        reason=(
+            f"Agents may not call the SecureVector control API "
+            f"(/api/{route.lower()}); approvals and policy "
+            f"changes are made by a person in the app."
+        ),
+        promotable=False,
+    )
+
+
+def _built_host_self_control(text: str) -> Optional[EgressVerdict]:
+    token = _TOKEN_FILE_RE.search(text)
+    if token:
+        return _self_control_block("terminals", "127.0.0.1", None, token.group(0))
+    for m in _SELF_CONTROL_PATH_RE.finditer(text):
+        prefix = _host_prefix(text, m.start())
+        if _BUILT_HOST_RE.search(prefix):
+            return _self_control_block(m.group("route"), "unresolved", None, prefix + m.group(0))
+    return None
+
+
+def self_control_verdict(texts, app_port: Optional[int] = None) -> Optional[EgressVerdict]:
+    """A block verdict when a network-capable text names the app's control
+    API at the app's own port, or behind a host or port built at run time;
+    None otherwise. `texts` is the list `_network_texts` built (a single
+    string is accepted too)."""
+    port = int(app_port or DEFAULT_APP_PORT)
+    if isinstance(texts, str):
+        texts = [texts]
+    for text in texts or []:
+        if not isinstance(text, str) or not text:
+            continue
+        forms = _decoded_forms(text)
+        for form in forms:
+            built = _built_host_self_control(form)
+            if built is not None:
+                return built
+        for m in (m for form in forms for m in _SELF_CONTROL_RE.finditer(form)):
+            if int(m.group("port")) != port:
+                continue
+            host = (m.group("host") or "").strip("[]").lower() or "127.0.0.1"
+            attempt = EgressAttempt(
+                host=host, operation=UNKNOWN, kind="http", detector="self_control",
+                confidence="PARSED", port=port, evidence=m.group(0)[:160],
+            )
+            return EgressVerdict(
+                action=BLOCK, attempt=attempt, rule_id=SELF_CONTROL_RULE_ID,
+                rule_title="Agent call to the SecureVector control API",
+                severity="critical",
+                reason=(
+                    f"Agents may not call the SecureVector control API "
+                    f"(/api/{m.group('route').lower()}); approvals and policy "
+                    f"changes are made by a person in the app."
+                ),
+                promotable=False,
+            )
+    return None
+
+
 def evaluate_tool_call(
     tool_name: str,
     tool_input: Optional[dict] = None,
@@ -396,6 +579,18 @@ def evaluate_tool_call(
     extraction = extract_from_tool_call(tool_name, tool_input, mcp_endpoint=mcp_endpoint)
     if not extraction.network_capable:
         return EgressEvaluation(action=ALLOW, network_capable=False)
+
+    # The app's own control API is never a destination an agent may reach,
+    # whatever the preset: checked on the network-capable text only, never
+    # promotable.
+    self_call = self_control_verdict(
+        _network_texts(tool_name, tool_input, mcp_endpoint), ctx.local_app_port)
+    if self_call is not None:
+        return EgressEvaluation(
+            action=BLOCK, verdicts=[self_call], network_capable=True,
+            coverage="Agent call to the SecureVector control API.",
+            reason=self_call.reason,
+        )
 
     if pack is None:
         pack = load_baseline_pack()

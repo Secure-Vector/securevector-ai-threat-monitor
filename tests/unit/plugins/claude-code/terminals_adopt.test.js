@@ -175,6 +175,8 @@ test('three rows render whole, five collapse to a preview with Show all', () => 
   const { page, adopt } = loadPage();
   page._adoptable = [row(1), row(2), row(3)];
   page._renderAdoptable();
+  page._adoptReviewOpen = true;
+  page._renderAdoptable();
   assert.equal(adopt.hidden, false);
   assert.equal(rowCount(adopt.innerHTML), 3, 'at the cap, every row is shown');
   assert.equal(adopt.querySelector('.terminals-adopt-more'), null, 'no toggle when nothing is hidden');
@@ -437,25 +439,38 @@ test('a folder that is not a folder never reaches the board', () => {
 
 // ------------------------------------------------- collapsed not-governed line
 
-test('the not-governed block is one collapsed line that expands in place', () => {
-  const { page, adopt } = loadPage();
+test('the not-checked list starts collapsed and the board status row opens it in place', () => {
+  const { page, adopt, elements } = loadPage();
   page._adoptable = [row(1), row(2), row(3)];
   page._renderAdoptable();
-  assert.match(adopt.innerHTML, /3 sessions not governed · <span class="terminals-adopt-review">Review<\/span>/);
-  assert.match(adopt.innerHTML, /aria-expanded="false"/);
-  assert.match(adopt.innerHTML, /id="terminals-adopt-body" hidden/, 'the list starts hidden');
-  adopt.querySelector('.terminals-adopt-line').onclick();
-  assert.match(adopt.innerHTML, /aria-expanded="true"/);
-  assert.doesNotMatch(adopt.innerHTML, /id="terminals-adopt-body" hidden/);
+  const sum = elements['terminals-board-summary'];
+  assert.match(sum.innerHTML, /<button[^>]*data-board-adopt[^>]*><b>3<\/b> not monitored<\/button>/);
+  assert.doesNotMatch(adopt.innerHTML, /terminals-adopt-line|not governed/);
+  assert.equal(adopt.hidden, true, 'the list starts hidden');
+  const btn = {};
+  sum.querySelector = (q) => (q === '[data-board-adopt]' ? btn : null);
+  page._renderBoardSummary([]);
+  btn.onclick();
+  assert.equal(adopt.hidden, false);
+  assert.match(adopt.innerHTML, /id="terminals-adopt-body">/);
   assert.ok(adopt.innerHTML.includes('terminals-adopt-govern'), 'Govern stays inside');
   assert.ok(adopt.innerHTML.includes('terminals-adopt-dismiss'), 'Dismiss stays inside');
 });
 
+test('not checked in the status row uses the same source as the adopt list', () => {
+  const { page, elements } = loadPage();
+  page._adoptable = [row(1), row(2)];
+  page._renderAdoptable();
+  const rows = page._adoptRows().length;
+  const m = /<b>(\d+)<\/b> not monitored/.exec(elements['terminals-board-summary'].innerHTML);
+  assert.equal(Number(m[1]), rows, 'the strip and the panel never disagree');
+});
+
 test('one session reads as singular and zero hides the block', () => {
-  const { page, adopt } = loadPage();
+  const { page, adopt, elements } = loadPage();
   page._adoptable = [row(1)];
   page._renderAdoptable();
-  assert.match(adopt.innerHTML, /1 session not governed/);
+  assert.match(elements['terminals-board-summary'].innerHTML, /<b>1<\/b> not monitored/);
   page._adoptable = [];
   page._renderAdoptable();
   assert.equal(adopt.hidden, true);

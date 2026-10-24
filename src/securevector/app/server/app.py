@@ -23,6 +23,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from securevector.app.server.routes.jit_access import set_ui_page_cookie
 
 from securevector.app import __version__
 
@@ -81,6 +82,7 @@ async def init_agent_terminals(app: FastAPI, db) -> bool:
                 codex_plugin_enabled=_codex_hooks.terminal_guard_enabled,
                 copilot_cli_plugin_enabled=_copilot_hooks.terminal_guard_enabled,
                 opencode_plugin_enabled=_opencode_hooks.terminal_guard_enabled,
+                config_trust=True,
             ),
         )
         await _manager.start(asyncio.get_running_loop())
@@ -142,6 +144,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Handles startup and shutdown events, including database initialization.
     """
     logger.info("API server starting up...")
+    from securevector.app.services.decisions import warn_if_peer_check_off
+
+    warn_if_peer_check_off()
+    from securevector.app.services.confirmations import warn_if_off as warn_if_approvals_off
+
+    warn_if_approvals_off()
 
     # Initialize database and run migrations
     from securevector.app.database.connection import get_database
@@ -207,6 +215,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not start external_forwarder: {_e}")
 
+    # SecureVector MCP entries this app wrote earlier are brought up to date
+    # (tools list, interpreter, app URL) once per start, off the event loop.
+    try:
+        import asyncio as _asyncio
+
+        from securevector.app.services import mcp_registration as _mcp_registration
+        _asyncio.get_running_loop().run_in_executor(None, _mcp_registration.refresh_stale)
+    except Exception as _e:
+        logger.warning(f"Could not refresh MCP registrations: {_e}")
+
     # Agent Task lifecycle events -> fleet destination. Installed before the
     # task board restores so startup "interrupted" transitions are queued
     # too. Metadata only, and a no-op on a device that is not enrolled.
@@ -215,6 +233,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         fleet_task_events.install()
     except Exception as _e:
         logger.warning(f"Could not install the fleet task-event sink: {_e}")
+
+    # Cloud sync of governance rows and approvals from SecureVector Cloud
+    # (design 25). Each pass is a no-op without an enabled fleet destination;
+    # the decision poll makes no call unless cloud approvals are on and a
+    # shared request is pending.
+    try:
+        from securevector.app.services.cloud_approvals import start_cloud_approvals
+        await start_cloud_approvals()
+    except Exception as _e:
+        logger.warning(f"Could not start cloud approvals sync: {_e}")
 
     # Register the pre-uninstall backstop (#112). Idempotent. Emits
     # device.lifecycle.uninstalling to enrollment-sourced destinations on a
@@ -311,6 +339,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         from securevector.app.services.external_forwarder import stop_external_forwarder
         await stop_external_forwarder()
+        try:
+            from securevector.app.services.cloud_approvals import stop_cloud_approvals
+            await stop_cloud_approvals()
+        except Exception:  # noqa: BLE001 - shutdown continues
+            pass
     except Exception as _e:
         logger.warning(f"Could not stop external_forwarder cleanly: {_e}")
 
@@ -404,7 +437,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         if request.method == "GET" and not path.startswith("/api") and not path.startswith("/docs") and not path.startswith("/redoc"):
             index_path = WEB_ASSETS_PATH / "index.html"
             if index_path.exists():
-                return FileResponse(str(index_path))
+                return set_ui_page_cookie(FileResponse(str(index_path)))
         return JSONResponse({"error": "Not found"}, status_code=404)
 
     # Health check endpoint
@@ -529,12 +562,32 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
     app.include_router(jit_access.router, prefix="/api", tags=["JIT Access"])
+    # Decision routes answer 202 until the person confirms on this computer.
+    from securevector.app.services import confirmations
+
+    confirmations.install(app)
 
     # Agent Terminals: launch and attach to governed harness tasks.
     from securevector.app.terminals import routes as terminals_routes
 
     app.include_router(terminals_routes.router, prefix="/api")
+    # Agent Config Trust: under /api/terminals so the UI token cookie reaches it.
+    from securevector.app.server.routes import config_trust as config_trust_routes
+
+    app.include_router(config_trust_routes.router, prefix="/api")
+    # Agent Detection & Response summary: same token scope, read only.
+    from securevector.app.server.routes import detection_response as detection_response_routes
+
+    app.include_router(detection_response_routes.router, prefix="/api")
+    # Observability: session governance, live sessions and coverage, same token scope.
+    from securevector.app.server.routes import observability as observability_routes
+
+    app.include_router(observability_routes.router, prefix="/api")
     app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
+    # Pre-flight policy checks for the SecureVector MCP tools.
+    from securevector.app.server.routes import policy as policy_routes
+
+    app.include_router(policy_routes.router, prefix="/api")
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_claude_code.router, prefix="/api", tags=["Hooks"])
@@ -621,7 +674,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         async def serve_index():
             index_path = WEB_ASSETS_PATH / "index.html"
             if index_path.exists():
-                return FileResponse(str(index_path), headers=_NO_CACHE_HEADERS)
+                return set_ui_page_cookie(FileResponse(str(index_path), headers=_NO_CACHE_HEADERS))
             return {"error": "Web UI not found"}
 
         # Client-side routing catch-all — serve index.html for any unmatched path
@@ -630,7 +683,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         async def serve_spa(path: str):
             index_path = WEB_ASSETS_PATH / "index.html"
             if index_path.exists():
-                return FileResponse(str(index_path), headers=_NO_CACHE_HEADERS)
+                return set_ui_page_cookie(FileResponse(str(index_path), headers=_NO_CACHE_HEADERS))
             return {"error": "Web UI not found"}
 
         logger.info(f"Web UI mounted from {WEB_ASSETS_PATH}")

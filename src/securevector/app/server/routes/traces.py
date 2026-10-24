@@ -147,11 +147,21 @@ async def _add_terminal_tasks(db, runs: list[dict]) -> None:
             "ORDER BY created_at DESC, rowid DESC",
             tuple(sessions),
         )
+        # A session the task held before a re-link (after /clear) is still
+        # the task's: match it through the task's re-link events.
+        hist_rows = await db.fetch_all(
+            "SELECT t.id, t.title, t.workspace, t.origin, t.executor_id, "
+            "e.detail AS session_id FROM terminal_events e "
+            "JOIN terminal_tasks t ON t.id = e.task_id "
+            "WHERE e.kind = 'session_relinked' AND t.archived_at IS NULL "
+            f"AND e.detail IN ({marks}) ORDER BY e.seq DESC",
+            tuple(sessions),
+        )
     except Exception:  # noqa: BLE001 - optional board data cannot hide traces
         logger.debug("Terminal task lookup unavailable for trace list", exc_info=True)
         return
     matched = {}
-    for raw in rows:
+    for raw in list(rows) + list(hist_rows):
         task = dict(raw)
         matched.setdefault((task["session_id"], task["executor_id"]), task)
     for run in runs:
@@ -246,6 +256,9 @@ async def _collect_runs(window_days: int, limit: int) -> list:
     runs.sort(key=lambda x: _ts_key(x.get("ended_at")), reverse=True)
     runs = runs[:limit]
     await _add_egress_blocked(db, runs)
+    # allowed / waiting / oldest_waiting_expires_at next to `blocked`.
+    from securevector.app.services.observability import add_decision_counts
+    await add_decision_counts(db, runs)
     return runs
 
 
@@ -374,6 +387,10 @@ async def _build_trace(trace_id: str, generations: Optional[list] = None):
             "ml_agreement": det.get("ml_agreement") if det else None,
             "span_id": r.get("span_id"),
             "parent_span_id": r.get("parent_span_id"),
+            # The audit row hash: the id this call carries when it is sent to
+            # the cloud (siem_ocsf sends it as span_id), shown so a cloud span
+            # can be found here.
+            "row_hash": r.get("row_hash"),
             # Correlation id so a detection row can deep-link to the underlying
             # threat / secret record ("see what was detected").
             "request_id": r.get("request_id") if det else None,
@@ -698,6 +715,34 @@ async def run_health_warmer(interval: float = run_health.WARM_INTERVAL_SECONDS,
             raise
         except Exception:  # noqa: BLE001
             logger.debug("fleet generation pass failed", exc_info=True)
+        # Same cadence: rescore running governed sessions' Session Drift Score.
+        # Observe only; the stored row is read by the board and the summary.
+        try:
+            from securevector.app.services import session_drift
+            await session_drift.warm_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("session drift pass failed", exc_info=True)
+        # Step-up holds nobody decided within the hold limit resolve as
+        # denied. Readers of the queue and the approve route also run this,
+        # so the limit holds between passes too.
+        try:
+            from securevector.app.services import response_rungs
+            await response_rungs.expire_holds(get_database())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("step-up hold expiry failed", exc_info=True)
+        # Agent Config Trust: stat-gated setup recheck for running sessions
+        # and user scope, relay-observed MCP tools, due opt-in probes.
+        try:
+            from securevector.app.services import config_trust
+            await config_trust.recheck_once(get_database())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("config trust recheck failed", exc_info=True)
 
 
 @router.get("/run-health")

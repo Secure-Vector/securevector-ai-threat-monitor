@@ -237,6 +237,8 @@ class TerminalsClient:
                 "executor_id": executor_id,
                 "session_id": session_id,
                 "workspace": workspace,
+                # A folder passed here was named by the person running the CLI.
+                "folder_confirmed": bool(workspace),
                 "title": title,
                 "origin": "cli",
             },

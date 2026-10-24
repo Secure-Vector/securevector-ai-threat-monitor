@@ -54,6 +54,7 @@ const EgressPage = {
 
     async render(container) {
         container.textContent = '';
+        this._state.focus = undefined;
         // Two sidebar destinations share this page: "Agent Egress" under
         // Visibility shows what agents reached; "Egress Policy" under
         // Policies shows what they may reach. The route decides the view,
@@ -475,7 +476,38 @@ const EgressPage = {
         this._state.blast = blast;
         this._state.destinations = (inv && inv.destinations) || [];
         this._state.scope = scope;
+        // Deep link from Agent Sessions: one session, one host highlighted.
+        // Handed over once through storage, or read from ?session=&host=.
+        if (this._state.focus === undefined) this._state.focus = this._readFocus();
+        this._state.focusError = '';
+        const focus = this._state.focus;
+        if (focus && focus.session) {
+            try {
+                const one = await API.getEgressSessionDestinations(focus.session);
+                this._state.destinations = (one && one.destinations) || [];
+            } catch (e) {
+                this._state.focusError = 'Could not read this session, showing every destination.';
+            }
+        }
         this._renderDestinations();
+    },
+
+    /** The session and host to focus on, or null. */
+    _readFocus() {
+        let f = null;
+        try {
+            const raw = sessionStorage.getItem('sv-egress-focus');
+            if (raw) { sessionStorage.removeItem('sv-egress-focus'); f = JSON.parse(raw); }
+        } catch (e) { f = null; }
+        if (!f || typeof f !== 'object') {
+            try {
+                const q = new URLSearchParams(window.location.search);
+                f = { session: q.get('session') || '', host: q.get('host') || '' };
+            } catch (e) { f = null; }
+        }
+        const session = f && typeof f.session === 'string' ? f.session.slice(0, 200) : '';
+        const host = f && typeof f.host === 'string' ? f.host.slice(0, 300) : '';
+        return session || host ? { session, host } : null;
     },
 
     _renderDestinations() {
@@ -520,6 +552,22 @@ const EgressPage = {
         card.appendChild(this._sectionTitle('Every destination reached',
             'Most active first. Promote a host to allow it under a stricter preset.'));
 
+        const focus = this._state.focus;
+        if (focus) {
+            const bar = document.createElement('div');
+            bar.className = 'eg-note eg-focus-bar';
+            bar.textContent = (this._state.focusError ||
+                (focus.session ? `Showing session ${String(focus.session).slice(0, 12)}` : 'Showing one host')) +
+                (focus.host ? `, host ${focus.host}. ` : '. ');
+            const all = document.createElement('button');
+            all.type = 'button';
+            all.className = 'eg-btn tiny';
+            all.textContent = 'Show all';
+            all.addEventListener('click', () => { this._state.focus = null; this._loadDestinations(); });
+            bar.appendChild(all);
+            card.appendChild(bar);
+        }
+
         const table = document.createElement('table');
         table.className = 'eg-table';
         table.innerHTML =
@@ -529,6 +577,7 @@ const EgressPage = {
         const tbody = document.createElement('tbody');
         this._state.destinations.forEach(d => {
             const tr = document.createElement('tr');
+            if (focus && focus.host && d.host === focus.host) { tr.className = 'eg-row-focus'; tr.id = 'eg-row-focus'; }
             tr.innerHTML =
                 `<td><code>${this._esc(d.host)}</code></td>` +
                 `<td class="num">${Number(d.calls || 0)}</td>` +
@@ -562,6 +611,8 @@ const EgressPage = {
         table.appendChild(tbody);
         card.appendChild(table);
         body.appendChild(card);
+        const hit = body.querySelector ? body.querySelector('#eg-row-focus') : null;
+        if (hit && hit.scrollIntoView) setTimeout(() => hit.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
     },
 
     /** Only rendered when there is something to say. A permanently-visible
@@ -763,8 +814,101 @@ const EgressPage = {
 
         body.appendChild(this._listCard('Allowed destinations', policy.allowlist || [],
             'Hosts promoted from a block, or added by hand. A host covers its subdomains.'));
-        body.appendChild(this._listCard('Denied destinations', policy.denylist || [],
-            'Always blocked, whatever the preset. A denylist entry outranks an allowlist entry.'));
+        body.appendChild(this._denyCard(policy.denylist || []));
+    },
+
+    /** Denied destinations, editable: add a host (validated here for a quick
+     *  answer, and again by the server, which is the one that decides) or
+     *  remove one. The next call from any session to a listed host, or one
+     *  of its subdomains, is blocked. */
+    _denyCard(hosts) {
+        const card = this._listCard('Denied destinations', hosts,
+            'Always blocked, whatever the preset. A denylist entry outranks an allowlist entry. ' +
+            'A host covers its subdomains.');
+        const list = card.querySelector('.eg-hostlist');
+        if (list) {
+            list.querySelectorAll('.eg-hostchip').forEach(chip => {
+                const host = chip.textContent;
+                const rm = document.createElement('button');
+                rm.type = 'button';
+                rm.className = 'eg-chip-remove';
+                rm.textContent = '\u00d7';
+                rm.title = 'Remove ' + host + ' from the denylist';
+                rm.setAttribute('aria-label', 'Remove ' + host + ' from the denylist');
+                rm.addEventListener('click', () => this._removeDenied(host, rm));
+                chip.appendChild(rm);
+            });
+        }
+        const form = document.createElement('form');
+        form.className = 'eg-deny-form';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'eg-deny-input';
+        input.placeholder = 'host to deny, for example paste.example.com';
+        input.maxLength = 253;
+        input.setAttribute('aria-label', 'Host to deny');
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        const add = document.createElement('button');
+        add.type = 'submit';
+        add.className = 'eg-btn';
+        add.textContent = 'Deny host';
+        const err = document.createElement('div');
+        err.className = 'eg-deny-error';
+        err.hidden = true;
+        form.appendChild(input);
+        form.appendChild(add);
+        form.addEventListener('submit', (ev) => {
+            ev.preventDefault();
+            this._addDenied(input, add, err);
+        });
+        card.appendChild(form);
+        card.appendChild(err);
+        return card;
+    },
+
+    // Mirrors the server's check: a bare host name or IP, no scheme, path,
+    // port or wildcard. The server re-validates every entry.
+    _validDenyHost(raw) {
+        const h = String(raw || '').trim().toLowerCase().replace(/\.$/, '');
+        if (!h || h.length > 253) return null;
+        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return h;
+        if (/^\[?[0-9a-f:]+\]?$/.test(h) && h.includes(':')) return h.replace(/^\[|\]$/g, '');
+        const label = /^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?$/;
+        return h.split('.').every(l => label.test(l)) ? h : null;
+    },
+
+    async _addDenied(input, btn, err) {
+        const host = this._validDenyHost(input.value);
+        err.hidden = true;
+        if (!host) {
+            err.textContent = 'Enter a host name or IP address only, without a scheme, path, port or wildcard.';
+            err.hidden = false;
+            input.focus();
+            return;
+        }
+        btn.disabled = true;
+        try {
+            this._state.policy = await API.addEgressDeniedHost(host);
+            if (window.Toast) Toast.show(`${host} added to the denylist.`, 'success');
+            this._renderPolicy();
+        } catch (e) {
+            btn.disabled = false;
+            err.textContent = 'Could not deny ' + host + ': ' + e.message;
+            err.hidden = false;
+        }
+    },
+
+    async _removeDenied(host, btn) {
+        btn.disabled = true;
+        try {
+            this._state.policy = await API.removeEgressDeniedHost(host);
+            if (window.Toast) Toast.show(`${host} removed from the denylist.`, 'success');
+            this._renderPolicy();
+        } catch (e) {
+            btn.disabled = false;
+            if (window.Toast) Toast.show('Could not remove ' + host + ': ' + e.message, 'error');
+        }
     },
 
     _healthCard(health) {
@@ -1118,6 +1262,15 @@ const EgressPage = {
             .eg-hostchip { font:600 11.5px ui-monospace,'JetBrains Mono',Menlo,monospace; padding:3px 9px;
                 border-radius:6px; background:var(--bg-tertiary,#21262d); color:var(--text-secondary,#b1bac4);
                 border:1px solid var(--border-default,#30363d); }
+            .eg-chip-remove { margin-left:6px; padding:0 2px; border:0; background:none; cursor:pointer;
+                color:var(--text-muted,#7d8590); font:inherit; line-height:1; }
+            .eg-chip-remove:hover { color:var(--text-primary,#e6edf3); }
+            .eg-chip-remove[disabled] { opacity:.55; cursor:default; }
+            .eg-deny-form { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+            .eg-deny-input { flex:1 1 220px; min-width:0; padding:5px 9px; border-radius:6px;
+                border:1px solid var(--border-default,#30363d); background:var(--bg-primary,#0d1117);
+                color:var(--text-primary,#e6edf3); font:12px ui-monospace,'JetBrains Mono',Menlo,monospace; }
+            .eg-deny-error { margin-top:6px; font-size:12px; color:var(--text-secondary,#b1bac4); }
         `;
         document.head.appendChild(st);
     },

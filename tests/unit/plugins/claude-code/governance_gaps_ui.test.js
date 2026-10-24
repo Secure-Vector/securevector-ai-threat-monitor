@@ -264,7 +264,7 @@ test('Tool Permissions links to Tool Activity, and the palette files it under Po
   assert.match(tp, /if \(this\.hideTabBar && this\.activeTab === 'permissions'\)/);
   assert.match(tp, /act\.textContent = 'Tool Activity'/);
   assert.match(tp, /Sidebar\.navigate\('tool-activity'\)/);
-  assert.match(read('index.html'), /tool-permissions\.js\?v=88/);
+  assert.match(read('index.html'), /tool-permissions\.js\?v=89/);
   const pal = read('js/components/command-palette.js');
   const visibility = pal.slice(pal.indexOf("if (['dashboard'"), pal.indexOf("return 'Visibility'"));
   assert.ok(!visibility.includes("'tool-activity'"));

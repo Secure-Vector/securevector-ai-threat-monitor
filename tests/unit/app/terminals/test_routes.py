@@ -76,10 +76,14 @@ def test_executors_list_includes_governed_harnesses(env):
     r = client.get("/api/terminals/executors", headers=AUTH)
     assert r.status_code == 200
     items = r.json()["items"]
-    assert [i["id"] for i in items] == ["claude-code", "codex", "copilot-cli", "opencode"]
+    assert [i["id"] for i in items] == [
+        "claude-code", "codex", "copilot-cli", "opencode", "govrun", "hermes", "openclaw",
+    ]
     assert items[0]["label"] == "Claude Code" and items[1]["label"] == "Codex"
     for item in items:
-        assert set(item) == {"id", "label", "installed", "governed", "supports_resume", "hint"}
+        assert set(item) == {
+            "id", "label", "installed", "governed", "supports_resume", "guard_relay", "hint",
+        }
         assert isinstance(item["installed"], bool)
         assert isinstance(item["governed"], bool)
         assert isinstance(item["supports_resume"], bool)
@@ -92,6 +96,9 @@ def test_executors_list_includes_governed_harnesses(env):
         "claude-code",
         "codex",
         "copilot-cli",
+        "govrun",
+        "hermes",
+        "openclaw",
     ]
 
 
@@ -689,6 +696,19 @@ def test_a_cli_stop_is_recorded_as_cli(env):
     events = client.get(f"/api/terminals/tasks/{task['id']}/events", headers=AUTH).json()["items"]
     stop = [e for e in events if e["kind"] == "stop"][0]
     assert stop["origin"] == "cli"
+
+
+def test_a_stop_from_a_rung_card_is_recorded_as_rung(env):
+    client, _, ws, _ = env
+    task = client.post(
+        "/api/terminals/tasks",
+        json={"executor_id": "claude-code", "workspace": ws},
+        headers=AUTH,
+    ).json()
+    r = client.post(f"/api/terminals/tasks/{task['id']}/stop?origin=rung", headers=AUTH)
+    assert r.status_code == 200
+    events = client.get(f"/api/terminals/tasks/{task['id']}/events", headers=AUTH).json()["items"]
+    assert [e for e in events if e["kind"] == "stop"][0]["origin"] == "rung"
 
 
 def test_an_unknown_actor_on_stop_is_refused_too(env):

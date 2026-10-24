@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, Mapping, Optional
 
@@ -55,7 +56,8 @@ def _sanitize_for_log(value: Any, cap: int = 80) -> str:
     return s[:cap]
 
 
-OutboxKind = Literal["scan", "output_scan", "tool_audit", "task_event", "generation"]
+OutboxKind = Literal["scan", "output_scan", "tool_audit", "task_event", "generation", "alert",
+                     "egress", "approval_request", "harness_coverage"]
 # `file` = local NDJSON append, indie-friendly destination with zero
 # infra. URL column is reinterpreted as a filesystem path for this kind.
 ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http", "file"]
@@ -226,8 +228,57 @@ _TASK_EVENT_ALLOWED = frozenset({
     "last_activity_at",
     "ended_at",
     "archived_at",
+    # Detection and response metadata, heartbeat and exit only and each one
+    # optional: integers and closed vocabularies checked by the Live Runs
+    # adr_fields() validator (see build_task_event_payload).
+    "drift_score",
+    "drift_band",
+    "drift_top",
+    "drift_top_points",
+    "drift_top_counts",
+    "config_state",
+    "config_changed_count",
+    "mcp_changed_count",
+    "mods_unmanaged_count",
+    "rung",
+    "rung_mode",
+    "rung_reason_ids",
+    "preflight_checked",
+    "preflight_avoided",
+    # Named call-time rules: up to two ids from a closed set and two counts.
+    "rule_ids",
+    "held_count",
+    "would_hold_count",
+    # The "stop the session and alert" switch: one closed value, "stopped".
+    "response_action",
+    # The governed session's own id (6.1 cloud sync), so the cloud can join
+    # the task to its runs and held calls. Added by the fleet sink only.
+    "session_id",
 })
 TASK_EVENT_ROW_TYPE = "task_event"
+
+# Stop-switch alerts (v64): one row per session the switch acted on. Exactly
+# these keys, each value checked by _check_alert_values: a session id, an
+# agent tool id, a folder basename, a closed rule id and outcome, the test
+# mode flag, two small counts and an ISO time. Never a path, a host, tool
+# arguments or content. Goes to SIEM destinations, never to the fleet one.
+_ALERT_ALLOWED = frozenset({
+    "emitted_at",
+    "session_id",
+    "agent_tool",
+    "folder_name",
+    "rule",
+    "outcome",
+    "test_mode",
+    "score",
+    "held_count",
+})
+ALERT_RULES = frozenset({"cred_then_net", "outside_then_reach", "high_score"})
+ALERT_OUTCOMES = frozenset({"stopped", "would_stop", "outside"})
+_ALERT_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_ALERT_TOOL_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
+_ALERT_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$")
+_ALERT_FOLDER_MAX = 64
 
 # Model generation rows (v53): one per model turn of a governed run, derived
 # from the harness transcript. Exactly the flat wire keys, nothing else:
@@ -264,6 +315,235 @@ _GENERATION_ALLOWED = frozenset({
 # the local threat_intel_records table where forensic queries can pull it.
 _FULL_TIER_MAX_BYTES = 8192  # per field: prompt_text, llm_output, args_full
 _FULL_TIER_PATTERN_MAX_BYTES = 1024  # per matched_patterns[] element
+
+
+# ---------------------------------------------------------------------------
+# Governance rows (6.1 cloud sync, design 25 Phase 2). Fleet-only, flat and
+# closed: every key below, every value an id, a closed enum, a bool, a small
+# int, an ISO timestamp or one of three bounded labels. A key not on the list
+# or a value outside its contract is a hard reject, never a strip. The engine
+# checks the same contract again (governance_ingest.py).
+# ---------------------------------------------------------------------------
+
+EGRESS_ROW_TYPE = "egress"
+APPROVAL_REQUEST_ROW_TYPE = "approval_request"
+HARNESS_COVERAGE_ROW_TYPE = "harness_coverage"
+
+_EGRESS_ALLOWED = frozenset({
+    "row_type", "session_id", "trace_id", "task_id", "host", "action",
+    "rule_id", "count", "at", "egress_id",
+})
+_APPROVAL_REQUEST_ALLOWED = frozenset({
+    "row_type", "request_id", "session_id", "trace_id", "task_id", "harness",
+    "tool", "rule_id", "rule_name", "call_preview", "call_fingerprint",
+    "held_by", "expires_at", "state", "cloud_approvals_enabled",
+    "cloud_approvable", "cloud_allowance", "decision_source", "created_at",
+    "emitted_at",
+    # Where the held call would connect: host only (optional :port),
+    # lowercase, never a URL, path or query.
+    "destination",
+})
+_HARNESS_COVERAGE_ALLOWED = frozenset({
+    "row_type", "harness", "enforced", "label", "unchecked_paths",
+    "approvals_supported", "egress_visible", "token_data", "emitted_at",
+})
+
+GOV_EGRESS_ACTIONS = frozenset({"allow", "block", "log"})
+GOV_APPROVAL_STATES = frozenset({"waiting", "approved", "denied", "expired", "used"})
+GOV_CLOUD_DURATIONS = ("once", "15m", "1h", "session")
+GOV_DECISION_SOURCES = frozenset({"local", "cloud", "timeout"})
+GOV_COVERAGE_ENFORCED = frozenset({"before", "after", "none"})
+
+_GOV_REQUEST_ID_RE = re.compile(r"\A[A-Za-z0-9._:-]{1,128}\Z")
+_GOV_TASK_ID_RE = re.compile(r"\A(?:[0-9a-f]{1,64}|[A-Za-z0-9_-]{1,64})\Z")
+_GOV_HARNESS_RE = re.compile(r"\A[a-z0-9_-]{1,32}\Z")
+_GOV_TOOL_RE = re.compile(r"\A[A-Za-z0-9_.:/-]{1,128}\Z")
+_GOV_RULE_ID_RE = re.compile(r"\A[A-Za-z0-9_.:-]{1,64}\Z")
+_GOV_TOKEN_RE = re.compile(r"\A[a-z_]{1,32}\Z")
+_GOV_PATH_TOKEN_RE = re.compile(r"\A[a-z0-9_]{1,48}\Z")
+_GOV_FINGERPRINT_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+_GOV_HOST_RE = re.compile(
+    r"\A(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,62})(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}))*"
+    r"|\[[0-9A-Fa-f:.]{2,45}\])(?::[0-9]{1,5})?\Z"
+)
+_GOV_TIME_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?\Z")
+_GOV_ID_MAX = 128
+_GOV_HOST_MAX = 260
+_GOV_RULE_NAME_MAX = 120
+_GOV_LABEL_MAX = 80
+GOV_PREVIEW_MAX = 256
+_GOV_UNCHECKED_MAX = 8
+_GOV_COUNT_MAX = 1_000_000
+
+# Shapes that mean a preview still carries a value: the engine's own list
+# (governance_ingest._PREVIEW_VALUE_PATTERNS). The device sends data names
+# only, so a preview that matches any of these is refused here first.
+_GOV_PREVIEW_VALUE_PATTERNS = (
+    re.compile(r"[\"'`]"),
+    re.compile(r"-----BEGIN"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}"),
+    re.compile(r"\b(?:sk|pk|rk|ghp|gho|ghs|xox[abp])[-_][A-Za-z0-9]{8,}"),
+    re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{12,}"),
+    re.compile(r"(?=[A-Za-z0-9+/_=-]*[0-9])(?=[A-Za-z0-9+/_=-]*[A-Za-z])[A-Za-z0-9+/_=-]{32,}"),
+    re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://"),
+    re.compile(r"(?:^|[\s(])(?:/|~/)[^\s]*"),
+)
+
+
+def _gov_has_control(value: str) -> bool:
+    return any(ord(c) < 32 or ord(c) == 127 for c in value)
+
+
+def gov_free_id(value: Any) -> bool:
+    """Session / trace ids: a bounded string with no control characters."""
+    return isinstance(value, str) and 0 < len(value) <= _GOV_ID_MAX and not _gov_has_control(value)
+
+
+def gov_preview_is_safe(value: Any) -> bool:
+    """True when a call preview carries no value-like content."""
+    if not isinstance(value, str) or not value or len(value) > GOV_PREVIEW_MAX:
+        return False
+    if _gov_has_control(value):
+        return False
+    return not any(p.search(value) for p in _GOV_PREVIEW_VALUE_PATTERNS)
+
+
+def _gov_label_ok(value: Any, cap: int) -> bool:
+    return (isinstance(value, str) and bool(value.strip()) and len(value) <= cap
+            and not _gov_has_control(value))
+
+
+def _check_governance_values(kind: str, payload: Mapping[str, Any]) -> None:
+    """Every governance value against its contract. Hard reject on a miss."""
+    def bad(key: str) -> None:
+        raise ValueError(f"external_forwarders: refusing to enqueue {kind} with a bad value in field {key!r}.")
+
+    def rx(key: str, regex) -> None:
+        v = payload.get(key)
+        if v is not None and not (isinstance(v, str) and regex.match(v)):
+            bad(key)
+
+    def free(key: str) -> None:
+        v = payload.get(key)
+        if v is not None and not gov_free_id(v):
+            bad(key)
+
+    def ts(key: str, required: bool = False) -> None:
+        v = payload.get(key)
+        if v is None:
+            if required:
+                bad(key)
+            return
+        if not (isinstance(v, str) and _GOV_TIME_RE.match(v)):
+            bad(key)
+
+    def boolean(key: str) -> None:
+        v = payload.get(key)
+        if v is not None and not isinstance(v, bool):
+            bad(key)
+
+    if payload.get("row_type") != kind:
+        bad("row_type")
+    if kind == EGRESS_ROW_TYPE:
+        host = payload.get("host")
+        if not (isinstance(host, str) and len(host) <= _GOV_HOST_MAX and _GOV_HOST_RE.match(host)):
+            bad("host")
+        if payload.get("action") not in GOV_EGRESS_ACTIONS:
+            bad("action")
+        ts("at", required=True)
+        free("session_id")
+        free("trace_id")
+        rx("task_id", _GOV_TASK_ID_RE)
+        rx("rule_id", _GOV_RULE_ID_RE)
+        rx("egress_id", _GOV_REQUEST_ID_RE)
+        count = payload.get("count")
+        if count is not None and (isinstance(count, bool) or not isinstance(count, int)
+                                  or not 1 <= count <= _GOV_COUNT_MAX):
+            bad("count")
+        return
+    if kind == APPROVAL_REQUEST_ROW_TYPE:
+        rid = payload.get("request_id")
+        if not (isinstance(rid, str) and _GOV_REQUEST_ID_RE.match(rid)):
+            bad("request_id")
+        if payload.get("state") not in GOV_APPROVAL_STATES:
+            bad("state")
+        ts("expires_at", required=True)
+        ts("created_at")
+        ts("emitted_at")
+        free("session_id")
+        free("trace_id")
+        rx("task_id", _GOV_TASK_ID_RE)
+        rx("harness", _GOV_HARNESS_RE)
+        rx("tool", _GOV_TOOL_RE)
+        rx("rule_id", _GOV_RULE_ID_RE)
+        rx("held_by", _GOV_TOKEN_RE)
+        rx("call_fingerprint", _GOV_FINGERPRINT_RE)
+        dest = payload.get("destination")
+        if dest is not None and not (isinstance(dest, str) and len(dest) <= _GOV_HOST_MAX
+                                     and dest == dest.lower() and _GOV_HOST_RE.match(dest)):
+            bad("destination")
+        ds = payload.get("decision_source")
+        if ds is not None and ds not in GOV_DECISION_SOURCES:
+            bad("decision_source")
+        boolean("cloud_approvals_enabled")
+        boolean("cloud_approvable")
+        allowance = payload.get("cloud_allowance")
+        if allowance is not None and not (
+            isinstance(allowance, list)
+            and len(allowance) <= len(GOV_CLOUD_DURATIONS)
+            and all(isinstance(d, str) and d in GOV_CLOUD_DURATIONS for d in allowance)
+            and len(set(allowance)) == len(allowance)
+        ):
+            bad("cloud_allowance")
+        name = payload.get("rule_name")
+        if name is not None and not _gov_label_ok(name, _GOV_RULE_NAME_MAX):
+            bad("rule_name")
+        preview = payload.get("call_preview")
+        if preview is not None and not gov_preview_is_safe(preview):
+            bad("call_preview")
+        return
+    if kind == HARNESS_COVERAGE_ROW_TYPE:
+        harness = payload.get("harness")
+        if not (isinstance(harness, str) and _GOV_HARNESS_RE.match(harness)):
+            bad("harness")
+        enforced = payload.get("enforced")
+        if enforced is not None and enforced not in GOV_COVERAGE_ENFORCED:
+            bad("enforced")
+        for key in ("approvals_supported", "egress_visible", "token_data"):
+            boolean(key)
+        paths = payload.get("unchecked_paths")
+        if paths is not None and not (
+            isinstance(paths, list) and len(paths) <= _GOV_UNCHECKED_MAX
+            and all(isinstance(x, str) and _GOV_PATH_TOKEN_RE.match(x) for x in paths)
+        ):
+            bad("unchecked_paths")
+        label = payload.get("label")
+        if label is not None and not _gov_label_ok(label, _GOV_LABEL_MAX):
+            bad("label")
+        ts("emitted_at")
+        return
+    bad("row_type")
+
+
+_GOVERNANCE_ALLOWED = {
+    EGRESS_ROW_TYPE: _EGRESS_ALLOWED,
+    APPROVAL_REQUEST_ROW_TYPE: _APPROVAL_REQUEST_ALLOWED,
+    HARNESS_COVERAGE_ROW_TYPE: _HARNESS_COVERAGE_ALLOWED,
+}
+
+
+def build_governance_payload(kind: str, row: Mapping[str, Any]) -> dict[str, Any]:
+    """Check one governance row (egress, approval_request, harness_coverage)
+    against its allow-list and value contract, tagged with its row_type.
+    A key that is not on the list, or a value outside its contract, is a
+    hard reject."""
+    if kind not in _GOVERNANCE_ALLOWED:
+        raise ValueError(f"unknown governance kind: {kind!r}")
+    payload = dict(row)
+    payload["row_type"] = kind
+    _assert_metadata_only(payload, _GOVERNANCE_ALLOWED[kind], kind=kind)
+    _check_governance_values(kind, payload)
+    return payload
 
 
 def _truncate_utf8(value: Optional[str], cap_bytes: int) -> Optional[str]:
@@ -324,6 +604,10 @@ def _redact_for_destination(
         return {k: v for k, v in payload.items() if k in _TASK_EVENT_ALLOWED}
     if kind == "generation":
         return {k: v for k, v in payload.items() if k in _GENERATION_ALLOWED}
+    if kind == "alert":
+        return {k: v for k, v in payload.items() if k in _ALERT_ALLOWED}
+    if kind in _GOVERNANCE_ALLOWED:
+        return {k: v for k, v in payload.items() if k in _GOVERNANCE_ALLOWED[kind] and v is not None}
     if kind in ("scan", "output_scan"):
         allowed = _SCAN_FIELDS_BY_LEVEL.get(redaction_level, _SCAN_STANDARD)
     else:
@@ -420,12 +704,76 @@ def build_task_event_payload(live_run: Mapping[str, Any]) -> dict[str, Any]:
     payload = dict(live_run)
     payload["row_type"] = TASK_EVENT_ROW_TYPE
     _assert_metadata_only(payload, _TASK_EVENT_ALLOWED, kind="task_event")
+    # The session id (6.1 cloud sync) is an id, never a path or free text.
+    sid = payload.get("session_id")
+    if sid is not None and not (isinstance(sid, str) and _GOV_REQUEST_ID_RE.match(sid)):
+        raise ValueError("external_forwarders: refusing to enqueue task_event with a "
+                         "session_id that is not an id.")
+    # The optional detection and response fields go through the one
+    # validator again: a value outside the contract is dropped, not queued.
+    from securevector.app.terminals.live_runs import ADR_FIELDS, adr_fields
+
+    present = {k: payload.pop(k) for k in ADR_FIELDS if k in payload}
+    if present:
+        payload.update(adr_fields(present, payload.get("event")))
     for key, value in payload.items():
         if value is not None and not isinstance(value, (str, int, float, bool)):
             raise ValueError(
                 f"external_forwarders: refusing to enqueue task_event with a "
                 f"non-scalar value in field {key!r}."
             )
+    return payload
+
+
+def _check_alert_values(payload: Mapping[str, Any]) -> None:
+    """Every alert value against its own contract. A value outside it (a
+    path-like folder, a host, free text, a nested structure) is a hard
+    reject, never a strip."""
+    def bad(key: str) -> None:
+        raise ValueError(f"external_forwarders: refusing to enqueue alert with a bad value in field {key!r}.")
+
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if key in ("session_id",):
+            if not isinstance(value, str) or not _ALERT_ID_RE.match(value):
+                bad(key)
+        elif key == "agent_tool":
+            if not isinstance(value, str) or not _ALERT_TOOL_RE.match(value):
+                bad(key)
+        elif key == "folder_name":
+            if (not isinstance(value, str) or not value or len(value) > _ALERT_FOLDER_MAX
+                    or any(c in value for c in "/\\:") or value in (".", "..") or value.startswith("~")
+                    or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+                bad(key)
+        elif key == "rule":
+            if value not in ALERT_RULES:
+                bad(key)
+        elif key == "outcome":
+            if value not in ALERT_OUTCOMES:
+                bad(key)
+        elif key == "test_mode":
+            if not isinstance(value, bool):
+                bad(key)
+        elif key in ("score", "held_count"):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 100000:
+                bad(key)
+            if key == "score" and value > 100:
+                bad(key)
+        elif key == "emitted_at":
+            if not isinstance(value, str) or not _ALERT_TIME_RE.match(value):
+                bad(key)
+        else:
+            bad(key)
+
+
+def build_alert_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Check a stop-switch alert against its allow-list and value contract.
+    A key that is not on the list, or a value outside its contract, is a
+    hard reject."""
+    payload = dict(row)
+    _assert_metadata_only(payload, _ALERT_ALLOWED, kind="alert")
+    _check_alert_values(payload)
     return payload
 
 
@@ -1002,6 +1350,12 @@ class ExternalForwardOutboxRepository:
             _assert_metadata_only(payload, _TASK_EVENT_ALLOWED, kind=kind)
         elif kind == "generation":
             _assert_metadata_only(payload, _GENERATION_ALLOWED, kind=kind)
+        elif kind == "alert":
+            _assert_metadata_only(payload, _ALERT_ALLOWED, kind=kind)
+            _check_alert_values(payload)
+        elif kind in _GOVERNANCE_ALLOWED:
+            _assert_metadata_only(payload, _GOVERNANCE_ALLOWED[kind], kind=kind)
+            _check_governance_values(kind, payload)
         else:
             raise ValueError(f"unknown outbox kind: {kind!r}")
 
@@ -1015,8 +1369,16 @@ class ExternalForwardOutboxRepository:
             # rate limit. When allowed, the guard returns any suppressed
             # count accumulated since the last allowed event so we can
             # surface it in the payload.
-            rate_limit = int(fwd.get("rate_limit_per_minute") or 0)
-            allow, suppressed = _BURST_GUARD.check(int(fwd["id"]), rate_limit)
+            # Stop-switch alerts skip the burst guard: at most one per
+            # session, and a dropped one would hide a stopped session.
+            # Held-call request rows skip it too: a dropped state change
+            # would leave the cloud showing a call as waiting. Coverage rows
+            # go at most once a day.
+            if kind in ("alert", "approval_request", "harness_coverage"):
+                allow, suppressed = True, 0
+            else:
+                rate_limit = int(fwd.get("rate_limit_per_minute") or 0)
+                allow, suppressed = _BURST_GUARD.check(int(fwd["id"]), rate_limit)
             if not allow:
                 continue
 
@@ -1225,6 +1587,14 @@ def _passes_filter(fwd: dict[str, Any], kind: str, payload: dict[str, Any]) -> b
       2. Severity threshold — scan events must meet min_severity.
          Added in v26; default 'review' drops WARN-tier noise.
     """
+    if kind == "alert":
+        # Stop-switch alerts go to every SIEM destination whatever its
+        # filters say, and never to the fleet (enrollment) destination.
+        return str(fwd.get("source") or "") != "enrollment"
+    if kind in _GOVERNANCE_ALLOWED:
+        # Governance rows (egress, held-call requests, harness coverage)
+        # belong to the fleet destination only, never to a SIEM.
+        return str(fwd.get("source") or "") == "enrollment"
     if kind in ("task_event", "generation"):
         # Agent Task lifecycle rows and model generation rows belong to the
         # fleet destination only. A SIEM destination never receives them,
