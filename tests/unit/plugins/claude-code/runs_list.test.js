@@ -129,8 +129,8 @@ test('the runs list has no approve or deny control', () => {
   assert.ok(list.length > 5000, 'list section found');
   assert.doesNotMatch(list, /approveJit|denyJit|jit\/requests\/|>\s*(Approve|Allow once|Deny)\s*</i);
   assert.doesNotMatch(read('js/components/runs-list.js'), /approveJit|denyJit|\/approve|\/deny/);
-  // Waiting runs point to the trace for the decision.
-  assert.match(list, /Open the run to decide\./);
+  // Waiting badges jump to the waiting call's details for the decision.
+  assert.match(list, /Open the call that expires soonest to decide\./);
 });
 
 test('the Live grid nav item carries an amber waiting badge, hidden at zero', () => {

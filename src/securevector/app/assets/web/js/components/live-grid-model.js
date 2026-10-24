@@ -401,7 +401,10 @@
             const exp = `<button type="button" class="lg-exp" data-act="expand" data-sid="${sid}" aria-expanded="${open ? 'true' : 'false'}"` +
                 ` aria-controls="lg-cx-${sid}" aria-label="${open ? 'Hide' : 'Show'} tool calls and egress for ${e(name)}" title="${open ? 'Hide' : 'Show'} tool calls and egress">` +
                 `<span aria-hidden="true">${open ? '▾' : '▸'}</span></button>`;
-            return `<div class="lg-cw${pinned ? ' pinned' : ''}${open ? ' open' : ''}"><button type="button" class="lg-c st-${st}" data-act="open" data-sid="${sid}" title="${e(title)}" aria-label="${e((s.project || harness) + ', ' + this.stateLine(s) + ', open trace')}">` +
+            // A waiting tile is the waiting badge: it goes to the call's
+            // details on the Runs list (Review), not the full trace.
+            const wait = st === 'waiting';
+            return `<div class="lg-cw${pinned ? ' pinned' : ''}${open ? ' open' : ''}"><button type="button" class="lg-c st-${st}" data-act="${wait ? 'review' : 'open'}" data-sid="${sid}" title="${e(title)}" aria-label="${e((s.project || harness) + ', ' + this.stateLine(s) + (wait ? ', review the waiting call' : ', open trace'))}">` +
                 `<span class="lg-c-bar" aria-hidden="true"></span>` +
                 `<span class="lg-c-main"><span class="lg-c-name">${e(s.project || this.short(s.session_id))}</span>` +
                 `<span class="lg-c-state">${e(this.stateLine(s))}</span>` +

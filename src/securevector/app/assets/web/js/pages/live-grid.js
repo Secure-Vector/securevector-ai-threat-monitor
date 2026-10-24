@@ -395,7 +395,7 @@ const LiveGridPage = {
         } else if (act === 'open' || act === 'open-panel' || act === 'open-foot' || act === 'more-calls' || act === 'more-hosts') {
             this.openTrace(sid, null);
         } else if (act === 'review') {
-            this.openTrace(sid, b.dataset.req || null);
+            this.openTrace(sid, b.dataset.req || null, { atWaiting: true });
         } else if (act === 'views') {
             const menu = document.getElementById('lg-views-menu');
             if (!menu) return;
@@ -436,9 +436,17 @@ const LiveGridPage = {
     /** Open the session's run trace on the Runs view, the same path the
      *  Runs list uses. With a request id, that held call's span is selected
      *  so the decision is made in the span panel with its full context. */
-    async openTrace(sid, reqId) {
+    async openTrace(sid, reqId, opts = {}) {
         if (!sid) return;
         let tid = this.details[sid] && this.details[sid].traceId;
+        if (!reqId && opts.atWaiting) {
+            // A compact tile names no request: the session's waiting call
+            // that expires soonest.
+            const ms = (t) => { const v = t ? Date.parse(t) : NaN; return isNaN(v) ? Infinity : v; };
+            const w = (this.reqs || []).filter(x => x && x.session_id === sid && (!x.status || x.status === 'pending') && x.rule_source !== 'delegate')
+                .sort((a, b) => ms(a.expires_at) - ms(b.expires_at));
+            if (w.length) reqId = w[0].id;
+        }
         if (reqId) {
             const r = (this.reqs || []).find(x => x && x.id === reqId);
             if (r && r.trace_id) tid = r.trace_id;
@@ -451,7 +459,11 @@ const LiveGridPage = {
             if (window.Toast) Toast.info('No run recorded yet for this session. Try again in a moment.');
             return;
         }
-        if (window.AgentRunsPage) {
+        if (window.AgentRunsPage && opts.atWaiting) {
+            // Review: the run opens in place on the Runs list at its waiting
+            // call, details open, so Approve and Deny show with full context.
+            AgentRunsPage._pendingWait = { traceId: tid, reqId: reqId || null };
+        } else if (window.AgentRunsPage) {
             AgentRunsPage._pendingTrace = tid;
             AgentRunsPage._pendingReq = reqId || null;
         }

@@ -261,6 +261,19 @@ const RunsList = {
         });
     },
 
+    /** Review-needed first (owner rule): runs with a waiting approval move
+     *  ahead of all others, soonest expiry first (no expiry last), the rest
+     *  keep their order. Grouped by session after this, sessions with a
+     *  waiting run lead (soonest expiry first, so they land on page 1) and
+     *  inside a session its waiting runs come first. */
+    waitingFirst(runs) {
+        const exp = (r) => this.ms(r.oldest_waiting_expires_at) || Infinity;
+        const idx = new Map((runs || []).map((r, i) => [r, i]));
+        const w = (runs || []).filter(r => Number(r && r.waiting || 0) > 0)
+            .sort((a, b) => (exp(a) - exp(b)) || (idx.get(a) - idx.get(b)));
+        return w.concat((runs || []).filter(r => !(Number(r && r.waiting || 0) > 0)));
+    },
+
     /** Needs review order: waiting first, oldest request first; then
      *  blocked, newest first; then the rest (high score). */
     reviewOrder(runs, ctx) {
@@ -396,6 +409,80 @@ const RunsList = {
         return entry.seq;
     },
     inlineCurrent(entry, seq) { return !!entry && entry.seq === seq; },
+
+    // ------------------------------------------------- jump to a waiting call
+    // The amber "waiting for approval" badge is a shortcut: it opens the
+    // session, the run and the turn, and the waiting span's details, where
+    // Approve and Deny live with the call's full context.
+
+    /** The waiting request among `traceIds` that expires soonest (no expiry
+     *  sorts last, then the oldest request). A request without a trace id
+     *  belongs to its session's newest run, as in buildCtx. Returns
+     *  { req, traceId } or null. */
+    soonestWaiting(items, traceIds, ctx) {
+        const want = new Set(traceIds || []);
+        const newest = (ctx && ctx.newest) || {};
+        let best = null;
+        const exp = (p) => this.ms(p.expires_at) || Infinity;
+        const at = (p) => this.ms(p.requested_at) || Infinity;
+        (items || []).forEach(p => {
+            if (!p || p.rule_source === 'delegate' || (p.status && p.status !== 'pending')) return;
+            const tid = p.trace_id || (p.session_id && newest[p.session_id]) || null;
+            if (!tid || !want.has(tid)) return;
+            if (!best || exp(p) < exp(best.req) || (exp(p) === exp(best.req) && at(p) < at(best.req))) best = { req: p, traceId: tid };
+        });
+        return best;
+    },
+
+    /** Fallback when the pending list has no match: the run with waiting
+     *  calls whose oldest wait expires soonest. */
+    soonestWaitingRun(runs) {
+        const w = (runs || []).filter(r => r && Number(r.waiting || 0) > 0);
+        if (!w.length) return null;
+        const exp = (r) => this.ms(r.oldest_waiting_expires_at) || Infinity;
+        return w.slice().sort((a, b) => exp(a) - exp(b))[0];
+    },
+
+    /** The path to a waiting span in a run's span tree: the keys to open
+     *  (its ancestors under the run, e.g. the turn) and the span's key.
+     *  Matches by request id as the trace panel does (node.req.id); with no
+     *  id, the pending node that expires soonest. Null when not found. */
+    waitPath(tree, reqId) {
+        let best = null;
+        const exp = (n) => this.ms(n.req && n.req.expires_at) || Infinity;
+        const visit = (n, anc) => {
+            const r = n.req;
+            if (r && (reqId ? r.id === reqId : r.status === 'pending')) {
+                if (!best || (!reqId && exp(n) < exp(best.node))) best = { node: n, open: anc.slice() };
+                if (reqId) return;
+            }
+            const next = n.kind === 'run' ? anc : anc.concat([n.key]);
+            (n.children || []).forEach(c => { if (!(reqId && best)) visit(c, next); });
+        };
+        if (tree) visit(tree, []);
+        return best ? { key: best.node.key, open: best.open } : null;
+    },
+
+    /** The list page that holds a run: by run in the flat list, by session
+     *  when grouped (sessions are never split). -1 when not listed. */
+    pageOfRun(ordered, traceId, flat, size) {
+        size = size || this.PAGE_SIZE;
+        if (flat) {
+            const i = (ordered || []).findIndex(r => r.trace_id === traceId);
+            return i < 0 ? -1 : Math.floor(i / size);
+        }
+        const gi = this.groupBySession(ordered || []).findIndex(g => g.runs.some(r => r.trace_id === traceId));
+        return gi < 0 ? -1 : Math.floor(gi / size);
+    },
+
+    /** One-shot handoff between pages: read a pending target and clear it,
+     *  so it is consumed exactly once. */
+    takeOnce(holder, prop) {
+        if (!holder) return null;
+        const v = holder[prop] == null ? null : holder[prop];
+        holder[prop] = null;
+        return v;
+    },
 
     /** Coverage badge text for a runtime: "partial · N paths not checked",
      *  "not enforced · recorded after the call", or "enforced before the call". */

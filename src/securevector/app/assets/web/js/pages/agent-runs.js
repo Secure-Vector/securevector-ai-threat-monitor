@@ -58,6 +58,8 @@ const AgentRunsPage = {
     _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
     _pendingReq: null,     // one-shot: select THIS waiting request's span once the trace loads (Live grid Review)
     _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
+    _jumpSeq: 0,           // jump token: only the latest waiting-badge jump reveals
+    _pendingWait: null,    // one-shot: { traceId, reqId } open this run in place at its waiting call (Live grid Review)
     _pendingGenRid: null,  // one-shot: after opening, jump to the generation with this request_id (Optimizer finding click-through)
     _timelineMem: null,    // { traceId, open }: the timeline state last set on this page, kept across rebuilds
     _detailPointerAt: 0,   // time of the last pointerdown inside #ar-detail
@@ -1236,6 +1238,9 @@ const AgentRunsPage = {
             .rl-b { font-size:12px; padding:1px 7px; border-radius:4px; white-space:nowrap; }
             .rl-amb { background:color-mix(in srgb, var(--warning,#f59e0b) 15%, transparent); border:1px solid color-mix(in srgb, var(--warning,#f59e0b) 45%, transparent);
                 color:color-mix(in srgb, var(--warning,#f59e0b) 75%, var(--text-primary,#eef2f7)); }
+            button.rl-wait { font:inherit; font-size:12px; cursor:pointer; line-height:inherit; }
+            button.rl-wait:hover { background:color-mix(in srgb, var(--warning,#f59e0b) 24%, transparent); }
+            button.rl-wait:focus-visible { outline:2px solid var(--warning,#f59e0b); outline-offset:1px; }
             .rl-red { background:color-mix(in srgb, var(--danger,#ef4444) 14%, transparent); border:1px solid color-mix(in srgb, var(--danger,#ef4444) 45%, transparent);
                 color:color-mix(in srgb, var(--danger,#ef4444) 70%, var(--text-primary,#eef2f7)); }
             .rl-sh { position:relative; display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; padding:9px 14px; font-size:13px;
@@ -1250,6 +1255,10 @@ const AgentRunsPage = {
             .rl-cov { font-size:11px; padding:1px 7px; border-radius:10px; white-space:nowrap;
                 border:1px solid var(--border-light,#303844); color:var(--text-secondary,#aeb7c2); }
             .rl-sh-right { margin-left:auto; display:flex; gap:14px; }
+            .rl-sh.rl-sh-wait { flex-wrap:nowrap; }
+            .rl-sh.rl-sh-wait > * { white-space:nowrap; flex-shrink:0; }
+            .rl-sh.rl-sh-wait .rl-cov { flex-shrink:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+            .rl-sh.rl-sh-wait .rl-sh-right { flex-shrink:0; white-space:nowrap; }
             .rl-pager { display:flex; align-items:center; gap:8px; justify-content:flex-start; font-size:12.5px; }
             .rl-pager .rl-sub { margin-right:4px; }
             .ar-layout.runs-v2 .ar-listview { padding-bottom:80px; }
@@ -1610,6 +1619,7 @@ const AgentRunsPage = {
         const list = document.getElementById('ar-runlist');
         if (list) list.innerHTML = '<div class="ar-empty">Loading sessions…</div>';
         const wantTrace = this._pendingTrace; this._pendingTrace = null;
+        const wantWait = RunsList.takeOnce(this, '_pendingWait');
         const [data] = await Promise.all([
             API.getTraces({ window_days: this.windowDays }),
             this._loadListExtras(true),
@@ -1627,7 +1637,16 @@ const AgentRunsPage = {
         const flagKey = { blocked: 'blocked', threat: 'detections', secret: 'secrets' }[this._wantFlagged];
         this._wantFlagged = null;
         const flagged = flagKey ? shown.find(r => (r[flagKey] || 0) > 0) : null;
-        if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
+        if (wantWait && wantWait.traceId && this.runs.some(r => r.trace_id === wantWait.traceId)) {
+            // Live grid Review: the run opens in place at its waiting call.
+            this._showList();
+            this._jumpToWaiting([wantWait.traceId], null, wantWait.reqId || null);
+        } else if (wantWait && wantWait.traceId) {
+            // Not in this window: the full trace path (it widens to 90 days).
+            this._pendingTrace = wantWait.traceId;
+            this._pendingReq = wantWait.reqId || null;
+            return this.loadData();
+        } else if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
             // A deep link ("See full run") asked for the whole run. A health
             // link asked for the steps and their findings instead.
             if (this._pendingHealthOpen) { this._healthOpen = wantTrace; this._pendingHealthOpen = false; }
@@ -2141,7 +2160,8 @@ const AgentRunsPage = {
             const parts = ['waiting for approval'];
             if (since) parts.push(this._ago(since));
             if (exp) parts.push('expires ' + this._clock(exp).split(' ').pop());
-            html += `<span class="rl-b rl-amb" title="${c.waiting} call${c.waiting === 1 ? '' : 's'} waiting for approval. Open the run to decide.">${this._esc(parts.join(' · '))}</span>`;
+            html += `<button type="button" class="rl-b rl-amb rl-wait" data-act="wait" data-fk="wait:${this._esc(r.trace_id)}" aria-label="Review the waiting call" ` +
+                `title="${c.waiting} call${c.waiting === 1 ? '' : 's'} waiting for approval. Open the call that expires soonest to decide.">${this._esc(parts.join(' · '))}</button>`;
         }
         if (c.blocked) html += `<span class="rl-b rl-red">${c.blocked} blocked</span>`;
         if (Number(r.repeat_attempts || r.repeats || 0) > 0) html += '<span class="rl-b rl-red">repeat attempt</span>';
@@ -2207,6 +2227,7 @@ const AgentRunsPage = {
         row.addEventListener('click', (ev) => {
             const btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
             if (btn && btn.dataset.act === 'details') { ev.stopPropagation(); this.selectRun(r.trace_id); return; }
+            if (btn && btn.dataset.act === 'wait') { ev.stopPropagation(); this._jumpToWaiting([r.trace_id]); return; }
             this._inlineToggleRun(r.trace_id);
         });
         row.addEventListener('keydown', (ev) => {
@@ -2269,6 +2290,19 @@ const AgentRunsPage = {
             `<span class="rl-sub">${this._esc(this._hostText(first))}</span>` +
             (started && isFinite(started) ? `<span class="rl-sub">session started ${this._esc(this._clock(started))}</span>` : '') +
             `<span class="rl-sub">${sessRuns.length} run${sessRuns.length === 1 ? '' : 's'} · ${cost > 0 ? '$' + cost.toFixed(2) : '—'}</span>`);
+        const waitN = sessRuns.reduce((a, r) => a + Number(r.waiting || 0), 0);
+        if (waitN > 0) {
+            const wb = document.createElement('button');
+            wb.type = 'button';
+            wb.className = 'rl-b rl-amb rl-wait';
+            wb.dataset.fk = 'wsess:' + g.key;
+            wb.setAttribute('aria-label', 'Review the waiting call');
+            wb.title = `${waitN} call${waitN === 1 ? '' : 's'} waiting for approval. Open the call that expires soonest to decide.`;
+            wb.textContent = `${waitN} waiting for approval`;
+            wb.addEventListener('click', (ev) => { ev.stopPropagation(); this._jumpToWaiting(sessRuns.map(r => r.trace_id), g.key); });
+            head.appendChild(wb);
+            head.classList.add('rl-sh-wait');
+        }
         if (cov || ctx.coverage) {
             const badge = document.createElement('span');
             badge.className = 'rl-cov';
@@ -2431,7 +2465,9 @@ const AgentRunsPage = {
             this._liveIds = (this.runs || []).filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
             return;
         }
-        const ordered = review ? RL.reviewOrder(shown, ctx) : RL.sortRuns(shown, this.sortKey, this.sortDir, ctx);
+        const sorted = review ? RL.reviewOrder(shown, ctx) : RL.sortRuns(shown, this.sortKey, this.sortDir, ctx);
+        // Grouped: sessions with a waiting approval lead, on page 1.
+        const ordered = flat ? sorted : RL.waitingFirst(sorted);
         // Grouped: page by session, so no session is split across pages.
         // Flat (and Needs review): page by run.
         const info = flat ? RL.page(ordered, this.pageIdx, RL.PAGE_SIZE) : RL.pageSessions(ordered, this.pageIdx, RL.PAGE_SIZE);
@@ -2439,7 +2475,7 @@ const AgentRunsPage = {
         const sortName = { started: 'newest first', duration: 'by duration', tokens: 'by tokens', cost: 'by cost', calls: 'by tool calls', status: 'by status', session: 'by session', host: 'by host' }[this.sortKey] || 'newest first';
         const sortText = this.sortKey === 'started' && this.sortDir === 'asc' ? 'oldest first' : sortName;
         this._renderStatusLine(review ? 'Waiting first, oldest first, then blocked'
-            : `Runs, ${sortText}${flat ? '' : ', grouped by session'}`);
+            : `Runs, ${flat ? '' : 'waiting first, then '}${sortText}${flat ? '' : ', grouped by session'}`);
         list.classList.toggle('rl-flatlist', flat);
         if (flat) {
             list.appendChild(this._sortHeader([['started', 'Started'], [null, 'Run'], ['session', 'Session'], ['host', 'Host · user'],
@@ -2698,7 +2734,11 @@ const AgentRunsPage = {
             : '<span class="rl-caret-sp" aria-hidden="true"></span>';
         const tok = RT.nodeTokens(n);
         const cost = RT.nodeCost(n);
-        const dec = d ? RT.badge(d) : (n.kind === 'tool' && s.action === 'allow' ? '<span class="rl-st">allowed</span>' : '');
+        let dec = d ? RT.badge(d) : (n.kind === 'tool' && s.action === 'allow' ? '<span class="rl-st">allowed</span>' : '');
+        if (d && d.key === 'waiting' && n.req) {
+            dec = `<button type="button" class="rl-b rl-amb rl-wait" data-act="wait" data-fk="wait:${this._esc(tid)}:${this._esc(row.key)}" ` +
+                `aria-label="Review the waiting call" title="Open this call's details to decide">${this._esc(d.label)}</button>`;
+        }
         const cells = [
             `<span class="rl-c rl-mono rl-sub rl-spant">${this._esc(RT.clock(s.called_at, true))}</span>`,
             `<span class="rl-c rl-name" style="--rl-ind:${20 * row.depth}px">${caret}<span class="rl-chip">${n.kind === 'llm' ? 'model' : 'tool'}</span>` +
@@ -2715,6 +2755,7 @@ const AgentRunsPage = {
         el.addEventListener('click', (ev) => {
             const b = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
             if (b && b.dataset.act === 'caret') { e.open[row.key] = !e.open[row.key]; this._renderRunsKeep(); return; }
+            if (b && b.dataset.act === 'wait') { ev.stopPropagation(); this._jumpSeq = (this._jumpSeq || 0) + 1; e.det[row.key] = true; this._renderRunsKeep(); this._revealWait(tid, row.key); return; }
             toggleDet();
         });
         el.addEventListener('keydown', (ev) => {
@@ -2746,9 +2787,17 @@ const AgentRunsPage = {
             .replace('aria-label="Close span detail, show session governance"', 'aria-label="Close these span details"') : '';
         const el = document.createElement('div');
         el.className = 'rl-spandet' + (sess ? ' rl-child' : '');
+        el.dataset.det = `${tid}:${row.key}`;
         el.style.setProperty('--rl-ind', `${20 * row.depth}px`);
         el.innerHTML = base + this._inlineLines(row, true) +
             `<div class="rl-spanpanel" role="region" aria-label="Span details">${html}</div>`;
+        // Deny keeps keyboard focus across a live rebuild.
+        const deny = el.querySelector('[data-act="deny"]');
+        if (deny) deny.dataset.fk = `deny:${tid}:${row.key}`;
+        // The heading takes focus after a jump (Deny is one Tab away), so
+        // a held Enter on the badge cannot repeat onto Deny.
+        const h3 = el.querySelector('.rt-ph h3');
+        if (h3) { h3.tabIndex = -1; h3.dataset.fk = `sph:${tid}:${row.key}`; }
         // An open "Raw arguments" stays open across rebuilds.
         const raw = el.querySelector('details.rt-raw');
         if (raw) {
@@ -2768,6 +2817,71 @@ const AgentRunsPage = {
             }
         });
         return el;
+    },
+
+    /** The waiting badge's shortcut: open the session, the run (its spans
+     *  fetched if needed) and the turn, then the waiting span's details,
+     *  centred, with focus on Deny. Several waiting: the one that expires
+     *  soonest. Not in the span tree yet: the full trace via Details with
+     *  the request preselected. `reqId` pins one request (Live grid). */
+    async _jumpToWaiting(traceIds, sessionKey, reqId) {
+        const RL = RunsList;
+        // Jump token: with quick repeated clicks only the latest jump reveals.
+        const seq = this._jumpSeq = (this._jumpSeq || 0) + 1;
+        const runs = (this.runs || []).filter(r => traceIds.includes(r.trace_id));
+        let pick = reqId ? null : RL.soonestWaiting((this._pending && this._pending.items) || [], traceIds, this._ctx);
+        let traceId = pick ? pick.traceId : null;
+        if (reqId) traceId = traceIds[0];
+        if (!traceId) { const r = RL.soonestWaitingRun(runs); traceId = r ? r.trace_id : traceIds[0]; }
+        const wantReq = reqId || (pick && pick.req.id) || null;
+        const r = (this.runs || []).find(x => x.trace_id === traceId);
+        const toDetails = () => { this._pendingReq = wantReq; this.selectRun(traceId); };
+        if (!r) return toDetails();
+        // The run must be on the list: on its page, its session open and
+        // the run shown even when it is an earlier one.
+        const review = this._reviewMode();
+        const flat = review || !this.groupBySession;
+        const shown = this._filteredRuns();
+        const sorted = review ? RL.reviewOrder(shown, this._ctx) : RL.sortRuns(shown, this.sortKey, this.sortDir, this._ctx);
+        const ordered = flat ? sorted : RL.waitingFirst(sorted);
+        const page = RL.pageOfRun(ordered, traceId, flat, RL.PAGE_SIZE);
+        if (page < 0) return toDetails();
+        this.pageIdx = page;
+        const key = sessionKey || (r.session_id || ('trace:' + r.trace_id));
+        if (!flat) {
+            this._openSessions[key] = true;
+            const g = RL.groupBySession(ordered).find(x => x.key === key);
+            if (g && !RL.sessionRows(g, false, this.selected).rows.includes(r)) this._expandedSessions[key] = true;
+        }
+        if (this._inDetail()) this._showList();
+        if (!(this._openRuns || []).includes(traceId)) {
+            // Opening respects the cap: the oldest open run closes.
+            const res = RL.inlineToggle(this._openRuns, traceId, RL.INLINE_MAX_OPEN);
+            this._openRuns = res.open;
+            RL.inlinePrune(this._inline, this._openRuns);
+        }
+        this._renderRunsKeep();
+        await this._inlineFetch(traceId, false);
+        if (seq !== this._jumpSeq) return;
+        const e = this._inline[traceId];
+        if (!e || !e.trace || !(this._openRuns || []).includes(traceId)) return toDetails();
+        const path = RL.waitPath(this._inlineTree(r, e), wantReq);
+        if (!path) return toDetails();
+        path.open.forEach(k => { e.open[k] = true; });
+        e.det[path.key] = true;
+        this._renderRunsKeep();
+        this._revealWait(traceId, path.key);
+    },
+
+    /** Centre a span's open details and focus its heading (Deny is the
+     *  next Tab stop). */
+    _revealWait(traceId, key) {
+        const want = `${traceId}:${key}`;
+        const el = [...document.querySelectorAll('.rl-spandet')].find(x => x.dataset.det === want);
+        if (!el) return;
+        try { el.scrollIntoView({ block: 'center' }); } catch (_) { el.scrollIntoView(); }
+        const h = el.querySelector('.rt-ph h3');
+        if (h) h.focus({ preventScroll: true });
     },
 
     /** Allow or Deny one held call from its inline span details, through the
