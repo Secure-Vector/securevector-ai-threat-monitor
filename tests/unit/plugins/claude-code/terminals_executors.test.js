@@ -29,7 +29,7 @@ function makeEl(extra = {}) {
 
 function makeContainer() {
   const els = {
-    '#terminals-launch': makeEl(),
+    '#terminals-launch': makeEl({ addEventListener() {} }),
     '#terminals-launch-btn': makeEl(),
     '#terminals-launch-cancel': makeEl(),
     '#terminals-workspace': makeEl(),
@@ -39,7 +39,7 @@ function makeContainer() {
     '#terminals-executor-hint': makeEl(),
     '#terminals-launch button[type="submit"]': makeEl({ disabled: false }),
   };
-  return { els, querySelector: (sel) => els[sel] || null };
+  return { els, querySelector: (sel) => els[sel] || null, addEventListener(t, fn) { (this.listeners = this.listeners || {})[t] = fn; } };
 }
 
 function loadTerminalsPage(api = {}) {
@@ -82,8 +82,8 @@ test('styles.css defines .terminals-executor-hint', () => {
 
 test('index.html pins the bumped executor cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=96/);
-  assert.match(html, /styles\.css\?v=469/);
+  assert.match(html, /terminals\.js\?v=129/);
+  assert.match(html, /styles\.css\?v=499/);
 });
 
 test('no em dash in the executor-hint UI strings', () => {
@@ -323,4 +323,26 @@ test('the picker lists only installed harness options, no placeholder', () => {
   const sel = container.els['#terminals-executor'];
   assert.ok(!sel.innerHTML.includes('value=""'), 'no empty-value placeholder option');
   assert.strictEqual(sel.value, 'claude-code');
+});
+
+test('_folderNote: OpenClaw says where its agent works, a reported folder says so, others stay quiet', () => {
+  const page = loadTerminalsPage();
+  assert.strictEqual(page._folderNote({ executor_id: 'openclaw', workspace: '/w' }), "works in the OpenClaw Gateway's workspace");
+  assert.strictEqual(page._folderNote({ executor_id: 'hermes', workspace: '/w', workspace_reported: true }), 'folder reported by the agent');
+  assert.strictEqual(page._folderNote({ executor_id: 'govrun', workspace: '/w', workspace_reported: false }), '');
+  assert.strictEqual(page._folderNote({ executor_id: 'codex', workspace: '/w' }), '');
+});
+
+test('_showExecutorState: a harness no Guard can report from shows its hint and no Install offer', () => {
+  const page = loadTerminalsPage();
+  const c = makeContainer();
+  c.els['#terminals-guard-row'] = makeEl();
+  c.els['#terminals-guard-install'] = makeEl();
+  page._executors = [{ id: 'hermes', label: 'Hermes', installed: true, governed: false, guard_relay: false, hint: 'Tasks launched here show as ungoverned.' }];
+  page._renderExecutorOptions(c);
+  assert.match(c.els['#terminals-executor'].innerHTML, /Hermes \(ungoverned\)/);
+  assert.strictEqual(c.els['#terminals-guard-row'].hidden, true);
+  assert.strictEqual(c.els['#terminals-executor-hint'].hidden, false);
+  assert.match(c.els['#terminals-executor-hint'].textContent, /ungoverned/);
+  assert.strictEqual(c.els['#terminals-launch button[type="submit"]'].disabled, false);
 });

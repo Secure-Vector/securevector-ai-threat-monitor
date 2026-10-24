@@ -54,6 +54,9 @@ HARNESS_LABELS = {
     "cursor": "Cursor",
     "opencode": "OpenCode",
     "antigravity": "Antigravity",
+    "govrun": "GovRun",
+    "hermes": "Hermes",
+    "openclaw": "OpenClaw",
 }
 
 # Harnesses with their own setup guide page; the rest land on Connect Agents.

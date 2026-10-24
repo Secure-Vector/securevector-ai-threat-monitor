@@ -32,7 +32,7 @@ const CommandPalette = {
             // 'blocked-ledger' and 'redactions' are facets of Threat Monitor now,
             // but stay searchable here: users look for them by name, and the
             // ids remain routable straight to the right facet.
-            if (['dashboard', 'terminals', 'threats', 'agent-activity', 'agent-map', 'storylines', 'run-health',
+            if (['dashboard', 'terminals', 'threats', 'agent-activity', 'agent-map', 'storylines', 'run-health', 'live-grid',
                 'instant-audit', 'blocked-ledger', 'redactions', 'costs', 'egress'].includes(id)) return 'Visibility';
             // Tool Activity lives under Policies > Tool Permissions since 6.0.0.
             if (['tool-permissions', 'tool-activity', 'rules', 'egress-policy', 'skill-scanner', 'guardian-ml',
@@ -58,6 +58,7 @@ const CommandPalette = {
         });
         // A few high-value aliases people will actually type.
         push('agent-runs', 'Observability: trace + run waterfall');
+        push('live-grid', 'Observability: Live grid');
         push('run-health', 'Observability: Health findings');
         push('agent-map', 'Observability: Map');
         push('agent-timeline', 'Observability: Live feed');

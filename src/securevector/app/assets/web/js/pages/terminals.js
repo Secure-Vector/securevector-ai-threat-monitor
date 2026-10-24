@@ -21,6 +21,9 @@ const TerminalsPage = {
     _error: null,
     _pendingApprovalSessions: new Set(),
     _pendingApprovalKinds: new Set(),
+    // Step-up calls blocked pending an approval request, by session id.
+    _heldBySession: new Map(),
+    _rungModes: null,
     _railSig: '',
     _taskQuery: '',
     _gen: 0,
@@ -111,6 +114,7 @@ const TerminalsPage = {
         this._adoptReviewOpen = false;
         this._governingId = null;
         this._adoptError = null;
+        this._drAt = 0;
         this._container = container;
         container.innerHTML = `
           <div class="terminals-page">
@@ -119,6 +123,7 @@ const TerminalsPage = {
                 <div class="terminals-tasks-actions">
                   <input class="terminals-task-search" id="terminals-task-search" type="search" placeholder="Find a task" aria-label="Find a task" title="Filters the tasks below as you type. Clear this box to show every task again.">
                   <button class="btn btn-primary btn-sm terminals-launch-button" id="terminals-launch-btn">+ Launch</button>
+                  <button class="btn btn-sm terminals-settings-btn" id="terminals-settings-btn" type="button" aria-haspopup="dialog">${this.GEAR_SVG}<span>Settings</span></button>
                 </div>
               </div>
               <form class="terminals-launch" id="terminals-launch" hidden>
@@ -135,6 +140,10 @@ const TerminalsPage = {
                 <label>Folder
                   <input id="terminals-workspace" type="text" placeholder="/path/to/project" autocomplete="off" spellcheck="false">
                 </label>
+                <div class="terminals-worktree" id="terminals-worktree-field">
+                  <label class="terminals-worktree-check"><input type="checkbox" id="terminals-worktree" disabled> Run in its own worktree</label>
+                  <div class="terminals-worktree-hint" id="terminals-worktree-hint" aria-live="polite" hidden></div>
+                </div>
                 <label>Title (optional)
                   <input id="terminals-title" type="text" maxlength="120">
                 </label>
@@ -143,10 +152,11 @@ const TerminalsPage = {
                   <button type="button" class="btn btn-sm" id="terminals-launch-cancel">Cancel</button>
                 </div>
                 <div class="terminals-launch-error" id="terminals-launch-error" hidden></div>
+                <div class="terminals-trust-verdict" id="terminals-trust-verdict" hidden></div>
                 <div class="terminals-executor-hint" id="terminals-executor-hint" hidden></div>
                 <div class="terminals-guard-row" id="terminals-guard-row" hidden>
                   <span class="terminals-guard-text" id="terminals-guard-text"></span>
-                  <button type="button" class="btn btn-sm btn-primary" id="terminals-guard-install">Install SecureVector Guard</button>
+                  <button type="button" class="btn btn-sm btn-primary" id="terminals-guard-install">Install</button>
                   <button type="button" class="btn btn-sm" id="terminals-guard-recheck" hidden>Check again</button>
                 </div>
                 <pre class="terminals-guard-commands" id="terminals-guard-commands" hidden></pre>
@@ -157,6 +167,7 @@ const TerminalsPage = {
                 <div class="terminals-unlinked" id="terminals-unlinked" hidden></div>
               </form>
               <div class="terminals-board-summary" id="terminals-board-summary" hidden></div>
+              <div class="terminals-alert-row" id="terminals-alert-row" tabindex="-1" aria-live="polite" hidden></div>
               <div class="terminals-adopt" id="terminals-adopt" hidden></div>
               <div id="terminals-task-list" class="terminals-task-list"></div>
               <details class="terminals-cli terminals-board-cli" id="terminals-board-cli">
@@ -188,7 +199,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             </section>
             <div class="terminals-gov-edge" id="terminals-gov-edge">
               <div class="terminals-gov-gutter" id="terminals-gov-gutter" role="separator" aria-orientation="vertical" aria-label="Resize the governance column" tabindex="0"></div>
-              <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="true" aria-controls="terminals-governance-body" aria-label="Collapse governance activity"><span class="terminals-governance-caret" aria-hidden="true"></span></button>
+              <button type="button" class="terminals-governance-toggle" id="terminals-governance-toggle" aria-expanded="false" aria-controls="terminals-governance-body" aria-label="Expand governance activity"><span class="terminals-governance-caret" aria-hidden="true"></span></button>
             </div>
             <section class="terminals-governance" id="terminals-governance">
               <div class="terminals-governance-head" id="terminals-governance-head">
@@ -211,6 +222,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 <details class="terminals-gov-section terminals-gov-context" id="terminals-gov-context">
                   <summary><h3>Context &amp; cost</h3><span class="terminals-gov-stage" id="terminals-context-stage"></span></summary>
                   <div id="terminals-context" class="terminals-context"><span class="terminals-empty">No task attached.</span></div>
+                  <div id="terminals-preflight" class="terminals-preflight" hidden></div>
                 </details>
                 <details class="terminals-gov-section" id="terminals-gov-traces"><summary class="terminals-traces-head"><h3>Traces</h3><a href="#" class="terminals-traces-all" id="terminals-traces-all">All traces</a><span class="terminals-gov-count" id="terminals-traces-count"></span></summary><div id="terminals-traces" class="terminals-traces"><span class="terminals-empty">No task attached.</span></div></details>
                 <details class="terminals-gov-section" id="terminals-gov-egress"><summary><h3>Egress</h3><span class="terminals-gov-count" id="terminals-egress-count"></span></summary><div id="terminals-egress" class="terminals-egress"><span class="terminals-empty">No task attached.</span></div></details>
@@ -246,6 +258,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (gen !== this._gen) return;
             this._executors = ex.items || [];
             this._renderExecutorOptions(container);
+            this._restoreLaunchDraft(container);
             this._renderGuardBanner();
         } catch (e) {
             console.warn('Terminals: executors unavailable', e);
@@ -256,8 +269,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (gen !== this._gen) return;
         await this._refreshTasks();
         if (gen !== this._gen) return;
+        this._maybeOpenSettings();
         this._pollTimer = setInterval(() => this._refreshTasks(), 3000);
-        this._railTimer = setInterval(() => { this._refreshRail(); this._refreshPaneGov(); }, 4000);
+        this._railTimer = setInterval(() => { this._refreshRail(); this._refreshPaneGov(); this._tickTimes(); }, 4000);
     },
 
     destroy() {
@@ -293,6 +307,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         this._attachedAt = null;
         this._error = null;
         this._pendingApprovalSessions = new Set();
+        this._heldBySession = new Map();
         this._taskQuery = '';
         this._tracesCache = null;
         this._guardPending = null;
@@ -312,13 +327,102 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     // --- task strip -----------------------------------------------------
 
+    GEAR_SVG: '<svg class="terminals-gear" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM19.4 13.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H5a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h0a1.6 1.6 0 0 0 1-1.5V5a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v0a1.6 1.6 0 0 0 1.5 1H19a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>',
+
+    /** The Agent Sessions settings panel: Delegation and Response rungs, using
+     *  the app's modal. Esc and the close button dismiss it. */
+    openSettings(focus) {
+        if (!window.Modal || typeof document === 'undefined') return;
+        const body = document.createElement('div');
+        body.className = 'terminals-settings-panel';
+        body.setAttribute('data-sessions-settings', '');
+        const section = (title, introHtml, attr) => {
+            const sec = document.createElement('section');
+            sec.className = 'terminals-settings-section';
+            const h = document.createElement('h3');
+            h.textContent = title;
+            sec.appendChild(h);
+            const intro = document.createElement('div');
+            intro.innerHTML = introHtml;
+            sec.appendChild(intro);
+            const host = document.createElement('div');
+            host.setAttribute(attr, '');
+            sec.appendChild(host);
+            body.appendChild(sec);
+            return host;
+        };
+        if (window.DelegationUI && API.getDelegationPolicy) {
+            const host = section('Delegation', DelegationUI.introHtml(), 'data-delegation-settings');
+            DelegationUI.wireIntro(host.previousSibling || host.parentNode);
+            DelegationUI.renderCard(host, API);
+        }
+        if (window.ResponseRungs && API.terminalsRungModes) {
+            const host = section('Automatic actions', `<p class="deleg-intro">${this._esc(ResponseRungs.INTRO)}</p>`, 'data-rung-settings');
+            ResponseRungs.renderCard(host, API);
+        }
+        Modal.show({ title: 'Agent Sessions settings', content: body, size: 'large' });
+        if (focus === 'rungs' && body.querySelector) {
+            const rungs = body.querySelector('[data-rung-settings]');
+            const sec = rungs && rungs.parentNode;
+            if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'start' });
+        }
+    },
+
+    /** Opens the panel when asked for by the Settings page or a deep link. */
+    _maybeOpenSettings() {
+        let want = false;
+        try {
+            if (sessionStorage.getItem('sv-sessions-settings') === '1') { sessionStorage.removeItem('sv-sessions-settings'); want = true; }
+        } catch (e) { /* storage unavailable */ }
+        try {
+            const loc = window.location || {};
+            if (/(^|[?&])settings=1(&|$)/.test(String(loc.search || '').replace(/^\?/, '')) || /[?&]settings=1(&|$)/.test(String(loc.hash || ''))) want = true;
+        } catch (e) { /* no location */ }
+        if (want) setTimeout(() => this.openSettings(), 0);
+    },
+
+    /** Remember the launch form: open or not, harness and typed fields. */
+    _saveLaunchDraft(container) {
+        const form = container.querySelector('#terminals-launch');
+        if (!form) return;
+        const val = (id) => { const n = container.querySelector(`#${id}`); return n ? n.value : ''; };
+        this._launchDraft = form.hidden ? null : {
+            executor: val('terminals-executor'), workspace: val('terminals-workspace'),
+            title: val('terminals-title'), session: val('terminals-session-id'),
+        };
+    },
+
+    /** Put the remembered form back after the page was rebuilt. */
+    _restoreLaunchDraft(container) {
+        const d = this._launchDraft;
+        const form = container.querySelector('#terminals-launch');
+        if (!d || !form) return;
+        form.hidden = false;
+        const set = (id, v) => { const n = container.querySelector(`#${id}`); if (n && v) n.value = v; };
+        const sel = container.querySelector('#terminals-executor');
+        if (sel && d.executor && Array.from(sel.options || []).some(o => o.value === d.executor && !o.disabled)) {
+            sel.value = d.executor;
+            this._showExecutorState(container);
+        }
+        set('terminals-workspace', d.workspace);
+        set('terminals-title', d.title);
+        set('terminals-session-id', d.session);
+    },
+
     _bindLaunchForm(container) {
+        const sBtn = container.querySelector('#terminals-settings-btn');
+        if (sBtn) sBtn.onclick = () => this.openSettings();
         const form = container.querySelector('#terminals-launch');
         container.querySelector('#terminals-launch-btn').onclick = () => {
             form.hidden = !form.hidden;
-            if (!form.hidden) container.querySelector('#terminals-workspace').focus();
+            this._saveLaunchDraft(container);
+            if (!form.hidden) {
+                container.querySelector('#terminals-workspace').focus();
+                this._checkFolderTrust(container);
+                this._scheduleWorktreeCheck(container, 0);
+            }
         };
-        container.querySelector('#terminals-launch-cancel').onclick = () => { form.hidden = true; };
+        container.querySelector('#terminals-launch-cancel').onclick = () => { form.hidden = true; this._launchDraft = null; };
         const modeLaunch = container.querySelector('#terminals-mode-launch');
         const modeLink = container.querySelector('#terminals-mode-link');
         if (modeLaunch) modeLaunch.onclick = () => this._setLaunchMode(container, 'launch');
@@ -333,19 +437,45 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // one handler per node, replaced rather than stacked if the form is
             // ever rebound.
             node.oninput = () => this._renderCliHint(container);
-            node.onchange = () => this._renderCliHint(container);
+            node.onchange = () => { this._renderCliHint(container); this._checkFolderTrust(container); };
         }
+        const wsNode = container.querySelector('#terminals-workspace');
+        if (wsNode) {
+            const prevInput = wsNode.oninput;
+            wsNode.oninput = () => {
+                if (prevInput) prevInput();
+                // Until the check answers for this folder, the old answer is stale.
+                const box = container.querySelector('#terminals-worktree');
+                if (box) { box.disabled = true; box.checked = false; }
+                this._scheduleWorktreeCheck(container);
+            };
+            const prevChange = wsNode.onchange;
+            wsNode.onchange = () => { if (prevChange) prevChange(); this._scheduleWorktreeCheck(container, 0); };
+        }
+        const wtBox = container.querySelector('#terminals-worktree');
+        if (wtBox) wtBox.onchange = () => this._renderWorktreeHint(container);
         this._renderCliHint(container);
-        const guardInstall = container.querySelector('#terminals-guard-install');
-        if (guardInstall) guardInstall.onclick = () => {
-            const sel = container.querySelector('#terminals-executor');
-            if (sel && sel.value) this._installGuard(sel.value, container);
-        };
-        const guardRecheck = container.querySelector('#terminals-guard-recheck');
-        if (guardRecheck) guardRecheck.onclick = () => {
-            const sel = container.querySelector('#terminals-executor');
-            if (sel && sel.value) this._recheckGuard(sel.value, container);
-        };
+        // Install and Check again are handled by one listener on the container,
+        // bound once: the buttons can be re-created by a re-render, and a
+        // handler on the node itself would be lost with it.
+        if (!container._guardDelegated) {
+            container._guardDelegated = true;
+            container.addEventListener('click', (ev) => {
+                let node = ev.target;
+                if (node && node.nodeType === 3) node = node.parentElement;
+                const hit = node && node.closest ? node.closest('#terminals-guard-install, #terminals-guard-recheck') : null;
+                if (!hit) return;
+                ev.preventDefault();
+                const sel = container.querySelector('#terminals-executor');
+                if (!sel || !sel.value) return;
+                if (hit.id === 'terminals-guard-install') this._installGuard(sel.value, container);
+                else this._recheckGuard(sel.value, container);
+            });
+        }
+        // The open form and what was typed survive a re-render of the page.
+        const keep = () => this._saveLaunchDraft(container);
+        form.addEventListener('input', keep);
+        form.addEventListener('change', keep);
         form.onsubmit = async (ev) => {
             ev.preventDefault();
             if (this._mode === 'link') { await this._submitLink(container); return; }
@@ -358,8 +488,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const title = container.querySelector('#terminals-title').value.trim();
             if (!workspace) { err.textContent = 'Enter the folder the task should run in.'; err.hidden = false; return; }
             try {
-                const task = await API.terminalsLaunch(executor, workspace, title);
+                const wtBox = container.querySelector('#terminals-worktree');
+                const wantWorktree = !!(wtBox && wtBox.checked && !wtBox.disabled);
+                const task = wantWorktree
+                    ? await API.terminalsLaunch(executor, workspace, title, null, { worktree: true })
+                    : await API.terminalsLaunch(executor, workspace, title);
                 form.hidden = true;
+                this._launchDraft = null;
                 await this._refreshTasks();
                 if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
                 await this._attach(task.id);
@@ -368,6 +503,69 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 err.hidden = false;
             }
         };
+    },
+
+    WORKTREE_DEBOUNCE_MS: 400,
+    WORKTREE_LOSS_NOTE: 'Uncommitted changes in this folder are not carried over.',
+
+    /** Ask, after a short pause in typing, whether the folder can host a worktree. */
+    _scheduleWorktreeCheck(container, delay) {
+        clearTimeout(this._worktreeTimer);
+        const ms = typeof delay === 'number' ? delay : this.WORKTREE_DEBOUNCE_MS;
+        this._worktreeTimer = setTimeout(() => this._checkWorktreeFolder(container), ms);
+    },
+
+    async _checkWorktreeFolder(container) {
+        const box = container.querySelector('#terminals-worktree');
+        const ws = container.querySelector('#terminals-workspace');
+        if (!box || !API.terminalsGitRepo) return;
+        const folder = ws && ws.value ? ws.value.trim() : '';
+        const seq = (this._worktreeSeq = (this._worktreeSeq || 0) + 1);
+        let info = null;
+        if (folder) {
+            try { info = await API.terminalsGitRepo(folder); } catch (e) { info = null; }
+        }
+        const empty = 'Enter a git folder to use a worktree.';
+        if (seq !== this._worktreeSeq) return;
+        const ok = !!(info && info.worktree_ok);
+        box.disabled = !ok;
+        if (!ok) box.checked = false;
+        this._worktreeMessage = ok ? '' : (info && info.message ? String(info.message) : empty);
+        this._renderWorktreeHint(container);
+    },
+
+    _renderWorktreeHint(container) {
+        const box = container.querySelector('#terminals-worktree');
+        const hint = container.querySelector('#terminals-worktree-hint');
+        if (!hint) return;
+        const text = box && box.checked ? this.WORKTREE_LOSS_NOTE : (this._worktreeMessage || '');
+        hint.textContent = text;
+        hint.hidden = !text;
+    },
+
+    /** Repo trust before the first prompt: the folder's setup state and its
+     *  top three reasons, read from config files only. Amber listing only, no
+     *  extra confirm (owner decision): Launch stays as it is. */
+    async _checkFolderTrust(container) {
+        const host = container && container.querySelector ? container.querySelector('#terminals-trust-verdict') : null;
+        if (!host || !window.ConfigTrust || !API.configTrustRepoCheck) return;
+        const sel = container.querySelector('#terminals-executor');
+        const ws = container.querySelector('#terminals-workspace');
+        const harness = sel && sel.value;
+        const workspace = ws && ws.value ? ws.value.trim() : '';
+        const seq = (this._trustSeq = (this._trustSeq || 0) + 1);
+        if (!harness || !workspace || this._mode === 'link') { host.hidden = true; host.innerHTML = ''; return; }
+        let v = null;
+        let failed = false;
+        try { v = await API.configTrustRepoCheck(harness, workspace); } catch (e) { failed = !/Folder not found/.test((e && e.message) || ''); }
+        if (seq !== this._trustSeq) return;
+        // A check that failed is shown as such, never hidden.
+        if (!v && failed) v = ConfigTrust.unparsedVerdict(harness);
+        if (!v) { host.hidden = true; host.innerHTML = ''; return; }
+        v.workspace = workspace;
+        host.innerHTML = ConfigTrust.verdictHtml(v);
+        host.hidden = false;
+        ConfigTrust.bind(host, () => this._checkFolderTrust(container));
     },
 
     // --- link a session that runs outside the app -----------------------
@@ -662,6 +860,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._adoptError = null;
             el.hidden = true;
             el.innerHTML = '';
+            this._renderBoardSummary(this._lastShown || []);
             return;
         }
         const more = rows.length > this.ADOPT_PREVIEW;
@@ -693,10 +892,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const error = this._adoptError
             ? `<div class="terminals-adopt-error">${this._esc(this._adoptError)}</div>`
             : '';
-        el.hidden = false;
         const reviewOpen = !!this._adoptReviewOpen;
-        const line = `<button type="button" class="terminals-adopt-line" aria-expanded="${reviewOpen ? 'true' : 'false'}" aria-controls="terminals-adopt-body">${this._esc(rows.length)} ${rows.length === 1 ? 'session' : 'sessions'} not governed · <span class="terminals-adopt-review">Review</span></button>`;
-        el.innerHTML = `${line}
+        el.hidden = !reviewOpen;
+        this._renderBoardSummary(this._lastShown || []);
+        el.innerHTML = `
           <div class="terminals-adopt-body" id="terminals-adopt-body"${reviewOpen ? '' : ' hidden'}>
           <div class="terminals-adopt-head">
             <span class="terminals-adopt-title">Running outside SecureVector</span>
@@ -705,13 +904,6 @@ ${this.CLI_BIN} stop &lt;id&gt;
           <p class="terminals-adopt-note">These sessions are reporting in but are not on your board yet.</p>
           ${body}${toggle}${error}
           </div>`;
-        const lineBtn = el.querySelector('.terminals-adopt-line');
-        if (lineBtn) lineBtn.onclick = () => {
-            this._adoptReviewOpen = !this._adoptReviewOpen;
-            this._renderAdoptable();
-            const again = el.querySelector('.terminals-adopt-line');
-            if (again && again.focus) again.focus();
-        };
         el.querySelectorAll('.terminals-adopt-govern').forEach(b => {
             b.onclick = () => {
                 // Looked up by id rather than carried on the element: the row
@@ -787,6 +979,33 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
     },
 
+    DR_REFRESH_MS: 15000,
+    _drAt: 0,
+    _drData: null,
+
+    /** Sessions to review, from the Agent Detection & Response summary. */
+    _drToReview() {
+        const d = this._drData;
+        return Math.max(0, Number(d && d.detect && d.detect.to_review) || 0);
+    },
+
+    /** Rides the existing task refresh; the summary itself is fetched at most
+     *  every DR_REFRESH_MS. A failed read hides the count and logs nothing. */
+    async _refreshDr() {
+        const now = Date.now();
+        if (this._drAt && now - this._drAt < this.DR_REFRESH_MS) return;
+        this._drAt = now;
+        const gen = this._gen;
+        let data = null;
+        try { data = await (API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API); } catch (e) { data = null; }
+        let modes = null;
+        try { modes = API.terminalsRungModes ? await API.terminalsRungModes() : null; } catch (e) { modes = null; }
+        if (gen !== this._gen) return;
+        this._drData = data && data.detect ? data : null;
+        this._rungModes = modes && Array.isArray(modes.modes) ? modes.modes : null;
+        this._renderTaskList();
+    },
+
     async _refreshTasks() {
         const gen = this._gen;
         try {
@@ -809,13 +1028,16 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._pendingApprovalKinds = new Set(
                 this._unmatchedApprovals(jit.items || []).map(r => r.runtime_kind).filter(Boolean)
             );
+            this._heldBySession = this._heldMap(jit.items || []);
         } catch (e) {
             // A temporary inbox failure must not make task attachment or the
             // task list unavailable. Avoid showing a stale approval badge.
             this._pendingApprovalSessions = new Set();
             this._pendingApprovalKinds = new Set();
+            this._heldBySession = new Map();
         }
         if (gen !== this._gen) return;
+        this._refreshDr();
         this._renderTaskList();
         this._renderPaneHeads();
         this._checkDragAlive();
@@ -926,25 +1148,184 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  with no data are left out. Only a blocked count above zero is coloured. */
     _factsHtml(t) {
         const parts = [];
-        const cost = this._fmtSpend(t.spend_usd);
-        if (cost) parts.push(`<span class="terminals-task-spend" title="${this._esc(String(t.spend_requests || 0))} priced request(s) for this session">${this._esc(cost)}</span>`);
-        if (typeof t.tool_calls === 'number') parts.push(`<span class="terminals-task-calls">${this._esc(t.tool_calls)} ${t.tool_calls === 1 ? 'call' : 'calls'}</span>`);
-        if (typeof t.blocked_calls === 'number') {
+        // A parent that delegated shows its spend rolled up over its children.
+        const rolled = typeof t.spend_total_usd === 'number';
+        const cost = this._fmtSpend(rolled ? t.spend_total_usd : t.spend_usd);
+        if (cost) parts.push(`<span class="terminals-task-spend" title="${rolled ? 'Including delegated sessions' : this._esc(String(t.spend_requests || 0)) + ' priced request(s) for this session'}">${this._esc(cost)}</span>`);
+        const unmonitored = t.origin !== 'linked' && (!!t.guard_warning || t.governed_at_launch === false);
+        if (unmonitored) parts.push('<span class="terminals-task-setup is-amber" title="SecureVector did not watch this session">not monitored</span>');
+        else if (typeof t.tool_calls === 'number') parts.push(`<span class="terminals-task-calls">${this._esc(t.tool_calls)} ${t.tool_calls === 1 ? 'call' : 'calls'}</span>`);
+        if (!unmonitored && typeof t.blocked_calls === 'number') {
             parts.push(`<span class="terminals-task-blocked${t.blocked_calls > 0 ? ' is-danger' : ''}">${this._esc(t.blocked_calls)} blocked</span>`);
         }
+        // Unusual activity: neutral when low, amber when worth a look, red
+        // when high (the band is a security state). Observe only.
+        if (typeof t.drift_score === 'number') {
+            const band = t.drift_band === 'high' || t.drift_band === 'watch' ? t.drift_band : 'calm';
+            const w = band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low';
+            parts.push(`<span class="terminals-task-drift is-${band}" title="Unusual activity score ${this._esc(t.drift_score)}">unusual activity ${w}</span>`);
+        }
+        if (t.worktree_branch) {
+            parts.push(`<span class="terminals-task-worktree" title="${this._esc(t.run_dir || '')}">worktree, ${this._esc(t.worktree_branch)}</span>`);
+        } else if (t.run_dir) {
+            parts.push(`<span class="terminals-task-worktree" title="${this._esc(t.run_dir)}">in parent's worktree</span>`);
+        }
+        // Agent config: one amber chip, only when it changed.
+        const setup = window.ConfigTrust ? ConfigTrust.factsPart(t) : '';
+        if (setup) parts.push(setup);
         const age = this._compactAge(t.created_at);
         if (age) parts.push(`<span class="terminals-task-age">${this._esc(age)}</span>`);
         if (!parts.length) return '';
-        return `<span class="terminals-task-facts">${parts.join('<span class="terminals-task-facts-sep" aria-hidden="true"> · </span>')}</span>`;
+        const plain = parts.map(x => x.replace(/<[^>]*>/g, '')).join(' \u00b7 ');
+        return `<span class="terminals-task-facts${setup ? ' is-wrap' : ''}" title="${this._esc(plain)}">${parts.join('<span class="terminals-task-facts-sep" aria-hidden="true"> · </span>')}</span>`;
+    },
+
+    // --- worktree isolation: the card's line after the task has ended ------
+
+    _plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; },
+
+    _worktreeChangesText(t) {
+        const files = Number(t.worktree_dirty) || 0;
+        const commits = Number(t.worktree_commits) || 0;
+        const bits = [];
+        if (files) bits.push(this._plural(files, 'file changed', 'files changed'));
+        if (commits) bits.push(this._plural(commits, 'commit', 'commits'));
+        return bits.join(', ');
+    },
+
+    _worktreeBlockHtml(t) {
+        if (!t || !t.worktree_branch) return '';
+        const id = this._esc(t.id);
+        const note = this._worktreeNotes && this._worktreeNotes[t.id];
+        const noteHtml = note ? `<span class="terminals-worktree-note" role="status">${this._esc(note)}</span>` : '';
+        const busy = !!(this._worktreeBusy && this._worktreeBusy.has(t.id));
+        const dis = busy ? ' disabled' : '';
+        if (t.worktree_state === 'removing') {
+            return `<div class="terminals-task-worktreebox"><span>Removing worktree...</span><button type="button" class="terminals-worktree-btn" disabled>Remove worktree</button></div>`;
+        }
+        if (t.worktree_state !== 'kept' || !this._isNewestOnBranch(t)) {
+            return noteHtml ? `<div class="terminals-task-worktreebox">${noteHtml}</div>` : '';
+        }
+        const ask = this._worktreeAsk && this._worktreeAsk.id === t.id ? this._worktreeAsk : null;
+        if (ask) {
+            return `<div class="terminals-task-worktreebox"><span class="terminals-worktree-confirm" role="status">${this._esc(ask.message)}</span>
+              <button type="button" class="terminals-worktree-btn" data-worktree-confirm="${id}"${dis}>Remove</button>
+              <button type="button" class="terminals-worktree-btn" data-worktree-cancel="${id}"${dis}>Cancel</button></div>`;
+        }
+        const changes = this._worktreeChangesText(t);
+        const line = changes || 'No changes in the worktree. Remove it?';
+        const open = changes ? `<button type="button" class="terminals-worktree-btn" data-worktree-open="${id}"${dis}>Open folder</button>` : '';
+        return `<div class="terminals-task-worktreebox"><span>${this._esc(line)}</span>${noteHtml}${open}
+          <button type="button" class="terminals-worktree-btn" data-worktree-remove="${id}"${dis}>Remove worktree</button></div>`;
+    },
+
+    /** Rows that reused one worktree: only the newest row may act on it. */
+    _isNewestOnBranch(t) {
+        const same = (this._tasks || []).filter(x => x.worktree_branch === t.worktree_branch && x.run_dir === t.run_dir);
+        if (same.length < 2) return true;
+        const key = (x) => String(x.created_at || '');
+        let newest = same[0];
+        for (const x of same) if (key(x) > key(newest)) newest = x;
+        return newest.id === t.id;
+    },
+
+    _armWorktreeAsk(ask) {
+        this._worktreeAsk = ask;
+        this._worktreeFocusId = ask ? ask.id : null;
+        clearTimeout(this._worktreeAskTimer);
+        this._worktreeAskTimer = null;
+        if (!ask) return;
+        this._worktreeAskTimer = setTimeout(() => {
+            if (this._worktreeAsk === ask) { this._armWorktreeAsk(null); this._renderTaskList(); }
+        }, this.WORKTREE_ASK_MS);
+    },
+
+    _pruneWorktreeAsk() {
+        const a = this._worktreeAsk;
+        if (!a) return;
+        const t = (this._tasks || []).find(x => x.id === a.id);
+        if (!t || t.worktree_state !== 'kept') this._armWorktreeAsk(null);
+    },
+
+    _wireWorktree(el) {
+        el.querySelectorAll('[data-worktree-remove]').forEach(b => {
+            b.onclick = (ev) => { ev.stopPropagation(); this._removeWorktree(b.dataset.worktreeRemove, false); };
+        });
+        el.querySelectorAll('[data-worktree-confirm]').forEach(b => {
+            b.onclick = (ev) => { ev.stopPropagation(); this._removeWorktree(b.dataset.worktreeConfirm, true); };
+        });
+        el.querySelectorAll('[data-worktree-cancel]').forEach(b => {
+            b.onclick = (ev) => { ev.stopPropagation(); this._armWorktreeAsk(null); this._renderTaskList(); };
+        });
+        el.querySelectorAll('[data-worktree-open]').forEach(b => {
+            b.onclick = async (ev) => {
+                ev.stopPropagation();
+                try { await API.terminalsWorktreeOpen(b.dataset.worktreeOpen); }
+                catch (e) { this._noteWorktree(b.dataset.worktreeOpen, (e && e.message) || 'Could not open the folder.'); this._renderTaskList(); }
+            };
+        });
+        el.querySelectorAll('.terminals-task-worktreebox').forEach(n => { n.onclick = (ev) => ev.stopPropagation(); });
+        // Focus the Remove button only when the confirm was just armed.
+        if (this._worktreeFocusId) {
+            const want = this._worktreeFocusId;
+            this._worktreeFocusId = null;
+            const btn = Array.from(el.querySelectorAll('[data-worktree-confirm]')).find(b => b.dataset.worktreeConfirm === want);
+            if (btn && btn.focus) btn.focus();
+        }
+    },
+
+    WORKTREE_NOTE_MS: 8000,
+    WORKTREE_ASK_MS: 6000,
+
+    _noteWorktree(id, text) {
+        this._worktreeNotes = this._worktreeNotes || {};
+        this._worktreeNotes[id] = text;
+        setTimeout(() => { delete this._worktreeNotes[id]; this._renderTaskList(); }, this.WORKTREE_NOTE_MS);
+    },
+
+    async _removeWorktree(id, confirm) {
+        this._worktreeBusy = this._worktreeBusy || new Set();
+        if (this._worktreeBusy.has(id)) return;
+        this._worktreeBusy.add(id);
+        this._renderTaskList();
+        try {
+            const seen = confirm && this._worktreeAsk && this._worktreeAsk.id === id ? this._worktreeAsk.dirty : undefined;
+            const res = await API.terminalsWorktreeRemove(id, !!confirm, seen);
+            this._armWorktreeAsk(null);
+            if (res && res.needs_confirm && !res.removed) {
+                const n = Number(res.dirty) || 0;
+                const fallback = `${this._plural(n, 'uncommitted file', 'uncommitted files')} will be lost. Ignored files such as build output are deleted too.`;
+                this._armWorktreeAsk({ id, dirty: n, message: res.message || fallback });
+            } else if (res && res.message) {
+                this._noteWorktree(id, res.message);
+            }
+        } catch (e) {
+            this._armWorktreeAsk(null);
+            this._noteWorktree(id, (e && e.message) || 'Could not remove the worktree.');
+        }
+        this._worktreeBusy.delete(id);
+        try { await this._refreshTasks(); } catch (e) { this._renderTaskList(); }
+        this._renderTaskList();
+    },
+
+    _boardNoteHtml() {
+        return this._boardNote ? `<div class="terminals-worktree-kept-note" role="status">${this._esc(this._boardNote)}</div>` : '';
+    },
+
+    _noteBoard(text) {
+        this._boardNote = text;
+        clearTimeout(this._boardNoteTimer);
+        this._boardNoteTimer = setTimeout(() => { this._boardNote = null; this._renderTaskList(); }, this.WORKTREE_NOTE_MS);
     },
 
     _renderTaskList() {
         const el = document.getElementById('terminals-task-list');
         if (!el) return;
+        this._pruneWorktreeAsk();
         if (this._error) { this._renderBoardSummary([]); el.innerHTML = `<div class="terminals-error">${this._esc(this._error)}</div>`; return; }
         if (!this._tasks.length) {
             this._renderBoardSummary([]);
-            el.innerHTML = `<div class="terminals-task-empty">
+            el.innerHTML = this._boardNoteHtml() + `<div class="terminals-task-empty">
               <strong>Start your first governed task</strong>
               <span>Choose a harness, then SecureVector keeps its calls and decisions together.</span>
               <button class="btn btn-sm btn-primary" id="terminals-empty-launch">Launch a harness</button>
@@ -977,18 +1358,26 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const groups = new Map();
         const cardsOf = (t) => {
             const name = this._folderName(t);
-            if (!groups.has(name)) groups.set(name, { name, cards: [], attached: false });
+            if (!groups.has(name)) groups.set(name, { name, cards: [], held: [], child: [], attached: false });
             return groups.get(name);
         };
         {
-            for (const t of byFolder) {
+            // Delegated children follow their parent, in the parent's folder.
+            const nested = window.DelegationUI ? DelegationUI.nest(byFolder) : { list: byFolder, parentOf: new Map(), kidsOf: new Map() };
+            const folded = window.DelegationUI ? DelegationUI.collapsed() : new Set();
+            const visibleList = window.DelegationUI ? DelegationUI.visible(nested, folded, this._attached) : nested.list;
+            for (const t of visibleList) {
+                const deleg = nested.parentOf.get(t.id) || null;
+                const kidCount = (nested.kidsOf.get(t.id) || []).length;
+                const delegPos = deleg ? DelegationUI.position(nested, t) : null;
+                const lookup = deleg || (t.parent_task_id ? (this._tasks || []).find(x => x.id === t.parent_task_id) || null : null);
                 const active = t.id === this._attached ? ' is-attached' : '';
                 const state = this._taskState(t);
                 // A linked session that ended can carry the folder placeholder
                 // rather than a path, and relaunch spawns into the folder. No
                 // real folder, no offer: the alternative is a button whose only
                 // outcome is "Workspace folder does not exist".
-                const canRelaunch = this._isEnded(t) && !!this._knownWorkspace(t.workspace);
+                const canRelaunch = this._isEnded(t) && !!this._knownWorkspace(t.workspace) && !t.workspace_reported;
                 // The launching state lives on the page, not on the button: the
                 // 3 s poll rebuilds every card, and a disabled flag set on the
                 // old DOM node would be gone by the next tick, leaving a live
@@ -1047,24 +1436,39 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 const stuck = stuckMin != null
                     ? `<span class="terminals-task-stuck" title="Working, with no new tool call or transcript write">no activity for ${this._esc(String(stuckMin))} min</span>`
                     : '';
-                const facts = this._factsHtml(t);
+                const facts = this._factsHtml(t) + this._heldLineHtml(t);
+                // Beside the drift and setup facts (which sit inside the card
+                // button, so the link lives in the actions row instead).
+                const drLink = this._drLinkHtml(t, 'terminals-task-dr');
                 const branch = typeof t.branch === 'string' && t.branch
                     ? `<span class="terminals-task-branch" title="${this._esc(t.branch)}">${this._esc(t.branch)}</span>` : '';
-                const grp = cardsOf(t);
+                const grp = cardsOf(deleg || t);
                 if (t.id === this._attached) grp.attached = true;
-                grp.cards.push(`
-                  <article class="terminals-task${active}" data-id="${this._esc(t.id)}">
+                const cross = deleg && DelegationUI.crossAgent(t.executor_id, deleg.executor_id);
+                const delegFrom = window.DelegationUI && (deleg || t.parent_task_id)
+                    ? DelegationUI.fromHtml(t, lookup, !!deleg).replace('</div>', (cross ? ' ' + DelegationUI.crossHtml() : '') + '</div>') : '';
+                const delegLine = window.DelegationUI ? DelegationUI.summaryLineHtml(t, kidCount, folded.has(t.id)) : '';
+                const wrapOpen = delegPos ? `<div class="deleg-child is-${delegPos}">` : '';
+                const wrapClose = delegPos ? '</div>' : '';
+                grp.held.push(this._heldCount(t) > 0);
+                grp.child.push(!!deleg);
+                grp.cards.push(`${wrapOpen}
+                  <article class="terminals-task${active}${deleg ? ' is-delegated' : ''}" data-id="${this._esc(t.id)}">
+                    ${delegFrom}
                     <button class="terminals-task-select" data-id="${this._esc(t.id)}" aria-label="Open ${this._esc(t.title || this._label(t.executor_id))}">
-                      <span class="terminals-task-title-row">${window.TaskAvatar ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 44 }) : ''}<span class="terminals-task-title">${this._esc(t.title || this._label(t.executor_id))}</span>${t.origin === 'linked' ? '<span class="terminals-task-linked">linked</span>' : ''}</span>
+                      <span class="terminals-task-title-row">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: state.kind, size: 44 })) : ''}<span class="terminals-task-title">${this._esc(t.title || this._label(t.executor_id))}</span>${t.origin === 'linked' ? '<span class="terminals-task-linked">linked</span>' : ''}</span>
                       <span class="terminals-task-sub" title="${this._esc(state.detail)}">${this._esc(this._label(t.executor_id))} · ${this._esc(state.label)}</span>
                       ${doing}
                       <span class="terminals-task-folder" title="${this._esc(t.workspace || 'This session never reported a working folder')}">${this._esc(this._knownWorkspace(t.workspace) ? this._shortPath(this._knownWorkspace(t.workspace)) : 'Folder not reported')}</span>
-                      <span class="terminals-task-meta"><span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>${unver}${health}${stuck}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
+                      ${this._folderNote(t) ? `<span class="terminals-task-folder-note" style="font-size: 10.5px; color: var(--text-muted, #94a3b8);">${this._esc(this._folderNote(t))}</span>` : ''}
+                      <span class="terminals-task-meta">${guard.kind === 'ungoverned' || this._RUNNING_STATUSES.includes(t.status) ? `<span class="terminals-task-guard terminals-guard-${guard.kind}" title="${this._esc(guard.detail)}">${this._esc(guard.label)}</span>` : ''}${unver}${health}${stuck}<span class="terminals-task-elapsed">${this._esc(elapsed)}</span></span>
                       ${facts}
                       ${branch ? `<span class="terminals-task-when">${branch}</span>` : ''}
                     </button>
-                    ${relaunch || removable ? `<div class="terminals-task-actions">${relaunch}${removable}</div>` : ''}
-                  </article>`);
+                    ${delegLine}
+                    ${this._worktreeBlockHtml(t)}
+                    ${relaunch || removable || drLink ? `<div class="terminals-task-actions">${drLink}${relaunch}${removable}</div>` : ''}
+                  </article>${wrapClose}`);
             }
         }
         const collapsed = this._collapsedFolders();
@@ -1073,6 +1477,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (b.name === this.OTHER_FOLDER) return -1;
             return 0;
         });
+        // A session with a blocked step-up call leads its folder; otherwise order stands.
+        ordered.forEach(g => { g.cards = this._heldFirst(g.cards, g.held, g.child); });
         let html = '';
         ordered.forEach((g, i) => {
             // The folder holding the open session never hides it.
@@ -1089,7 +1495,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 <div class="terminals-group-cards" id="terminals-group-${i}"${open ? '' : ' hidden'}>${g.cards.join('')}</div>
               </section>`;
         });
-        el.innerHTML = html;
+        el.innerHTML = this._boardNoteHtml() + html;
         el.querySelectorAll('.terminals-group-toggle').forEach(b => {
             b.onclick = () => {
                 const name = b.dataset.folder;
@@ -1102,6 +1508,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 this._renderTaskList();
             };
         });
+        if (window.DelegationUI) DelegationUI.wireBoard(el, () => this._renderTaskList());
+        if (window.ConfigTrust) ConfigTrust.bindChips(el);
         el.querySelectorAll('.terminals-task-select').forEach(b => {
             b.onclick = () => {
                 // The click that ends a card drag belongs to the drag, not to
@@ -1114,6 +1522,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // pane is on screen to drop onto, so one card drops onto another.
         el.querySelectorAll('.terminals-task[data-id]').forEach(card => {
             card.onpointerdown = (ev) => this._onCardPointerDown(ev, card.dataset.id);
+        });
+        el.querySelectorAll('[data-dr-session]').forEach(a => {
+            a.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); this._openDetectionResponse(a.dataset.drSession); };
         });
         el.querySelectorAll('[data-relaunch-id]').forEach(b => {
             b.onclick = async (ev) => {
@@ -1156,6 +1567,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         el.querySelectorAll('.terminals-task-confirm').forEach(sp => {
             sp.onclick = (ev) => ev.stopPropagation();
         });
+        this._wireWorktree(el);
     },
 
     // Removing a task is reversible in intent (the audit trace is kept) but
@@ -1205,9 +1617,175 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return { kind: 'linked', label: 'linked', detail: 'A session you linked; the app does not own this process' };
         }
         if (t.governed_at_launch === false) {
-            return { kind: 'ungoverned', label: 'not governed', detail: 'Launched without SecureVector Guard: its calls are not being checked or recorded' };
+            return { kind: 'ungoverned', label: 'not monitored', detail: 'Launched without SecureVector Guard: its calls are not being checked or recorded' };
         }
-        return { kind: 'governed', label: 'governed', detail: 'Launched with SecureVector Guard in place: every call is checked and recorded' };
+        if (t.guard_warning) {
+            return { kind: 'ungoverned', label: 'Guard not reporting', detail: String(t.guard_warning) };
+        }
+        return { kind: 'governed', label: 'checked', detail: 'Launched with SecureVector Guard in place: every call is checked and recorded' };
+    },
+
+    /** Pending rung approvals (a step-up hold) per session id. */
+    _heldMap(items) {
+        const m = new Map();
+        (items || []).forEach(r => {
+            if (!r || r.rule_source !== 'rung' || !r.session_id) return;
+            m.set(r.session_id, (m.get(r.session_id) || 0) + 1);
+        });
+        return m;
+    },
+
+    _heldCount(t) {
+        return (t && t.session_id && this._heldBySession && this._heldBySession.get(t.session_id)) || 0;
+    },
+
+    /** Red when on rung 3 the Guard blocked a step-up call and filed an
+     *  approval request; muted in test mode, which only logs it. */
+    _heldLineHtml(t) {
+        const n = this._heldCount(t);
+        const reasons = window.ResponseRungs && ResponseRungs.reasonsText ? ResponseRungs.reasonsText(t.rung_reasons) : '';
+        const score = typeof t.drift_score === 'number' ? `score ${t.drift_score}` : '';
+        if (n > 0) {
+            const parts = [`${n} ${n === 1 ? 'call' : 'calls'} blocked until you decide`, reasons, score].filter(Boolean);
+            return `<span class="terminals-task-stepup-blocked" title="Allow or deny in the approval card beside the session">${this._esc(parts.join(' \u00b7 '))}</span>`;
+        }
+        if (t && t.rung_word === 'step-up' && t.rung_mode !== 'active') {
+            const k = Number(t.rung_would_ask) || 0;
+            const what = k > 0 ? `${k} risky ${k === 1 ? 'call' : 'calls'}` : 'risky calls';
+            return `<span class="terminals-task-wouldblock" title="Test mode: logged only, nothing was blocked">would have blocked: ${this._esc(what)}</span>`;
+        }
+        return '';
+    },
+
+    /** Stable: chunks (a card plus its delegated children) with a blocked
+     *  step-up call move to the front, everything else keeps its order. */
+    _heldFirst(cards, held, child) {
+        const chunks = [];
+        cards.forEach((c, i) => {
+            if (child[i] && chunks.length) { const last = chunks[chunks.length - 1]; last.cards.push(c); last.held = last.held || held[i]; }
+            else chunks.push({ cards: [c], held: !!held[i] });
+        });
+        return chunks.filter(c => c.held).concat(chunks.filter(c => !c.held)).flatMap(c => c.cards);
+    },
+
+    // --- alert row --------------------------------------------------------
+
+    /** What the one-line alert row says, from data already cached. */
+    _alertModel() {
+        const d = this._drData;
+        if (!d) return null;
+        const sp = d.spotlight;
+        let held = 0;
+        (this._heldBySession || new Map()).forEach(n => { held += n; });
+        if (sp && sp.to_review !== false && (sp.band === 'watch' || sp.band === 'high')) {
+            const DR = window.DetectionResponsePage;
+            const sentence = (f) => String((DR && DR._featureSentence ? DR._featureSentence(f) : f.label) || '').replace(/\.$/, '');
+            return {
+                kind: 'unusual', band: sp.band, taskId: sp.task_id, spotlight: sp,
+                head: `${sp.harness_label || 'This agent tool'}${sp.folder ? ` in ${sp.folder}` : ''} stopped behaving like itself`,
+                score: `${sp.score} ${sp.band === 'high' ? 'high' : 'worth a look'}`,
+                signals: (sp.features || []).slice(0, 2).map(sentence).filter(Boolean),
+                blocked: held,
+            };
+        }
+        const config = Math.max(0, Number(d.harden && d.harden.changes) || 0);
+        const toReview = this._drToReview();
+        if (config > 0 || held > 0 || toReview > 0) return { kind: 'pending', config, held, toReview };
+        const high = sp && Number.isFinite(Number(sp.score)) ? Number(sp.score) : null;
+        return { kind: 'calm', high, band: sp ? sp.band : null };
+    },
+
+    /** Automatic actions mode across harnesses: on, test or mixed. */
+    _alertMode() {
+        const modes = this._rungModes;
+        if (!modes) return null;
+        // No rows yet: every agent tool starts in test mode.
+        if (!modes.length) return 'test';
+        const kinds = new Set(modes.map(m => (m && m.mode === 'active' ? 'on' : 'test')));
+        return kinds.size > 1 ? 'mixed' : [...kinds][0];
+    },
+
+    _alertRowHtml(m, mode) {
+        const esc = (v) => this._esc(v);
+        const dot = ' \u00b7 ';
+        let body = '';
+        let actions = '';
+        let cls = 'is-calm';
+        if (m && m.kind === 'unusual') {
+            cls = m.band === 'high' ? 'is-high' : 'is-watch';
+            const blocked = m.blocked > 0 ? [`${m.blocked} ${m.blocked === 1 ? 'call' : 'calls'} blocked`] : [];
+            const tail = [m.score, ...m.signals, ...blocked];
+            const text = [m.head, ...tail].join(dot);
+            body = `<span class="terminals-alert-text" title="${esc(text)}"><b>${esc(m.head)}</b>${esc(dot + tail.join(dot))}</span>`;
+            actions = `<button type="button" class="btn btn-sm" data-alert-open="${esc(m.taskId)}">Open session</button>`
+                + `<button type="button" class="btn btn-sm" data-alert-why>See why</button>`;
+        } else if (m && m.kind === 'pending') {
+            cls = 'is-pending';
+            // The same sessions-to-review count as the rail badge and the
+            // status row; config changes and blocked calls are a breakdown.
+            const parts = [];
+            if (m.toReview > 0) parts.push(`<button type="button" class="terminals-alert-link" data-alert-dr>${esc(`${m.toReview} ${m.toReview === 1 ? 'session needs' : 'sessions need'} a look`)}</button>`);
+            if (m.config > 0) parts.push(`<button type="button" class="terminals-alert-link"${m.toReview > 0 ? ' data-alert-config' : ' data-alert-dr'}>${esc(`${m.config} config ${m.config === 1 ? 'change' : 'changes'} to approve`)}</button>`);
+            if (m.held > 0) parts.push(`<button type="button" class="terminals-alert-link" data-alert-blocked>${esc(`${m.held} ${m.held === 1 ? 'call' : 'calls'} blocked until you decide`)}</button>`);
+            body = `<span class="terminals-alert-text">${parts.join(esc(dot))}</span>`;
+        } else if (m && m.kind === 'calm') {
+            const high = m.high !== null && m.high !== undefined ? `${dot}highest ${m.high}, ${m.band === 'high' ? 'high' : m.band === 'watch' ? 'worth a look' : 'low'}` : '';
+            body = `<span class="terminals-alert-text">${esc('All sessions behaved like themselves this week' + high)}</span>`;
+        }
+        const chip = mode
+            ? `<button type="button" class="terminals-alert-mode is-${mode}" data-alert-mode title="${mode === 'on' ? 'On: step-up calls are blocked until you approve them.' : mode === 'mixed' ? 'On for some agent tools, test mode for others.' : 'Test mode: actions are logged only.'} Opens the Automatic actions settings.">Automatic actions: ${mode === 'on' ? 'on' : mode === 'mixed' ? 'mixed' : 'test mode'}</button>`
+            : '';
+        // Text first (it truncates), then the mode chip, then the buttons.
+        return { cls, html: body + chip + actions };
+    },
+
+    _renderAlertRow() {
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('terminals-alert-row') : null;
+        if (!el) return;
+        const m = this._alertModel();
+        if (!m || !(this._tasks || []).length) { el.hidden = true; el.innerHTML = ''; return; }
+        const out = this._alertRowHtml(m, this._alertMode());
+        el.hidden = false;
+        el.className = `terminals-alert-row ${out.cls}`;
+        el.innerHTML = out.html;
+        const q = (sel) => (el.querySelector ? el.querySelector(sel) : null);
+        const open = q('[data-alert-open]');
+        if (open) open.onclick = () => this._attach(open.dataset.alertOpen);
+        const why = q('[data-alert-why]');
+        if (why) why.onclick = () => this._openSpotlight(m.spotlight);
+        const toDr = () => { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response'); };
+        const dr = q('[data-alert-dr]');
+        if (dr) dr.onclick = toDr;
+        const cfg = q('[data-alert-config]');
+        if (cfg) cfg.onclick = toDr;
+        const held = q('[data-alert-blocked]');
+        if (held) held.onclick = () => {
+            const t = (this._tasks || []).find(x => this._heldCount(x) > 0);
+            if (t) this._attach(t.id);
+        };
+        const mode = q('[data-alert-mode]');
+        if (mode) mode.onclick = () => this.openSettings('rungs');
+    },
+
+    /** "See why": the detection page's spotlight, in an overlay. */
+    _openSpotlight(sp) {
+        const DR = window.DetectionResponsePage;
+        if (!sp || !window.Modal || !DR || !DR._spotlightHtml || typeof document === 'undefined') { this._openDetectionResponse(sp && sp.task_id); return; }
+        const body = document.createElement('div');
+        body.className = 'dr-spot-overlay';
+        body.innerHTML = DR._spotlightHtml({ spotlight: sp });
+        const acts = body.querySelector('.dr-spot-actions');
+        if (acts) acts.remove();
+        Modal.show({ title: 'Why this session stood out', content: body, size: 'large' });
+    },
+
+    /** "N need a look" brings the alert row into view and focus. */
+    _focusAlertRow() {
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('terminals-alert-row') : null;
+        if (!el || el.hidden) return false;
+        if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+        if (el.focus) el.focus();
+        return true;
     },
 
     /** One line of state over the whole board. Every number here is counted
@@ -1215,32 +1793,46 @@ ${this.CLI_BIN} stop &lt;id&gt;
     _renderBoardSummary(shown) {
         const el = document.getElementById('terminals-board-summary');
         if (!el) return;
-        if (!shown || shown.length < 2) { el.hidden = true; el.innerHTML = ''; return; }
+        shown = shown || [];
+        this._lastShown = shown;
+        // Not checked: the sessions reporting in from outside SecureVector.
+        // Same source as the panel this count opens, so the two always agree.
+        const notChecked = this._adoptRows().length;
+        const toReview = this._drToReview();
+        this._renderAlertRow();
+        if (shown.length < 2 && !notChecked && !toReview) { el.hidden = true; el.innerHTML = ''; return; }
         const running = shown.filter(t => this._RUNNING_STATUSES.includes(t.status)).length;
         const waiting = shown.filter(t => this._hasPendingApproval(t)).length;
-        const blocked = shown.filter(t => t.status === 'blocked').length;
-        const ungoverned = shown.filter(t => this._guardState(t).kind === 'ungoverned').length;
-        // Orphaned: the app went away while these were running, so the reaper
-        // marked them on the next start. The release plan asks for an orphaned-tasks view.
-        // It is this count made clickable rather than a separate page: the
-        // board already holds the rows and already filters, and a second
-        // surface listing the same rows would be one more thing to keep in
-        // step for no new information.
-        // The button reads "interrupted", not "orphaned": that is the word
-        // the card badge already shows (_statusLabel) and the exact word the
-        // click puts in the search box, so there is one name for this state
-        // instead of three ("orphaned" here, "Interrupted" on the card,
-        // whatever landed in the search box).
+        // "Stopped by a restart": the app went away while these were running,
+        // so the reaper marked them interrupted on the next start. The count
+        // is clickable and filters through the existing search box.
         const orphaned = shown.filter(t => t.status === 'interrupted').length;
-        const cell = (n, word, cls, title) => `<span class="terminals-board-stat${n > 0 && cls ? ' ' + cls : ''}" title="${this._esc(title)}"><b>${n}</b> ${this._esc(word)}</span>`;
+        const word = (n, w, cls, title) => `<b>${n}</b> ${this._esc(w)}`;
+        const cell = (n, w, cls, title) => `<span class="terminals-board-stat${n > 0 ? (cls ? ' ' + cls : '') : ' is-zero'}" title="${this._esc(title)}">${word(n, w)}</span>`;
+        const btn = (n, w, cls, title, attr) => n > 0
+            ? `<button type="button" class="terminals-board-stat terminals-board-orphans${cls ? ' ' + cls : ''}" ${attr} title="${this._esc(title)}">${word(n, w)}</button>`
+            : cell(n, w, cls, title);
         el.hidden = false;
-        el.innerHTML = cell(running, 'running', '', 'Tasks whose harness is still alive')
-            + cell(waiting, 'waiting on you', 'is-amber', 'Tasks paused for your decision')
-            + cell(blocked, 'blocked', 'is-red', 'Tasks the harness stopped')
-            + cell(ungoverned, 'not governed', 'is-amber', 'Tasks launched without SecureVector Guard')
-            + (orphaned
-                ? `<button type="button" class="terminals-board-stat terminals-board-orphans" data-board-filter="interrupted" title="Tasks the app restarted out from under. Click to show only these; clear the search box above to show every task again."><b>${orphaned}</b> interrupted</button>`
-                : '');
+        el.innerHTML = cell(running, 'running', '', 'Tasks whose agent tool is still alive')
+            + cell(waiting, 'need you', 'is-amber', 'Tasks waiting for your decision')
+            + btn(toReview, 'need a look', 'is-amber', 'Sessions with unusual behaviour or config changes. Shows the alert line below.', 'data-board-dr')
+            + btn(notChecked, 'not monitored', 'is-amber', 'Sessions SecureVector did not watch. Open to review.', 'data-board-adopt')
+            + btn(orphaned, 'stopped by a restart', '', 'Tasks the app restarted out from under. Click to show only these; clear the search box above to show every task again.', 'data-board-filter="interrupted"');
+        const drBtn = el.querySelector('[data-board-dr]');
+        if (drBtn) {
+            drBtn.onclick = (ev) => {
+                if (ev) ev.preventDefault();
+                if (this._focusAlertRow()) return;
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
+            };
+        }
+        const adoptBtn = el.querySelector('[data-board-adopt]');
+        if (adoptBtn) {
+            adoptBtn.onclick = () => {
+                this._adoptReviewOpen = !this._adoptReviewOpen;
+                this._renderAdoptable();
+            };
+        }
         const orphanBtn = el.querySelector('[data-board-filter]');
         if (orphanBtn) {
             orphanBtn.onclick = () => {
@@ -1314,13 +1906,38 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return this._ago(/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v : v.replace(' ', 'T') + 'Z');
     },
 
+    /** Avatar options for a task: a delegated child gets the junior variant. */
+    _avatarOpts(t, base) {
+        if (!t || !t.parent_task_id) return base;
+        const parent = (this._tasks || []).find(x => x.id === t.parent_task_id) || null;
+        return Object.assign({}, base, {
+            delegated: true,
+            parentTitle: parent ? (parent.title || parent.executor_id) : '',
+            cross: !!parent && !!t.executor_id && parent.executor_id !== t.executor_id,
+        });
+    },
+
+    _approvalIso(iso) {
+        const v = String(iso || '');
+        return v && !/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v.replace(' ', 'T') + 'Z' : v;
+    },
+
     _approvalHtml(r, other) {
+        if (window.DelegationUI && DelegationUI.isDelegate(r)) {
+            const pid = DelegationUI.parseRequest(r).taskId;
+            return DelegationUI.inboxHtml(r, (this._tasks || []).find(t => t.id === pid) || null, this._whenHtml(this._approvalIso(r.requested_at)));
+        }
         const ago = this._approvalAgo(r.requested_at);
         const noSession = !r.session_id;
         const sid = noSession ? 'no session' : 'session ' + String(r.session_id).slice(0, 8);
+        // A blocked egress host: tool_id is `egress:<host>`, function_name the
+        // rule that fired. Every scope is this session only.
+        const host = String(r.tool_id || '').startsWith('egress:') ? String(r.tool_id).slice(7) : null;
+        const label = host ? `Connect to ${host}` : (r.function_name || r.tool_id);
         return `
               <div class="terminals-approval" data-id="${this._esc(r.id)}">
-                <div class="terminals-approval-tool">${this._esc(r.function_name || r.tool_id)}${ago ? ` <span class="terminals-approval-when">${this._esc(ago)}</span>` : ''}</div>
+                <div class="terminals-approval-tool"><span class="terminals-approval-label" title="${this._esc(label)}" aria-label="${this._esc(label)}">${this._esc(label)}</span>${this._whenHtml(this._approvalIso(r.requested_at))}</div>
+                ${host && r.function_name ? `<div class="terminals-approval-when">Rule <code>${this._esc(r.function_name)}</code> · approval applies to this session only</div>` : ''}
                 <div class="terminals-approval-why">${this._esc(r.justification || 'No justification given')}</div>
                 ${other ? `<div class="terminals-approval-when">${this._esc(sid)}</div>` : ''}
                 <div class="terminals-approval-actions">
@@ -1420,8 +2037,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
     GOV_STRIP_W: 34,      // the collapsed strip, matching the CSS
     GOV_STEP: 24,         // px an arrow key moves the column edge
     _govWidth: 0,         // px; 0 until restored or defaulted
-    _govCollapsed: false, // effective state, expanded until the person collapses it
+    _govCollapsed: true,  // effective state, collapsed until the person expands it
     _govUserSet: false,   // true once the person has clicked the toggle
+    _govAutoOpen: false,  // the page opened the column (approval Review); never persisted
     _govSections: null,   // per-section open state, once anything is remembered
     _govApplied: null,    // the last value the page knows about, per section
     _govStacked: false,   // phone viewport: the media query stacks the column
@@ -2049,7 +2667,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const name = t ? (t.title || this._label(t.executor_id)) : 'No task';
             const on = id === rec.taskId;
             const avatar = t && window.TaskAvatar
-                ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 16 })
+                ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: state.kind, size: 16 }))
                 : '';
             const live = state && state.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : '';
             // The tab is the wrapper, not the button inside it: a tablist
@@ -2094,7 +2712,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
         rec.headEl.hidden = false;
         const avatar = t && window.TaskAvatar
-            ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: state.kind, size: 16 })
+            ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: state.kind, size: 16 }))
             : '';
         const live = state && state.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : '';
         const named = group.length > 1
@@ -2373,7 +2991,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  so the adopt panel can offer it again.
      */
     async _removeFromBoard(taskId) {
-        await API.terminalsArchive(taskId);
+        const res = await API.terminalsArchive(taskId);
+        if (res && res.worktree_kept) {
+            this._noteBoard(`The worktree was kept at ${res.run_dir || 'its folder'}.`);
+        }
         this._removeConfirmId = null;
         // The pane holding it is closed by the prune in _refreshTasks(); the
         // rest of the workspace stays up.
@@ -2512,7 +3133,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // "Here" has to mean somewhere. A session whose cwd was never reported
         // carries the placeholder, and spawning into that fails at the host, so
         // point at the launch form where a folder can be chosen instead.
-        const folder = this._knownWorkspace(task.workspace);
+        // A folder only the agent reported is never launched into: it may be
+        // a tool argument rather than where the session runs.
+        const folder = task.workspace_reported ? null : this._knownWorkspace(task.workspace);
         let action = '';
         // Every state that names a folder gets the offer now, live included.
         // What differs by state is the acknowledgement in front of it, not
@@ -2545,7 +3168,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
             // button with no sentence reads as the app having decided the
             // session cannot be continued at all.
             const lost = resumes ? 'continue it' : 'start one';
-            action = `<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to ${lost}. Use + Launch to start one in a folder you pick.</p>`;
+            action = task.workspace_reported
+                ? `<p class="terminals-linked-note">This folder was reported by the agent, not confirmed. To ${lost} here, unlink this session and link it again with its folder: sv-monitor session link ${this._esc(task.executor_id)} &lt;session&gt; --folder &lt;path&gt;</p>`
+                : `<p class="terminals-linked-note">This session never reported its folder, so there is nowhere to ${lost}. Use + Launch to start one in a folder you pick.</p>`;
         }
         // Unlinking belongs here as much as on the card: this pane is where a
         // person lands when they open the session, and the card may be scrolled
@@ -2557,7 +3182,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             : `<button type="button" class="terminals-linked-unlink btn btn-sm" data-linked-unlink="${this._esc(task.id)}" title="Stop governing this session; it keeps running in your own terminal and the audit record remains">Unlink this session</button>`;
         return `
               <div class="terminals-linked-stage">
-                <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
+                <div class="terminals-linked-bot">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(task, { id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 })) : ''}</div>
                 <h3>Runs outside SecureVector</h3>
                 <p>This session was started in your own terminal. There is no terminal here; governance is live.</p>
                 ${note}
@@ -2674,7 +3299,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (rec.bannerEl) rec.bannerEl.hidden = true;
         rec.stageEl.innerHTML = `
           <div class="terminals-ended-stage">
-            <div class="terminals-ended-bot">${window.TaskAvatar ? TaskAvatar.html({ id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 }) : ''}</div>
+            <div class="terminals-ended-bot">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(task, { id: task.id, harness: task.executor_id, state: this._taskState(task).kind, size: 56 })) : ''}</div>
             <h3>This session has ended</h3>
             <p class="terminals-ended-who">${this._esc(name)} · ${this._esc(this._label(task.executor_id))} · ${this._esc(this._folderName(task))}</p>
             <p class="terminals-ended-exit">${this._esc(exitLine)}</p>
@@ -2716,13 +3341,49 @@ ${this.CLI_BIN} stop &lt;id&gt;
     SUMMARY_HOSTS_MAX: 5,
     SUMMARY_FINDINGS_MAX: 3,
 
+    /** A call whose tool ran and failed: the Guard marks the audit row's
+     *  reason with a "tool error" prefix, for every harness alike. */
+    _isToolError(i) {
+        return /^tool error\b/.test(String((i && i.reason) || ''));
+    },
+
+    /** Whether a pending request still holds the task. The request stays
+     *  listed and approvable either way; the task is shown as paused only
+     *  when the harness says it is blocked, or has had no hook activity since
+     *  the request was filed. */
+    _approvalPausesTask(task, r) {
+        if (!task) return true;
+        if (task.status === 'blocked') return true;
+        const utc = (v) => { const x = String(v || ''); return Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(x) ? x : x.replace(' ', 'T') + 'Z'); };
+        const asked = utc(r && r.requested_at), last = utc(task.last_activity_at);
+        return !(Number.isFinite(asked) && Number.isFinite(last) && last > asked);
+    },
+
+    /** The reason text without the leading "tool error" marker. */
+    _verdictReason(i) {
+        const r = String((i && i.reason) || '');
+        return this._isToolError(i) ? r.replace(/^tool error;?\s*/, '') : r;
+    },
+
+    /** A small link to Agent Detection & Response for one session, shown
+     *  when the session has a drift score or a setup state. '' otherwise. */
+    _drLinkHtml(t, cls) {
+        if (!t || !t.id || (typeof t.drift_score !== 'number' && !t.setup_state)) return '';
+        return ` <a href="/detection-response" class="${cls}" data-dr-session="${this._esc(t.id)}" title="Open this session in Agent Detection &amp; Response" aria-label="Review in Agent Detection &amp; Response">Review</a>`;
+    },
+
+    _openDetectionResponse(taskId) {
+        if (window.DetectionResponsePage && DetectionResponsePage.openFor) DetectionResponsePage.openFor(taskId);
+        else if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('detection-response');
+    },
+
     _summaryBuild(task, d) {
         d = d || {};
         const rows = ((d.verdicts && d.verdicts.items) || []).filter(i => !this._isBoundaryRow(i));
         const calls = { allowed: 0, flagged: 0, blocked: 0, failed: 0 };
         rows.forEach(i => {
             if (i.action === 'block') calls.blocked++;
-            else if (i.status === 'failed' || i.status === 'error' || i.success === false) calls.failed++;
+            else if (i.status === 'failed' || i.status === 'error' || i.success === false || this._isToolError(i)) calls.failed++;
             else if (i.risk === 'amber') calls.flagged++;
             else calls.allowed++;
         });
@@ -2742,11 +3403,27 @@ ${this.CLI_BIN} stop &lt;id&gt;
             approved: jit.filter(r => r.status === 'approved').length,
             denied: jit.filter(r => r.status === 'denied').length,
         };
+        const dr = d.drift && typeof d.drift === 'object' ? d.drift : null;
+        const drift = dr && dr.status && dr.status !== 'no_session' ? {
+            score: typeof dr.score === 'number' ? dr.score : null,
+            band: ['calm', 'watch', 'high'].includes(dr.band) ? dr.band : null,
+            status: String(dr.status),
+            top: (Array.isArray(dr.top) ? dr.top : []).slice(0, 3)
+                .map(f => ({ id: String(f.id || ''), label: String(f.label || ''), detail: String(f.detail || ''), counts: f.counts && typeof f.counts === 'object' ? f.counts : {} })).filter(f => f.label),
+            sessions: (dr.baseline && dr.baseline.sessions) || 0,
+            needed: (dr.baseline && dr.baseline.needed_sessions) || 5,
+            confidence: dr.baseline && Number.isFinite(Number(dr.baseline.confidence)) ? Number(dr.baseline.confidence) : null,
+            feedback: dr.feedback === 'normal' ? 'normal' : null,
+            // "Looks normal" is offered only once the session has ended.
+            ended: dr.ended === true || (dr.ended === undefined && !!task.ended_at),
+        } : null;
         const start = Date.parse(task.created_at);
         const end = task.ended_at ? Date.parse(task.ended_at) : Date.now();
         const folder = String(task.workspace || '').split(/[\\/]/).filter(Boolean).pop() || '';
         return {
             id: String(task.id || '').slice(0, 8),
+            status: String(task.status || ''),
+            task_id: String(task.id || ''),
             harness: this._label(task.executor_id),
             folder,
             model: d.model || '',
@@ -2756,11 +3433,127 @@ ${this.CLI_BIN} stop &lt;id&gt;
             duration_seconds: Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 1000) : null,
             exit_code: typeof task.exit_code === 'number' ? task.exit_code : null,
             tool_calls: calls,
+            header_calls: typeof task.tool_calls === 'number' ? task.tool_calls : null,
             hosts: { count: dests.length, top },
             findings,
             findings_total: all.length,
             approvals,
+            drift,
+            rung: window.ResponseRungs ? ResponseRungs.summaryData(d.rung) : null,
+            deleg: window.DelegationUI ? DelegationUI.summaryData(d.deleg) : null,
+            setup: d.setup && typeof d.setup === 'object' && d.setup.state && d.setup.state !== 'unchecked' ? d.setup : null,
         };
+    },
+
+    _band(b) { return b === 'high' ? 'high' : b === 'watch' ? 'worth a look' : 'low'; },
+
+    /** Plain one-liners for what is worth a look, most severe first. */
+    _worthALook(s) {
+        const items = [];
+        const c = s.tool_calls;
+        if (c.blocked > 0) items.push({ sev: 0, text: `${c.blocked} ${c.blocked === 1 ? 'call was' : 'calls were'} blocked.` });
+        if (s.drift && (s.drift.band === 'high' || s.drift.band === 'watch')) {
+            const sev = s.drift.band === 'high' ? 1 : 3;
+            const tops = s.drift.top.length ? s.drift.top : [{ label: 'Unusual activity', detail: '' }];
+            tops.forEach(f => items.push({ sev, text: this._driftSentence(f) }));
+        }
+        if (s.setup && s.setup.state === 'changed') {
+            const ch = (s.setup.changes || []).filter(x => x && x.text);
+            const mods = ch.filter(x => /^(Mod .+ changed|New mod )/.test(x.text)).length;
+            const other = Math.max(0, ch.length - mods);
+            const parts = [];
+            if (mods) parts.push(`${mods} ${mods === 1 ? 'plugin' : 'plugins'}`);
+            if (other) parts.push(`${other} ${other === 1 ? 'settings file' : 'settings files'}`);
+            items.push({ sev: 2, text: parts.length ? `Config changed: ${parts.join(' and ')}.` : 'Agent config changed.' });
+        }
+        const unmon = (s.deleg || []).filter(d => this._unmonitored(d)).length;
+        if (unmon) items.push({ sev: 2, text: `${unmon} ${unmon === 1 ? 'sub-agent ran' : 'sub-agents ran'} without monitoring.` });
+        s.findings.forEach(f => { const t = this._toolWords(f.title); items.push({ sev: 4, text: /[.!?]$/.test(t) ? t : t + '.' }); });
+        return items.sort((a, b) => a.sev - b.sev);
+    },
+
+    /** The same plain sentence the Detection & Response WHY card uses. */
+    _driftSentence(f) {
+        const P = window.DetectionResponsePage;
+        if (P && P._featureSentence && f.id && f.counts && Object.keys(f.counts).length) return P._featureSentence(f);
+        return `${f.label}${f.detail ? ` (${f.detail})` : ''}.`;
+    },
+
+    _shortResult(text) {
+        const md = String(text || '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`]+/g, '');
+        const first = md.trim().split(/(?<=[.!?])\s|\n/)[0] || '';
+        const plain = first.replace(/(?:[A-Za-z]:)?[\w.~-]*(?:[\\/][\w.~ -]+)+[\\/]([^\\/\s]+)/g, '$1').replace(/[.!?]+$/, '');
+        return plain.length > 80 ? plain.slice(0, 79) + '\u2026' : plain;
+    },
+
+    _unmonitored(d) {
+        return (d.state === 'failed' || d.state === 'refused' || d.state === 'waiting_for_user')
+            && (['guard_silent', 'guard_missing', 'guard_not_running'].includes(d.code)
+                || (!d.code && /SecureVector Guard (did not report|is not (installed|running))/.test(d.reason || '')));
+    },
+
+    _delegWord(d) {
+        const child = d.child ? (this._tasks || []).find(x => x.id === d.child) : null;
+        if (child && child.status === 'stopped') return 'stopped by you';
+        if (this._unmonitored(d)) return 'ran without monitoring';
+        return String((window.DelegationUI && DelegationUI.STATE_WORDS[d.state]) || d.state).toLowerCase();
+    },
+
+    _toolWords(text) {
+        return String(text || '')
+            .replace(/mcp__([a-z0-9-]+)__([a-z0-9_]+)/gi, (_m, srv, tool) => `${srv.charAt(0).toUpperCase() + srv.slice(1)} ${tool}`)
+            .replace(/^loop[:\s-]+/i, '');
+    },
+
+    _delegLinesHtml(items) {
+        if (!items || !items.length || !window.DelegationUI) return '';
+        const lis = items.map(d => {
+            const word = this._delegWord(d);
+            const short = d.state === 'done' && d.result ? this._shortResult(d.result) : '';
+            const line = [DelegationUI.harnessLabel(d.harness), d.state === 'held' ? 'held for review' : word, short].filter(Boolean).join(' \u00b7 ');
+            const full = d.state === 'done' && d.result ? DelegationUI.resultHtml(d.result)
+                : d.reason ? `<div class="terminals-deleg-reason">${this._esc(d.reason)}</div>` : '';
+            return full
+                ? `<li class="terminals-deleg-line"><details><summary>${this._esc(line)}</summary>${full}</details></li>`
+                : `<li class="terminals-deleg-line">${this._esc(line)}</li>`;
+        }).join('');
+        return `<ul class="terminals-deleg-lines">${lis}</ul>`;
+    },
+
+    _summaryHeadline(s, n) {
+        const dur = s.duration_seconds !== null ? this._elapsed(s.started_at, s.ended_at) : '';
+        const tail = n === 0 ? 'Nothing unusual' : `${n} ${n === 1 ? 'thing' : 'things'} worth a look`;
+        if (this._RUNNING_STATUSES.includes(s.status) && !s.ended_at) return `Running${dur ? ' for ' + dur : ''}. ${n === 0 ? 'Nothing unusual so far' : tail}.`;
+        const lead = s.status === 'failed' ? 'Stopped' : s.status === 'interrupted' ? 'Interrupted' : 'Finished';
+        return `${lead}${dur ? (lead === 'Finished' ? ' in ' : ' after ') + dur : ''}. ${tail}.`;
+    },
+
+    /** The top of the summary: the same label-left, value-right rows as Details. */
+    _summaryTopRows(s, worth) {
+        const row = (label, body) => `<div class="terminals-summary-row"><dt>${label}</dt><dd>${body}</dd></div>`;
+        const c = s.tool_calls;
+        const sum = c.allowed + c.flagged + c.failed + c.blocked;
+        // The pane header counts every call; name whatever the verdict list does not.
+        const total = Math.max(sum, s.header_calls || 0);
+        const other = total - c.allowed - c.blocked;
+        const out = [row('Status', this._esc(this._summaryHeadline(s, worth.length)))];
+        out.push(row('Tool calls', this._esc(total ? `${total} calls \u00b7 ${c.allowed} allowed \u00b7 ${c.blocked} blocked${other ? ` \u00b7 ${other} other` : ''}` : 'none yet')));
+        if (s.drift) {
+            if (s.drift.score === null || s.drift.status === 'building_baseline') {
+                out.push(row('Unusual activity', this._esc('no score yet, a score appears after the first tool calls')));
+            } else {
+                const band = s.drift.band || 'calm';
+                out.push(row('Unusual activity', `<span title="Drift Score ${this._esc(s.drift.score)} of 100. Compared with this agent's own recent sessions in this folder."><span class="terminals-drift-band is-${band}">${this._band(band)}</span> (${this._esc(s.drift.score)} of 100)</span>`));
+            }
+        }
+        if (s.setup) out.push(row('Config', s.setup.state === 'changed' ? '<span class="terminals-task-setup is-amber">changed</span>' : 'unchanged'));
+        if (s.deleg && s.deleg.length) out.push(row('Sub-agents', this._delegLinesHtml(s.deleg)));
+        if (worth.length) {
+            const shown = worth.slice(0, 3);
+            const more = worth.length - shown.length;
+            out.push(row('Worth a look', `<ul class="terminals-summary-list">${shown.map(w => `<li>${this._esc(w.text)}</li>`).join('')}</ul>${more > 0 ? `<a href="#" class="terminals-summary-all" data-summary-more>and ${more} more</a> ` : ''}<button type="button" class="btn btn-sm" data-summary-export aria-label="Export evidence as JSON">Export evidence</button>`));
+        }
+        return out.join('');
     },
 
     _summaryHtml(s) {
@@ -2784,14 +3577,45 @@ ${this.CLI_BIN} stop &lt;id&gt;
             out.push(row('Hosts reached', `${s.hosts.count}<ul class="terminals-summary-list">${list}</ul>${more > 0 ? `<span class="terminals-summary-more">+${more} more</span>` : ''}`));
         }
         if (s.findings.length) {
-            const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(f.title)}</li>`).join('');
+            const list = s.findings.map(f => `<li>${f.category ? `<span class="terminals-summary-cat">${this._esc(f.category)}</span> ` : ''}${this._esc(this._toolWords(f.title))}</li>`).join('');
             out.push(row('Agent Health', `<ul class="terminals-summary-list">${list}</ul><a href="#" class="terminals-summary-all" data-summary-findings aria-label="All findings in Observability">All findings</a>`));
         }
+        const dr = this._drLinkHtml({ id: s.task_id, drift_score: 0 }, 'terminals-summary-dr');
+        if (s.drift) out.push(row('Unusual activity', this._driftHtml(s.drift) + (typeof s.drift.score === 'number' ? dr : '')));
+        if (s.deleg && window.DelegationUI) out.push(row('Delegations', `<span data-deleg-cell>${DelegationUI.summaryHtml(s.deleg)}</span>`));
+        if (s.rung && window.ResponseRungs) out.push(row('Automatic actions', `<span data-rung-cell>${ResponseRungs.summaryHtml(s.rung, !!s.ended_at)}</span>`));
+        if (s.setup && window.ConfigTrust) out.push(row('Agent config', ConfigTrust.summaryHtml(s.setup) + dr));
         if (s.approvals.approved + s.approvals.denied > 0) {
             out.push(row('Approvals', `${s.approvals.approved} approved, ${s.approvals.denied} denied`));
         }
-        return `<section class="terminals-summary" aria-label="Session summary"><dl>${out.join('')}</dl>`
-            + '<button type="button" class="btn btn-sm" data-summary-export aria-label="Export session summary as JSON">Export</button></section>';
+        const worth = this._worthALook(s);
+        const held = !!(s.deleg && s.deleg.some(d => d.state === 'held'));
+        return `<section class="terminals-summary" aria-label="Session summary"><dl class="terminals-summary-main">${this._summaryTopRows(s, worth)}</dl>`
+            + `<button type="button" class="terminals-summary-toggle" data-summary-toggle aria-expanded="${held ? 'true' : 'false'}" aria-controls="terminals-summary-details-${this._esc(s.id)}"><span class="terminals-summary-chev" aria-hidden="true"></span><span data-summary-toggle-label>${held ? 'Hide details' : 'Show details'}</span></button>`
+            + `<div class="terminals-summary-details" data-summary-details id="terminals-summary-details-${this._esc(s.id)}"${held ? '' : ' hidden'}><dl>${out.join('')}</dl>`
+            + '<button type="button" class="btn btn-sm" data-summary-export aria-label="Export session summary as JSON">Export</button></div></section>';
+    },
+
+    /** The Drift row: number, band word and the top three features in plain
+     *  words, or the baseline still building. Only the number and band carry
+     *  colour; "Looks normal" is the one action, and it changes no verdict. */
+    _driftHtml(d) {
+        if (d.score === null || d.status === 'building_baseline') {
+            return 'no score yet, a score appears after the first tool calls';
+        }
+        const band = d.band || 'calm';
+        const top = d.top.map(f => `${this._esc(f.label)}${f.detail ? ` (${this._esc(f.detail)})` : ''}`).join(', ');
+        const n = Number(d.sessions) || 0;
+        const settling = n > 0 && d.confidence !== null && d.confidence !== undefined && d.confidence < 1;
+        const cmp = (n > 0 ? `Compared with ${n} earlier session${n === 1 ? '' : 's'}` : 'First session here, nothing to compare with yet')
+            + (settling ? ', comparison still settling' : '');
+        const partial = ` <span class="terminals-summary-more">(${this._esc(cmp)})</span>`;
+        const action = d.feedback === 'normal'
+            ? ' <span class="terminals-summary-more" data-drift-marked>Marked normal</span>'
+            : d.ended
+                ? ' <button type="button" class="btn btn-sm btn-secondary" data-drift-normal aria-label="Mark this session as looking normal">Looks normal</button>'
+                : '';
+        return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low'}</span>${top ? `: ${top}` : ''}${partial}${action}`;
     },
 
     /** The summary fields only: no prompts, no output, and the working folder
@@ -2808,10 +3632,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
     async _summaryLoad(task) {
         const sid = task.session_id;
         const soft = (f) => { try { return Promise.resolve(f()).catch(() => null); } catch (e) { return Promise.resolve(null); } };
-        const [verdicts, egress, jit] = await Promise.all([
+        const [verdicts, egress, jit, drift, setup, rung, deleg] = await Promise.all([
             soft(() => API.terminalsVerdicts(task.id)),
             sid && API.getEgressSessionDestinations ? soft(() => API.getEgressSessionDestinations(sid)) : null,
             sid && API.getJitRequests ? soft(() => API.getJitRequests()) : null,
+            sid && API.terminalsDrift ? soft(() => API.terminalsDrift(task.id)) : null,
+            API.configTrustSession ? soft(() => API.configTrustSession(task.id)) : null,
+            sid && API.terminalsRung ? soft(() => API.terminalsRung(task.id)) : null,
+            API.terminalsDelegations && !task.parent_task_id ? soft(() => API.terminalsDelegations(task.id)) : null,
         ]);
         let health = null;
         if (sid && API.getTraceHealth) {
@@ -2824,7 +3652,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (run && run.trace_id) health = await soft(() => API.getTraceHealth(run.trace_id));
         }
         const live = sid ? ((this._optLive && this._optLive.sessions) || []).find(x => x.session_id === sid) : null;
-        return this._summaryBuild(task, { verdicts, egress, health, jit, model: live && live.model });
+        return this._summaryBuild(task, { verdicts, egress, health, jit, drift, setup, rung, deleg, model: live && live.model });
     },
 
     /** Fill `host` with the task's summary and wire its Export and findings link. */
@@ -2837,16 +3665,52 @@ ${this.CLI_BIN} stop &lt;id&gt;
         }
         if (!host.isConnected && host.isConnected !== undefined) return;
         host.innerHTML = this._summaryHtml(s);
-        const ex = host.querySelector ? host.querySelector('[data-summary-export]') : null;
-        if (ex) ex.onclick = () => {
+        const exAll = host.querySelectorAll ? Array.from(host.querySelectorAll('[data-summary-export]')) : [];
+        exAll.forEach(ex => { ex.onclick = () => {
             const url = URL.createObjectURL(new Blob([this._summaryExport(s)], { type: 'application/json' }));
             const a = document.createElement('a');
             a.href = url; a.download = `sv-session-${s.id}.json`;
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 0);
+        }; });
+        const moreLink = host.querySelector ? host.querySelector('[data-summary-more]') : null;
+        const det = host.querySelector ? host.querySelector('[data-summary-details]') : null;
+        const tog = host.querySelector ? host.querySelector('[data-summary-toggle]') : null;
+        const setOpen = (open) => {
+            if (det) det.hidden = !open;
+            if (tog) {
+                tog.setAttribute('aria-expanded', open ? 'true' : 'false');
+                const lbl = tog.querySelector ? tog.querySelector('[data-summary-toggle-label]') : null;
+                if (lbl) lbl.textContent = open ? 'Hide details' : 'Show details';
+            }
         };
+        if (tog) tog.onclick = () => setOpen(!!(det && det.hidden));
+        if (moreLink) moreLink.onclick = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); setOpen(true); };
         const all = host.querySelector ? host.querySelector('[data-summary-findings]') : null;
         if (all) all.onclick = (ev) => { ev.preventDefault(); if (window.Sidebar?.navigate) Sidebar.navigate('agent-runs'); };
+        if (s.deleg && window.DelegationUI) {
+            DelegationUI.wire(host, API, () => this._summaryFill(host, task));
+        }
+        if (s.rung && window.ResponseRungs) {
+            ResponseRungs.wire(host, task, s.rung, API, async (tk) => {
+                await (API.terminalsStopFromRung || API.terminalsStop).call(API, tk.id);
+                this._summaryFill(host, tk);
+            });
+        }
+        if (host.querySelectorAll) host.querySelectorAll('[data-dr-session]').forEach(a => {
+            a.onclick = (ev) => { ev.preventDefault(); this._openDetectionResponse(a.dataset.drSession); };
+        });
+        const normal = host.querySelector ? host.querySelector('[data-drift-normal]') : null;
+        if (normal) normal.onclick = async (ev) => {
+            ev.preventDefault();
+            try {
+                await API.terminalsDriftFeedback(task.id);
+                if (s.drift) s.drift.feedback = 'normal';
+                normal.outerHTML = '<span class="terminals-summary-more" data-drift-marked>Marked normal</span>';
+            } catch (e) {
+                normal.textContent = 'Could not save, try again';
+            }
+        };
     },
 
     /** The status line's Summary toggle: a panel laid over the pane's stage. */
@@ -3911,14 +4775,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     /** The one place that decides collapsed or expanded.
      *
-     *  Governance is expanded by default: the activity is the point of the
-     *  page, and a panel that hides itself until a task attaches is a panel
-     *  people never learn they have. Once the person clicks the toggle their
-     *  choice wins in both directions, attached or not. */
+     *  Governance starts collapsed to keep the page quiet. Once the person
+     *  clicks the toggle their choice wins in both directions, attached or not. */
     _syncGovDock() {
         this._syncGovLayoutMode();
         const { dock, edge, gutter, toggle, body } = this._govEls();
-        const collapsed = this._govUserSet ? !!this._govCollapsed : false;
+        const collapsed = this._govUserSet ? !!this._govCollapsed : !this._govAutoOpen;
         this._govCollapsed = collapsed;
         if (!this._govWidth) this._govWidth = this.GOV_DEFAULT_W;
         // What is on screen: in overlay mode that is the strip unless the
@@ -4025,6 +4887,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (this._govOverlay) { this._setGovOverlayOpen(true); return; }
         if (!this._govCollapsed) return;
         this._govCollapsed = false;
+        this._govAutoOpen = true;
         if (this._govUserSet) this._govUserSet = false;
         this._syncGovDock();
         this._fitAll();
@@ -4179,7 +5042,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const store = this._store();
         this._govWidth = this.GOV_DEFAULT_W;
         this._govUserSet = false;
-        this._govCollapsed = false;
+        this._govAutoOpen = false;
+        this._govCollapsed = true;
         if (!store) return;
         try {
             const raw = store.getItem(this.GOV_KEY);
@@ -4464,6 +5328,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const egCount = document.getElementById('terminals-egress-count');
         if (egCount) { egCount.textContent = ''; egCount.className = 'terminals-gov-count'; }
         if (this._govHas) { this._govHas.context = false; this._govHas.egress = false; }
+        this._preflightAt = 0;
+        this._preflightTask = null;
+        const pf = document.getElementById('terminals-preflight');
+        if (pf) { pf.hidden = true; pf.innerHTML = ''; }
     },
 
     /** Close every pane. The tasks keep running; only the workspace goes. */
@@ -4582,13 +5450,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const st = this._taskState(x);
             const name = x.title || this._label(x.executor_id);
             const isActive = x.id === this._attached;
-            return `<button type="button" class="terminals-pane-tab${isActive ? ' is-active' : ''}" role="tab" data-id="${this._esc(x.id)}" aria-selected="${isActive ? 'true' : 'false'}" title="${this._esc(name + ' · ' + this._label(x.executor_id))}">${window.TaskAvatar ? TaskAvatar.html({ id: x.id, harness: x.executor_id, state: st.kind, size: 18 }) : ''}<span class="terminals-pane-tab-title">${this._esc(name)}</span>${st.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : ''}</button>`;
+            return `<button type="button" class="terminals-pane-tab${isActive ? ' is-active' : ''}" role="tab" data-id="${this._esc(x.id)}" aria-selected="${isActive ? 'true' : 'false'}" title="${this._esc(name + ' · ' + this._label(x.executor_id))}">${window.TaskAvatar ? TaskAvatar.html(this._avatarOpts(x, { id: x.id, harness: x.executor_id, state: st.kind, size: 18 })) : ''}<span class="terminals-pane-tab-title">${this._esc(name)}</span>${st.kind === 'active' ? '<i class="terminals-pane-live" aria-hidden="true"></i>' : ''}</button>`;
         }).join('');
         head.innerHTML = `
           ${tabbed ? `<div class="terminals-pane-tabs" role="tablist" aria-label="Running tasks">${tabs}</div>` : ''}
           <div class="terminals-pane-tab-actions">${tabbed && overflow ? `<button type="button" class="terminals-pane-tab terminals-pane-tab-more" title="Show all tasks">+${overflow}</button>` : ''}<button type="button" class="terminals-pane-tab terminals-pane-tab-new" title="Launch a task" aria-label="Launch a task">+</button></div>
           <span class="terminals-head-spacer"></span>
           ${soloId ? `<span class="terminals-head-pane-gov" id="terminals-head-pane-gov"></span><span class="terminals-head-pane-acts" id="terminals-head-pane-acts">${this._paneActButtons(this._chords())}</span>` : ''}
+          <button class="btn btn-sm terminals-settings-btn" id="terminals-pane-settings-btn" type="button" aria-haspopup="dialog">${this.GEAR_SVG}<span>Settings</span></button>
           <button class="btn btn-sm" id="terminals-all-tasks-btn">All tasks</button>
           ${panes > 1 ? '<button class="btn btn-sm" id="terminals-even-panes-btn" title="Give every pane an equal share; no task is closed or detached">Even panes</button>' : ''}
           ${stoppable.length > 1
@@ -4606,6 +5475,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // launch, not the attached task. Bring the attached tab into view.
         this._revealActiveTab(head);
         const showAllTasks = () => this.showAllTasks();
+        const paneSettings = head.querySelector('#terminals-pane-settings-btn');
+        if (paneSettings) paneSettings.onclick = () => this.openSettings();
         const allTasksBtn = head.querySelector('#terminals-all-tasks-btn');
         if (allTasksBtn) allTasksBtn.onclick = showAllTasks;
         // The way back from slivers: a layout dragged or split into unusable
@@ -4713,7 +5584,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
           ${dot}<span class="terminals-foot-item terminals-foot-state terminals-foot-state-${state.kind}">${this._esc(state.label.toLowerCase())}</span>
           ${dot}<span class="terminals-foot-item terminals-foot-elapsed" id="terminals-foot-elapsed">${this._esc(elapsed)}</span>
           <span class="terminals-head-spacer"></span>
-          <span class="terminals-foot-item terminals-foot-gov">${counts.governed} governed \u00b7 ${counts.blocked} blocked</span>`;
+          <span class="terminals-foot-item terminals-foot-gov">${counts.governed} ${counts.governed === 1 ? 'call' : 'calls'} \u00b7 ${counts.blocked} blocked</span>`;
     },
 
     // Statuses in which the PTY is still alive. A restart has to wait for the
@@ -4755,6 +5626,17 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return v;
     },
 
+    /** A plain note under the folder when the folder shown is not simply
+     *  where the agent works: OpenClaw's agent works in its Gateway's
+     *  workspace, and a linked folder may be the agent's own report rather
+     *  than one a person named. Label only; nothing acts on it here. */
+    _folderNote(t) {
+        if (!t) return '';
+        if (t.executor_id === 'openclaw') return "works in the OpenClaw Gateway's workspace";
+        if (t.workspace_reported) return 'folder reported by the agent';
+        return '';
+    },
+
     _ENDED_STATUSES: ['done', 'failed', 'interrupted', 'stopped'],
 
     /** Ended means the session is over for good: no more output is
@@ -4784,6 +5666,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // join the focused pane's group as one more tab beside the dead task
         // it was meant to replace, and every relaunch would grow that group.
         const holder = pane || this._paneForTask(task.id);
+        if (resumeSessionId && task.worktree_branch && task.worktree_state === 'removed') {
+            throw new Error('The worktree was removed. Relaunch to start in a new one.');
+        }
         if (stopFirst) {
             await API.terminalsStop(task.id);
             let stopped = false;
@@ -4803,7 +5688,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // path keeps sending exactly the three arguments it always has.
         const fresh = resumeSessionId
             ? await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '', resumeSessionId)
-            : await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '');
+            : task.worktree_branch
+                ? await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '', null, { worktree: true, from_task_id: task.id })
+                : await API.terminalsLaunch(task.executor_id, task.workspace, task.title || '');
+        if (!resumeSessionId && task.worktree_branch && task.worktree_state === 'removed' && fresh && fresh.id) {
+            this._noteWorktree(fresh.id, 'Started in a new worktree');
+        }
         await this._refreshTasks();
         if (window.Sidebar?.refreshAgentTaskViews) Sidebar.refreshAgentTaskViews();
         // A restart is the same tab with a new session behind it, so the new
@@ -5087,6 +5977,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const setCount = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n > 0 ? String(n) : ''; };
         if (!this._govHas) this._govHas = {};
         this._renderContextCost();
+        this._renderPreflight();
         this._renderEgress();
         if (!id) {
             vEl.innerHTML = '<span class="terminals-empty">No task attached.</span>';
@@ -5133,9 +6024,10 @@ ${this.CLI_BIN} stop &lt;id&gt;
               <div class="terminals-verdict terminals-verdict-${kind}">
                 <span class="terminals-dot sv-status-${dot}"></span>
                 <span class="terminals-verdict-main">
-                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}</span></span>
-                  ${i.reason ? `<span class="terminals-verdict-reason">${this._esc(i.reason)}</span>` : ''}
+                  <span class="terminals-verdict-top"><span class="terminals-verdict-tool" title="${this._esc(i.function_name || i.tool_id)}" aria-label="${this._esc(i.function_name || i.tool_id)}">${this._esc(i.function_name || i.tool_id)}</span><span class="terminals-verdict-action">${this._esc(i.action)}${i.source === 'egress' ? ' · egress' : ''}${this._isToolError(i) && i.action !== 'block' ? ' · tool error' : ''}</span></span>
+                  ${this._verdictReason(i) ? `<span class="terminals-verdict-reason">${this._esc(this._verdictReason(i))}</span>` : ''}
                 </span>
+                ${this._whenHtml(i.called_at)}
               </div>`;
             }).join('') : '<span class="terminals-empty">No tool calls yet.</span>';
             setCount('terminals-verdicts-count', listed.length);
@@ -5244,12 +6136,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             }
             const jit = await API.getJitRequests('pending');
             if (this._attached !== id) return;
-            const mine = (jit.items || []).filter(r => !sessionId || r.session_id === sessionId);
+            const mineSids = new Set([sessionId].concat(Array.isArray(v.session_history) ? v.session_history : []));
+            const mine = (jit.items || []).filter(r => !sessionId || mineSids.has(r.session_id));
             const attachedTask = (this._tasks || []).find(t => t.id === id);
             const otherSessions = sessionId && attachedTask
-                ? this._unmatchedApprovals(jit.items || []).filter(r => r.runtime_kind === attachedTask.executor_id).slice(0, 5)
+                ? this._unmatchedApprovals(jit.items || []).filter(r => r.runtime_kind === attachedTask.executor_id && !mineSids.has(r.session_id)).slice(0, 5)
                 : [];
             const waiting = mine.concat(otherSessions);
+            const paused = mine.filter(r => this._approvalPausesTask(attachedTask, r)).length + otherSessions.length;
             // An expanded run offers Approve only for a call that is really
             // waiting, so it repaints once the inbox is known.
             this._railApprovals = mine;
@@ -5259,17 +6153,17 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const stuckMin = this._stuckMinutes((this._tasks || []).find(t => t.id === id));
             const summaryParts = [
                 stuckMin != null ? `no activity for ${stuckMin} min` : null,
-                `${items.length} call${items.length === 1 ? '' : 's'} checked`,
+                `${listed.length} call${listed.length === 1 ? '' : 's'} checked`,
                 fetchFailed ? null : `${traceRuns.length} trace${traceRuns.length === 1 ? '' : 's'}`,
                 waiting.length ? `${waiting.length} approval waiting` : 'no approvals waiting',
             ].filter(Boolean);
             if (summary) summary.textContent = summaryParts.join(' · ');
             if (attention) {
-                attention.hidden = !waiting.length;
+                attention.hidden = !paused;
                 // The session is paused until this is answered, so the inbox
                 // opens itself rather than waiting to be found.
                 if (waiting.length) this._forceGovSection('terminals-gov-approvals');
-                attention.innerHTML = waiting.length
+                attention.innerHTML = paused
                     ? `<span><strong>Approval needed</strong> · This task is paused until you decide.</span><button class="btn btn-sm btn-primary" id="terminals-review-approval">Review</button>`
                     : '';
                 const review = attention.querySelector('#terminals-review-approval');
@@ -5390,7 +6284,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (!empty) { show(false); return; }
         show(true);
         if (bot) bot.innerHTML = window.TaskAvatar
-            ? TaskAvatar.html({ id: t.id, harness: t.executor_id, state: 'active', size: 56 })
+            ? TaskAvatar.html(this._avatarOpts(t, { id: t.id, harness: t.executor_id, state: 'active', size: 56 }))
             : '';
         const ex = this._executors.find(e => e.id === t.executor_id);
         // Ungoverned is a different empty: nothing is coming until the Guard
@@ -5455,6 +6349,49 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  worth having here. Everything it shows comes from the Cost Optimizer's
      *  live advisor, so the terminal and the Cost & Tokens page agree.
      */
+    /** Pre-flight checks under Context & cost: what the agent asked
+     *  check_policy before acting. Counts, match rate and the last ten checks
+     *  (kind, decision, age). Colour only on deny and attempted after deny. */
+    async _renderPreflight() {
+        const el = document.getElementById('terminals-preflight');
+        if (!el || !API.terminalsPreflight) return;
+        const t = (this._tasks || []).find(x => x.id === this._attached);
+        if (!t) { el.hidden = true; el.innerHTML = ''; return; }
+        const now = Date.now();
+        if (this._preflightTask === t.id && now - (this._preflightAt || 0) < 10000) return;
+        this._preflightTask = t.id;
+        this._preflightAt = now;
+        let d = null;
+        try { d = await API.terminalsPreflight(t.id); } catch (e) { d = null; }
+        if (this._attached !== t.id) return;
+        if (!d || !d.checked) { el.hidden = true; el.innerHTML = ''; return; }
+        const n = (v) => this._esc(String(Number(v) || 0));
+        const age = (s) => {
+            const v = Number(s) || 0;
+            if (v < 60) return `${v}s`;
+            if (v < 3600) return `${Math.floor(v / 60)}m`;
+            return `${Math.floor(v / 3600)}h`;
+        };
+        const kinds = { shell: 'Shell', file_read: 'File read', file_write: 'File write', network: 'Network', mcp: 'MCP', other: 'Other' };
+        const words = { allow: 'allow', deny: 'deny', needs_approval: 'needs approval', indeterminate: 'indeterminate' };
+        const rate = typeof d.match_rate === 'number' ? `${Math.round(d.match_rate * 100)}%` : 'n/a';
+        const attempted = Number(d.attempted_after_deny) || 0;
+        const rows = (d.recent || []).map(r => {
+            const cls = r.decision === 'deny' ? ' is-deny' : '';
+            return `<li><span>${this._esc(kinds[r.kind] || 'Other')}</span><span class="terminals-preflight-decision${cls}">${this._esc(words[r.decision] || 'indeterminate')}</span><span class="terminals-preflight-age">${this._esc(age(r.age_s))}</span></li>`;
+        }).join('');
+        el.innerHTML = `<h4 class="terminals-preflight-title">Pre-flight checks</h4>
+            <dl class="terminals-preflight-stats">
+              <div><dt>Checked</dt><dd>${n(d.checked)}</dd></div>
+              <div><dt>Avoided denials</dt><dd>${n(d.avoided_denials)}</dd></div>
+              <div><dt>Attempted after deny</dt><dd class="${attempted > 0 ? 'is-deny' : ''}">${n(attempted)}</dd></div>
+              <div><dt>Match rate</dt><dd>${this._esc(rate)}</dd></div>
+              <div><dt>Stale</dt><dd>${n(d.stale)}</dd></div>
+            </dl>
+            <ul class="terminals-preflight-recent" aria-label="Last ten pre-flight checks">${rows}</ul>`;
+        el.hidden = false;
+    },
+
     async _renderContextCost() {
         const el = document.getElementById('terminals-context');
         const badge = document.getElementById('terminals-context-stage');
@@ -5652,7 +6589,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             ? '<div class="terminals-egress-note">Codex\'s built-in web search is not hookable; its activity is listed here after the fact from the local transcript.</div>'
             : '<div class="terminals-egress-note">Turn on transcript reading in Cost &amp; Tokens to list Codex web activity.</div>');
         const sig = [t.session_id, rows.length, blocked, failed, isCodex, consent,
-            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}:${r.observed}`).join('|')].join('~');
+            rows.slice(0, 12).map(r => `${r.host}:${r.calls}:${r.blocked}:${r.writes}:${r.observed}:${r.rule_id || ''}:${r.grant ? r.grant.id : ''}`).join('|')].join('~');
         if (sig === this._egressSig) return;
         this._egressSig = sig;
         const stale = failed
@@ -5675,20 +6612,89 @@ ${this.CLI_BIN} stop &lt;id&gt;
             const meta = `${r.calls} call${r.calls === 1 ? '' : 's'}`
                 + (r.writes ? ` · ${r.writes} write${r.writes === 1 ? '' : 's'}` : '')
                 + (isBlocked ? ` · ${r.blocked} blocked` : '')
-                + (isObserved ? ' · observed, not governed' : '');
+                + (isObserved ? ' · observed, not monitored' : '');
             const cls = isBlocked ? 'blocked' : (isObserved ? 'observed' : 'allowed');
             const dot = isObserved ? '' : ` sv-status-${isBlocked ? 'red' : 'green'}`;
+            const grant = r.grant;
+            const grantLine = grant
+                ? (grant.duration === 'session'
+                    ? 'Approved for the rest of this session'
+                    : `Approved for this session until ${this._esc(this._grantUntil(grant.expires_at))}`)
+                : '';
+            // The rule that fired, named on the row; its id, the reason and the
+            // approval scopes sit behind Details (progressive disclosure).
+            const details = !isBlocked || !r.rule_id ? '' : `
+                <details class="terminals-egress-details">
+                  <summary>Details</summary>
+                  <div class="terminals-egress-detail-line">Rule <code>${this._esc(r.rule_id)}</code></div>
+                  ${r.reason ? `<div class="terminals-egress-detail-line">${this._esc(r.reason)}</div>` : ''}
+                  ${grant ? `<div class="terminals-egress-detail-line">${grantLine}. Other sessions stay blocked.</div>`
+                    : (t.origin === 'linked'
+                        ? '<div class="terminals-egress-detail-line">A linked session cannot be approved from here. Allow the host on the Agent Egress page if it is right for every session.</div>'
+                    : (r.promotable
+                        ? `<div class="terminals-egress-detail-line">Approve for this session only; other sessions stay blocked.</div>
+                  <div class="terminals-approval-actions" data-egress-host="${this._esc(r.host)}">
+                    <button type="button" class="btn btn-sm" data-egress-dur="15m">15 min</button>
+                    <button type="button" class="btn btn-sm" data-egress-dur="1h">1 hour</button>
+                    <button type="button" class="btn btn-sm" data-egress-dur="session">Rest of session</button>
+                  </div>`
+                        : '<div class="terminals-egress-detail-line">This rule cannot be approved from a session; it needs a policy edit.</div>'))}
+                </details>`;
             return `
-              <div class="terminals-egress-row terminals-egress-${cls}">
+              <div class="terminals-egress-row terminals-egress-${cls}" data-egress-row="${this._esc(r.host)}">
                 <span class="terminals-dot${dot}"></span>
-                <span class="terminals-egress-host" title="${this._esc(r.host)}">${this._esc(host)}</span>
+                <button type="button" class="terminals-egress-host terminals-egress-open" data-egress-open="${this._esc(r.host)}" title="${this._esc(r.host)}: open in Agent Egress" aria-label="Open ${this._esc(host)} in Agent Egress">${this._esc(host)}</button>
                 <span class="terminals-egress-meta">${this._esc(meta)}</span>
+                ${this._whenHtml(r.last_seen)}
+                ${isBlocked && (r.rule_title || r.rule_id) ? `<span class="terminals-egress-rule">${this._esc(r.rule_title || r.rule_id)}${grant ? ` · ${this._esc(grantLine.toLowerCase())}` : ''}</span>` : ''}
+                ${details}
               </div>`;
         }).join('') + stale + note + (more > 0
             ? `<button type="button" class="terminals-egress-more" id="terminals-egress-more">+${more} more</button>`
             : '');
+        if (el.querySelectorAll) {
+            const open = (hostName) => this._openEgress(t.session_id, hostName);
+            el.querySelectorAll('[data-egress-open]').forEach(b => {
+                b.onclick = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); open(b.getAttribute('data-egress-open')); };
+            });
+            el.querySelectorAll('[data-egress-row]').forEach(row => {
+                row.onclick = (ev) => {
+                    // Only a click on the row itself; the Details drawer and its buttons keep their own.
+                    const tag = ev && ev.target && ev.target.closest ? ev.target.closest('details, button, a') : null;
+                    if (!tag) open(row.getAttribute('data-egress-row'));
+                };
+            });
+        }
         const moreBtn = document.getElementById('terminals-egress-more');
         if (moreBtn) moreBtn.onclick = () => { if (window.Sidebar?.navigate) Sidebar.navigate('egress'); };
+        if (el.querySelectorAll) el.querySelectorAll('[data-egress-dur]').forEach(b => {
+            b.onclick = async () => {
+                const box = b.closest('[data-egress-host]');
+                const hostName = box ? box.dataset.egressHost : '';
+                const sid = t.session_id;
+                const btns = box ? Array.from(box.querySelectorAll('button')) : [b];
+                btns.forEach(x => { x.disabled = true; });
+                try {
+                    await API.grantEgressHost(hostName, sid, b.dataset.egressDur);
+                } catch (e) {
+                    btns.forEach(x => { x.disabled = false; });
+                    this._banner(e.message);
+                    return;
+                }
+                // Read the session again so the row shows the grant now.
+                this._egressAt = 0;
+                this._egressSig = null;
+                this._renderEgress();
+                this._refreshRail();
+            };
+        });
+    },
+
+    /** Open Agent Egress filtered to this session and host. The page reads the
+     *  hand-off from storage, or from ?session=&host= on a reload. */
+    _openEgress(sessionId, host) {
+        try { sessionStorage.setItem('sv-egress-focus', JSON.stringify({ session: sessionId || '', host: host || '' })); } catch (e) { /* storage unavailable */ }
+        if (window.Sidebar && window.Sidebar.navigate) window.Sidebar.navigate('egress');
     },
 
     /** A timestamp as epoch ms: ISO with a zone, or SQLite's bare UTC
@@ -5701,6 +6707,45 @@ ${this.CLI_BIN} stop &lt;id&gt;
         return Number.isFinite(t) ? t : 0;
     },
 
+    /** The one relative-time formatter for the governance column: now,
+     *  N min ago, N h ago, N days ago. `now` is injectable for tests. */
+    _relTime(iso, now) {
+        const ms = this._epochMs(iso);
+        if (!ms) return '';
+        const s = Math.floor(((now == null ? Date.now() : now) - ms) / 1000);
+        if (s < 60) return 'now';
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m} min ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h} h ago`;
+        const d = Math.floor(h / 24);
+        return `${d} ${d === 1 ? 'day' : 'days'} ago`;
+    },
+    /** Local clock time for a hover title, e.g. "13:41:07, Fri 9 Oct". */
+    _absTime(iso) {
+        const ms = this._epochMs(iso);
+        if (!ms) return '';
+        const d = new Date(ms);
+        const p = (n) => String(n).padStart(2, '0');
+        const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+        const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+        return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}, ${day} ${d.getDate()} ${mon}`;
+    },
+    /** A small muted time cell for the right edge of a row. */
+    _whenHtml(iso) {
+        const rel = this._relTime(iso);
+        if (!rel) return '';
+        return `<time class="terminals-when" data-ts="${this._esc(iso)}" title="${this._esc(this._absTime(iso))}">${this._esc(rel)}</time>`;
+    },
+    /** Rewrite every time cell in place on the existing rail tick. */
+    _tickTimes() {
+        if (typeof document === 'undefined' || !document.querySelectorAll) return;
+        document.querySelectorAll('time.terminals-when[data-ts]').forEach(el => {
+            const rel = this._relTime(el.getAttribute('data-ts'));
+            if (rel && el.textContent !== rel) el.textContent = rel;
+        });
+    },
+
     /** Scroll the strip (never the page) so the attached task's tab shows. */
     _revealActiveTab(head) {
         const strip = head && head.querySelector ? head.querySelector('.terminals-pane-tabs') : null;
@@ -5710,6 +6755,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
         const r = tab.getBoundingClientRect();
         if (r.left < s.left) strip.scrollLeft -= (s.left - r.left);
         else if (r.right > s.right) strip.scrollLeft += (r.right - s.right);
+    },
+
+    /** A grant's expiry (bare UTC from SQLite) as a local clock time. */
+    _grantUntil(iso) {
+        const v = String(iso || '');
+        const d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(v) ? v : v.replace(' ', 'T') + 'Z');
+        return isNaN(d.getTime()) ? 'it expires' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     },
 
     // --- helpers --------------------------------------------------------
@@ -5855,7 +6907,6 @@ ${this.CLI_BIN} stop &lt;id&gt;
                         const state = blocked > 0 ? `${blocked} blocked`
                             : (detections > 0 ? `${detections} flagged` : (risk === 'amber' ? '1 flagged' : 'clean'));
                         const metaParts = [
-                            this._ago(r.started_at),
                             state,
                             `${spans} span${spans === 1 ? '' : 's'}`,
                         ].filter(Boolean);
@@ -5864,7 +6915,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
                       <div class="terminals-trace" data-trace-id="${this._esc(r.trace_id)}">
                         <span class="terminals-dot sv-status-${risk}" role="img" aria-label="${this._esc(riskLabel)}"></span>
                         <span class="terminals-trace-main">
-                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">Run ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span></span>
+                          <span class="terminals-trace-top"><button type="button" class="terminals-trace-id" data-trace-id="${this._esc(r.trace_id)}" title="Open trace and nested spans">Run ${this._esc(shortId)}</button><span class="terminals-trace-risk terminals-trace-risk-${risk}">${this._esc(riskLabel)}</span>${this._whenHtml(r.started_at)}</span>
                           <span class="terminals-trace-foot">
                             <span class="terminals-trace-meta">${this._esc(metaParts.join(' · '))}</span>
                             <button type="button" class="terminals-trace-open terminals-steps-toggle" data-trace-id="${this._esc(r.trace_id)}" data-fk="t:${this._esc(r.trace_id)}" aria-expanded="${open ? 'true' : 'false'}"${open ? ` aria-controls="terminals-steps-${this._esc(r.trace_id)}"` : ''}>${open ? 'Hide steps ▴' : 'Show steps ▾'}</button>
@@ -5962,20 +7013,24 @@ ${this.CLI_BIN} stop &lt;id&gt;
     _renderExecutorOptions(container) {
         const sel = container.querySelector('#terminals-executor');
         if (!sel) return;
+        const prior = sel.value;
         sel.innerHTML = this._executors.map(e => {
             const ok = this._launchable(e);
             // Installed-but-ungoverned stays selectable so the user can pick
             // it and install its Guard plugin in place; only "not installed"
             // is a hard stop.
             const selectable = e.installed !== false;
-            const suffix = ok ? '' : (e.installed === false ? ' (not installed)' : ' (Guard not enabled)');
+            const suffix = ok ? '' : (e.installed === false ? ' (not installed)' : (e.guard_relay === false ? ' (ungoverned)' : ' (Guard not enabled)'));
             return `<option value="${this._esc(e.id)}"${selectable ? '' : ' disabled'}>${this._esc(e.label + suffix)}</option>`;
         }).join('');
         // Prefer a fully governed executor by default; fall back to any
         // installed one so the form still opens on something the user can
         // launch (ungoverned) rather than nothing.
         const first = this._executors.find(e => this._launchable(e)) || this._executors.find(e => e.installed !== false);
-        if (first) sel.value = first.id;
+        // A refetch keeps what the person already picked, if it is still offered.
+        const picked = this._executors.find(e => e.id === prior && e.installed !== false);
+        if (picked) sel.value = picked.id;
+        else if (first) sel.value = first.id;
         sel.onchange = () => this._showExecutorState(container);
         this._showExecutorState(container);
     },
@@ -6028,7 +7083,12 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return;
         }
         if (hint) hint.hidden = true;
-        if (!cur.governed) {
+        if (!cur.governed && cur.guard_relay === false) {
+            // No Guard can report to a task launched here (GovRun, Hermes,
+            // OpenClaw): say so instead of offering an install.
+            if (hint) { hint.textContent = cur.hint || ''; hint.hidden = !cur.hint; }
+            if (guardRow) guardRow.hidden = true;
+        } else if (!cur.governed) {
             if (guardRow) guardRow.hidden = false;
             if (this._guardPending && this._guardPending.executorId === cur.id) {
                 if (guardText) guardText.textContent = this._guardPending.text;
@@ -6036,9 +7096,9 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 if (guardInstall) guardInstall.hidden = true;
                 if (guardRecheck) { guardRecheck.hidden = false; guardRecheck.disabled = false; guardRecheck.textContent = 'Check again'; }
             } else {
-                if (guardText) guardText.textContent = `SecureVector Guard is not enabled for ${cur.label}. The task launches ungoverned: no verdicts, traces, or approvals until you install it.`;
+                if (guardText) guardText.textContent = `SecureVector Guard is not installed for ${cur.label}. Install it now?`;
                 if (guardCommands) guardCommands.hidden = true;
-                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install SecureVector Guard'; }
+                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install'; }
                 if (guardRecheck) guardRecheck.hidden = true;
             }
         } else {
@@ -6091,13 +7151,13 @@ ${this.CLI_BIN} stop &lt;id&gt;
                 this._guardPending = null;
                 if (guardText) guardText.textContent = res.next_step || `Guard install did not finish for ${label}. Try again.`;
                 if (guardRow) guardRow.hidden = false;
-                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install SecureVector Guard'; }
+                if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install'; }
                 if (guardRecheck) guardRecheck.hidden = true;
             }
         } catch (e) {
             if (guardRow) guardRow.hidden = false;
             if (guardText) guardText.textContent = e.message || 'Guard install failed.';
-            if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install SecureVector Guard'; }
+            if (guardInstall) { guardInstall.hidden = false; guardInstall.disabled = false; guardInstall.textContent = 'Install'; }
             if (guardRecheck) guardRecheck.hidden = true;
         }
     },

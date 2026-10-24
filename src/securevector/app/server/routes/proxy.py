@@ -10,7 +10,7 @@ import subprocess
 import sys
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -283,6 +283,14 @@ def set_openclaw_mode(enabled: bool):
 
 
 @router.post("/stop")
+async def stop_proxy_route(http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    """Stop the LLM proxy: a person in the app, with the UI token."""
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
+    return await stop_proxy()
+
+
 async def stop_proxy():
     """Stop the LLM proxy and revert pi-ai files if started with --openclaw."""
     global _llm_proxy_process, _current_integration, _started_with_openclaw
@@ -328,8 +336,12 @@ async def stop_proxy():
 
 
 @router.post("/revert")
-async def revert_proxy():
+async def revert_proxy(http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
     """Revert pi-ai files to original state (remove SecureVector proxy patches)."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         from securevector.app.main import revert_proxy as do_revert
 

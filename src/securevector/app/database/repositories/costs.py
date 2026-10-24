@@ -15,6 +15,11 @@ from typing import Optional
 from securevector.app.utils.trace_text import sanitize_trace_text
 from securevector.app.database.connection import DatabaseConnection
 
+# Provider names that mean Amazon Bedrock, as harnesses report them, and the
+# cross-region inference prefixes a Bedrock model id may start with.
+BEDROCK_PROVIDERS = ("bedrock", "aws", "amazon-bedrock", "amazon_bedrock")
+BEDROCK_REGION_PREFIXES = ("us", "eu", "apac", "global", "us-gov", "jp", "au", "ca")
+
 logger = logging.getLogger(__name__)
 
 
@@ -527,7 +532,16 @@ class CostsRepository:
             by_model[str(r["model_id"])] = (float(r["input_per_million"]), float(r["output_per_million"]))
         if model_id in by_model:
             return by_model[model_id]
-        bare = model_id.split(".", 1)[-1] if "." in model_id and provider in ("bedrock", "aws") else model_id
+        bare = model_id
+        if provider in BEDROCK_PROVIDERS:
+            # Bedrock ids carry an optional region prefix and a vendor:
+            # ``us.anthropic.claude-haiku-4-5-20251001-v1:0``. Drop both.
+            parts = bare.split(".")
+            if parts[0] in BEDROCK_REGION_PREFIXES:
+                parts = parts[1:]
+            if len(parts) > 1:
+                parts = parts[1:]
+            bare = ".".join(parts)
         best = None
         for mid, rates in by_model.items():
             if bare.startswith(mid) and (best is None or len(mid) > len(best[0])):

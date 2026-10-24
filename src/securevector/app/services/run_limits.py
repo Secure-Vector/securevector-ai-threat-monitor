@@ -80,6 +80,10 @@ async def has_run_exemption(db: DatabaseConnection, runtime_kind: Optional[str],
         "AND (runtime_kind IS NULL OR runtime_kind = ?) "
         "AND revoked_at IS NULL "
         "AND (expires_at IS NULL OR expires_at > datetime('now')) "
+        # A response rung's approval only lifts that rung's own hold.
+        "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'rung') "
+        # A delegation approval launches a task; it is never an exemption.
+        "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'delegate') "
         "LIMIT 1",
         (session_id, runtime_kind or ""),
     )

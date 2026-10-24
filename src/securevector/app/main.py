@@ -150,6 +150,19 @@ def _app_terminating() -> bool:
         return False
 
 
+def _attach_confirmations(window: Any) -> None:
+    """Decisions are confirmed by the person through this shell, in process."""
+    from securevector.app import desktop_shell
+    from securevector.app.services import confirmations
+
+    activate = desktop_shell.make_activate_callback(window)
+    if sys.platform == "darwin":
+        confirmations.attach_shell(prompt=desktop_shell.make_confirm_prompt(window, activate))
+    else:
+        # No Cancel-default dialog here: the person types a code the shell shows.
+        confirmations.attach_shell(show_code=desktop_shell.make_code_display(window, activate))
+
+
 def run_desktop(host: str, port: int, debug: bool) -> None:
     """Run the application with a native desktop window."""
     import os
@@ -208,6 +221,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
             "configure_app": lambda app: (
                 desktop_shell.install_activation_route(app, desktop_shell.make_activate_callback(window)),
                 desktop_shell.install_chrome_routes(app, chrome),
+                _attach_confirmations(window),
             )
         },
         daemon=True,
@@ -1583,6 +1597,7 @@ EXECUTOR_FOR_PLUGIN = {
     "codex": "codex",
     "copilot-cli": "copilot-cli",
     "opencode": "opencode",
+    "openclaw": "openclaw",
 }
 
 
@@ -1674,7 +1689,8 @@ def _handle_plugin_command(args) -> None:
             # None matches the route's default ("install with bundled config").
             result = asyncio.run(mod.install_plugin(None))
         else:
-            result = asyncio.run(mod.uninstall_plugin())
+            # `_uninstall_plugin`, not the route: see the claude-code branch.
+            result = asyncio.run(mod._uninstall_plugin())
     elif name == "codex":
         from securevector.app.server.routes import hooks_codex as mod
         handler = mod.install_plugin if action == "install" else mod._uninstall_plugin

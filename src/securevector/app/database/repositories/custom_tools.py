@@ -1398,7 +1398,7 @@ class CustomToolsRepository:
             SELECT
                 seq, turn_index, tool_id, function_name, action,
                 risk, reason, called_at, runtime_kind, args_preview,
-                request_id, session_id, span_id, parent_span_id
+                request_id, session_id, span_id, parent_span_id, row_hash
             FROM tool_call_audit
             WHERE trace_id = ?
             ORDER BY seq ASC

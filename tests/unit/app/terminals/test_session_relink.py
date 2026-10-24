@@ -5,6 +5,8 @@ announces it with SessionStart. The task re-links to the new id, keeps the
 old one in its history, and the old id is not offered as an unlinked session.
 """
 
+import asyncio
+
 import pytest
 
 from securevector.app.terminals.store import SESSION_RELINKED
@@ -104,3 +106,25 @@ async def test_relink_to_a_session_held_by_another_task_is_refused(tmp_path, cap
     assert (await m.store.get_task(a["id"]))["session_id"] == "sess-a-0000001"
     assert await m.store.session_history(a["id"]) == []
     assert "refused session re-link" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_exit_revokes_the_tasks_host_grants(tmp_path):
+    from securevector.app.database.repositories.jit_access import JitAccessRepository
+
+    m, ws = await _manager(tmp_path)
+    task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    tid, token = task["id"], m.hook_token(task["id"])
+    await m.handle_hook_event(tid, token, {"hook_event_name": "SessionStart", "session_id": "sess-old-00001"})
+    await m.handle_hook_event(tid, token, {"hook_event_name": "SessionStart", "session_id": "sess-new-00002"})
+    jit = JitAccessRepository(m.store.db)
+    for sid in ("sess-old-00001", "sess-new-00002", "sess-else-0003"):
+        await jit.grant_host("h.example.com", "preset.contained", "r", "claude-code", sid, "session")
+    m.host.exit(tid, 0)
+    for _ in range(100):
+        if not (await jit.active_host_grants("sess-new-00002", "claude-code")):
+            break
+        await asyncio.sleep(0.02)
+    assert await jit.active_host_grants("sess-new-00002", "claude-code") == {}
+    assert await jit.active_host_grants("sess-old-00001", "claude-code") == {}
+    assert set(await jit.active_host_grants("sess-else-0003", "claude-code")) == {"h.example.com"}

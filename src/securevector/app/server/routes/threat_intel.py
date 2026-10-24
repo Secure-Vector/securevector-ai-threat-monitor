@@ -9,7 +9,9 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Request
+
+from securevector.app.services import decisions
 from pydantic import BaseModel
 
 from securevector.app.database.connection import get_database
@@ -182,12 +184,14 @@ class BulkDeleteRequest(BaseModel):
 
 
 @router.delete("/threat-intel", response_model=DeleteResponse)
-async def bulk_delete_threat_intel(request: BulkDeleteRequest) -> DeleteResponse:
+async def bulk_delete_threat_intel(request: BulkDeleteRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> DeleteResponse:
     """
     Delete multiple or all threat intel records.
 
     Use delete_all=true to delete all records, or provide specific IDs.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = ThreatIntelRepository(db)
@@ -216,10 +220,12 @@ async def bulk_delete_threat_intel(request: BulkDeleteRequest) -> DeleteResponse
 
 
 @router.delete("/threat-intel/{record_id}", response_model=DeleteResponse)
-async def delete_threat_intel(record_id: str) -> DeleteResponse:
+async def delete_threat_intel(record_id: str, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> DeleteResponse:
     """
     Delete a single threat intel record by ID.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = ThreatIntelRepository(db)
@@ -248,7 +254,7 @@ class DispositionRequest(BaseModel):
 
 
 @router.post("/threat-intel/{record_id}/disposition")
-async def set_threat_disposition(record_id: str, request: DispositionRequest) -> dict:
+async def set_threat_disposition(record_id: str, request: DispositionRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict:
     """
     Set or clear an analyst disposition on a record (dismiss as false
     positive). Unlike delete, this keeps the evidence: the record stays in
@@ -256,6 +262,8 @@ async def set_threat_disposition(record_id: str, request: DispositionRequest) ->
     record only — aggregate counts (stat strips, trace risk rings) do not yet
     exclude dismissed records; that filter is a tracked follow-up.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     if request.disposition not in (None, "false_positive"):
         raise HTTPException(status_code=422, detail="disposition must be 'false_positive' or null")
     try:

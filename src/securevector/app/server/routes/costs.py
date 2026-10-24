@@ -17,7 +17,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Request
+
+from securevector.app.services import decisions
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -185,15 +187,14 @@ async def record_cost(request: RecordCostRequest) -> dict:
         db = get_database()
         repo = CostsRepository(db)
 
-        # Look up pricing
-        pricing = await repo.get_pricing(request.provider, request.model_id)
-        pricing_known = pricing is not None
+        # Look up pricing: exact first, then the same fallbacks traced calls
+        # use, so dated variants and Bedrock ids price instead of showing $0.
+        rate_in, rate_out = await repo.resolve_rates(request.provider, request.model_id)
+        pricing_known = rate_in is not None and rate_out is not None
         input_cost = 0.0
         output_cost = 0.0
 
         if pricing_known:
-            rate_in = pricing.input_per_million
-            rate_out = pricing.output_per_million
             # Cache discount rates by provider
             cache_discounts = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
             cache_rate = cache_discounts.get(request.provider, 1.0)
@@ -214,8 +215,8 @@ async def record_cost(request: RecordCostRequest) -> dict:
             input_cost_usd=round(input_cost, 8),
             output_cost_usd=round(output_cost, 8),
             total_cost_usd=round(total_cost, 8),
-            rate_input=pricing.input_per_million if pricing_known else None,
-            rate_output=pricing.output_per_million if pricing_known else None,
+            rate_input=rate_in if pricing_known else None,
+            rate_output=rate_out if pricing_known else None,
             pricing_known=pricing_known,
         )
 
@@ -575,6 +576,8 @@ class DeleteRecordsRequest(BaseModel):
 async def delete_cost_records(
     agent_id: Optional[str] = Query(None, description="Delete only records for this agent ID"),
     body: Optional[DeleteRecordsRequest] = None,
+    http_request: Request = None,
+    x_sv_ui_token: Optional[str] = Header(None),
 ) -> dict:
     """
     Delete request history records.
@@ -582,6 +585,8 @@ async def delete_cost_records(
     If agent_id provided, deletes all records for that agent.
     Otherwise clears all records.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CostsRepository(db)
@@ -776,8 +781,10 @@ async def get_global_budget() -> BudgetConfig:
 
 
 @router.put("/costs/budget", response_model=BudgetConfig)
-async def set_global_budget(request: BudgetConfig) -> BudgetConfig:
+async def set_global_budget(request: BudgetConfig, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> BudgetConfig:
     """Update global daily budget settings."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         if request.budget_action not in ("warn", "block"):
             raise HTTPException(status_code=422, detail="budget_action must be 'warn' or 'block'")
@@ -824,8 +831,10 @@ async def list_agent_budgets() -> list[AgentBudgetEntry]:
 
 
 @router.put("/costs/budget/agents/{agent_id}", response_model=AgentBudgetEntry)
-async def set_agent_budget(agent_id: str, request: BudgetConfig) -> AgentBudgetEntry:
+async def set_agent_budget(agent_id: str, request: BudgetConfig, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> AgentBudgetEntry:
     """Set or update budget for a specific agent."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         if request.daily_budget_usd is None or request.daily_budget_usd <= 0:
             raise HTTPException(status_code=422, detail="daily_budget_usd must be a positive number")
@@ -844,8 +853,10 @@ async def set_agent_budget(agent_id: str, request: BudgetConfig) -> AgentBudgetE
 
 
 @router.delete("/costs/budget/agents/{agent_id}")
-async def delete_agent_budget(agent_id: str) -> dict:
+async def delete_agent_budget(agent_id: str, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> dict:
     """Remove per-agent budget override."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         repo = CostsRepository(db)
@@ -1009,9 +1020,11 @@ async def get_run_limits():
 
 
 @router.put("/costs/run-limits")
-async def put_run_limits(cfg: RunLimitsConfig):
+async def put_run_limits(cfg: RunLimitsConfig, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
     """Replace the per-run limit settings. Null clears a ceiling (off).
     Takes effect on the next decision/request — no restarts anywhere."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         from securevector.app.database.repositories.settings import SettingsRepository
 
@@ -1045,10 +1058,12 @@ async def get_run_limit_stops(window_days: int = Query(7, ge=1, le=90)):
 
 
 @router.post("/costs/run-limits/exempt")
-async def exempt_run(req: RunExemptRequest):
+async def exempt_run(req: RunExemptRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
     """One-click "approve this run to continue": a session-scoped, time-boxed
     JIT grant (tool_id='*'), revocable from the JIT grants list. The grant row
     is the promotion's audit record."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         from securevector.app.services.run_limits import create_run_exemption
 

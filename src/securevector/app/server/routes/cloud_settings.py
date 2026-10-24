@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -152,10 +152,14 @@ async def get_general_settings() -> GeneralSettingsResponse:
 
 
 @router.put("/settings", response_model=GeneralSettingsResponse)
-async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSettingsResponse:
+async def update_general_settings(request: GeneralSettingsUpdate, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> GeneralSettingsResponse:
     """
     Update general app settings.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         db = get_database()
         settings_repo = SettingsRepository(db)
@@ -326,7 +330,8 @@ async def get_cloud_settings() -> CloudSettingsResponse:
 
 
 @router.post("/settings/cloud/credentials", response_model=CredentialsResponse)
-async def configure_credentials(request: CredentialsRequest) -> CredentialsResponse:
+async def configure_credentials(request: CredentialsRequest, http_request: Request = None,
+                                x_sv_ui_token: Optional[str] = Header(None)) -> CredentialsResponse:
     """
     Configure cloud credentials. Routes by token-prefix:
 
@@ -335,6 +340,10 @@ async def configure_credentials(request: CredentialsRequest) -> CredentialsRespo
     - `svpk_*` or legacy unprefixed → personal API key (existing flow,
       saves to credential store + enables cloud mode).
     """
+    # Changes where events go and what the cloud may push: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     token_type = detect_token_type(request.api_key)
 
     # ---- svet_* — org enrollment path ----
@@ -397,10 +406,14 @@ async def configure_credentials(request: CredentialsRequest) -> CredentialsRespo
 
 
 @router.delete("/settings/cloud/credentials", response_model=MessageResponse)
-async def remove_credentials() -> MessageResponse:
+async def remove_credentials(http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> MessageResponse:
     """
     Remove credentials and disable cloud mode.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         # Delete credentials from OS keychain
         delete_credentials()
@@ -527,12 +540,16 @@ async def poll_cloud_trial(request: TrialPollRequest) -> TrialPollResponse:
 
 
 @router.put("/settings/cloud/mode", response_model=CloudModeResponse)
-async def toggle_cloud_mode(request: CloudModeRequest) -> CloudModeResponse:
+async def toggle_cloud_mode(request: CloudModeRequest, http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)) -> CloudModeResponse:
     """
     Toggle cloud mode on/off.
 
     Requires credentials to be configured before enabling.
     """
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         # Check if credentials are configured
         if request.enabled and not credentials_configured():
@@ -559,3 +576,91 @@ async def toggle_cloud_mode(request: CloudModeRequest) -> CloudModeResponse:
     except Exception as e:
         logger.error(f"Failed to toggle cloud mode: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class DelegationPolicyUpdate(BaseModel):
+    """Delegation policy. Every delegation still asks for approval."""
+
+    enabled: Optional[bool] = None
+    cross_harness: Optional[bool] = None
+    folder_allowlist: Optional[list[str]] = Field(None, max_length=50)
+
+
+@router.get("/settings/delegation")
+async def get_delegation_policy() -> dict:
+    """The delegation policy: enabled, cross_harness, folder_allowlist."""
+    try:
+        return await SettingsRepository(get_database()).get_delegation_policy()
+    except Exception as e:
+        logger.error(f"Failed to get delegation policy: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read the delegation policy")
+
+
+@router.put("/settings/delegation")
+async def update_delegation_policy(
+    request: DelegationPolicyUpdate,
+    x_sv_ui_token: Optional[str] = Header(None),
+    http_request: Request = None,
+) -> dict:
+    """Change the delegation policy. Requires the local web UI's token, the
+    same one approvals use."""
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
+    try:
+        repo = SettingsRepository(get_database())
+        current = await repo.get_delegation_policy()
+        for key in ("enabled", "cross_harness", "folder_allowlist"):
+            value = getattr(request, key)
+            if value is not None:
+                current[key] = value
+        return await repo.set_delegation_policy(current)
+    except Exception as e:
+        logger.error(f"Failed to update delegation policy: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update the delegation policy")
+
+
+class CloudApprovalsUpdate(BaseModel):
+    """Approvals from SecureVector Cloud. Off by default; changeable only
+    here, in the local app."""
+
+    enabled: Optional[bool] = None
+    allowance: Optional[list[str]] = Field(None, max_length=4)
+    device_only_rules: Optional[list[str]] = Field(None, max_length=50)
+
+
+@router.get("/settings/cloud-approvals")
+async def get_cloud_approvals() -> dict:
+    """The cloud approvals setting: enabled, allowance, device_only_rules."""
+    from securevector.app.services import cloud_approvals
+
+    try:
+        db = get_database()
+        out = await cloud_approvals.get_settings(db)
+        out.update(await cloud_approvals.poll_status(db))
+        return out
+    except Exception as e:
+        logger.error(f"Failed to read the cloud approvals setting: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read the cloud approvals setting")
+
+
+@router.put("/settings/cloud-approvals")
+async def update_cloud_approvals(
+    request: CloudApprovalsUpdate,
+    x_sv_ui_token: Optional[str] = Header(None),
+    http_request: Request = None,
+) -> dict:
+    """Change the cloud approvals setting. Requires the person in the local
+    app (UI token, not a governed task, and the app's confirmation). Every
+    change is audited."""
+    from securevector.app.services import cloud_approvals, decisions
+
+    if request.allowance is not None and any(d not in cloud_approvals.DURATIONS for d in request.allowance):
+        raise HTTPException(status_code=422, detail="allowance takes once, 15m, 1h and session")
+    await decisions.require_person(http_request, x_sv_ui_token)
+    try:
+        return await cloud_approvals.set_settings(
+            get_database(), request.model_dump(exclude_none=True))
+    except Exception as e:
+        logger.error(f"Failed to update the cloud approvals setting: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update the cloud approvals setting")

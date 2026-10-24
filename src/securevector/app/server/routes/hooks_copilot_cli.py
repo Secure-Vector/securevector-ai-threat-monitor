@@ -58,6 +58,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from . import _hooks_common
+from securevector.app.services import mcp_registration
 from securevector.app.terminals.guardrail import block_uninstall
 from ._plugin_guard import ForceBody, require_local_origin
 
@@ -407,10 +408,14 @@ async def install_plugin():
             status_code=500,
             detail=(
                 f"Copilot CLI plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
-                "Bundled plugin assets are missing from the installed package — verify "
+                "Bundled plugin assets are missing from the installed package. Verify "
                 "setup.py:package_data and MANIFEST.in include plugins/copilot-cli/**/*."
             ),
         )
+
+    # The SecureVector MCP tools (check_policy, session_burn) at user scope.
+    # Agent Config Trust treats it as the app's own entry. Best effort.
+    mcp_registration.register("copilot-cli")
 
     # Auto-install into Copilot's store when the CLI is present. Parity with
     # claude-code / codex / openclaw: one call → installed + enabled.
@@ -478,6 +483,7 @@ async def _uninstall_plugin():
     """Remove the plugin everywhere we wrote it: the staged tree, Copilot's
     cached copy, the per-plugin data dir, and its config.json registry entry.
     Idempotent — safe to call with nothing installed."""
+    mcp_registration.unregister("copilot-cli")
     # 1. Staged source-of-truth tree.
     if STAGING_DIR.is_dir():
         shutil.rmtree(STAGING_DIR, ignore_errors=True)

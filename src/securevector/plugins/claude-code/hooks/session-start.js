@@ -26,6 +26,31 @@ const { resolveBaseUrl, postJsonAndForget, getJson } = require('../lib/client.js
 
 const RUNTIME_KIND = 'claude-code';
 
+// One line of context at session start naming the SecureVector MCP
+// check_policy tool. On by default; SECUREVECTOR_MCP_GUIDANCE_LINE=0 turns it
+// off. Only sent when the local app answered and reports the MCP entry as
+// registered for Claude Code, so the agent is never pointed at a tool that
+// is not there.
+const MCP_GUIDANCE_LINE = 'SecureVector check_policy is available: before a shell, network, '
+  + 'file write or MCP action you are unsure of, call it with the tool name and input you '
+  + 'would send. A deny means do not attempt the action.';
+
+function mcpGuidanceEnabled(env = process.env) {
+  const v = String(env.SECUREVECTOR_MCP_GUIDANCE_LINE || '').trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+}
+
+function mcpRegistered(registration) {
+  const h = registration && registration.harnesses && registration.harnesses[RUNTIME_KIND];
+  return !!(h && h.state === 'registered');
+}
+
+function buildSessionStartOutput(reachable, env = process.env, registered = true) {
+  const out = { hookEventName: 'SessionStart' };
+  if (reachable && registered && mcpGuidanceEnabled(env)) out.additionalContext = MCP_GUIDANCE_LINE;
+  return { hookSpecificOutput: out };
+}
+
 async function readAllStdin() {
   let buf = '';
   for await (const chunk of process.stdin) buf += chunk;
@@ -61,10 +86,18 @@ async function main() {
   // response shape (getJson fails open to {} on error/timeout/non-2xx, so its
   // absence is the reliable "app did not respond" signal). Runs under the
   // 100ms client timeout, so a down app never delays session startup.
+  let reachable = false;
+  let registered = false;
   try {
-    const overrides = await getJson(`${baseUrl}/api/tool-permissions/synced-overrides`);
-    const reachable = overrides && typeof overrides === 'object'
-      && Object.prototype.hasOwnProperty.call(overrides, 'synced');
+    const [overrides, registration] = await Promise.all([
+      getJson(`${baseUrl}/api/tool-permissions/synced-overrides`),
+      mcpGuidanceEnabled()
+        ? getJson(`${baseUrl}/api/policy/mcp-registration?harness=${RUNTIME_KIND}`)
+        : Promise.resolve(null),
+    ]);
+    registered = mcpRegistered(registration);
+    reachable = !!(overrides && typeof overrides === 'object'
+      && Object.prototype.hasOwnProperty.call(overrides, 'synced'));
     if (!reachable) {
       process.stderr.write(
         'SecureVector Guard is installed but INACTIVE: the local SecureVector app at '
@@ -79,14 +112,17 @@ async function main() {
     postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionOpenBody(event));
   } catch { /* swallow */ }
 
-  // Empty hookSpecificOutput — implicit-allow on SessionStart. We intentionally
-  // don't inject additionalContext (would push SecureVector text into the
-  // model's context window every session — noise for the agent).
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart' } }));
+  // Implicit-allow on SessionStart. The only context added is the one
+  // check_policy line above, behind its flag; nothing else enters the
+  // model's context window.
+  process.stdout.write(JSON.stringify(buildSessionStartOutput(reachable, process.env, registered)));
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { buildSessionOpenBody, RUNTIME_KIND };
+module.exports = {
+  buildSessionOpenBody, buildSessionStartOutput, mcpGuidanceEnabled, mcpRegistered, MCP_GUIDANCE_LINE,
+  RUNTIME_KIND,
+};

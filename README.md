@@ -13,7 +13,6 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
-[![npm SDK](https://img.shields.io/npm/v/@securevector/sdk.svg?style=for-the-badge&logo=npm&label=%40securevector%2Fsdk&color=CB3837)](https://www.npmjs.com/package/@securevector/sdk)
 [![npm CLI](https://img.shields.io/npm/v/@securevector/cli.svg?style=for-the-badge&logo=npm&label=%40securevector%2Fcli&color=CB3837)](https://www.npmjs.com/package/@securevector/cli)
 [![Downloads/month](https://img.shields.io/pypi/dm/securevector-ai-monitor?style=for-the-badge&label=downloads%2Fmonth&color=orange)](https://pypistats.org/packages/securevector-ai-monitor)
 [![Downloads total](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads%20total&color=orange)](https://pepy.tech/project/securevector-ai-monitor)
@@ -143,20 +142,14 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 
 </div>
 
-> **What's new in 6.0**
-> - **Agent Sessions**: launch Claude Code, Codex, GitHub Copilot CLI or OpenCode from inside SecureVector and watch every tool call get checked beside the terminal. [Guide](docs/AGENT_SESSIONS.md)
-> - **Bring your own sessions**: an agent you started in your own terminal appears in the app as soon as it makes a tool call. Add it to the board, continue it in the app, or leave it where it is.
-> - **Unchecked, not just quiet**: an agent that is still running but no longer reporting tool calls is marked **unverified**, so it never looks the same as an idle one.
-> - **Session commands in the CLI**: `sv-monitor session list | harnesses | unlinked | launch | link | stop` (`securevector monitor session ...` with npm), each with `--json`.
-> - **Live governance beside every session**: tool calls with verdicts, blocks, hosts reached and an approval inbox in a column on the right. Approve a held call for 15 minutes, 1 hour or the rest of the session without leaving it.
-> - **Session board and summary**: sessions grouped by folder with cost, calls and blocked counts; a summary when a session ends (duration, tool calls by verdict, hosts, findings), exportable as JSON.
-> - **Observability** (was Traces): each run shows a step list with model time vs tool time, and **Agent Health** points out loops, failing steps, waste and blocked runs. CSV and PDF exports include the steps.
-> - **Governance coverage**: see how many of your agents' tool calls SecureVector recorded and checked, and a list of gaps to close.
-> - **Live Runs in the cloud** (Cloud Connect): every governed session on your devices, live, with its title and folder name and the same step timeline. Metadata only.
-> - **Antigravity plugin**: install it from **Connect Agents** like the others.
-> - **Install from npm**: `npx @securevector/cli` runs the same app for Node developers, and [`@securevector/sdk`](https://github.com/Secure-Vector/securevector-sdk-js#readme) checks tools in JavaScript and TypeScript agents.
+> **What's new in 6.1**
+> - **Agent Detection & Response**: every governed session gets a score from 0 to 100 against what the same agent tool normally does in that folder, with the reasons in plain words. Two named rules act at call time: a credential file read followed by a network call, and outside content (web pages, MCP results, files outside the folder) followed by a credential read or a network call. Test mode shows what would have been held; a per-tool "High: stop the session and alert" switch is off until you turn it on.
+> - **One-session approvals**: approve a blocked host for 15 minutes, 1 hour or the rest of the session from the Approval inbox. Other sessions stay blocked.
+> - **Agent Config Trust**: Integrations scans each agent tool's MCP servers, hooks and rules files, and shows changes as side-by-side cards to approve.
+> - **SecureVector MCP**: `check_policy` tells the agent whether a tool call will be allowed before it makes it; `session_burn` reports tokens and estimated cost so far.
+> - **Fleet** (Professional and Enterprise): held counts, rule matches and stopped sessions across devices.
 >
-> Full release history in the [CHANGELOG](CHANGELOG.md).
+> 6.0 (Agent Sessions, Observability, npm install) and earlier releases are in the [CHANGELOG](CHANGELOG.md).
 
 ## Screenshots
 

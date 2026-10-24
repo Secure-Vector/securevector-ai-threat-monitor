@@ -36,6 +36,9 @@ function effectToAction(effect) {
   }
 }
 
+// Row sources that only gate a call before it runs (see pickMatch).
+const PRE_CALL_SOURCES = new Set(['run_limit', 'rung', 'rung_marker']);
+
 function pickMatch(candidates, overrides) {
   if (!overrides || !Array.isArray(overrides.synced) || overrides.synced.length === 0) return null;
   // Case-insensitive, first-seen-wins — MUST match decide.js:decideFromOverrides,
@@ -43,6 +46,9 @@ function pickMatch(candidates, overrides) {
   // actually denied (e.g. a rule stored as tool_id "Shell"), corrupting the log.
   const byId = new Map();
   for (const row of overrides.synced) {
+    // Per-run limits and response rung rows gate a call before it runs;
+    // they say nothing about a call that already ran.
+    if (row && PRE_CALL_SOURCES.has(row.source)) continue;
     if (row && typeof row.tool_id === 'string') {
       const key = row.tool_id.toLowerCase();
       if (!byId.has(key)) byId.set(key, row);
@@ -74,7 +80,7 @@ function preview(value) {
  */
 async function postCallAudit(baseUrl, { toolName, candidates, toolInput, sessionId }) {
   if (!Array.isArray(candidates) || candidates.length === 0) return null;
-  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND, { sessionId: sessionId || null });
   const match = pickMatch(candidates, overrides);
   const requestId = newRequestId();
   postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, {

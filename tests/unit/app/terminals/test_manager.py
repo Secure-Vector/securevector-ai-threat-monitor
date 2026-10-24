@@ -248,7 +248,9 @@ async def test_opencode_spawn_without_its_guard_plugin_is_ungoverned(tmp_path):
 async def test_executor_status_reports_installed_and_governed(tmp_path):
     m, _ws = await _manager(tmp_path, plugin_installed=True)
     rows = {row["id"]: row for row in m.executor_status()}
-    assert set(rows) == {"claude-code", "codex", "copilot-cli", "opencode"}
+    assert set(rows) == {
+        "claude-code", "codex", "copilot-cli", "opencode", "govrun", "hermes", "openclaw",
+    }
 
     claude = rows["claude-code"]
     assert claude["installed"] is True and claude["governed"] is True
