@@ -133,9 +133,9 @@ test('the runs list has no approve or deny control', () => {
   assert.match(list, /Open the call that expires soonest to decide\./);
 });
 
-test('the Live grid nav item carries an amber waiting badge, hidden at zero', () => {
+test('the Observability row carries an amber waiting badge, hidden at zero', () => {
   const sb = read('js/components/sidebar.js');
-  assert.match(sb, /if \(view\.liveWaiting\) \{[\s\S]*?wait\.className = 'nav-count nav-count-warn';[\s\S]*?wait\.hidden = true;/);
+  assert.match(sb, /if \(item\.liveWaiting\) \{[\s\S]*?wait\.className = 'nav-count nav-count-warn';[\s\S]*?wait\.hidden = true;/);
   assert.match(sb, /querySelectorAll\('\[data-live-waiting\]'\)\.forEach\(el => \{[\s\S]*?el\.hidden = n <= 0;/);
 });
 

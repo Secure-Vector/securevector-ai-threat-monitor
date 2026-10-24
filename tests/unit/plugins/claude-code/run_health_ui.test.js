@@ -403,14 +403,13 @@ test('Dashboard: Needs attention lists the top 5 by severity, escaped, linked to
 
 // ---------------- Nav labels and routing ----------------
 
-test('nav: Observability has Runs, Live grid, Health and Map sub-items; the older pages stay aliases', () => {
+test('nav: Observability has no sub-items (tabs only); the older pages stay aliases', () => {
   const sb = read('js/components/sidebar.js');
-  assert.match(sb, /id: 'agent-runs', label: 'Observability', icon: 'history', aliases: \['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay', 'live-grid'\]/);
+  assert.match(sb, /id: 'agent-runs', label: 'Observability', icon: 'history', liveWaiting: true,\s*aliases: \['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay', 'live-grid'\]/);
   const views = sb.slice(sb.indexOf("label: 'Observability'"), sb.indexOf("id: 'threats'"));
-  assert.match(views, /views:/);
-  const labels = [...views.matchAll(/\{ id: '([a-z-]+)', label: '([^']+)'/g)].map(m => `${m[1]}:${m[2]}`);
-  // Owner rule: Map always stays, in this order.
-  assert.deepStrictEqual(labels, ['agent-runs:Runs', 'live-grid:Live grid', 'run-health:Health', 'agent-map:Map']);
+  assert.doesNotMatch(views, /views:/);
+  // Owner rule: Map always stays, as an in-page tab.
+  assert.match(read('js/components/obs-tabs.js'), /page: 'agent-map'/);
   assert.match(read('js/components/obs-tabs.js'), /page: 'run-health'/);
   const pal = read('js/components/command-palette.js');
   assert.match(pal, /'Observability: trace \+ run waterfall'/);

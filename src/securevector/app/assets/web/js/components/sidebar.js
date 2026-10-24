@@ -14,21 +14,15 @@ const Sidebar = {
         { id: 'terminals', label: 'Agent Sessions', icon: 'terminal',
           tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        // Observability has four sub-views in this order: Runs, Live grid,
-        // Health and Map (Map always stays). The in-page tabs mirror them.
-        // The older trace pages stay aliases of Runs so they keep the row
-        // lit. Tool Activity moved under Policies > Tool Permissions;
-        // Instant Audit is a button on the Threats page.
-        { id: 'agent-runs', label: 'Observability', icon: 'history', aliases: ['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay', 'live-grid'],
-          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
-          views: [
-            { id: 'agent-runs', label: 'Runs', aliases: ['agent-activity', 'storylines', 'agent-timeline', 'replay'],
-              tooltip: 'Every run, grouped by session, with its decisions and cost' },
-            { id: 'live-grid', label: 'Live grid', liveWaiting: true,
-              tooltip: 'Running sessions and the approvals waiting on you' },
-            { id: 'run-health', label: 'Health', tooltip: 'Loops, failing calls and wasted spend across runs' },
-            { id: 'agent-map', label: 'Map', tooltip: 'Where agents connect and what they touch' },
-          ] },
+        // Observability has no left-nav sub-items. Its four views (Runs,
+        // Live grid, Health, Map) are the in-page tabs, which switch views.
+        // Every Observability page id is an alias so the row stays lit; the
+        // older trace pages are aliases too. Tool Activity moved under
+        // Policies > Tool Permissions; Instant Audit is a button on the
+        // Threats page. liveWaiting puts the waiting-approvals badge here.
+        { id: 'agent-runs', label: 'Observability', icon: 'history', liveWaiting: true,
+          aliases: ['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay', 'live-grid'],
+          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost' },
         { id: 'threats', label: 'Threats', icon: 'shield', aliases: ['threat-monitor', 'instant-audit'], count: 'threats',
           tooltip: 'Prompt injection, jailbreak and exfiltration attempts, plus what was blocked and which secrets were caught',
           views: [
@@ -446,6 +440,16 @@ const Sidebar = {
                 cnt.dataset.countFor = item.count;
                 cnt.hidden = true;
                 navItem.appendChild(cnt);
+            }
+            if (item.liveWaiting) {
+                // Approvals waiting on the person, amber, hidden at zero.
+                // Filled by loadJitPendingCount() from the same poll. The
+                // collapsed rail positions .nav-item > .nav-count itself.
+                const wait = document.createElement('span');
+                wait.className = 'nav-count nav-count-warn';
+                wait.dataset.liveWaiting = '1';
+                wait.hidden = true;
+                navItem.appendChild(wait);
             }
             if (item.id === 'agent-runs') {
                 const live = document.createElement('span');

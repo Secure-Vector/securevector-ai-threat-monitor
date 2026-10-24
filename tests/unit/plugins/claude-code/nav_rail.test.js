@@ -194,7 +194,7 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=201/);
+  assert.match(html, /sidebar\.js\?v=202/);
   assert.match(html, /styles\.css\?v=499/);
   assert.match(html, /app\.js\?v=77/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
@@ -614,7 +614,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=201/);
+  assert.match(read('index.html'), /sidebar\.js\?v=202/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
@@ -674,10 +674,20 @@ test('every page id dropped from the Visibility menu still resolves to a nav ite
     assert.match(app, new RegExp(`^\\s+'?${id}'?:\\s`, 'm'), `${id} is routed in app.js`);
   }
   const agentRuns = items.find(i => i.id === 'agent-runs');
-  // Observability sub-items, in order; Map always stays.
-  assert.deepStrictEqual(agentRuns.views.map(v => v.id), ['agent-runs', 'live-grid', 'run-health', 'agent-map']);
-  assert.deepStrictEqual(agentRuns.views.map(v => v.label), ['Runs', 'Live grid', 'Health', 'Map']);
-  assert.equal(agentRuns.views.find(v => v.id === 'live-grid').liveWaiting, true);
+  // Tabs only: Observability has no left-nav views, and its aliases light the row.
+  assert.equal(agentRuns.views, undefined);
+  for (const id of ['agent-runs', 'live-grid', 'run-health', 'agent-map', 'agent-timeline', 'replay', 'storylines', 'agent-activity']) {
+    assert.ok(reach(agentRuns).includes(id), `${id} lights Observability`);
+  }
+  // waiting-approvals badge sits on the Observability row and the Live grid tab
+  assert.equal(agentRuns.liveWaiting, true);
+  assert.match(src, /if \(item\.liveWaiting\) \{[\s\S]*?wait\.dataset\.liveWaiting = '1';[\s\S]*?navItem\.appendChild\(wait\);/);
+  const tabs = read('js/components/obs-tabs.js');
+  assert.match(tabs, /if \(t\.page === 'live-grid'\) \{[\s\S]*?wait\.dataset\.liveWaiting = '1';/);
+  for (const page of ['agent-runs', 'live-grid', 'run-health', 'agent-map']) {
+    assert.ok(tabs.includes(`page: '${page}'`), `${page} tab stays`);
+  }
+  assert.ok(tabs.includes("label: 'Map'"), 'Map tab stays');
   assert.match(app, /'live-grid':\s/);
   const threats = items.find(i => i.id === 'threats');
   assert.deepStrictEqual(threats.views.map(v => v.id), ['threats', 'blocked-ledger', 'redactions']);

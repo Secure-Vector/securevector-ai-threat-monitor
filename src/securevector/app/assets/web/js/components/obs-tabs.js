@@ -277,6 +277,14 @@ const ObsTabs = {
             b.title = `Open ${t.label}`;
             b.dataset.p = t.page;
             b.innerHTML = this._icon(t.icon) + `<span>${t.label}</span>`;
+            if (t.page === 'live-grid') {
+                // Same amber count as the rail row, filled by the sidebar poll.
+                const wait = document.createElement('span');
+                wait.className = 'nav-count nav-count-warn';
+                wait.dataset.liveWaiting = '1';
+                wait.hidden = true;
+                b.appendChild(wait);
+            }
             b.addEventListener('click', () => window.App && App.loadPage(t.page));
             if (t.page === activePage) activeBtn = b;
             wrap.appendChild(b);
@@ -302,6 +310,8 @@ const ObsTabs = {
             tabs[next].click();
         });
         container.appendChild(wrap);
+        // Fill the Live grid badge now instead of waiting for the next tick.
+        if (window.Sidebar && Sidebar.loadJitPendingCount) Sidebar.loadJitPendingCount();
         if (this._restoreTabFocus) {
             this._restoreTabFocus = false;
             if (activeBtn) activeBtn.focus();
