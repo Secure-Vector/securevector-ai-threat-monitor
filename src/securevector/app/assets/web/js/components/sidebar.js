@@ -168,7 +168,14 @@ const Sidebar = {
         // opens at 1200px, so a width-derived default started every fresh
         // profile collapsed, with six destinations behind a hover. The user's
         // own choice still wins once they have made one.
-        this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : false;
+        // Owner decision (6.1): every app load opens with the icon rail
+        // collapsed; a toggle still holds for the rest of the session.
+        if (!Sidebar._railDefaultApplied) {
+            Sidebar._railDefaultApplied = true;
+            this.collapsed = true;
+        } else {
+            this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : true;
+        }
         // Mobile uses an off-canvas drawer: once open, it always needs both
         // product and context columns regardless of the saved desktop state.
         if (window.innerWidth <= 768) this.collapsed = false;
@@ -187,7 +194,11 @@ const Sidebar = {
         // section the user just opened.
         if (!Sidebar._loadDefaultsApplied) {
             Sidebar._loadDefaultsApplied = true;
-            ['integrations', 'guide'].forEach(id => localStorage.removeItem(`nav-${id}-expanded`));
+            // Owner decision (6.1): every expandable menu starts closed.
+            try {
+                Object.keys(localStorage).filter(k => /^nav-.+-expanded$/.test(k))
+                    .forEach(k => localStorage.removeItem(k));
+            } catch (_) { /* storage unavailable: defaults below apply */ }
         }
 
         // A group switch re-renders the whole rail, so the node the user is
@@ -466,7 +477,7 @@ const Sidebar = {
             let startsExpanded = false;
             if (isCollapsibleRow) {
                 const stored = localStorage.getItem(`nav-${item.id}-expanded`);
-                startsExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
+                startsExpanded = stored !== null ? stored === 'true' : false;
                 rowChev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 rowChev.setAttribute('viewBox', '0 0 24 24');
                 rowChev.setAttribute('fill', 'none');
@@ -601,7 +612,7 @@ const Sidebar = {
                     subNav.dataset.subFor = item.id;
                     // Same resolution as the chevron above.
                     const stored = localStorage.getItem(`nav-${item.id}-expanded`);
-                    const isExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
+                    const isExpanded = stored !== null ? stored === 'true' : false;
                     subNav.style.display = isExpanded ? 'block' : 'none';
                 }
 
