@@ -30,6 +30,28 @@ MAX_JUSTIFICATION_CHARS = 500
 
 _DURATION_MINUTES = {"15m": 15, "1h": 60}
 
+# "Allow once": the grant lifts one exact call (its fingerprint) in the
+# requesting session, is spent on first use, and lapses if the call is not
+# retried within this window. Stored as duration 'session' (the column's
+# fixed vocabulary) with call_fingerprint set; reads report it as 'once'.
+ONCE = "once"
+ONCE_MINUTES = 15
+
+
+def _shape(row) -> Optional[dict]:
+    """A grant row as the API reports it: a call-bound grant reads 'once'."""
+    if not row:
+        return None
+    out = dict(row)
+    if out.get("call_fingerprint"):
+        out["duration"] = ONCE
+    # A spent call-bound grant reads "used", not "revoked".
+    if out.get("used_at"):
+        out["state"] = "used"
+    elif out.get("revoked_at"):
+        out["state"] = "revoked"
+    return out
+
 # A delegation request carries its whole prompt (capped at 4000 characters
 # by the delegate route) plus a summary line.
 MAX_DELEGATE_JUSTIFICATION_CHARS = 5000
@@ -59,6 +81,9 @@ class JitAccessRepository:
         session_id: Optional[str] = None,
         trace_id: Optional[str] = None,
         justification: Optional[str] = None,
+        call_fingerprint: Optional[str] = None,
+        call_preview: Optional[str] = None,
+        held_by: Optional[str] = None,
     ) -> Optional[dict]:
         """File a new pending request.
 
@@ -88,9 +113,10 @@ class JitAccessRepository:
         await self.db.execute(
             "INSERT INTO jit_access_requests "
             "(id, tool_id, function_name, runtime_kind, session_id, trace_id, "
-            " justification, rule_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " justification, rule_source, call_fingerprint, call_preview, held_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (rid, tool_id, function_name, runtime_kind, session_id, trace_id,
-             just, rule_source),
+             just, rule_source, call_fingerprint, call_preview, held_by),
         )
         return await self.get_request(rid)
 
@@ -146,9 +172,12 @@ class JitAccessRepository:
             "ORDER BY granted_at DESC, rowid DESC LIMIT 1",
             (request_id,),
         )
-        return dict(row) if row else None
+        return _shape(row)
 
-    async def approve_request(self, request_id: str, duration: str, with_change: bool = False):
+    async def approve_request(self, request_id: str, duration: str, with_change: bool = False,
+                              *, decided_by: str = "local-user",
+                              decision_source: Optional[str] = None,
+                              max_age_s: Optional[int] = None):
         """Approve a pending request and mint its grant. Returns the grant.
 
         Idempotent: approving an already-approved request returns the grant
@@ -159,7 +188,8 @@ class JitAccessRepository:
         if with_change:
             # (grant, True only when this call moved the request out of pending)
             self._approve_changed = False
-            grant = await self.approve_request(request_id, duration)
+            grant = await self.approve_request(request_id, duration, decided_by=decided_by,
+                                               decision_source=decision_source, max_age_s=max_age_s)
             return grant, self._approve_changed
         req = await self.get_request(request_id)
         if not req:
@@ -172,10 +202,18 @@ class JitAccessRepository:
             if req["status"] == "approved":
                 return await self._latest_grant(request_id)
             return None  # denied / expired — nothing to grant
-        if duration not in ("15m", "1h", "session"):
+        if duration not in ("15m", "1h", "session", ONCE):
             raise ValueError(f"invalid duration: {duration}")
+        # "Allow once" binds to one exact call, so it is only offered where
+        # the server held that call with its arguments and recorded their
+        # fingerprint. A request filed from a tool name alone cannot be
+        # bound to a call.
+        fingerprint = req.get("call_fingerprint") if duration == ONCE else None
+        if duration == ONCE and not fingerprint:
+            raise ValueError("allow once is not available for this request: "
+                             "the held call's arguments are not known")
         # A response rung's approval lasts the rest of that session only.
-        if req.get("rule_source") == "rung":
+        if req.get("rule_source") == "rung" and duration != ONCE:
             duration = "session"
             tid = str(req.get("tool_id") or "")
             if not tid or "*" in tid or tid.lower().startswith(EGRESS_TOOL_PREFIX):
@@ -183,7 +221,7 @@ class JitAccessRepository:
         # A session grant needs a session to scope to — without one it would
         # degrade into an unbounded runtime-wide allow, which is exactly the
         # "until I revoke" shape the review ruled out.
-        if duration == "session" and not req.get("session_id"):
+        if duration in ("session", ONCE) and not req.get("session_id"):
             raise ValueError("session-scoped grant requires a session_id on the request")
 
         # The `status = 'pending'` predicate makes this UPDATE the concurrency
@@ -195,12 +233,26 @@ class JitAccessRepository:
         # handing out two live grants for one approval. A losing caller
         # returns the grant the winner already minted, so the UI shows the
         # real grant instead of a spurious 404.
-        cur = await self.db.execute(
-            "UPDATE jit_access_requests SET status = 'approved', "
-            "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user' "
-            "WHERE id = ? AND status = 'pending'",
-            (request_id,),
-        )
+        if decision_source is None:
+            cur = await self.db.execute(
+                "UPDATE jit_access_requests SET status = 'approved', "
+                "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user' "
+                "WHERE id = ? AND status = 'pending'",
+                (request_id,),
+            )
+        else:
+            # A decision applied from SecureVector Cloud: the same gate, and
+            # who decided and where. decision_source exists from the cloud
+            # approvals storage step (migrations.ensure_cloud_approval_storage).
+            # `max_age_s` makes expiry part of the same gate: a request past
+            # its answer window cannot flip, whatever was read before.
+            cur = await self.db.execute(
+                "UPDATE jit_access_requests SET status = 'approved', "
+                "decided_at = CURRENT_TIMESTAMP, decided_by = ?, decision_source = ? "
+                "WHERE id = ? AND status = 'pending' "
+                "AND (? IS NULL OR requested_at > datetime('now', '-' || ? || ' seconds'))",
+                (decided_by, decision_source, request_id, max_age_s, max_age_s),
+            )
         if getattr(cur, "rowcount", 1) == 0:
             return await self._latest_grant(request_id)
         self._approve_changed = True
@@ -213,6 +265,15 @@ class JitAccessRepository:
                 (gid, request_id, req["tool_id"], req.get("runtime_kind"),
                  req.get("session_id"), duration),
             )
+        elif duration == ONCE:  # one call, this session, spent on first use
+            await self.db.execute(
+                "INSERT INTO jit_access_grants "
+                "(id, request_id, tool_id, runtime_kind, session_id, duration, expires_at, "
+                " call_fingerprint) "
+                f"VALUES (?, ?, ?, ?, ?, 'session', datetime('now', '+{ONCE_MINUTES} minutes'), ?)",
+                (gid, request_id, req["tool_id"], req.get("runtime_kind"),
+                 req.get("session_id"), fingerprint),
+            )
         else:  # session-scoped: bounded by the session, belt-and-braces 24h cap
             await self.db.execute(
                 "INSERT INTO jit_access_grants "
@@ -224,14 +285,26 @@ class JitAccessRepository:
         row = await self.db.fetch_one(
             "SELECT * FROM jit_access_grants WHERE id = ?", (gid,)
         )
-        return dict(row) if row else None
+        return _shape(row)
 
     async def deny_request(
-        self, request_id: str, reason: Optional[str] = None
+        self, request_id: str, reason: Optional[str] = None,
+        *, decided_by: str = "local-user", decision_source: Optional[str] = None,
+        max_age_s: Optional[int] = None,
     ) -> bool:
         req = await self.get_request(request_id)
         if not req or req["status"] != "pending":
             return False
+        if decision_source is not None:
+            cur = await self.db.execute(
+                "UPDATE jit_access_requests SET status = 'denied', "
+                "decided_at = CURRENT_TIMESTAMP, decided_by = ?, decision_source = ?, "
+                "deny_reason = ? WHERE id = ? AND status = 'pending' "
+                "AND (? IS NULL OR requested_at > datetime('now', '-' || ? || ' seconds'))",
+                (decided_by, decision_source, (reason or "").strip()[:200] or None, request_id,
+                 max_age_s, max_age_s),
+            )
+            return getattr(cur, "rowcount", 0) > 0
         cur = await self.db.execute(
             "UPDATE jit_access_requests SET status = 'denied', "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user', "
@@ -264,7 +337,7 @@ class JitAccessRepository:
             sql += " AND (runtime_kind IS NULL OR runtime_kind = ?)"
             params = (runtime_kind,)
         rows = await self.db.fetch_all(sql + " ORDER BY granted_at DESC", params)
-        return [dict(r) for r in rows] if rows else []
+        return [_shape(r) for r in rows] if rows else []
 
     async def list_grants(self, limit: int = 100) -> list[dict]:
         rows = await self.db.fetch_all(
@@ -274,12 +347,50 @@ class JitAccessRepository:
             "ORDER BY g.granted_at DESC LIMIT ?",
             (limit,),
         )
-        return [dict(r) for r in rows] if rows else []
+        return [_shape(r) for r in rows] if rows else []
 
     async def revoke_grant(self, grant_id: str) -> bool:
         cur = await self.db.execute(
             "UPDATE jit_access_grants SET revoked_at = CURRENT_TIMESTAMP "
             "WHERE id = ? AND revoked_at IS NULL",
+            (grant_id,),
+        )
+        return bool(cur and cur.rowcount)
+
+    async def once_grant(
+        self,
+        session_id: Optional[str],
+        runtime_kind: Optional[str],
+        tool_id: str,
+        call_fingerprint: Optional[str],
+    ) -> Optional[dict]:
+        """The unspent "Allow once" grant for exactly this call in this
+        session (same tool, same argument fingerprint, same runtime), with
+        the hold kinds that filed its request (`held_by`), or None. No
+        session or no fingerprint, no grant."""
+        if not session_id or not call_fingerprint or not tool_id:
+            return None
+        row = await self.db.fetch_one(
+            "SELECT g.id, g.request_id, r.held_by FROM jit_access_grants g "
+            "JOIN jit_access_requests r ON r.id = g.request_id "
+            "WHERE g.call_fingerprint = ? "
+            "AND g.session_id = ? AND lower(g.tool_id) = lower(?) "
+            "AND COALESCE(g.runtime_kind,'') = COALESCE(?,'') "
+            "AND g.revoked_at IS NULL "
+            "AND (g.expires_at IS NULL OR g.expires_at > datetime('now')) "
+            "ORDER BY g.granted_at, g.rowid LIMIT 1",
+            (call_fingerprint, session_id, tool_id, runtime_kind),
+        )
+        return dict(row) if row else None
+
+    async def spend_once_grant(self, grant_id: str) -> bool:
+        """Spend a call-bound grant. True only for the one caller whose
+        update moved it from unspent to revoked, so two racing retries of
+        the same call cannot both pass on one approval."""
+        cur = await self.db.execute(
+            "UPDATE jit_access_grants SET revoked_at = CURRENT_TIMESTAMP, used_at = CURRENT_TIMESTAMP "
+            "WHERE id = ? AND call_fingerprint IS NOT NULL AND revoked_at IS NULL "
+            "AND (expires_at IS NULL OR expires_at > datetime('now'))",
             (grant_id,),
         )
         return bool(cur and cur.rowcount)

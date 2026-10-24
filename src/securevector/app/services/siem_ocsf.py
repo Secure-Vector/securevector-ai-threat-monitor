@@ -665,6 +665,9 @@ def _fleet_task_event_row(p: dict[str, Any]) -> dict[str, Any]:
     from securevector.app.terminals.live_runs import ADR_FIELDS, adr_fields
 
     row.update(adr_fields({k: p.get(k) for k in ADR_FIELDS if k in p}, p.get("event")))
+    # The governed session's id (6.1), present only when the sink set it.
+    if p.get("session_id"):
+        row["session_id"] = p.get("session_id")
     return row
 
 
@@ -700,6 +703,21 @@ def _fleet_generation_row(p: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+# Governance rows (6.1 cloud sync): egress, approval_request and
+# harness_coverage. Already flat, closed and checked at enqueue; projected on
+# their own allow-list again so nothing else can ride along.
+_FLEET_GOVERNANCE_KINDS = ("egress", "approval_request", "harness_coverage")
+
+
+def _fleet_governance_row(kind: str, p: dict[str, Any]) -> dict[str, Any]:
+    from securevector.app.database.repositories.external_forwarders import _GOVERNANCE_ALLOWED
+
+    allowed = _GOVERNANCE_ALLOWED[kind]
+    row = {k: v for k, v in p.items() if k in allowed and v is not None}
+    row["row_type"] = kind
+    return row
+
+
 def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
     """Encode outbox rows as newline-delimited flat fleet metadata (NDJSON).
 
@@ -726,6 +744,8 @@ def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
             lines.append(json.dumps(_fleet_task_event_row(payload), separators=(",", ":")))
         elif kind == "generation":
             lines.append(json.dumps(_fleet_generation_row(payload), separators=(",", ":")))
+        elif kind in _FLEET_GOVERNANCE_KINDS:
+            lines.append(json.dumps(_fleet_governance_row(kind, payload), separators=(",", ":")))
     return ("\n".join(lines)).encode("utf-8")
 
 

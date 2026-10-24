@@ -194,9 +194,9 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=199/);
+  assert.match(html, /sidebar\.js\?v=200/);
   assert.match(html, /styles\.css\?v=499/);
-  assert.match(html, /app\.js\?v=75/);
+  assert.match(html, /app\.js\?v=77/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -263,7 +263,7 @@ test('picking a search result with the mouse actually navigates', () => {
   assert.match(p, /_syncSel\(\) \{/);
   assert.match(p, /row\.addEventListener\('mousedown'/);
   assert.match(p, /row\.addEventListener\('click', \(\) => this\._go\(item\)\);/);
-  assert.match(read('index.html'), /command-palette\.js\?v=20/);
+  assert.match(read('index.html'), /command-palette\.js\?v=21/);
 });
 
 test('the collapse button is reachable, not buried under the resize handle', () => {
@@ -614,7 +614,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=199/);
+  assert.match(read('index.html'), /sidebar\.js\?v=200/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
@@ -674,7 +674,11 @@ test('every page id dropped from the Visibility menu still resolves to a nav ite
     assert.match(app, new RegExp(`^\\s+'?${id}'?:\\s`, 'm'), `${id} is routed in app.js`);
   }
   const agentRuns = items.find(i => i.id === 'agent-runs');
-  assert.equal(agentRuns.views, undefined);
+  // Observability sub-items, in order; Map always stays.
+  assert.deepStrictEqual(agentRuns.views.map(v => v.id), ['agent-runs', 'live-grid', 'run-health', 'agent-map']);
+  assert.deepStrictEqual(agentRuns.views.map(v => v.label), ['Runs', 'Live grid', 'Health', 'Map']);
+  assert.equal(agentRuns.views.find(v => v.id === 'live-grid').liveWaiting, true);
+  assert.match(app, /'live-grid':\s/);
   const threats = items.find(i => i.id === 'threats');
   assert.deepStrictEqual(threats.views.map(v => v.id), ['threats', 'blocked-ledger', 'redactions']);
   // nothing becomes unreachable from the command palette

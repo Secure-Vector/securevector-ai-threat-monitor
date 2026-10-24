@@ -256,6 +256,9 @@ async def _collect_runs(window_days: int, limit: int) -> list:
     runs.sort(key=lambda x: _ts_key(x.get("ended_at")), reverse=True)
     runs = runs[:limit]
     await _add_egress_blocked(db, runs)
+    # allowed / waiting / oldest_waiting_expires_at next to `blocked`.
+    from securevector.app.services.observability import add_decision_counts
+    await add_decision_counts(db, runs)
     return runs
 
 

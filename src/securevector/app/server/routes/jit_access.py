@@ -97,7 +97,9 @@ class JitRequestCreate(BaseModel):
 
 
 class JitApprove(BaseModel):
-    duration: str = Field(..., pattern="^(15m|1h|session)$")
+    # 'once' lifts one exact held call in its session; only requests whose
+    # call the server held with its arguments can take it (else 422).
+    duration: str = Field(..., pattern="^(15m|1h|session|once)$")
 
 
 class JitDeny(BaseModel):
@@ -306,6 +308,11 @@ async def _decision_summary(request_id: str, verb: str) -> Optional[str]:
     tool = str(row.get("tool_id") or "a tool")[:80]
     if row.get("rule_source") == "delegate":
         return f"{verb} the delegated task from {who}"
+    # A request bound to one held call names that call, so "Allow once"
+    # is confirmed with the arguments in view.
+    preview = row.get("call_preview") if row.get("call_fingerprint") else None
+    if preview:
+        tool = f"{tool} with {str(preview)[:160]}"
     return f"{verb} {who} to run: {tool}" if verb == "Allow" else f"{verb} {who}: {tool}"
 
 
@@ -345,7 +352,7 @@ async def approve_request(
         if changed:
             await decisions.audit_request(db, "allow", pending)
             from securevector.app.services import call_rules
-            await call_rules.on_approved(db, pending)
+            await call_rules.on_approved(db, pending, duration=grant.get("duration"))
         logger.info(
             "JIT grant %s: %s for %s (%s)",
             grant["id"], grant["tool_id"], grant["duration"], request_id,
@@ -397,10 +404,26 @@ async def list_grants():
     try:
         db = get_database()
         repo = JitAccessRepository(db)
-        return {
-            "items": await repo.list_grants(),
-            "active": await repo.active_grants(),
-        }
+        items = await repo.list_grants()
+        active = await repo.active_grants()
+        # Who decided, for "approved from the cloud by <user>".
+        ids = {g.get("request_id") for g in items + active if g.get("request_id")}
+        if ids:
+            try:
+                marks = ",".join("?" for _ in ids)
+                rows = await db.fetch_all(
+                    f"SELECT id, decided_by, decision_source FROM jit_access_requests WHERE id IN ({marks})",
+                    tuple(ids),
+                ) or []
+                by_id = {dict(r)["id"]: dict(r) for r in rows}
+                for g in items + active:
+                    r = by_id.get(g.get("request_id"))
+                    if r and r.get("decision_source") == "cloud":
+                        g["decision_source"] = "cloud"
+                        g["decided_by"] = r.get("decided_by")
+            except Exception:  # noqa: BLE001 - column absent before the storage step
+                pass
+        return {"items": items, "active": active}
     except Exception as e:
         logger.error(f"Failed to list JIT grants: {e}")
         raise HTTPException(status_code=500, detail=str(e))

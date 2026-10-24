@@ -170,7 +170,9 @@ class ResponseRungsRepository:
         rows = await self.db.fetch_all(
             "SELECT g.tool_id FROM jit_access_grants g JOIN jit_access_requests r ON r.id = g.request_id "
             "WHERE r.rule_source = 'rung' AND g.session_id = ? AND g.revoked_at IS NULL "
-            "AND (g.expires_at IS NULL OR g.expires_at > datetime('now'))",
+            "AND (g.expires_at IS NULL OR g.expires_at > datetime('now')) "
+            # An "Allow once" grant lifts one exact call, never the tool name.
+            "AND g.call_fingerprint IS NULL",
             (session_id,),
         )
         return {str(r["tool_id"]).lower() for r in rows or []}

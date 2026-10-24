@@ -174,8 +174,32 @@ async def evaluate_egress(request: EvaluateRequest, http_request: Request = None
         # call and files one request; otherwise the event is recorded. An
         # MCP tool counts even when no remote endpoint is known here.
         from securevector.app.services import call_rules
+        # "Allow once": the exact call a human approved (same session, tool
+        # and argument fingerprint) passes the holds below one time, and the
+        # grant is spent here. Only a verified session binding can use it,
+        # and only while every hold that fires now is one the approved
+        # request was filed for; otherwise the call is held as normal and the
+        # grant stays unspent. A different call, or a second run of the same
+        # one, is held again.
+        once = False
+        rule_check = evaluation.network_capable or call_rules.network_capable(
+            request.tool_name, request.runtime_kind)
+        if rule_check and action == ALLOW and audit_session and verified:
+            try:
+                if await response_rungs.once_grant_for(
+                        db, audit_session, request.runtime_kind, request.tool_name, request.tool_input or {}):
+                    fired = await response_rungs.holds_now(
+                        db, request.tool_name, request.tool_input or {}, request.runtime_kind, audit_session,
+                        [v.attempt.host for v in evaluation.verdicts], verified=verified,
+                        rung_check=evaluation.network_capable, rule_check=True)
+                    once = await response_rungs.take_once(
+                        db, audit_session, request.runtime_kind, request.tool_name, request.tool_input or {},
+                        verified=verified, fired=fired)
+            except Exception as e:  # noqa: BLE001 - not used, the holds below decide
+                logger.warning("Allow once check skipped: %s", e)
+                once = False
         if (evaluation.network_capable or call_rules.network_capable(request.tool_name, request.runtime_kind)) \
-                and action == ALLOW and audit_session:
+                and action == ALLOW and audit_session and not once:
             try:
                 rule = await call_rules.check_network(
                     db, request.tool_name, request.runtime_kind, audit_session, request.tool_input or {},
@@ -186,7 +210,7 @@ async def evaluate_egress(request: EvaluateRequest, http_request: Request = None
             if rule:
                 action = BLOCK
                 reason = call_rules.HOLD_NETWORK[rule]
-        if evaluation.network_capable and action == ALLOW and audit_session:
+        if evaluation.network_capable and action == ALLOW and audit_session and not once:
             try:
                 kind = await response_rungs.check_call(
                     db, request.tool_name, request.tool_input or {}, request.runtime_kind,

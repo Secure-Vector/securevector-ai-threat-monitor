@@ -542,7 +542,7 @@ async def audit(db, decision: str, *, session_id: Optional[str], task_id: Option
 
     if task_id is None:
         task_id = await _task_id(db, session_id)
-    action = "allow" if decision in ("allow", "looks_normal", "release", "resume") else (
+    action = "allow" if decision in ("allow", "looks_normal", "release", "resume", "once_used") else (
         "block" if decision in ("deny", "timeout_deny") else "log_only")
     preview = (f"decision={decision} by={by} class={klass or 'none'} task={task_id or 'none'}"
                f" tool={tool_id or 'none'} request={request_id or 'none'}")

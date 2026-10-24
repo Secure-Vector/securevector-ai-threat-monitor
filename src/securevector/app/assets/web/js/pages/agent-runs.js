@@ -40,6 +40,14 @@ const AR_LOCK_SVG = (c = '#f59e0b', s = 12) => `<svg viewBox="0 0 24 24" width="
 // robot so "LLM" reads consistently across the app. Teal, not a security colour.
 const AR_ROBOT_SVG = (c = '#5eadb8', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="4" y="8" width="16" height="11" rx="2.5"/><path d="M12 8V4M9 4h6"/><circle cx="9" cy="13" r="1.3" fill="${c}" stroke="none"/><circle cx="15" cy="13" r="1.3" fill="${c}" stroke="none"/></svg>`;
 
+// Small stroke glyphs for the Runs list: allowed, waiting, blocked, and the
+// tick on a chosen menu option. SVG, not text symbols, like the rest.
+const RL_SVG = (d) => `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px"><path d="${d}"/></svg>`;
+const RL_ICON_OK = RL_SVG('M5 12l5 5 9-10');
+const RL_ICON_WAIT = RL_SVG('M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2');
+const RL_ICON_X = RL_SVG('M6 6l12 12M18 6L6 18');
+const RL_CALLS_HEAD = `Tool calls ${RL_ICON_OK} · ${RL_ICON_WAIT} · ${RL_ICON_X}`;
+
 const AgentRunsPage = {
     windowDays: 1,
     kinds: { builtin: true, external: true }, // checkbox filter for the waterfall steps
@@ -48,6 +56,7 @@ const AgentRunsPage = {
     runtimeFilter: null,   // active "only this runtime" filter (from a Map agent-node click)
     _pendingRuntime: null, // one-shot runtime filter handed off by the Map; consumed on render
     _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
+    _pendingReq: null,     // one-shot: select THIS waiting request's span once the trace loads (Live grid Review)
     _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
     _pendingGenRid: null,  // one-shot: after opening, jump to the generation with this request_id (Optimizer finding click-through)
     _timelineMem: null,    // { traceId, open }: the timeline state last set on this page, kept across rebuilds
@@ -62,9 +71,22 @@ const AgentRunsPage = {
     toolFilter: null,      // filter spans to one tool_id (from a Map tool-node click)
     _pendingTool: null,    // one-shot tool_id handed off by a Map tool-node click
     outcomeFilter: 'all',  // span verdict filter: all | allow | blocked | log_only | threat | secret
-    listView: 'all',       // list-level triage view: all | flagged | blocked | detected | secret
     collapseGens: true,    // fold consecutive LLM turns into a summary (persona #1 ask)
     runSearch: '',         // in-trace filter: match runs by tool / model / reason
+    // Runs list (6.0): range, list filters, grouping, sort and paging.
+    range: '24h',
+    filters: null,         // RunsList.emptyFilters() once the page renders
+    groupBySession: true,
+    sortKey: 'started',
+    sortDir: 'desc',
+    pageIdx: 0,
+    _collapsedSessions: {},
+    _expandedSessions: {},
+    _extraDims: null,      // + Filter dimensions the person added (model, host, user, health)
+    _liveData: null,       // GET observability/live: running sessions and their scores
+    _pending: null,        // GET /api/jit/requests?status=pending: waiting request ages
+    _coverage: null,       // runtime_kind -> coverage entry
+    _listUpdatedAt: 0,
     // Session replay (§3.1): step/play through the trace's event stream in
     // chronological order. `idx` = how many events are revealed (playhead at
     // idx-1); the unit is the event, so replay respects the 8 KB redacted
@@ -135,16 +157,25 @@ const AgentRunsPage = {
     },
 
     _liveStart() {
+        if (!this._agoTimer) {
+            // "updated Ns ago" on the list, once a second.
+            this._agoTimer = setInterval(() => {
+                const el = document.getElementById('rl-ago');
+                if (!el) { clearInterval(this._agoTimer); this._agoTimer = null; return; }
+                el.textContent = this._agoText();
+            }, 1000);
+        }
         if (this._live.timer) return;
         this._live.timer = setInterval(() => { this._liveTick(); }, this._POLL_MS);
     },
 
     _liveStop() {
+        if (this._agoTimer) { clearInterval(this._agoTimer); this._agoTimer = null; }
         if (this._live.timer) { clearInterval(this._live.timer); this._live.timer = null; }
         this._live.pendingDetail = false;
     },
 
-    async _liveTick() {
+    async _liveTick(force) {
         // Self-teardown: there is no page-destroy hook, so the poller checks
         // every tick that Traces is still mounted and stops itself otherwise.
         if (!document.getElementById('ar-runlist') || (window.App && App.currentPage !== 'agent-runs')) {
@@ -155,24 +186,42 @@ const AgentRunsPage = {
         // User-requested pause: hold the whole page still — no list rebuild,
         // no detail refresh — until they resume. Nothing is lost; resume pulls.
         if (this._live.paused) return;
-        const data = await API.getTraces({ window_days: this.windowDays });
+        // Only what the list shows: pending request ids, and each running
+        // session with its score (quiet seconds tick every poll).
+        const extrasKey = () => JSON.stringify([
+            // The minute, so "waiting 2m" and "quiet 6m" move on their own.
+            Math.floor(Date.now() / 60000),
+            ((this._pending && this._pending.items) || []).map(p => p.id),
+            ((this._liveData && this._liveData.sessions) || []).map(x => [x.session_id, x.score, Number(x.quiet_seconds) >= 300]),
+        ]);
+        const before = extrasKey();
+        const [data] = await Promise.all([API.getTraces({ window_days: this.windowDays }), this._loadListExtras(false)]);
         const list = document.getElementById('ar-runlist');
         if (!data || !data.runs || !list) return; // unmounted / failed mid-fetch
         if (this._live.paused) return; // paused while the fetch was in flight
-        // Re-render the card list when the data changed OR a badge expired
+        this._listUpdatedAt = Date.now();
+        // Re-render the list when the data changed OR a badge expired
         // (a trace goes quiet with no new rows — same data, different state).
         const liveKey = data.runs.filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
-        const changed = JSON.stringify(this.runs) !== JSON.stringify(data.runs) || liveKey !== (this._liveIds || '');
-        if (changed) {
+        const changed = force || JSON.stringify(this.runs) !== JSON.stringify(data.runs)
+            || liveKey !== (this._liveIds || '') || extrasKey() !== before;
+        // An open filter menu would close under the reader: wait for it.
+        const menuOpen = !!document.querySelector('#ar-listview .rl-dd.open');
+        if (changed && menuOpen) this._listStale = true;
+        if ((changed || this._listStale) && !menuOpen) {
+            this._listStale = false;
             this.runs = data.runs;
-            // The list scrolls with the page, so restore BOTH scroll owners —
-            // a live re-sort (a running agent bubbles up) must not move the view.
+            // Restore every scroll owner: a live re-sort (a running agent
+            // bubbles up) must not move the view.
             const keepScroll = list.scrollTop;
             const se = document.scrollingElement || document.documentElement;
             const keepPage = se.scrollTop;
+            const pc = list.closest ? list.closest('.page-content') : null;
+            const keepPc = pc ? pc.scrollTop : 0;
             this.renderRuns();
             list.scrollTop = keepScroll;
             se.scrollTop = keepPage;
+            if (pc) pc.scrollTop = keepPc;
         }
         // Tab-return digest: while hidden the ticks (and snapshot saves) stop,
         // so a long-hidden tab comes back to a stale snapshot — same "away"
@@ -205,6 +254,9 @@ const AgentRunsPage = {
      *  or focus (search box, a button) would be lost. */
     _detailBusy() {
         if (this._replay.on || this.runSearch) return true;
+        // A decision in flight in the trace view's span panel.
+        const rt = document.getElementById('ar-rt');
+        if (rt && rt._rt && window.RunTrace && RunTrace.state(rt._rt.trace.trace_id).busy) return true;
         // An open full timeline would be rebuilt (and lose its scroll), and a
         // click that just landed in the detail may be aimed at a node that a
         // rebuild would replace: offer the pull-pill instead.
@@ -391,51 +443,49 @@ const AgentRunsPage = {
             this._pendingOutcome = null;
         }
         if (window.Header) {
-            Header.setPageInfo('Observability', 'Each runtime session has one trace composed of model and tool spans. Inspect every operation with its verdict, tokens, and cost.');
+            Header.setPageInfo('Observability', 'Every agent run, grouped by session, with its decisions, tokens and cost. Open a run to see its spans.');
         }
         this._injectStyle();
 
+        if (!this.filters) this.filters = RunsList.emptyFilters();
+        // A Map agent-node drill arrives as a runtime filter: it becomes the
+        // Harness filter. A plain visit leaves the list filters as they were.
+        if (this.runtimeFilter) { this.filters.harness = [this.runtimeFilter]; this.pageIdx = 0; }
         const header = document.createElement('div');
         header.className = 'obs-header';
         ObsTabs.render(header, 'runs');
-        // "How to read traces" — sits right after the tabs, before the filter
-        // cluster (which is pushed right via margin-left:auto on .filters-bar).
-        const howto = ObsTabs.howToReadLink('How sessions and spans work', 'section-read-runs', 'gs-read-runs');
+        // "How to read traces" — sits right after the tabs.
+        const howto = ObsTabs.howToReadLink('How sessions, runs and spans work', 'section-read-runs', 'gs-read-runs');
         howto.style.alignSelf = 'center';
-        howto.title = 'How sessions and spans work';
+        howto.title = 'How sessions, runs and spans work';
         header.appendChild(howto);
         container.appendChild(header);
-        const command = document.createElement('div');
-        command.className = 'ar-command-strip';
-        command.innerHTML = '<div class="ar-triage" id="ar-triage" aria-label="Session quick views"></div>';
-        const toolbar = document.createElement('div');
-        toolbar.className = 'filters-bar';
-        toolbar.id = 'agent-runs-toolbar';
-        command.appendChild(toolbar);
-        container.appendChild(command);
-        this._buildToolbar(toolbar);
 
         const away = document.createElement('div');
         away.id = 'ar-away';
         container.appendChild(away);
 
-        // Two layouts, one DOM. Wide screens (>=1100px) get a SPLIT PANE:
-        // the agent list grouped by runtime stays on the left, the open
-        // trace fills a sticky pane on the right, and each scrolls on its
-        // own, so opening agent 1 never pushes agents 2 and 3 off screen.
-        // Narrow screens keep the inline accordion: the single #ar-detail
-        // node is moved under whichever row is open. Either way the detail
-        // node lives outside the list so renderRuns can rebuild the rows
-        // without destroying it.
+        // The list (heading, toolbar, filters, summary cards, the runs and
+        // the pager) and the open run's trace share one layout. Opening a
+        // run hides the list and shows the trace full width; closing the
+        // trace brings the list back where it was.
         const layout = document.createElement('div');
-        layout.className = 'ar-layout';
-        layout.innerHTML = '<div class="ar-listview" id="ar-listview"><div class="ar-rail-head" id="ar-rail-head"></div>' +
-            '<div class="ar-runlist" id="ar-runlist"></div></div>' +
-            '<div class="ar-pane" id="ar-pane"><div class="ar-pane-empty" id="ar-pane-empty">' +
-            '<div class="ar-pane-empty-t">Select a session</div>' +
-            '<div class="ar-pane-empty-s">The session trace opens here with model and tool spans in order.</div></div>' +
+        layout.className = 'ar-layout runs-v2';
+        layout.innerHTML = '<div class="ar-listview" id="ar-listview">' +
+            '<div class="rl-head"><h2 class="rl-title">Runs</h2><div class="rl-toolbar" id="agent-runs-toolbar"></div></div>' +
+            '<div class="rl-filters" id="rl-filters" role="toolbar" aria-label="Run filters"></div>' +
+            '<section class="rl-cards" id="rl-cards" aria-label="Summary for the runs in view"></section>' +
+            '<div class="rl-status" id="rl-status" aria-live="polite"></div>' +
+            '<div class="rl-tablewrap"><div class="ar-runlist rl-table" id="ar-runlist" aria-label="Runs"></div></div>' +
+            '<nav class="rl-pager" id="rl-pager" aria-label="Pages of runs"></nav></div>' +
+            // The trace header carries the back control (#ar-back, "← Observability").
+            '<div class="ar-pane" id="ar-pane">' +
+            '<div class="ar-pane-empty" id="ar-pane-empty">' +
+            '<div class="ar-pane-empty-t">Select a run</div>' +
+            '<div class="ar-pane-empty-s">The run trace opens here with model and tool spans in order.</div></div>' +
             '<div class="ar-detail" id="ar-detail" hidden></div></div>';
         container.appendChild(layout);
+        this._buildToolbar(layout.querySelector('#agent-runs-toolbar'));
         this._splitSetup(layout);
 
         await this.loadData();
@@ -1069,97 +1119,240 @@ const AgentRunsPage = {
                 background:var(--text-muted,#7d8590); opacity:.75; }
             .ar-gapbar.first { visibility:hidden; }
             @media (max-width:1100px) { .ar-gapbar { display:none; } }
+            /* ---- Runs list (6.0) ------------------------------------------ */
+            .ar-layout.runs-v2.split { display:block; }
+            .ar-layout.runs-v2.trace-open .ar-listview { display:none; }
+            .ar-layout.runs-v2:not(.trace-open) .ar-pane { display:none; }
+            .ar-layout.runs-v2 .ar-listview { position:static; height:auto; max-height:none; overflow:visible;
+                background:none; border:0; border-radius:0; padding:0; gap:12px; }
+            .ar-layout.runs-v2 .ar-pane-empty { display:none !important; }
+            .rl-back { align-self:flex-start; margin:0 0 8px; font:inherit; font-size:13px; padding:4px 10px; min-height:30px;
+                border:1px solid var(--border-default,#232a33); border-radius:6px; background:var(--bg-card,#12171e);
+                color:var(--text-secondary,#aeb7c2); cursor:pointer; }
+            .rl-back:hover { color:var(--text-primary,#eef2f7); border-color:var(--accent-primary,#5eadb8); }
+            .rl-head { display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap; }
+            .rl-title { margin:0; font-size:20px; font-weight:650; color:var(--text-primary,#eef2f7); }
+            .rl-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto; }
+            .rl-search { font:inherit; font-size:13px; min-height:34px; width:260px; max-width:100%; padding:6px 10px; box-sizing:border-box;
+                border:1px solid var(--border-default,#232a33); border-radius:6px; background:var(--bg-card,#12171e); color:var(--text-primary,#eef2f7); }
+            .rl-search:focus-visible, .rl-btn:focus-visible, .rl-link:focus-visible, .rl-row:focus-visible, .rl-sort:focus-visible,
+            .rl-copy:focus-visible, .rl-caret-btn:focus-visible, .rl-opt:focus-visible, .rl-back:focus-visible {
+                outline:2px solid var(--accent-primary,#5eadb8); outline-offset:1px; }
+            .rl-check { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary,#aeb7c2); cursor:pointer; white-space:nowrap; }
+            .rl-check input { accent-color:var(--accent-primary,#5eadb8); width:15px; height:15px; margin:0; }
+            .rl-toolbar .rl-range { height:34px; width:auto; font-size:13px; }
+            .rl-btn { font:inherit; font-size:13px; padding:6px 12px; min-height:34px; border-radius:6px; box-sizing:border-box;
+                border:1px solid var(--border-default,#232a33); background:var(--bg-card,#12171e); color:var(--text-secondary,#aeb7c2);
+                cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; }
+            .rl-btn:hover:not(:disabled) { color:var(--text-primary,#eef2f7); }
+            .rl-btn:disabled { opacity:.45; cursor:default; }
+            .rl-btn.on { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#eef2f7);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 16%, var(--bg-card,#12171e)); }
+            .rl-k { color:var(--text-muted,#7f8a97); }
+            .rl-btn.on .rl-k { color:var(--text-secondary,#aeb7c2); }
+            .rl-caret { font-size:10px; margin-left:2px; }
+            .rl-dd { position:relative; display:inline-flex; }
+            .rl-menu { position:absolute; left:0; top:calc(100% + 4px); z-index:40; min-width:210px; max-height:320px; overflow:auto;
+                padding:4px; border-radius:8px; background:var(--bg-elevated,#1a2029); border:1px solid var(--border-light,#303844);
+                box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.4)); display:flex; flex-direction:column; }
+            .rl-menu[hidden] { display:none; }
+            .rl-toolbar .rl-menu { left:auto; right:0; }
+            .rl-opt { display:flex; align-items:center; gap:8px; width:100%; text-align:left; font:inherit; font-size:13px; min-height:30px;
+                padding:4px 8px; border:0; border-radius:5px; background:none; color:var(--text-secondary,#aeb7c2); cursor:pointer; }
+            .rl-opt:hover { background:var(--bg-hover,#1b212b); color:var(--text-primary,#eef2f7); }
+            .rl-opt[aria-pressed="true"] { color:var(--text-primary,#eef2f7); }
+            .rl-tick { width:12px; color:var(--accent-primary,#5eadb8); }
+            .rl-opt-l { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .rl-opt-n { color:var(--text-muted,#7f8a97); font-size:12px; font-variant-numeric:tabular-nums; }
+            .rl-opt-empty { padding:8px; font-size:12.5px; color:var(--text-muted,#7f8a97); }
+            .rl-view-line { display:flex; align-items:center; }
+            .rl-view-del { font:inherit; border:0; background:none; color:var(--text-muted,#7f8a97); cursor:pointer; padding:2px 8px; }
+            .rl-view-del:hover { color:var(--text-primary,#eef2f7); }
+            .rl-view-form { display:flex; gap:6px; padding:6px 4px 2px; border-top:1px solid var(--border-default,#232a33); margin-top:4px; }
+            .rl-view-form input { flex:1 1 auto; min-width:0; font:inherit; font-size:13px; padding:4px 8px; border-radius:5px;
+                border:1px solid var(--border-default,#232a33); background:var(--bg-card,#12171e); color:var(--text-primary,#eef2f7); }
+            .rl-filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+            .rl-chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 8px; border-radius:14px;
+                border:1px solid var(--accent-primary,#5eadb8); color:var(--text-primary,#eef2f7);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 16%, var(--bg-card,#12171e)); }
+            .rl-chip button { font:inherit; background:none; border:0; color:var(--text-secondary,#aeb7c2); cursor:pointer; padding:0 2px; }
+            .rl-link { font:inherit; font-size:13px; background:none; border:0; padding:0; cursor:pointer; color:var(--accent-primary,#5eadb8); }
+            .rl-link:hover { text-decoration:underline; }
+            .rl-cards { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
+            @media (max-width:900px) { .rl-cards { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+            .rl-card { display:flex; flex-direction:column; gap:6px; padding:12px 14px; min-width:0;
+                border:1px solid var(--border-default,#232a33); border-radius:8px; background:var(--bg-card,#12171e); }
+            .rl-card-k { font-size:12px; color:var(--text-muted,#7f8a97); }
+            .rl-card-v { font-size:20px; font-weight:650; color:var(--text-primary,#eef2f7); }
+            .rl-card-sub { font-size:13px; font-weight:400; color:var(--text-muted,#7f8a97); }
+            .rl-card svg { width:100%; height:32px; display:block; }
+            .rl-amb-t { color:color-mix(in srgb, var(--warning,#f59e0b) 75%, var(--text-primary,#eef2f7)); }
+            .rl-red-t { color:color-mix(in srgb, var(--danger,#ef4444) 70%, var(--text-primary,#eef2f7)); }
+            .rl-status { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--text-muted,#7f8a97); }
+            .rl-status .rl-link { font-size:12px; }
+            .rl-dot { color:var(--text-muted,#7f8a97); }
+            .rl-dot.on { color:var(--accent-primary,#5eadb8); }
+            .rl-tablewrap { border:1px solid var(--border-default,#232a33); border-radius:8px; overflow-x:auto; background:var(--bg-card,#12171e); }
+            .ar-runlist.rl-table { display:block; gap:0; padding:0; min-width:940px; }
+            .rl-table { --rl-cols:62px minmax(0,1.4fr) minmax(0,1.5fr) 150px 74px 62px 62px; }
+            .rl-table.rl-flatlist { --rl-cols:56px minmax(0,1fr) minmax(0,1.1fr) minmax(0,.7fr) minmax(0,1.5fr) 150px 66px 56px 60px; min-width:1040px; }
+            .rl-hd, .rl-row { display:grid; grid-template-columns:var(--rl-cols); gap:12px; align-items:center; padding:9px 14px; }
+            .rl-hd { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted,#7f8a97);
+                border-bottom:1px solid var(--border-default,#232a33); }
+            .rl-hd .rl-c { white-space:nowrap; }
+            .rl-sort { font:inherit; letter-spacing:inherit; text-transform:inherit; background:none; border:0; padding:0; color:inherit; cursor:pointer; text-align:left; }
+            .rl-sort.rl-r { text-align:right; }
+            .rl-sort[aria-pressed="true"], .rl-sort:hover { color:var(--text-primary,#eef2f7); }
+            .rl-row { position:relative; width:100%; font:inherit; font-size:13px; text-align:left; color:var(--text-primary,#eef2f7);
+                background:none; border:0; border-bottom:1px solid var(--border-default,#232a33); cursor:pointer; }
+            .rl-row:hover { background:var(--bg-hover,#1b212b); }
+            .rl-row.sel { background:color-mix(in srgb, var(--accent-primary,#5eadb8) 10%, transparent); }
+            /* Session tree, drawn like the trace span tree: a guide from the
+               session caret (centre 26px) down through its runs, a connector
+               into each run, an elbow on the last one. */
+            .rl-guide { position:absolute; left:26px; top:0; bottom:0; border-left:1px solid var(--border-light,#303844); }
+            .rl-conn { position:absolute; left:26px; top:50%; width:22px; border-top:1px solid var(--border-light,#303844); }
+            .rl-last > .rl-guide { bottom:50%; }
+            .rl-row.rl-child { padding-left:58px; }
+            .rl-table:not(.rl-flatlist) .rl-hd { padding-left:58px; }
+            .rl-morerow { position:relative; display:flex; align-items:center; min-height:34px; padding:4px 14px 4px 54px; font-size:12.5px;
+                border-bottom:1px solid var(--border-default,#232a33); }
+            .rl-sh-guide { position:absolute; left:26px; top:calc(50% + 12px); bottom:-1px; border-left:1px solid var(--border-light,#303844); pointer-events:none; }
+            .rl-c { min-width:0; }
+            .rl-r { text-align:right; font-variant-numeric:tabular-nums; }
+            .rl-num { font-variant-numeric:tabular-nums; }
+            .rl-sub { color:var(--text-secondary,#aeb7c2); }
+            .rl-mute { color:var(--text-muted,#7f8a97); }
+            .rl-mono { font-family:ui-monospace,'SF Mono',Menlo,monospace; }
+            .rl-ell { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .rl-name { display:flex; align-items:center; gap:6px; overflow:hidden; }
+            .rl-name .ar-run-rt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:0 1 auto; min-width:52px; }
+            .rl-stcell { display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:12px; }
+            .rl-st { color:var(--text-muted,#7f8a97); font-size:13px; }
+            .rl-b { font-size:12px; padding:1px 7px; border-radius:4px; white-space:nowrap; }
+            .rl-amb { background:color-mix(in srgb, var(--warning,#f59e0b) 15%, transparent); border:1px solid color-mix(in srgb, var(--warning,#f59e0b) 45%, transparent);
+                color:color-mix(in srgb, var(--warning,#f59e0b) 75%, var(--text-primary,#eef2f7)); }
+            .rl-red { background:color-mix(in srgb, var(--danger,#ef4444) 14%, transparent); border:1px solid color-mix(in srgb, var(--danger,#ef4444) 45%, transparent);
+                color:color-mix(in srgb, var(--danger,#ef4444) 70%, var(--text-primary,#eef2f7)); }
+            .rl-sh { position:relative; display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; padding:9px 14px; font-size:13px;
+                background:var(--bg-secondary,#0e1218); border-bottom:1px solid var(--border-default,#232a33); color:var(--text-primary,#eef2f7); }
+            .rl-caret-btn { font:inherit; font-size:12px; line-height:1; flex:0 0 24px; width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center;
+                border:0; border-radius:4px; background:none; color:var(--text-secondary,#aeb7c2); cursor:pointer; padding:0; margin-right:-4px; }
+            .rl-caret-btn:hover { background:var(--bg-hover,#1b212b); color:var(--text-primary,#eef2f7); }
+            .rl-caret-btn svg { transition:transform .12s ease; }
+            .rl-caret-btn[aria-expanded="true"] svg { transform:rotate(90deg); }
+            .rl-copy { font:inherit; font-size:12px; min-height:24px; padding:1px 7px; border-radius:6px; cursor:pointer;
+                border:1px solid var(--border-default,#232a33); background:var(--bg-card,#12171e); color:var(--text-secondary,#aeb7c2); }
+            .rl-cov { font-size:11px; padding:1px 7px; border-radius:10px; white-space:nowrap;
+                border:1px solid var(--border-light,#303844); color:var(--text-secondary,#aeb7c2); }
+            .rl-sh-right { margin-left:auto; display:flex; gap:14px; }
+            .rl-pager { display:flex; align-items:center; gap:8px; justify-content:flex-start; font-size:12.5px; }
+            .rl-pager .rl-sub { margin-right:4px; }
+            .ar-layout.runs-v2 .ar-listview { padding-bottom:80px; }
+            .rl-page { min-width:34px; justify-content:center; }
+            .live-grid-placeholder { margin:0; }
         `;
         document.head.appendChild(st);
     },
 
     _buildToolbar(bar) {
         bar.textContent = '';
-        const grp = document.createElement('div');
-        grp.className = 'filter-group';
-        const lbl = document.createElement('label');
-        lbl.textContent = 'Window';
-        grp.appendChild(lbl);
-        const sel = document.createElement('select');
-        sel.className = 'filter-select';
-        [['1', '24h'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']].forEach(([v, t]) => {
-            const o = document.createElement('option');
-            o.value = v; o.textContent = t;
-            if (Number(v) === this.windowDays) o.selected = true;
-            sel.appendChild(o);
+        const RL = RunsList;
+        // Search: free text, session:, harness:, project:, decision:, or a
+        // span hash (Enter looks it up inside the runs in view).
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.id = 'rl-search';
+        search.className = 'rl-search';
+        search.placeholder = 'Search runs';
+        search.setAttribute('aria-label', 'Search runs. Use session:, harness:, project:, decision:, or paste a span hash');
+        search.title = 'Search runs. session:<id> harness:<name> project:<name> decision:waiting|blocked|allowed, or a span hash';
+        search.value = this.filters.search || '';
+        clearTimeout(this._searchTimer);
+        search.addEventListener('input', () => {
+            clearTimeout(this._searchTimer);
+            this._searchTimer = setTimeout(() => { this._searchTimer = null; this.filters.search = search.value; this.pageIdx = 0; this.renderRuns(); }, 180);
         });
-        sel.addEventListener('change', () => { this.windowDays = Number(sel.value); this.loadData(); });
-        grp.appendChild(sel);
+        search.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            clearTimeout(this._searchTimer);
+            this.filters.search = search.value;
+            this.pageIdx = 0;
+            this.renderRuns();
+            const q = RL.parseSearch(search.value);
+            if (q.text && RL.looksLikeHash(q.text) && !this._filteredRuns().length) this._findSpanHash(q.text);
+        });
+        bar.appendChild(search);
+
+        const grp = document.createElement('label');
+        grp.className = 'rl-check';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!this.groupBySession;
+        cb.addEventListener('change', () => { this.groupBySession = cb.checked; this.pageIdx = 0; this.renderRuns(); });
+        grp.appendChild(cb);
+        grp.appendChild(document.createTextNode(' Group by session'));
         bar.appendChild(grp);
 
-        // Harness filter — narrow the run list to one runtime (claude-code /
-        // codex / openclaw / …). Options are populated from the loaded runs in
-        // _populateHarnessFilter(); stays in sync with a Map drill-down's
-        // runtimeFilter.
-        const hgrp = document.createElement('div');
-        hgrp.className = 'filter-group';
-        const hlbl = document.createElement('label');
-        hlbl.textContent = 'Harness';
-        hgrp.appendChild(hlbl);
-        const hsel = document.createElement('select');
-        hsel.className = 'filter-select';
-        const allOpt = document.createElement('option');
-        allOpt.value = ''; allOpt.textContent = 'All harnesses';
-        hsel.appendChild(allOpt);
-        hsel.addEventListener('change', () => {
-            this.runtimeFilter = hsel.value || null;
-            // Changing harness returns to the list (the filter is a list-level
-            // concept); an open drill-down that no longer matches would lie.
-            this._showList();
-        });
-        hgrp.appendChild(hsel);
-        bar.appendChild(hgrp);
-        this._harnessSel = hsel;
-
-        // Keep both independent kind states in a compact four-state selector.
-        const kgrp = document.createElement('div');
-        kgrp.className = 'filter-group';
-        const klbl = document.createElement('label');
-        klbl.textContent = 'Tool';
-        kgrp.appendChild(klbl);
-        const ksel = document.createElement('select');
-        ksel.className = 'filter-select';
-        ksel.setAttribute('aria-label', 'Tool kind');
-        [['11', 'All tools'], ['10', 'Built-in'], ['01', 'External MCP'], ['00', 'No tools']].forEach(([value, label]) => {
-            const option = document.createElement('option');
-            option.value = value;
-            option.textContent = label;
-            ksel.appendChild(option);
-        });
-        ksel.value = `${this.kinds.builtin ? '1' : '0'}${this.kinds.external ? '1' : '0'}`;
-        ksel.addEventListener('change', () => {
-            this.kinds.builtin = ksel.value[0] === '1';
-            this.kinds.external = ksel.value[1] === '1';
-            if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
-        });
-        kgrp.appendChild(ksel);
-        bar.appendChild(kgrp);
-
-        // Verdict filter — show only allowed / blocked / log-only / threat /
-        // secret-touching spans. Matches the Map's Outcome filter so a tool-node
-        // drill that lands here can be narrowed the same way.
-        const ogrp = document.createElement('div');
-        ogrp.className = 'filter-group';
-        const olbl = document.createElement('label');
-        olbl.textContent = 'Outcome';
-        ogrp.appendChild(olbl);
-        const osel = document.createElement('select');
-        osel.className = 'filter-select';
-        [['all', 'All outcomes'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Logged only'], ['threat', 'Threats'], ['secret', 'Secret-touching']].forEach(([v, t]) => {
+        const sel = document.createElement('select');
+        sel.className = 'filter-select rl-range';
+        sel.setAttribute('aria-label', 'Time range');
+        Object.entries(RL.RANGES).forEach(([k, r]) => {
+            if (r.hidden && k !== this.range) return;
             const o = document.createElement('option');
-            o.value = v; o.textContent = t;
-            if (v === this.outcomeFilter) o.selected = true;
-            osel.appendChild(o);
+            o.value = k; o.textContent = r.label;
+            if (k === this.range) o.selected = true;
+            sel.appendChild(o);
         });
-        osel.addEventListener('change', () => { this.outcomeFilter = osel.value; if (this._inDetail() && this._trace) this.renderWaterfall(this._trace); });
-        ogrp.appendChild(osel);
-        bar.appendChild(ogrp);
-        this._outcomeSel = osel;
+        sel.addEventListener('change', () => {
+            this.range = sel.value;
+            this.pageIdx = 0;
+            const days = (RL.RANGES[this.range] || RL.RANGES['24h']).days;
+            if (days !== this.windowDays) { this.windowDays = days; this.loadData(); }
+            else this.renderRuns();
+        });
+        bar.appendChild(sel);
+        this._rangeSel = sel;
+
+        // Saved views: name plus the current filters, kept in this browser.
+        bar.appendChild(this._dropdown({
+            value: 'Views', title: 'Saved views in this browser',
+            build: (menu, close) => {
+                const views = RL.loadViews();
+                if (!views.length) {
+                    const e = document.createElement('div');
+                    e.className = 'rl-opt-empty';
+                    e.textContent = 'No saved views yet';
+                    menu.appendChild(e);
+                }
+                views.forEach(v => {
+                    const line = document.createElement('div');
+                    line.className = 'rl-view-line';
+                    const b = this._menuOption(line, v.name, null, false, () => { close(); this._applyView(v); });
+                    b.title = `Apply the view ${v.name}`;
+                    const del = document.createElement('button');
+                    del.type = 'button';
+                    del.className = 'rl-view-del';
+                    del.setAttribute('aria-label', `Delete the view ${v.name}`);
+                    del.textContent = '×';
+                    del.addEventListener('click', () => { RL.deleteView(v.name); line.remove(); });
+                    line.appendChild(del);
+                    menu.appendChild(line);
+                });
+                const form = document.createElement('form');
+                form.className = 'rl-view-form';
+                form.innerHTML = '<input type="text" maxlength="40" placeholder="View name" aria-label="Name for this view">' +
+                    '<button type="submit" class="rl-btn">Save current</button>';
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const name = form.querySelector('input').value;
+                    const ok = RL.saveView(name, this._viewState());
+                    if (window.Toast) (ok ? Toast.success || Toast.info : Toast.error).call(Toast, ok ? `Saved the view ${name.trim()}` : 'This browser did not let the view be saved');
+                    if (ok) close();
+                });
+                menu.appendChild(form);
+            },
+        }));
 
         const exp = ObsTabs.exportMenu([
             { label: 'Audit report (PDF)', onClick: () => this._exportAuditReport() },
@@ -1167,6 +1360,27 @@ const AgentRunsPage = {
             { label: 'This trace (PDF)', onClick: () => this._exportPDF() },
         ]);
         bar.appendChild(exp);
+    },
+
+    _viewState() {
+        return { filters: this.filters, range: this.range, groupBySession: this.groupBySession, sortKey: this.sortKey, sortDir: this.sortDir };
+    },
+
+    _applyView(v) {
+        const s = (v && v.filters) || {};
+        const base = RunsList.emptyFilters();
+        const f = Object.assign(base, s.filters || {});
+        Object.keys(base).forEach(k => { if (Array.isArray(base[k]) && !Array.isArray(f[k])) f[k] = []; });
+        this.filters = f;
+        this.groupBySession = s.groupBySession !== false;
+        if (s.sortKey) { this.sortKey = s.sortKey; this.sortDir = s.sortDir === 'asc' ? 'asc' : 'desc'; }
+        this.pageIdx = 0;
+        const range = RunsList.RANGES[s.range] ? s.range : this.range;
+        const days = RunsList.RANGES[range].days;
+        this.range = range;
+        const bar = document.getElementById('agent-runs-toolbar');
+        if (bar) this._buildToolbar(bar);
+        if (days !== this.windowDays) { this.windowDays = days; this.loadData(); } else this.renderRuns();
     },
 
     /** Page-level compliance report over EVERY session in the window (folded in
@@ -1347,13 +1561,30 @@ const AgentRunsPage = {
             ObsTabs.tableHTML(cols, rows));
     },
 
+    /** What the list needs beside the runs: pending approvals (for the age
+     *  of a wait), running sessions with their scores, and the coverage
+     *  table. Each is best effort; the list renders without them. */
+    async _loadListExtras(withCoverage) {
+        const jobs = [
+            API.getJitRequests('pending').then(r => { this._pending = r; }, () => {}),
+            API.getObservabilityLive({ limit: 500 }).then(r => { this._liveData = r; }, () => {}),
+        ];
+        if (withCoverage && !this._coverage) {
+            jobs.push(API.getObservabilityCoverage().then(r => { this._coverage = (r && r.runtimes) || null; }, () => {}));
+        }
+        await Promise.all(jobs);
+    },
+
     async loadData() {
         const list = document.getElementById('ar-runlist');
         if (list) list.innerHTML = '<div class="ar-empty">Loading sessions…</div>';
         const wantTrace = this._pendingTrace; this._pendingTrace = null;
-        const data = await API.getTraces({ window_days: this.windowDays });
+        const [data] = await Promise.all([
+            API.getTraces({ window_days: this.windowDays }),
+            this._loadListExtras(true),
+        ]);
         this.runs = (data && data.runs) || [];
-        this._populateHarnessFilter();
+        this._listUpdatedAt = Date.now();
         this._awayDigest(); // diff BEFORE the snapshot below overwrites it
         this._snapSave();
         this.renderRuns();
@@ -1377,8 +1608,9 @@ const AgentRunsPage = {
             // Audit or Map click should land on its trace, not on an error.
             if (this.windowDays < 90) {
                 this.windowDays = 90;
-                const winSel = document.querySelector('#agent-runs-toolbar select.filter-select');
-                if (winSel) winSel.value = '90';
+                this.range = '90d';
+                const bar = document.getElementById('agent-runs-toolbar');
+                if (bar) this._buildToolbar(bar);
                 this._pendingTrace = wantTrace;
                 if (window.Toast) Toast.info('Trace is older than the current window, widened to 90 days.');
                 return this.loadData();
@@ -1423,21 +1655,6 @@ const AgentRunsPage = {
             : `Trace ${String(r.trace_id || '?').slice(0, 8)}`;
     },
 
-    /** Fill the Harness dropdown with the distinct runtimes present in the
-     *  loaded runs, preserving the current selection (a Map drill-down may have
-     *  set runtimeFilter before the options existed). */
-    _populateHarnessFilter() {
-        const sel = this._harnessSel;
-        if (!sel) return;
-        const kinds = [...new Set((this.runs || []).map(r => r.runtime_kind).filter(Boolean))].sort();
-        sel.innerHTML = '';
-        const all = document.createElement('option');
-        all.value = ''; all.textContent = 'All harnesses';
-        sel.appendChild(all);
-        kinds.forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
-        sel.value = this.runtimeFilter || '';
-    },
-
     /** Runs after applying the active runtime filter (Map drill-down). */
     /** Runs after the harness filter but BEFORE the triage view — the set the
      *  triage chips count over, so counts don't change as views are clicked. */
@@ -1459,18 +1676,6 @@ const AgentRunsPage = {
         return true;
     },
 
-    _filteredRuns() {
-        const base = this._baseRuns();
-        const v = this.listView || 'all';
-        return v === 'all' ? base : base.filter(r => this._viewMatch(r, v));
-    },
-
-    clearRuntimeFilter() {
-        this.runtimeFilter = null;
-        if (this._harnessSel) this._harnessSel.value = '';
-        this.renderRuns();
-    },
-
     /** Collapse the inline drill-down and show the plain list. */
     /** Split pane on wide screens, accordion below 1100px. The media query
      *  flips the class live; the detail node is re-seated so a resize never
@@ -1478,7 +1683,9 @@ const AgentRunsPage = {
     _splitSetup(layout) {
         this._splitMq = (typeof window.matchMedia === 'function') ? window.matchMedia('(min-width: 1100px)') : null;
         const apply = () => {
-            layout.classList.toggle('split', !!(this._splitMq && this._splitMq.matches));
+            // The runs list is full width at every size and the trace opens
+            // in the pane in its place, so the pane layout is always on.
+            layout.classList.toggle('split', layout.classList.contains('runs-v2') || !!(this._splitMq && this._splitMq.matches));
             const det = document.getElementById('ar-detail');
             if (det && !det.hidden && this.selected) this._expandUnder(this.selected, false);
             else if (det) { const home = this._detailHome(); if (home && det.parentElement !== home) home.appendChild(det); }
@@ -1552,7 +1759,13 @@ const AgentRunsPage = {
         this._paneState();
         this.selected = null;
         this._live.paused = false; // leaving the trace releases the hold
+        const layout = document.querySelector('.ar-layout');
+        const reopening = !!(layout && layout.classList.contains('trace-open'));
+        if (layout) layout.classList.remove('trace-open');
         this.renderRuns();
+        // Back to the list where the reader left it.
+        const pc = layout && layout.closest('.page-content');
+        if (reopening && pc && typeof this._listScroll === 'number') pc.scrollTop = this._listScroll;
     },
 
     /** Move the single detail node directly beneath the clicked row and show
@@ -1561,7 +1774,14 @@ const AgentRunsPage = {
     _expandUnder(traceId, scroll = true) {
         const det = document.getElementById('ar-detail');
         if (!det) return;
-        const row = [...document.querySelectorAll('.ar-run')].find(c => c.dataset.trace === traceId);
+        const row = [...document.querySelectorAll('.rl-row')].find(c => c.dataset.trace === traceId);
+        const layout = document.querySelector('.ar-layout');
+        if (layout && !layout.classList.contains('trace-open')) {
+            const pc = layout.closest('.page-content');
+            this._listScroll = pc ? pc.scrollTop : 0;
+            layout.classList.add('trace-open');
+            if (pc && scroll) pc.scrollTop = 0;
+        }
         if (this._isSplit()) {
             // Split pane: the detail stays in the right pane; only the
             // selection highlight moves.
@@ -1571,12 +1791,12 @@ const AgentRunsPage = {
         } else if (row) row.after(det); else (document.getElementById('ar-runlist') || document.body).appendChild(det);
         det.hidden = false;
         this._paneState();
-        document.querySelectorAll('.ar-run.open').forEach(el => el.classList.remove('open'));
-        document.querySelectorAll('.ar-run.sel').forEach(el => el.classList.remove('sel'));
+        document.querySelectorAll('.rl-row.sel').forEach(el => { el.classList.remove('sel'); el.removeAttribute('aria-current'); });
         if (row) {
-            row.classList.add('open', 'sel');
-            if (scroll) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            row.classList.add('sel');
+            row.setAttribute('aria-current', 'true');
         }
+        this._fitPanes();
     },
 
     _inDetail() {
@@ -1584,249 +1804,647 @@ const AgentRunsPage = {
         return !!(det && !det.hidden);
     },
 
+    /** The runs in range after every list filter (search included). */
+    _filteredRuns() {
+        const RL = window.RunsList;
+        const ctx = this._ctx || (RL ? RL.buildCtx(this.runs) : null);
+        if (!RL) return this._baseRuns();
+        const now = ctx.now;
+        return (this.runs || []).filter(r => RL.inRange(r, this.range, now) && RL.matches(r, this.filters, ctx));
+    },
+
+    clearRuntimeFilter() {
+        this.runtimeFilter = null;
+        if (this.filters) this.filters.harness = [];
+        this.renderRuns();
+    },
+
+    _clearAllFilters() {
+        this.filters = RunsList.emptyFilters();
+        this.runtimeFilter = null;
+        this.toolFilter = null;
+        this.outcomeFilter = 'all';
+        this._extraDims = new Set();
+        this.pageIdx = 0;
+        const s = document.getElementById('rl-search');
+        if (s) s.value = '';
+        this.renderRuns();
+        if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
+    },
+
+    // ---- list chrome: dropdowns, filters, cards, table, pager -------------
+
+    /** One dropdown button with a menu. The menu is rebuilt on every open
+     *  so its counts are current. */
+    _dropdown(opts) {
+        const wrap = document.createElement('div');
+        wrap.className = 'rl-dd';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rl-btn' + (opts.active ? ' on' : '');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-haspopup', 'true');
+        btn.innerHTML = (opts.label ? `<span class="rl-k">${this._esc(opts.label)}:</span> ` : '') +
+            `<span class="rl-v">${this._esc(opts.value)}</span><span class="rl-caret" aria-hidden="true">▾</span>`;
+        if (opts.title) btn.title = opts.title;
+        const menu = document.createElement('div');
+        menu.className = 'rl-menu';
+        menu.hidden = true;
+        if (opts.label) menu.setAttribute('aria-label', opts.label);
+        const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); wrap.classList.remove('open'); };
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const opening = menu.hidden;
+            document.querySelectorAll('.rl-dd.open').forEach(d => { if (d !== wrap && d._rlClose) d._rlClose(); });
+            if (!opening) { close(); return; }
+            menu.textContent = '';
+            opts.build(menu, close);
+            menu.hidden = false;
+            wrap.classList.add('open');
+            btn.setAttribute('aria-expanded', 'true');
+        });
+        menu.addEventListener('click', (e) => e.stopPropagation());
+        menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); btn.focus(); } });
+        wrap._rlClose = close;
+        wrap.appendChild(btn);
+        wrap.appendChild(menu);
+        if (!this._rlDocWired) {
+            this._rlDocWired = true;
+            document.addEventListener('click', () => {
+                document.querySelectorAll('.rl-dd.open').forEach(d => { if (d._rlClose) d._rlClose(); });
+            });
+        }
+        return wrap;
+    },
+
+    /** A menu option: a real button with aria-pressed. */
+    _menuOption(menu, label, count, pressed, onPick) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rl-opt';
+        b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+        b.innerHTML = `<span class="rl-tick" aria-hidden="true">${pressed ? RL_ICON_OK : ''}</span><span class="rl-opt-l">${this._esc(label)}</span>` +
+            (count != null ? `<span class="rl-opt-n">${count}</span>` : '');
+        b.addEventListener('click', onPick);
+        menu.appendChild(b);
+        return b;
+    },
+
+    _toggleIn(list, value) {
+        const at = list.indexOf(value);
+        if (at >= 0) list.splice(at, 1); else list.push(value);
+    },
+
+    _distinct(runs, fn) {
+        const m = new Map();
+        runs.forEach(r => { [].concat(fn(r)).forEach(v => { if (v) m.set(v, (m.get(v) || 0) + 1); }); });
+        return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+    },
+
+    _renderFilterBar(inRange) {
+        const bar = document.getElementById('rl-filters');
+        if (!bar) return;
+        bar.textContent = '';
+        const RL = RunsList;
+        const f = this.filters;
+        const ctx = this._ctx;
+        const refresh = () => { this.pageIdx = 0; this.runtimeFilter = (f.harness.length === 1 ? f.harness[0] : null); this.renderRuns(); };
+
+        // Status: one choice.
+        const stLabel = f.status ? (RL.STATUS.find(s => s[0] === f.status) || [0, f.status])[1] : 'All';
+        const nReview = inRange.filter(r => RL.needsReview(r, ctx)).length;
+        bar.appendChild(this._dropdown({
+            label: 'Status', value: f.status === 'review' ? `Needs review (${nReview})` : stLabel, active: !!f.status,
+            build: (menu, close) => {
+                this._menuOption(menu, 'All', inRange.length, !f.status, () => { f.status = ''; close(); refresh(); });
+                RL.STATUS.forEach(([k, l]) => {
+                    const n = k === 'review' ? nReview : inRange.filter(r => RL.status(r, ctx) === k).length;
+                    this._menuOption(menu, l, n, f.status === k, () => { f.status = (f.status === k ? '' : k); close(); refresh(); });
+                });
+            },
+        }));
+
+        // Decision: several choices.
+        const decText = f.decision.length
+            ? f.decision.map(d => ({ waiting: 'Waiting', blocked: 'blocked', allowed: 'allowed only' }[d])).join(', ').replace(/^./, c => c.toUpperCase())
+            : 'All';
+        bar.appendChild(this._dropdown({
+            label: 'Decision', value: decText, active: f.decision.length > 0,
+            build: (menu) => {
+                RL.DECISION.forEach(([k, l]) => {
+                    const n = inRange.filter(r => RL._decisionMatch(r, k)).length;
+                    this._menuOption(menu, l, n, f.decision.includes(k), () => { this._toggleIn(f.decision, k); refresh(); });
+                });
+            },
+        }));
+
+        const multi = (key, label, values, noneLabel) => {
+            const sel = f[key];
+            const value = sel.length ? (sel.length === 1 ? sel[0] : `${sel.length} selected`) : `All ${values.length}`;
+            bar.appendChild(this._dropdown({
+                label, value, active: sel.length > 0,
+                build: (menu) => {
+                    if (!values.length) {
+                        const e = document.createElement('div');
+                        e.className = 'rl-opt-empty';
+                        e.textContent = noneLabel;
+                        menu.appendChild(e);
+                    }
+                    values.forEach(([v, n]) => this._menuOption(menu, v, n, sel.includes(v), () => { this._toggleIn(sel, v); refresh(); }));
+                },
+            }));
+        };
+        multi('harness', 'Harness', this._distinct(inRange, r => r.runtime_kind || 'unknown'), 'No harnesses in this range');
+        multi('project', 'Project', this._distinct(inRange, r => RL.project(r) || 'none'), 'No projects in this range');
+
+        const extra = {
+            model: ['Model', () => this._distinct(inRange, r => r.models || []), 'No models recorded'],
+            host: ['Host', () => this._distinct(inRange, r => RL.host(r) || 'this device'), 'No hosts recorded'],
+            user: ['User', () => this._distinct(inRange, r => RL.user(r) || 'unknown'), 'No users recorded'],
+        };
+        if (!this._extraDims) this._extraDims = new Set();
+        Object.keys(extra).forEach(k => { if (f[k].length) this._extraDims.add(k); });
+        if (f.health.length) this._extraDims.add('health');
+        Object.entries(extra).forEach(([k, [label, values, none]]) => { if (this._extraDims.has(k)) multi(k, label, values(), none); });
+        if (this._extraDims.has('health')) {
+            const sel = f.health;
+            bar.appendChild(this._dropdown({
+                label: 'Health', value: sel.length ? sel.join(', ') : 'All', active: sel.length > 0,
+                build: (menu) => {
+                    [['loop', 'Loop'], ['failing', 'Failing'], ['wasteful', 'Wasteful']].forEach(([key, label]) => {
+                        const n = inRange.filter(r => this._viewMatch(r, key)).length;
+                        const b = this._menuOption(menu, label, n, sel.includes(key), () => { this._toggleIn(sel, key); refresh(); });
+                        if (window.TraceSteps) b.querySelector('.rl-opt-l').insertAdjacentHTML('afterbegin', `${TraceSteps.healthIcon(key)} `);
+                    });
+                },
+            }));
+        }
+        const left = ['model', 'host', 'user', 'health'].filter(k => !this._extraDims.has(k));
+        if (left.length) {
+            bar.appendChild(this._dropdown({
+                value: '+ Filter',
+                build: (menu, close) => {
+                    left.forEach(k => this._menuOption(menu, { model: 'Model', host: 'Host', user: 'User', health: 'Health' }[k], null, false, () => {
+                        this._extraDims.add(k); close(); this.renderRuns();
+                    }));
+                },
+            }));
+        }
+
+        // Span-level filters handed off by the Map or Blocked Actions: they
+        // narrow the open trace, so they show here and clear here.
+        const chip = (text, onClear) => {
+            const c = document.createElement('span');
+            c.className = 'rl-chip';
+            c.innerHTML = `${text}<button type="button" aria-label="Clear this filter">×</button>`;
+            c.querySelector('button').addEventListener('click', onClear);
+            bar.appendChild(c);
+        };
+        if (this.toolFilter) chip(`Tool <b>${this._esc(String(this.toolFilter).split(':').pop())}</b>`, () => {
+            this.toolFilter = null; this.renderRuns(); if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
+        });
+        if (this.outcomeFilter && this.outcomeFilter !== 'all') chip(`Spans <b>${this._esc(this.outcomeFilter.replace('_', ' '))}</b>`, () => {
+            this.outcomeFilter = 'all'; this.renderRuns(); if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
+        });
+
+        if (RL.activeCount(f) || this.toolFilter || (this.outcomeFilter && this.outcomeFilter !== 'all')) {
+            const clr = document.createElement('button');
+            clr.type = 'button';
+            clr.className = 'rl-link';
+            clr.textContent = 'Clear filters';
+            clr.addEventListener('click', () => this._clearAllFilters());
+            bar.appendChild(clr);
+        }
+    },
+
+    _spark(values, kind, color, label) {
+        const W = 240, H = 32;
+        const max = Math.max(...values, 0);
+        let body = '';
+        if (kind === 'bars') {
+            const w = W / values.length;
+            values.forEach((v, i) => {
+                if (!v || !max) return;
+                const h = Math.max(2, Math.round((v / max) * (H - 2)));
+                body += `<rect x="${(i * w).toFixed(1)}" y="${H - h}" width="${Math.max(1, w - 1).toFixed(1)}" height="${h}"/>`;
+            });
+            body = `<g fill="${color}">${body}</g>`;
+        } else {
+            const pts = values.map((v, i) => `${(values.length > 1 ? (i / (values.length - 1)) * W : 0).toFixed(1)},${(H - 2 - (max ? (v / max) * (H - 6) : 0)).toFixed(1)}`).join(' ');
+            body = `<polyline fill="none" stroke="${color}" stroke-width="2" points="${pts}"/>`;
+        }
+        return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${this._esc(label)}">${body}` +
+            `<line x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}" stroke="var(--border-default,#232a33)"/></svg>`;
+    },
+
+    _renderCards(shown) {
+        const box = document.getElementById('rl-cards');
+        if (!box) return;
+        const RL = RunsList;
+        const now = this._ctx.now;
+        const per = this.range === '1h' ? 'by 5 minutes' : 'by hour';
+        const sum = (k) => shown.reduce((a, r) => a + Number(r[k] || 0), 0);
+        const waiting = sum('waiting'), blocked = sum('blocked'), cost = sum('cost'), tokens = sum('tokens');
+        const p95 = RL.p95(RL.finishedDurations(shown, this._ctx));
+        const b = (fn, agg) => RL.buckets(shown, this.range, now, fn, agg);
+        const muted = 'var(--text-secondary,#aeb7c2)';
+        const cards = [
+            ['Runs', `${shown.length.toLocaleString()}`, '', this._spark(b(() => 1, 'count'), 'line', muted, `Runs ${per}`)],
+            ['Waiting for approval', String(waiting), waiting ? 'rl-amb-t' : '', this._spark(b(r => Number(r.waiting || 0), 'sum'), 'bars', 'var(--warning,#f59e0b)', `Waiting for approval ${per}`)],
+            ['Blocked calls', String(blocked), blocked ? 'rl-red-t' : '', this._spark(b(r => Number(r.blocked || 0), 'sum'), 'bars', 'var(--danger,#ef4444)', `Blocked calls ${per}`)],
+            ['Cost · tokens', `${cost > 0 ? '$' + cost.toFixed(2) : '$0'} <span class="rl-card-sub">${this._fmtTokens(tokens)}</span>`, '', this._spark(b(r => Number(r.cost || 0), 'sum'), 'line', muted, `Cost ${per}`)],
+            ['Run duration, p95', p95 ? this._fmtDur(p95) : '—', '', this._spark(b(r => (RL.status(r, this._ctx) === 'running' ? null : RL.duration(r)), 'p95'), 'line', muted, `p95 run duration ${per}`)],
+        ];
+        box.innerHTML = cards.map(([k, v, cls, svg]) =>
+            `<div class="rl-card"><span class="rl-card-k">${k}</span><span class="rl-card-v ${cls}">${v}</span>${svg}</div>`).join('');
+    },
+
+    _fmtTokens(n) {
+        n = Number(n || 0);
+        if (!n) return '—';
+        if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+        if (n >= 1e3) return Math.round(n / 1e3) + 'k';
+        return String(n);
+    },
+
+    _fmtDur(ms) {
+        if (ms == null) return '—';
+        if (ms < 1000) return '<1s';
+        const s = Math.round(ms / 1000);
+        if (s < 60) return `${s}s`;
+        const m = Math.floor(s / 60), r = s % 60;
+        if (m < 10) return r ? `${m}m ${String(r).padStart(2, '0')}s` : `${m}m`;
+        if (m < 60) return `${m}m`;
+        const h = Math.floor(m / 60);
+        return `${h}h ${m % 60}m`;
+    },
+
+    _clock(ms) {
+        if (!ms) return '—';
+        const d = new Date(ms);
+        const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        const today = new Date(this._ctx ? this._ctx.now : Date.now());
+        return d.toDateString() === today.toDateString() ? hm : `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${hm}`;
+    },
+
+    _ago(ms) {
+        const s = Math.max(0, Math.round(((this._ctx ? this._ctx.now : Date.now()) - ms) / 1000));
+        if (s < 60) return `${s}s`;
+        const m = Math.round(s / 60);
+        return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+    },
+
+    /** Status word plus decision badges. Never a control: approving happens
+     *  only in the trace span panel. */
+    _statusCell(r) {
+        const RL = RunsList;
+        const ctx = this._ctx;
+        const st = RL.status(r, ctx);
+        const c = RL.calls(r);
+        const quiet = st === 'running' && r.session_id && ctx.live[r.session_id] && Number(ctx.live[r.session_id].quiet_seconds) >= 300
+            ? `, quiet ${Math.round(ctx.live[r.session_id].quiet_seconds / 60)}m` : '';
+        let html = `<span class="rl-st">${st}${quiet}</span>`;
+        if (c.waiting) {
+            const since = ctx.waitingSince[r.trace_id];
+            const exp = RL.ms(r.oldest_waiting_expires_at);
+            const parts = ['waiting for approval'];
+            if (since) parts.push(this._ago(since));
+            if (exp) parts.push('expires ' + this._clock(exp).split(' ').pop());
+            html += `<span class="rl-b rl-amb" title="${c.waiting} call${c.waiting === 1 ? '' : 's'} waiting for approval. Open the run to decide.">${this._esc(parts.join(' · '))}</span>`;
+        }
+        if (c.blocked) html += `<span class="rl-b rl-red">${c.blocked} blocked</span>`;
+        if (Number(r.repeat_attempts || r.repeats || 0) > 0) html += '<span class="rl-b rl-red">repeat attempt</span>';
+        const sc = RL.score(r, ctx);
+        if (sc != null && sc >= 70) html += `<span class="rl-b rl-amb" title="Session score from its usual behaviour">score ${sc}</span>`;
+        return html;
+    },
+
+    _callsCell(r) {
+        const c = RunsList.calls(r);
+        return `<span class="rl-num" title="allowed · waiting for approval · blocked">${c.allowed} · ` +
+            `<span class="${c.waiting ? 'rl-amb-t' : 'rl-mute'}">${c.waiting}</span> · ` +
+            `<span class="${c.blocked ? 'rl-red-t' : 'rl-mute'}">${c.blocked}</span></span>`;
+    },
+
+    _sessionText(r) {
+        const RL = RunsList;
+        return [r.runtime_kind || 'unknown', RL.project(r), String(r.session_id || r.trace_id || '').slice(0, 8)].filter(Boolean).join(' · ');
+    },
+
+    _hostText(r) {
+        const RL = RunsList;
+        return [RL.host(r) || 'this device', RL.user(r)].filter(Boolean).join(' · ');
+    },
+
+    _runRow(r, flat, guide, last) {
+        const RL = RunsList;
+        const ctx = this._ctx;
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'rl-row' + (flat ? ' rl-flat' : '') + (guide ? ' rl-child' : '') + (guide && last ? ' rl-last' : '') + (r.trace_id === this.selected ? ' sel' : '');
+        row.dataset.trace = r.trace_id;
+        if (r.trace_id === this.selected) row.setAttribute('aria-current', 'true');
+        const name = RL.name(r, ctx);
+        row.setAttribute('aria-label', `${name}, ${this._sessionText(r)}. Open its trace.`);
+        const started = RL.ms(r.started_at) || RL.ms(r.ended_at);
+        const health = window.TraceSteps && TraceSteps.badgesHtml(r.health);
+        const cells = [
+            `<span class="rl-c rl-mono rl-sub">${this._esc(this._clock(started))}</span>`,
+            `<span class="rl-c rl-name"><span class="ar-run-rt">${this._esc(name)}</span>` +
+                (health ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') + '</span>',
+        ];
+        if (flat) {
+            cells.push(`<span class="rl-c rl-ell rl-sub">${this._esc(this._sessionText(r))}</span>`);
+            cells.push(`<span class="rl-c rl-ell rl-sub">${this._esc(this._hostText(r))}</span>`);
+        }
+        cells.push(`<span class="rl-c rl-stcell">${this._statusCell(r)}</span>`);
+        cells.push(`<span class="rl-c rl-r">${this._callsCell(r)}</span>`);
+        cells.push(`<span class="rl-c rl-r rl-sub">${this._esc(this._fmtDur(RL.shownDuration(r, ctx)))}</span>`);
+        cells.push(`<span class="rl-c rl-r">${this._esc(this._fmtTokens(r.tokens))}</span>`);
+        cells.push(`<span class="rl-c rl-r" title="${this._esc(this._costTitle(r))}">${Number(r.cost) > 0 ? '$' + Number(r.cost).toFixed(2) : '—'}</span>`);
+        row.innerHTML = (guide ? '<span class="rl-guide" aria-hidden="true"></span><span class="rl-conn" aria-hidden="true"></span>' : '') + cells.join('');
+        row.addEventListener('click', () => this.selectRun(r.trace_id));
+        return row;
+    },
+
+    _copyBtn(text, label) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rl-copy';
+        b.setAttribute('aria-label', label);
+        b.title = `${label}: ${text}`;
+        b.innerHTML = `<span class="rl-mono">${this._esc(String(text).slice(0, 8))}</span> <span aria-hidden="true">⧉</span>`;
+        b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const face = b.innerHTML;
+            const done = () => { b.textContent = 'copied'; setTimeout(() => { b.innerHTML = face; }, 1200); };
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(String(text)).then(done, () => {});
+            } catch (_) { /* clipboard blocked: the id stays in the tooltip */ }
+        });
+        return b;
+    },
+
+    _sessionHead(g, hiddenCount) {
+        const sessRuns = g.runs;
+        const RL = RunsList;
+        const ctx = this._ctx;
+        const all = (this.runs || []).filter(r => (r.session_id || ('trace:' + r.trace_id)) === g.key);
+        const first = g.runs[0];
+        const running = all.some(r => RL.isRunning(r, ctx));
+        const started = Math.min(...all.map(r => RL.ms(r.started_at) || RL.ms(r.ended_at)).filter(Boolean));
+        const cost = sessRuns.reduce((a, r) => a + Number(r.cost || 0), 0);
+        const cov = RL.coverageFor(first.runtime_kind, ctx);
+        const closed = !!this._collapsedSessions[g.key] && !g.runs.some(r => r.trace_id === this.selected);
+        const head = document.createElement('div');
+        head.className = 'rl-sh' + (closed ? ' closed' : '');
+        head.setAttribute('role', 'group');
+        head.setAttribute('aria-label', `Session ${first.session_id || first.trace_id}`);
+        const caret = document.createElement('button');
+        caret.type = 'button';
+        caret.className = 'rl-caret-btn';
+        caret.setAttribute('aria-expanded', closed ? 'false' : 'true');
+        caret.setAttribute('aria-label', closed ? 'Expand session' : 'Collapse session');
+        caret.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        head.appendChild(caret);
+        // The tree guide starts under the caret and runs down through the
+        // session's runs, as in the trace span tree.
+        if (!closed) head.insertAdjacentHTML('beforeend', '<span class="rl-sh-guide" aria-hidden="true"></span>');
+        head.insertAdjacentHTML('beforeend',
+            `<span class="rl-dot${running ? ' on' : ''}" role="img" aria-label="${running ? 'running' : 'ended'}">${running ? '●' : '○'}</span>` +
+            `<b>${this._esc(first.runtime_kind || 'unknown')}</b>` +
+            (RL.project(first) ? `<span class="rl-mono">${this._esc(RL.project(first))}</span>` : ''));
+        if (first.session_id) head.appendChild(this._copyBtn(first.session_id, 'Copy session id'));
+        head.insertAdjacentHTML('beforeend',
+            `<span class="rl-sub">${this._esc(this._hostText(first))}</span>` +
+            (started && isFinite(started) ? `<span class="rl-sub">session started ${this._esc(this._clock(started))}</span>` : '') +
+            `<span class="rl-sub">${sessRuns.length} run${sessRuns.length === 1 ? '' : 's'} · ${cost > 0 ? '$' + cost.toFixed(2) : '—'}</span>`);
+        if (cov || ctx.coverage) {
+            const badge = document.createElement('span');
+            badge.className = 'rl-cov';
+            badge.textContent = RL.coverageLabel(cov);
+            const paths = (cov && cov.unchecked) || [];
+            badge.title = 'What SecureVector can check for this session' + (paths.length ? `. Not checked: ${paths.join(', ')}` : '');
+            head.appendChild(badge);
+        }
+        const right = document.createElement('span');
+        right.className = 'rl-sh-right';
+        // A session is never split across pages, so the header total and
+        // the "earlier runs" row agree: the session's matching runs minus
+        // the rows shown. That row sits on the tree guide under the runs.
+        const hidden = hiddenCount;
+        let moreRow = null;
+        if (hidden > 0 || this._expandedSessions[g.key]) {
+            moreRow = document.createElement('div');
+            moreRow.className = 'rl-morerow rl-last';
+            moreRow.innerHTML = '<span class="rl-guide" aria-hidden="true"></span><span class="rl-conn" aria-hidden="true"></span>';
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'rl-link';
+            more.textContent = this._expandedSessions[g.key] ? 'Show fewer runs' : `${hidden} earlier run${hidden === 1 ? '' : 's'}`;
+            more.addEventListener('click', () => { this._expandedSessions[g.key] = !this._expandedSessions[g.key]; this.renderRuns(); });
+            moreRow.appendChild(more);
+        }
+        if (first.session_id) {
+            const only = document.createElement('button');
+            only.type = 'button';
+            only.className = 'rl-link';
+            only.textContent = 'Only this session';
+            only.addEventListener('click', () => {
+                this.filters.search = `session:${first.session_id}`;
+                const s = document.getElementById('rl-search');
+                if (s) s.value = this.filters.search;
+                this.pageIdx = 0;
+                this.renderRuns();
+            });
+            right.appendChild(only);
+        }
+        head.appendChild(right);
+        caret.addEventListener('click', () => {
+            const closing = !this._collapsedSessions[g.key];
+            this._collapsedSessions[g.key] = closing;
+            // Collapsing the session that holds the open trace closes the
+            // trace too, so the collapse sticks on the next live tick.
+            if (closing && g.runs.some(r => r.trace_id === this.selected)) this._showList();
+            else this.renderRuns();
+        });
+        return { head, closed, moreRow };
+    },
+
+    _sortHeader(cols) {
+        const hd = document.createElement('div');
+        hd.className = 'rl-hd';
+        cols.forEach(([key, label, right, spoken]) => {
+            if (!key) { hd.insertAdjacentHTML('beforeend', `<span class="rl-c${right ? ' rl-r' : ''}">${label}</span>`); return; }
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'rl-c rl-sort' + (right ? ' rl-r' : '');
+            const on = this.sortKey === key && !this._reviewMode();
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            b.setAttribute('aria-label', `Sort by ${spoken || label}${on ? (this.sortDir === 'asc' ? ', ascending' : ', descending') : ''}`);
+            b.innerHTML = `${label} <span aria-hidden="true">${on ? (this.sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>`;
+            b.addEventListener('click', () => {
+                if (this.sortKey === key) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+                else { this.sortKey = key; this.sortDir = key === 'session' || key === 'host' ? 'asc' : 'desc'; }
+                if (this._reviewMode()) this.filters.status = '';
+                this.pageIdx = 0;
+                this.renderRuns();
+            });
+            hd.appendChild(b);
+        });
+        return hd;
+    },
+
+    _reviewMode() { return this.filters && this.filters.status === 'review'; },
+
+    _renderStatusLine(text) {
+        const el = document.getElementById('rl-status');
+        if (!el) return;
+        const paused = !!this._live.paused;
+        el.innerHTML = `<span>${this._esc(text)} · <span class="rl-dot on" aria-hidden="true">●</span> ` +
+            `<span id="rl-ago">${this._agoText()}</span> · </span>`;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rl-link';
+        btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+        btn.textContent = paused ? 'Resume' : 'Pause';
+        btn.title = paused ? 'Resume live updates' : 'Hold the list still while you read. Live updates stop until you resume.';
+        btn.addEventListener('click', () => {
+            this._live.paused = !this._live.paused;
+            if (!this._live.paused) { this._livePill(false); this._liveTick(true); }
+            this._renderStatusLine(text);
+        });
+        el.querySelector('span').appendChild(btn);
+    },
+
+    _agoText() {
+        if (this._live.paused) return 'paused';
+        if (!this._listUpdatedAt) return 'updating';
+        return `updated ${Math.max(0, Math.round((Date.now() - this._listUpdatedAt) / 1000))}s ago`;
+    },
+
+    _renderPager(info, label) {
+        const el = document.getElementById('rl-pager');
+        if (!el) return;
+        el.textContent = '';
+        const span = document.createElement('span');
+        span.className = 'rl-sub';
+        span.textContent = label;
+        el.appendChild(span);
+        const mk = (txt, aria, disabled, to) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'rl-btn rl-page';
+            b.textContent = txt;
+            b.setAttribute('aria-label', aria);
+            b.disabled = disabled;
+            b.addEventListener('click', () => { this.pageIdx = to; this.renderRuns(); const l = document.getElementById('ar-listview'); if (l && l.scrollIntoView) l.scrollIntoView({ block: 'start' }); });
+            el.appendChild(b);
+        };
+        mk('‹', 'Previous page', info.page <= 0, info.page - 1);
+        mk('›', 'Next page', info.page >= info.pages - 1, info.page + 1);
+    },
+
     renderRuns() {
         const list = document.getElementById('ar-runlist');
         if (!list) return;
-        // The single #ar-detail node may be expanded inside the list — park
-        // it outside before the rebuild wipes the rows, then re-seat it under
-        // the selected row afterwards (bottom of this function).
+        const RL = window.RunsList;
+        if (!RL) return;
+        if (!this.filters) this.filters = RL.emptyFilters();
+        this._ctx = RL.buildCtx(this.runs, { live: this._liveData, pending: this._pending, coverage: this._coverage });
+        const ctx = this._ctx;
+        // Keep the detail node out of the list while it is rebuilt.
         const det = document.getElementById('ar-detail');
-        const detOpen = !!(det && !det.hidden && this.selected);
         const home = this._detailHome();
         if (det && home && det.parentElement !== home) home.appendChild(det);
+        const inRange = (this.runs || []).filter(r => RL.inRange(r, this.range, ctx.now));
+        this._renderFilterBar(inRange);
+        const shown = inRange.filter(r => RL.matches(r, this.filters, ctx));
+        this._renderCards(shown);
         list.textContent = '';
-        const triage = document.getElementById('ar-triage');
-        if (triage) triage.textContent = '';
-        // List header — names the level (agents) and carries the pulse:
-        // how many, how many live right now, the window.
-        const rh = document.getElementById('ar-rail-head');
-        if (rh) {
-            const all = this._filteredRuns();
-            const nLive = all.filter(r => this._isLive(r.ended_at)).length;
-            rh.innerHTML = `<b>${all.length}</b>&nbsp;session${all.length === 1 ? '' : 's'}` +
-                (nLive ? `<button type="button" class="ar-rail-live" title="Show only sessions with activity in the last 2 minutes">${nLive} live</button>` : '') +
-                `<span class="ar-rail-win">last ${this.windowDays === 1 ? '24h' : this.windowDays + 'd'}</span>`;
-            const liveBtn = rh.querySelector('.ar-rail-live');
-            if (liveBtn) liveBtn.addEventListener('click', () => {
-                this.listView = (this.listView === 'live' ? 'all' : 'live');
-                if (this.selected && !this._filteredRuns().some(r => r.trace_id === this.selected)) this._showList();
-                else this.renderRuns();
-            });
-        }
-        // Active filter chip — clickable to clear, so the Map drill-down is reversible.
-        if (this.runtimeFilter) {
-            const chip = document.createElement('button');
-            chip.type = 'button';
-            chip.className = 'ar-filter-chip';
-            chip.title = 'Clear runtime filter';
-            chip.innerHTML = `<span class="ar-chip-dot" style="background:${RUNTIME_COLOR[this.runtimeFilter] || '#64748b'}"></span>` +
-                `Only <b>${this._esc(this.runtimeFilter)}</b><span class="ar-chip-x">×</span>`;
-            chip.addEventListener('click', () => this.clearRuntimeFilter());
-            (triage || list).appendChild(chip);
-        }
-        if (this.toolFilter) {
-            const chip = document.createElement('button');
-            chip.type = 'button';
-            chip.className = 'ar-filter-chip';
-            chip.title = 'Clear tool filter';
-            chip.innerHTML = `Tool <b>${this._esc(String(this.toolFilter).split(':').pop())}</b><span class="ar-chip-x">×</span>`;
-            chip.addEventListener('click', () => { this.toolFilter = null; this.renderRuns(); if (this._inDetail() && this._trace) this.renderWaterfall(this._trace); });
-            (triage || list).appendChild(chip);
-        }
-        // Triage quick views (the Braintrust built-in-views pattern): one click
-        // narrows the agent list to the rows an analyst actually works. Counts
-        // come from the harness-filtered set so they hold steady across clicks.
-        // Color stays reserved for security state: only the count colors.
-        const base = this._baseRuns();
-        if (base.length) {
-            const chips = document.createElement('div');
-            chips.className = 'ar-view-chips';
-            chips.setAttribute('role', 'group');
-            chips.setAttribute('aria-label', 'Session quick views');
-            const more = document.createElement('details');
-            more.className = 'ar-more-views';
-            const moreLabel = document.createElement('summary');
-            moreLabel.textContent = 'More';
-            more.appendChild(moreLabel);
-            const moreMenu = document.createElement('div');
-            moreMenu.className = 'ar-more-menu';
-            more.appendChild(moreMenu);
-            const views = [
-                ['all', 'All', base.length, ''],
-                // Live = activity in the last 2 minutes, the same rule as the
-                // rail's "N live" pulse and the row badge. Accent, not red:
-                // it is a state of attention, not a security verdict.
-                ['live', 'Live', base.filter(r => this._viewMatch(r, 'live')).length, 'var(--accent-primary,#5eadb8)'],
-                ['flagged', 'Flagged', base.filter(r => this._viewMatch(r, 'flagged')).length, '#ef4444'],
-                ['blocked', 'Blocked', base.filter(r => this._viewMatch(r, 'blocked')).length, '#ef4444'],
-                ['detected', 'Detected', base.filter(r => this._viewMatch(r, 'detected')).length, '#ef4444'],
-                ['secret', 'Secrets', base.filter(r => this._viewMatch(r, 'secret')).length, '#f59e0b'],
-                // Run health: neutral counts (not a security verdict); Failing may be amber.
-                ['loop', 'Loop', base.filter(r => this._viewMatch(r, 'loop')).length, ''],
-                ['failing', 'Failing', base.filter(r => this._viewMatch(r, 'failing')).length, '#f59e0b'],
-                ['wasteful', 'Wasteful', base.filter(r => this._viewMatch(r, 'wasteful')).length, ''],
-            ];
-            views.forEach(([key, label, n, color]) => {
-                // A zero-count view is noise unless it's the one active now
-                // (a live refresh can empty the view under the user).
-                // Live stays even at zero: "nothing live right now" is the answer.
-                if (!n && key !== 'all' && key !== 'live' && this.listView !== key) return;
-                const c = document.createElement('button');
-                c.type = 'button';
-                c.className = 'ar-view-chip' + (this.listView === key ? ' active' : '');
-                c.setAttribute('aria-pressed', this.listView === key ? 'true' : 'false');
-                const hIcon = (key === 'loop' || key === 'failing' || key === 'wasteful') && window.TraceSteps ? `${TraceSteps.healthIcon(key)} ` : '';
-                c.innerHTML = `${hIcon}${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
-                c.title = key === 'all' ? 'Every session in this window'
-                    : key === 'live' ? 'Only sessions with activity in the last 2 minutes'
-                    : (key === 'loop' || key === 'failing' || key === 'wasteful')
-                        ? `Only sessions with a ${key} health finding`
-                    : `Only sessions with ${key === 'flagged' ? 'any security flag' : key === 'secret' ? 'secret detections' : key + ' actions'}`;
-                c.addEventListener('click', () => {
-                    this.listView = (this.listView === key ? 'all' : key);
-                    // Keep an open drill-down only if its row survives the view.
-                    if (this.selected && !this._filteredRuns().some(r => r.trace_id === this.selected)) this._showList();
-                    else this.renderRuns();
-                });
-                (['all', 'live', 'flagged', 'blocked'].includes(key) ? chips : moreMenu).appendChild(c);
-            });
-            chips.appendChild(more);
-            (triage || list).appendChild(chips);
-        }
-        const shown = this._filteredRuns();
+        const review = this._reviewMode();
+        const flat = review || !this.groupBySession;
+        const rangeLabel = (RL.RANGES[this.range] || RL.RANGES['24h']).label.toLowerCase();
         if (!shown.length) {
             const msg = document.createElement('div');
             msg.className = 'ar-empty';
-            msg.innerHTML = this.listView === 'live'
-                ? `<div style="font-size:15px;margin-bottom:6px;">No sessions active right now.</div><div style="font-size:13px;">Live means activity in the last 2 minutes. This view refreshes on its own; click Live again to see every session.</div>`
-                : (this.listView && this.listView !== 'all')
-                ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.listView)} sessions in this window.</div><div style="font-size:13px;">Click the view again (or All) to see every session.</div>`
-                : this.runtimeFilter
-                    ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.runtimeFilter)} sessions in this window.</div><div style="font-size:13px;">Clear the filter to see sessions from other runtimes.</div>`
-                    : `<div style="font-size:15px;margin-bottom:6px;">No sessions in this window.</div><div style="font-size:13px;">Connect a Guard plugin and start a session to see its trace here.</div>`;
+            msg.innerHTML = RL.activeCount(this.filters)
+                ? `<div style="font-size:15px;margin-bottom:6px;">No runs match these filters.</div><div style="font-size:13px;">Clear filters to see every run in the ${this._esc(rangeLabel)}.</div>`
+                : `<div style="font-size:15px;margin-bottom:6px;">No runs in the ${this._esc(rangeLabel)}.</div><div style="font-size:13px;">Connect a Guard plugin and start a session to see its runs here.</div>`;
             list.appendChild(msg);
+            this._renderStatusLine('No runs');
+            this._renderPager({ page: 0, pages: 1 }, `Runs 0 of 0 in the ${rangeLabel}`);
+            this._liveIds = (this.runs || []).filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
             return;
         }
-        const prevCounts = this._prevCounts || {};
-        const nextCounts = {};
-        // The list groups agents under their runtime/harness (the way
-        // CrowdStrike groups events under a host): one section per runtime,
-        // one card per agent run.
-        const groups = [];
-        const byRt = new Map();
-        shown.forEach(r => {
-            const k = r.runtime_kind || 'unknown';
-            if (!byRt.has(k)) { const g = { rt: k, runs: [] }; byRt.set(k, g); groups.push(g); }
-            byRt.get(k).runs.push(r);
-        });
-        if (!this._groupsCollapsed) {
-            try { this._groupsCollapsed = JSON.parse(localStorage.getItem('sv-ar-groups') || '{}'); }
-            catch (e) { this._groupsCollapsed = {}; }
-        }
-        const collapsed = this._groupsCollapsed;
-        const buildCard = (r) => {
-            const card = document.createElement('button');
-            card.className = 'ar-run' + (r.trace_id === this.selected ? ' sel' + (detOpen ? ' open' : '') : '');
-            card.type = 'button';
-            card.dataset.trace = r.trace_id;
-            card.title = `${this._agentLabel(r)} · ${r.runtime_kind || 'unknown'} · session ${r.session_id || '?'} · trace ${r.trace_id || '?'}`;
-            const color = RUNTIME_COLOR[r.runtime_kind] || '#64748b';
-            card.style.setProperty('--ar-accent', color);
-            // Count-tick flash: when a live update raised this row's numbers,
-            // pulse it once so the change is visible without reading.
-            const hk = r.health || {};
-            const countKey = `${r.spans}|${r.blocked}|${r.detections}|${r.secrets}|${hk.loop || 0}|${hk.failing || 0}|${hk.wasteful || 0}`;
-            nextCounts[r.trace_id] = countKey;
-            if (prevCounts[r.trace_id] && prevCounts[r.trace_id] !== countKey) card.classList.add('ar-card-tick');
-            // One table row per agent run (custom name wins); numeric columns
-            // align under the header. Zero-count cells render a dim dash so
-            // the eye catches the non-zero (colored) cells instantly.
-            const dash = '<span class="ar-dim0">—</span>';
-            const toolCount = r.spans ? `${Number(r.spans)} tool call${Number(r.spans) === 1 ? '' : 's'}` : '';
-            const signals = [r.blocked ? `${Number(r.blocked)} blocked` : '',
-                Number(r.cost) > 0 ? this._costCell(r, '') : ''].filter(Boolean).join(' · ');
-            card.innerHTML =
-                `<span class="ar-run-primary"><svg class="ar-row-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
-                `<span class="ar-run-dot" style="background:${color}"></span>` +
-                `<span class="ar-row-name"><span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
-                `<span class="ar-row-id" title="session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id)}">${this._esc(String(r.session_id || r.trace_id).slice(0, 8))}</span>` +
-                (this._isLive(r.ended_at) ? this._liveBadge() : '') +
-                (window.TraceSteps && TraceSteps.badgesHtml(r.health) ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
-                `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${this._esc(r.risk || 'green')}"></span></span>` +
-                `<span class="ar-relative" title="${this._esc(this._fmtTime(r.ended_at))}">${this._esc(this._relativeTime(r.ended_at))}</span></span>` +
-                `<span class="ar-run-secondary"><span class="ar-compact-meta"><span class="ar-row-id" title="Session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id || '?')}">${this._esc(String(r.session_id || r.trace_id || '?').slice(0, 8))}</span>` +
-                `<span>· ${this._esc(r.runtime_kind || 'unknown')}</span>` +
-                (r.terminal_task && r.terminal_task.id ? '<span class="ar-terminal-cue" title="Linked Terminal task">· Terminal ↗</span>' : '') +
-                (window.TraceSteps && TraceSteps.badgesHtml(r.health) ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
-                (toolCount ? `<span class="ar-meta-count">· ${toolCount}</span>` : '') +
-                (signals ? `<span class="ar-meta-signals">· ${signals}</span>` : '') + `</span>` +
-                `<span class="ar-row-c col-tools"><span class="ar-num">${r.spans}</span></span>` +
-                `<span class="ar-row-c col-blk">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
-                `<span class="ar-row-c col-det" title="threats detected in this trace">${r.detections ? `${AR_VIRUS_SVG('#ef4444', 12)}<span class="ar-num" style="color:#ef4444"> ${r.detections}</span>` : dash}</span>` +
-                `<span class="ar-row-c col-sec" title="secret/credential detections in this trace">${r.secrets ? `${AR_LOCK_SVG('#f59e0b', 12)}<span class="ar-num" style="color:#f59e0b"> ${r.secrets}</span>` : dash}</span>` +
-                `<span class="ar-row-c col-cost" title="${this._costTitle(r)}">${this._costCell(r, dash)}</span>` +
-                `<span class="ar-row-time col-time">${this._fmtTime(r.ended_at)}</span></span>`;
-            card.addEventListener('click', () => this.selectRun(r.trace_id));
-            return card;
-        };
-        // Column header — one, above the first group (the runtime group rows
-        // between sections carry their own rolled-up numbers).
-        const cols = document.createElement('div');
-        cols.className = 'ar-cols';
-        cols.innerHTML = '<span></span><span></span><span class="col-name">Session</span>' +
-            '<span class="col-tools">Tool runs</span><span class="col-blk">Blocked</span><span class="col-det">Detected</span>' +
-            '<span class="col-sec">Secrets</span><span class="col-cost" title="Model spend in this run, list-price estimate">Cost</span><span class="col-time">Last activity</span>';
-        list.appendChild(cols);
-        groups.forEach(g => {
-            const color = RUNTIME_COLOR[g.rt] || '#64748b';
-            const live = g.runs.filter(r => this._isLive(r.ended_at)).length;
-            const blk = g.runs.reduce((a, r) => a + (r.blocked || 0), 0);
-            const det = g.runs.reduce((a, r) => a + (r.detections || 0), 0);
-            const sec = g.runs.reduce((a, r) => a + (r.secrets || 0), 0);
-            // A collapsed group holding the selection re-opens: hiding the
-            // selected agent behind a closed header reads as data loss.
-            const holdsSel = g.runs.some(r => r.trace_id === this.selected);
-            const isClosed = !!collapsed[g.rt] && !holdsSel;
-            const head = document.createElement('button');
-            head.type = 'button';
-            head.className = 'ar-group-head' + (isClosed ? ' closed' : '');
-            head.title = (isClosed ? 'Expand' : 'Collapse') + ' the ' + g.rt + ' sessions';
-            head.innerHTML =
-                `<svg class="ar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
-                `<span class="ar-run-dot" style="background:${color}"></span>` +
-                `<span class="ar-group-rt">${this._esc(g.rt)}</span>` +
-                `<span class="ar-group-n">${g.runs.length} session${g.runs.length === 1 ? '' : 's'}</span>` +
-                (blk ? `<span class="ar-group-flag" style="color:#ef4444" title="blocked actions across this runtime's sessions">${blk} blocked</span>` : '') +
-                (det ? `<span class="ar-group-flag" style="color:#ef4444" title="threats detected across this runtime's sessions">${det} detected</span>` : '') +
-                (sec ? `<span class="ar-group-flag" style="color:#f59e0b" title="secrets caught across this runtime's sessions">${sec} secret</span>` : '') +
-                (live ? this._liveBadge(live + ' session' + (live === 1 ? '' : 's') + ' active now') : '');
-            const body = document.createElement('div');
-            body.className = 'ar-group-body';
-            body.hidden = isClosed;
-            g.runs.forEach(r => body.appendChild(buildCard(r)));
-            head.addEventListener('click', () => {
-                const closing = !body.hidden;
-                body.hidden = closing;
-                head.classList.toggle('closed', closing);
-                collapsed[g.rt] = closing;
-                // Collapsing the group that holds the open trace also closes
-                // the trace. Otherwise the next live tick force-reopens the
-                // group (holdsSel refuses to hide a selection) and the
-                // collapse reads as broken.
-                if (closing && g.runs.some(r => r.trace_id === this.selected)) this._showList();
-                try { localStorage.setItem('sv-ar-groups', JSON.stringify(collapsed)); } catch (e) { /* private mode */ }
+        const ordered = review ? RL.reviewOrder(shown, ctx) : RL.sortRuns(shown, this.sortKey, this.sortDir, ctx);
+        // Grouped: page by session, so no session is split across pages.
+        // Flat (and Needs review): page by run.
+        const info = flat ? RL.page(ordered, this.pageIdx, RL.PAGE_SIZE) : RL.pageSessions(ordered, this.pageIdx, RL.PAGE_SIZE);
+        this.pageIdx = info.page;
+        const sortName = { started: 'newest first', duration: 'by duration', tokens: 'by tokens', cost: 'by cost', calls: 'by tool calls', status: 'by status', session: 'by session', host: 'by host' }[this.sortKey] || 'newest first';
+        const sortText = this.sortKey === 'started' && this.sortDir === 'asc' ? 'oldest first' : sortName;
+        this._renderStatusLine(review ? 'Waiting first, oldest first, then blocked'
+            : `Runs, ${sortText}${flat ? '' : ', grouped by session'}`);
+        list.classList.toggle('rl-flatlist', flat);
+        if (flat) {
+            list.appendChild(this._sortHeader([['started', 'Started'], [null, 'Run'], ['session', 'Session'], ['host', 'Host · user'],
+                ['status', review ? 'Decision' : 'Status · decision'], ['calls', RL_CALLS_HEAD, true, 'tool calls: allowed, waiting, blocked'],
+                ['duration', 'Duration', true], ['tokens', 'Tokens', true], ['cost', 'Cost', true]]));
+            info.items.forEach(r => list.appendChild(this._runRow(r, true, false)));
+        } else {
+            list.appendChild(this._sortHeader([['started', 'Started'], [null, 'Run'], ['status', 'Status · decision'],
+                ['calls', RL_CALLS_HEAD, true, 'tool calls: allowed, waiting, blocked'], ['duration', 'Duration', true], ['tokens', 'Tokens', true], ['cost', 'Cost', true]]));
+            info.groups.forEach(g => {
+                // The open run always shows, even when it is an earlier one.
+                const { rows, hidden } = RL.sessionRows(g, !!this._expandedSessions[g.key], this.selected);
+                const { head, closed, moreRow } = this._sessionHead(g, hidden);
+                list.appendChild(head);
+                if (closed) return;
+                rows.forEach((r, i) => list.appendChild(this._runRow(r, false, true, !moreRow && i === rows.length - 1)));
+                if (moreRow) list.appendChild(moreRow);
             });
-            list.appendChild(head);
-            list.appendChild(body);
-        });
-        // Re-seat the open drill-down under its (freshly rebuilt) row — no
-        // scroll: live re-renders must not yank the viewport around.
-        if (detOpen) this._expandUnder(this.selected, false);
-        this._prevCounts = { ...prevCounts, ...nextCounts };
-        // Snapshot which traces rendered as live, so a badge expiring (trace
-        // goes quiet, data unchanged) still triggers a repaint on the next poll.
+        }
+        if (review) {
+            const sessions = new Set(shown.map(r => r.session_id || r.trace_id)).size;
+            this._renderPager(info, `${shown.length} run${shown.length === 1 ? '' : 's'} in ${sessions} session${sessions === 1 ? '' : 's'} need${shown.length === 1 ? 's' : ''} review`);
+        } else if (flat) {
+            this._renderPager(info, `Runs ${info.from}–${info.to} of ${info.total.toLocaleString()} in the ${rangeLabel}`);
+        } else {
+            this._renderPager(info, `Sessions ${info.from}–${info.to} of ${info.total.toLocaleString()} · ${info.totalRuns.toLocaleString()} run${info.totalRuns === 1 ? '' : 's'} in the ${rangeLabel}`);
+        }
         this._liveIds = (this.runs || []).filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
         this._fitPanes();
+    },
+
+    /** A span hash typed in the search box: look through the runs in view
+     *  for a span with that hash and open its run with the span found. */
+    async _findSpanHash(hash) {
+        const q = String(hash || '').trim().toLowerCase();
+        if (!RunsList.looksLikeHash(q)) return false;
+        const RL = RunsList;
+        const ctx = this._ctx || RL.buildCtx(this.runs);
+        const f = Object.assign({}, this.filters, { search: '' });
+        const pool = (this.runs || []).filter(r => RL.inRange(r, this.range, ctx.now) && RL.matches(r, f, ctx)).slice(0, 40);
+        if (window.Toast) Toast.info(`Looking for span ${q.slice(0, 12)} in ${pool.length} runs…`);
+        for (const r of pool) {
+            const t = await API.getTrace(r.trace_id);
+            const hit = t && (t.spans || []).find(s => s.row_hash && String(s.row_hash).toLowerCase().startsWith(q));
+            if (hit) {
+                this.filters.search = '';
+                const s = document.getElementById('rl-search');
+                if (s) s.value = '';
+                this._timelineForce = r.trace_id;
+                await this.selectRun(r.trace_id);
+                // The trace view selects the span the hash names.
+                if (window.RunTrace) RunTrace.state(r.trace_id).sel = RunTrace.spanKey(hit, 0);
+                this.runSearch = q;
+                if (this._trace) this.renderWaterfall(this._trace);
+                return true;
+            }
+        }
+        if (window.Toast) Toast.info('No span with that hash in the runs in view.');
+        return false;
     },
 
     async selectRun(traceId, opts) {
@@ -1940,6 +2558,12 @@ const AgentRunsPage = {
         const named = Object.assign({}, trace, { terminal_task: listed && listed.terminal_task });
         const taskId = named.terminal_task && named.terminal_task.id;
 
+        // 6.0 run trace view: header, session governance strip, span tree
+        // with waterfall and the span / governance panel (js/components/
+        // run-trace.js). The step list and the full timeline follow it.
+        if (window.RunTrace) {
+            this._mountRunTrace(detail, trace, named, taskId);
+        } else {
         const head = document.createElement('div');
         head.className = 'ar-det-head';
         head.innerHTML = `<span class="ar-run-dot" style="background:${color}"></span>` +
@@ -1960,10 +2584,17 @@ const AgentRunsPage = {
         const pauseBtn = head.querySelector('.ar-live-pause');
         if (pauseBtn) pauseBtn.addEventListener('click', () => this._livePauseToggle(pauseBtn));
         detail.appendChild(head);
+        }
 
         // The step list comes first; the full timeline (everything below,
         // unchanged) sits behind "Show full timeline".
         const stepsBox = document.createElement('div');
+        if (window.RunTrace) {
+            const legacyH = document.createElement('h3');
+            legacyH.className = 'rt-legacy-h';
+            legacyH.textContent = 'Steps and full timeline';
+            detail.appendChild(legacyH);
+        }
         stepsBox.className = 'trace-steps';
         stepsBox.id = 'ar-steps';
         detail.appendChild(stepsBox);
@@ -1983,6 +2614,155 @@ const AgentRunsPage = {
         // After the timeline so each span carries its _seq for "View in timeline".
         this._renderSteps(trace);
         this._loadHealth(trace);
+    },
+
+    /** The run trace view's inputs from the list data, then the session
+     *  summary, the requests and the grants (async; the view repaints). */
+    _mountRunTrace(detail, trace, named, taskId) {
+        const RL = window.RunsList;
+        const RT = window.RunTrace;
+        const listed = (this.runs || []).find(r => r.trace_id === trace.trace_id) || null;
+        const ctx = this._ctx || (RL ? RL.buildCtx(this.runs || []) : null);
+        const sid = trace.session_id;
+        const ms = (t) => (RL ? RL.ms(t) : this._ms(t)) || 0;
+        const sessionRuns = sid ? (this.runs || []).filter(r => r.session_id === sid)
+            .sort((a, b) => (ms(a.started_at) || ms(a.ended_at)) - (ms(b.started_at) || ms(b.ended_at))) : [];
+        const pos = sessionRuns.findIndex(r => r.trace_id === trace.trace_id);
+        const status = listed && RL ? RL.status(listed, ctx) : (this._isLive(trace.ended_at) ? 'running' : 'ok');
+        const started = ms(trace.started_at), ended = ms(trace.ended_at);
+        const durationMs = status === 'running' && started ? Date.now() - started : (started && ended >= started ? ended - started : null);
+        const live = sid && this._liveData && (this._liveData.sessions || []).some(s => s && s.session_id === sid);
+        const box = document.createElement('div');
+        box.className = 'rt';
+        box.id = 'ar-rt';
+        detail.appendChild(box);
+        const prev = this._rtData && this._rtData.traceId === trace.trace_id ? this._rtData : null;
+        const rc = {
+            trace,
+            title: listed && RL ? RL.name(listed, ctx) : this._agentLabel(named),
+            status, durationMs, now: Date.now(),
+            harness: (window.DelegationUI && DelegationUI.harnessLabel(trace.runtime_kind)) || trace.runtime_kind,
+            project: listed && RL ? RL.project(listed) : null,
+            host: listed && listed.host, user: listed && listed.user,
+            coverage: (prev && prev.gov && prev.gov.coverage) || (RL ? RL.coverageFor(trace.runtime_kind, ctx) : null),
+            runIndex: pos >= 0 ? pos + 1 : null, runTotal: sessionRuns.length,
+            prevRun: pos > 0 ? sessionRuns[pos - 1].trace_id : null,
+            nextRun: pos >= 0 && pos < sessionRuns.length - 1 ? sessionRuns[pos + 1].trace_id : null,
+            newest: !sessionRuns.length || pos === sessionRuns.length - 1,
+            canStop: !!(live && taskId),
+            gov: prev ? prev.gov : undefined, requests: prev ? prev.requests : [], grants: prev ? prev.grants : [],
+            runIndexOf: (tid) => { const i = sessionRuns.findIndex(r => r.trace_id === tid); return i >= 0 ? i + 1 : null; },
+            expiryOf: (req) => {
+                const g = this._rtData && this._rtData.gov;
+                const p = g && g.approvals && (g.approvals.pending || []).find(x => x.id === (req && req.id));
+                return (p && p.expires_at) || (req && req.expires_at) || null;
+            },
+            extraHtml: (status === 'running' ? this._liveBadge('This session is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
+                (taskId ? '<button type="button" class="ar-terminal-open">Open Terminal task ↗</button>' : ''),
+            onBack: () => this._showList(),
+            onOpenRun: (id) => this.selectRun(id, { refresh: true }),
+            onGoto: (id, spanId) => {
+                if (spanId && RT) { RT.state(id).sel = 's:' + spanId; }
+                this.selectRun(id, { refresh: true });
+            },
+            onPause: (btn) => this._livePauseToggle(btn),
+            onTerminal: () => {
+                try { sessionStorage.setItem('sv-agent-task-id', taskId); } catch (_) { /* navigation still works */ }
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');
+                else if (window.App) App.loadPage('terminals');
+            },
+            onStop: () => this._rtStop(taskId, sid),
+            onDecide: (act, req, duration) => this._rtDecide(box, act, req, duration),
+            onRevoke: (grantId, btn) => this._rtRevoke(box, grantId, btn),
+        };
+        RT.mount(box, rc);
+        this._rtLoad(box, trace);
+    },
+
+    /** Fetch the session summary, the session's requests and grants, and
+     *  repaint the trace view. Read only. */
+    async _rtLoad(box, trace) {
+        const sid = trace.session_id;
+        const [gov, reqs, grants] = await Promise.all([
+            sid && API.getSessionGovernance ? API.getSessionGovernance(sid).catch(() => false) : Promise.resolve(false),
+            API.getJitRequests ? API.getJitRequests() : Promise.resolve({ items: [] }),
+            API.getJitGrants ? API.getJitGrants() : Promise.resolve({ items: [] }),
+        ]);
+        if (this.selected !== trace.trace_id || !box.isConnected) return;
+        const mine = (x) => x && (x.session_id === sid || x.trace_id === trace.trace_id);
+        const data = {
+            traceId: trace.trace_id,
+            gov: gov || false,
+            requests: ((reqs && reqs.items) || []).filter(mine),
+            grants: ((grants && grants.items) || []).filter(mine),
+        };
+        this._rtData = data;
+        const patch = { gov: data.gov, requests: data.requests, grants: data.grants, now: Date.now() };
+        if (data.gov && data.gov.coverage) patch.coverage = data.gov.coverage;
+        window.RunTrace.update(box, patch);
+        // One-shot from the Live grid's Review: select the held call's span
+        // so the decision is made in the span panel with its full context.
+        const wantReq = this._pendingReq;
+        this._pendingReq = null;
+        if (wantReq && box._rt && box._rt.tree) {
+            let key = null;
+            window.RunTrace.walk(box._rt.tree, n => { if (!key && n.req && n.req.id === wantReq) key = n.key; });
+            if (key) window.RunTrace.select(box, key);
+        }
+    },
+
+    /** Allow or Deny one held call: only from the span panel, through the
+     *  JIT approve / deny routes (UI token and the app's confirmation). */
+    async _rtDecide(box, act, req, duration) {
+        const RT = window.RunTrace;
+        if (!box._rt) return;
+        // Busy lives in the per-trace view state, so a live rebuild during
+        // the decision keeps the buttons disabled.
+        const st = RT.state(box._rt.trace.trace_id);
+        if (st.busy) return;
+        st.busy = true;
+        RT.paint(box);
+        try {
+            if (act === 'deny') await API.denyJitRequest(req.id, 'Denied from the run trace');
+            else await API.approveJitRequest(req.id, duration);
+            const what = act === 'deny' ? 'Denied' : (duration === 'once' ? 'Allowed once' : 'Allowed');
+            if (window.Toast) (Toast.success || Toast.info).call(Toast, `${what}: ${req.tool_id || 'the call'}, in this session only`);
+        } catch (e) {
+            if (window.Toast) Toast.error((e && e.message) || 'The decision did not go through');
+        } finally {
+            st.busy = false;
+            if (box._rt && this._trace && this._trace.trace_id === box._rt.trace.trace_id) await this._rtLoad(box, this._trace);
+            else RT.paint(box);
+        }
+    },
+
+    async _rtRevoke(box, grantId, btn) {
+        if (!grantId) return;
+        if (btn) btn.disabled = true; // one revoke in flight per button
+        try {
+            await API.revokeJitGrant(grantId);
+            if (window.Toast) (Toast.success || Toast.info).call(Toast, 'Approval revoked');
+        } catch (e) {
+            if (window.Toast) Toast.error((e && e.message) || 'Could not revoke');
+        }
+        if (this._trace) await this._rtLoad(box, this._trace);
+    },
+
+    /** Stop the live session through the Terminals stop route, after a
+     *  confirmation. Shown only for a running app-owned task. */
+    _rtStop(taskId, sid) {
+        if (!taskId) return;
+        const go = async () => {
+            try {
+                await API.terminalsStop(taskId);
+                if (window.Toast) (Toast.success || Toast.info).call(Toast, 'Session stopped');
+            } catch (e) {
+                if (window.Toast) Toast.error((e && e.message) || 'Could not stop the session');
+            }
+        };
+        const msg = `Stop session ${String(sid || '').slice(0, 8)}? The agent's terminal task ends now.`;
+        if (window.Modal && Modal.confirm) Modal.confirm({ title: 'Stop session', message: msg, confirmLabel: 'Stop session', onConfirm: go });
+        else if (window.confirm(msg)) go();
     },
 
     /** The open run's health findings, or null until fetched. */
@@ -3304,6 +4084,8 @@ const AgentRunsPage = {
      * leaving the page left it polling and, if a replay was mid-flight,
      * still stepping through spans in the background. */
     destroy() {
+        if (this._agoTimer) { clearInterval(this._agoTimer); this._agoTimer = null; }
+        if (this._searchTimer) { clearTimeout(this._searchTimer); this._searchTimer = null; }
         if (this._live && this._live.timer) {
             clearInterval(this._live.timer);
             this._live.timer = null;

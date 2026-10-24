@@ -386,14 +386,17 @@ async def _record(db, session_id: str, harness_hint: Optional[str], rules: list,
 
 
 async def _file(db, key: str, tool_name: Optional[str], runtime_kind: Optional[str], session_id: str,
-                rules: list, now: datetime) -> tuple:
+                rules: list, now: datetime, call_fingerprint: Optional[str] = None,
+                call_preview: Optional[str] = None) -> tuple:
     """File (or join) the hold's request. Returns (request, new): new only
     when this call created it, so a merged retry writes no second event."""
     from securevector.app.database.repositories.call_rules import CallRulesRepository
 
     before = {r["id"] for r in await db.fetch_all(
         "SELECT id FROM jit_access_requests WHERE status = 'pending' AND session_id = ?", (session_id,)) or []}
-    req = await rr.file_request(db, key, tool_name, runtime_kind, session_id, justification=justification(rules))
+    req = await rr.file_request(db, key, tool_name, runtime_kind, session_id, justification=justification(rules),
+                                call_fingerprint=call_fingerprint, call_preview=call_preview,
+                                held_by=",".join(rules))
     await CallRulesRepository(db).touch_held(session_id, _stamp(now))
     return req, bool(req) and req.get("id") not in before
 
@@ -438,12 +441,36 @@ async def check_network(db, tool_name: str, runtime_kind: Optional[str], session
         return rules[0] if hold else None
     now = now or datetime.now(timezone.utc)
     if hold:
-        _req, new = await _file(db, key, tool_name, runtime_kind, session_id, rules, now)
+        _req, new = await _file(db, key, tool_name, runtime_kind, session_id, rules, now,
+                                call_fingerprint=rr.call_fingerprint(key, tool_input),
+                                call_preview=rr.call_preview(tool_input))
         if new:
             await _record(db, session_id, runtime_kind, rules, mode, OUTCOME_HELD, now)
         return rules[0]
     await _record(db, session_id, runtime_kind, rules, mode, _outcome(mode, False), now)
     return None
+
+
+async def held_rules(db, tool_name: str, runtime_kind: Optional[str], session_id: Optional[str],
+                     tool_input: Any = None, *, verified: bool) -> list:
+    """The rule ids that would hold this call right now (On mode, verified
+    session), in check_network's order; [] when none would. Writes nothing."""
+    from securevector.app.database.repositories.call_rules import CallRulesRepository
+
+    if not session_id or not sends(tool_name, tool_input, runtime_kind):
+        return []
+    stored = armed(await CallRulesRepository(db).get(session_id))
+    in_call = bool(tool_input) and credential_read(rr._input_text(tool_input))
+    if RULE_OUTSIDE in stored and not (triggers_outside(tool_name, runtime_kind) or in_call):
+        stored.remove(RULE_OUTSIDE)
+    rules = list(stored)
+    if in_call and RULE_CRED_NET not in rules:
+        rules.insert(0, RULE_CRED_NET)
+    if not rules or not verified:
+        return []
+    if await session_mode(db, session_id, runtime_kind) != rr.MODE_ACTIVE:
+        return []
+    return rules
 
 
 async def note_call(db, tool_name: Optional[str], session_id: Optional[str], action: Optional[str],
@@ -531,7 +558,8 @@ async def file_marker_hold(db, session_id: Optional[str], tool_id: str, function
     return True, req
 
 
-async def on_approved(db, request: Optional[Mapping[str, Any]], now: Optional[datetime] = None) -> None:
+async def on_approved(db, request: Optional[Mapping[str, Any]], now: Optional[datetime] = None,
+                      duration: Optional[str] = None) -> None:
     """An approved request for a session clears every rule that was armed
     before the request was filed or last joined by a held call, whatever
     filed it (a rule, a step-up, a joined retry). A read after that re-arms.
@@ -542,6 +570,10 @@ async def on_approved(db, request: Optional[Mapping[str, Any]], now: Optional[da
         # Only holds (step-up and rule requests); a plain tool request's
         # session id is not checked when it is filed.
         if not request or not request.get("session_id") or request.get("rule_source") != rr.RUNG_SOURCE:
+            return
+        # "Allow once" lifts one exact call; the armed rules stay armed so
+        # the next call is held again.
+        if duration == "once":
             return
         sid = request["session_id"]
         repo = CallRulesRepository(db)

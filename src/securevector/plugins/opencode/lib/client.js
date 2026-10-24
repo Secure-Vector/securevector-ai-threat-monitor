@@ -121,8 +121,13 @@ function postJsonAndForget(url, body) {
  * @returns {Promise<object>}  `{ synced: [...], total: N }` or `{}`.
  */
 async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
-  const q = runtime ? `?runtime=${encodeURIComponent(runtime)}` : '';
-  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${q}`, opts);
+  const params = new URLSearchParams();
+  if (runtime) params.set('runtime', runtime);
+  // The session id scopes JIT grants (and per-run limits) to the session
+  // that asked for them; without it a session's grants are not returned.
+  if (opts.sessionId) params.set('session_id', opts.sessionId);
+  const qs = params.toString();
+  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${qs ? `?${qs}` : ''}`, opts);
 }
 
 /**

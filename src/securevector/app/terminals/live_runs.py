@@ -44,6 +44,7 @@ import hmac
 import inspect
 import logging
 import os
+import re
 import secrets
 import types
 import unicodedata
@@ -997,6 +998,9 @@ async def fleet_enrolled() -> bool:
         return False
 
 
+_FLEET_SESSION_ID_RE = re.compile(r"\A[A-Za-z0-9._:-]{1,128}\Z")
+
+
 async def emit(
     task: Mapping[str, Any],
     kind: Any,
@@ -1024,6 +1028,12 @@ async def emit(
         if adr is None and kind in ADR_EVENT_KINDS:
             adr = await collect_adr(task)
         payload = build_payload(task, kind, origin=origin, now=now, adr=adr)
+        # The published Live Runs shape carries only a session digest. A sink
+        # that asks for it (the fleet sink, 6.1) also gets the session id.
+        if getattr(sink, "wants_session_id", False):
+            sid = task.get("session_id") if isinstance(task, Mapping) else None
+            if isinstance(sid, str) and _FLEET_SESSION_ID_RE.match(sid):
+                payload = dict(payload, session_id=sid)
         result = sink(payload)
         if inspect.isawaitable(result):
             await asyncio.wait_for(result, timeout)

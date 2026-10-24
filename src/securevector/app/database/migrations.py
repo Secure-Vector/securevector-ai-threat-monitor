@@ -211,6 +211,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         62: migrate_to_v62,
         63: migrate_to_v63,
         64: migrate_to_v64,
+        65: migrate_to_v65,
+        66: migrate_to_v66,
     }
 
     if version in migrations:
@@ -2159,6 +2161,9 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_session_rule_state_table(db)
     await ensure_stop_switch_storage(db)
     await ensure_outbox_alert_kind(db)
+    await ensure_jit_call_fingerprint(db)
+    await ensure_activity_time_indexes(db)
+    await ensure_cloud_approval_storage(db)
     await cleanup_old_policy_decisions(db)
     await cleanup_old_response_holds(db)
 
@@ -3699,3 +3704,171 @@ async def migrate_to_v64(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v64: stop the session and alert")
+
+
+async def ensure_jit_call_fingerprint(db: DatabaseConnection) -> None:
+    """``call_fingerprint`` on jit_access_requests and jit_access_grants.
+
+    A request filed by a server path that holds the call with its arguments
+    in hand records the call's fingerprint (tool plus a SHA-256 of the
+    normalized arguments). An "Allow once" grant copies it and lifts only
+    that exact call, one time, in that session. Idempotent."""
+    conn = await db.connect()
+    wanted = {
+        # The bound call's redacted preview (shown to the approver) and the
+        # hold kinds that filed the request (re-checked before it is spent).
+        "jit_access_requests": (("call_fingerprint", "TEXT"), ("call_preview", "TEXT"),
+                                ("held_by", "TEXT")),
+        # When a call-bound grant was spent by its call.
+        "jit_access_grants": (("call_fingerprint", "TEXT"), ("used_at", "TIMESTAMP")),
+    }
+    for table, columns in wanted.items():
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in await cur.fetchall()}
+        for name, kind in columns:
+            if cols and name not in cols:
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    await conn.commit()
+
+
+async def migrate_to_v65(db: DatabaseConnection) -> None:
+    """v64 -> v65: approvals bound to one call ("Allow once"). Idempotent."""
+    await ensure_jit_call_fingerprint(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (65, CURRENT_TIMESTAMP, 'Approvals bound to one call')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v65: approvals bound to one call")
+
+
+async def ensure_activity_time_indexes(db: DatabaseConnection) -> None:
+    """Indexes leading on the row time of tool_call_audit and
+    llm_cost_records, so "what was active in the last few minutes" reads a
+    range instead of the whole table. Idempotent."""
+    conn = await db.connect()
+    for table, name, column in (
+        ("tool_call_audit", "idx_tool_call_audit_called_at", "called_at"),
+        # Same name and shape as the fresh-install schema (models.py), so an
+        # install created from it keeps its one index.
+        ("llm_cost_records", "idx_cost_records_recorded_at", "recorded_at DESC"),
+    ):
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        if column.split()[0] in {row[1] for row in await cur.fetchall()}:
+            await conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})")
+    await conn.commit()
+
+
+async def migrate_to_v66(db: DatabaseConnection) -> None:
+    """v65 -> v66: time indexes for the Live sessions read. Idempotent."""
+    await ensure_activity_time_indexes(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (66, CURRENT_TIMESTAMP, 'Time indexes for live sessions')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v66: time indexes for live sessions")
+
+
+_GOVERNANCE_OUTBOX_KINDS = ("egress", "approval_request", "harness_coverage")
+
+
+async def ensure_cloud_approval_storage(db: DatabaseConnection) -> None:
+    """Cloud sync of governance rows and approvals from SecureVector Cloud.
+
+    - Widens the forward-outbox kind vocabulary with `egress`,
+      `approval_request` and `harness_coverage` (fleet-only rows), by the same
+      staged rebuild ensure_outbox_alert_kind uses.
+    - `decision_source` on jit_access_requests: NULL or 'local' for a
+      decision made in this app, 'cloud' for one applied from the cloud.
+    - `cloud_approval_state`: the local-only cloud approvals setting plus
+      sync markers. Nothing synced from the cloud ever writes it.
+    - `cloud_approval_shared`: which requests were sent to the cloud, with
+      the last state sent, so each state change goes up once.
+    Idempotent."""
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    leftover = await _table_sql("external_forward_outbox_v67")
+    if leftover:
+        if await _table_sql("external_forward_outbox"):
+            await conn.execute("DROP TABLE external_forward_outbox_v67")
+        else:
+            await conn.execute(
+                "ALTER TABLE external_forward_outbox_v67 RENAME TO external_forward_outbox"
+            )
+        await conn.commit()
+
+    existing = await _table_sql("external_forward_outbox")
+    if existing and "CHECK" in existing and "'approval_request'" not in existing:
+        try:
+            await conn.executescript(
+            """
+            BEGIN IMMEDIATE;
+            CREATE TABLE external_forward_outbox_v67 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+                kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit', 'task_event', 'generation', 'alert', 'egress', 'approval_request', 'harness_coverage')),
+                payload_json  TEXT NOT NULL,
+                created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                delivered_at  TIMESTAMP,
+                last_error    TEXT
+            );
+            INSERT INTO external_forward_outbox_v67 (
+                id, forwarder_id, kind, payload_json, created_at,
+                attempts, delivered_at, last_error
+            )
+            SELECT id, forwarder_id, kind, payload_json, created_at,
+                   attempts, delivered_at, last_error
+            FROM external_forward_outbox;
+            DROP TABLE external_forward_outbox;
+            ALTER TABLE external_forward_outbox_v67 RENAME TO external_forward_outbox;
+            CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending
+                ON external_forward_outbox (forwarder_id, delivered_at, id)
+                WHERE delivered_at IS NULL;
+            COMMIT;
+            """
+            )
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    if await _table_sql("external_forward_outbox"):
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+            "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+            "WHERE delivered_at IS NULL"
+        )
+
+    cur = await conn.execute("PRAGMA table_info(jit_access_requests)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if cols and "decision_source" not in cols:
+        await conn.execute("ALTER TABLE jit_access_requests ADD COLUMN decision_source TEXT")
+
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS cloud_approval_state ("
+        " key TEXT PRIMARY KEY,"
+        " value TEXT NOT NULL,"
+        " updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS cloud_approval_shared ("
+        " request_id TEXT PRIMARY KEY,"
+        " last_state TEXT NOT NULL,"
+        " cloud_approvable INTEGER NOT NULL DEFAULT 0,"
+        " shared_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        " updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    await conn.commit()

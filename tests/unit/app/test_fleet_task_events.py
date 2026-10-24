@@ -257,6 +257,8 @@ async def test_v52_recreates_a_missing_index_and_second_run_is_a_noop(tmp_path):
 def test_allow_list_is_exactly_the_live_run_keys_plus_row_type():
     assert fwd_repo_module._TASK_EVENT_ALLOWED == (
         frozenset(_live_payload()) | {"row_type"} | frozenset(live_runs.ADR_FIELDS)
+        # 6.1 cloud sync: the fleet sink adds the governed session's id.
+        | {"session_id"}
     )
 
 
@@ -267,12 +269,20 @@ def test_builder_tags_row_type_and_keeps_every_value():
     assert {k: v for k, v in row.items() if k != "row_type"} == live
 
 
-@pytest.mark.parametrize("extra", ["workspace", "activity", "session_id"])
+@pytest.mark.parametrize("extra", ["workspace", "activity"])
 def test_builder_rejects_a_field_off_the_allow_list(extra):
     live = _live_payload()
     live[extra] = "anything"
     with pytest.raises(ValueError, match="forbidden"):
         build_task_event_payload(live)
+
+
+@pytest.mark.parametrize("value", [WORKSPACE, "two words", "x" * 129])
+def test_builder_accepts_only_an_id_as_session_id(value):
+    live = _live_payload()
+    assert build_task_event_payload(dict(live, session_id=SESSION))["session_id"] == SESSION
+    with pytest.raises(ValueError):
+        build_task_event_payload(dict(live, session_id=value))
 
 
 def test_builder_rejects_a_nested_value():
@@ -435,10 +445,14 @@ async def test_no_raw_path_title_or_activity_in_the_enqueued_payload(tmp_path):
         rows = await _outbox_rows(db)
         assert len(rows) == 3
         blob = "\n".join(r["payload_json"] for r in rows)
-        for secret in (WORKSPACE, "acme-corp", "/Users", ACTIVITY, "model.py", SESSION, "40321"):
+        for secret in (WORKSPACE, "acme-corp", "/Users", ACTIVITY, "model.py", "40321"):
             assert secret not in blob
         for r in rows:
             payload = json.loads(r["payload_json"])
+            # 6.1 cloud sync (design 25): the session id travels as its own
+            # id field and nowhere else.
+            assert payload.get("session_id") == SESSION
+            assert r["payload_json"].count(SESSION) == 1
             base = set(_live_payload()) | {"row_type"}
             assert base <= set(payload) <= fwd_repo_module._TASK_EVENT_ALLOWED
             if payload["event"] != "exit":

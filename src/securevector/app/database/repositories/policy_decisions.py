@@ -140,18 +140,19 @@ class PolicyDecisionsRepository:
 
     async def approved_since(self, harness_session_id: Optional[str], harness: Optional[str],
                              since: str) -> bool:
-        """A JIT grant made for this session (or for every session of this
-        harness) after `since`."""
+        """A JIT grant made for this session after `since`. A grant made in
+        another session, or a sessionless grant seen from a session, never
+        counts; a sessionless caller sees sessionless grants only."""
         row = await self.db.fetch_one(
             "SELECT 1 FROM jit_access_grants WHERE revoked_at IS NULL "
-            "AND (session_id IS NULL OR session_id = ?) "
+            "AND ((? IS NULL AND session_id IS NULL) OR session_id = ?) "
             "AND (runtime_kind IS NULL OR ? IS NULL OR runtime_kind = ?) "
             "AND granted_at >= ? "
             # A response rung's approval lifts only its own hold, never a deny.
             "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'rung') "
             "AND request_id NOT IN (SELECT id FROM jit_access_requests WHERE rule_source = 'delegate') "
             "LIMIT 1",
-            (harness_session_id, harness, harness, since.replace("T", " ")),
+            (harness_session_id, harness_session_id, harness, harness, since.replace("T", " ")),
         )
         return row is not None
 

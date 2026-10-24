@@ -851,6 +851,18 @@ async def get_synced_overrides(runtime: Optional[str] = None,
             for g in grants:
                 if g.get("request_id") in rung_ids:
                     continue
+                # Session isolation, whatever the duration: a grant made in
+                # one session reaches only a caller naming that session, and
+                # a sessionless grant only a caller naming none. A caller in
+                # a session never receives another session's grant or a
+                # sessionless one.
+                grant_sid = (g.get("session_id") or "").strip() or None
+                if grant_sid != _sid:
+                    continue
+                # An "Allow once" grant lifts one exact call; only the server
+                # paths that see the call's arguments may spend it.
+                if g.get("call_fingerprint"):
+                    continue
                 # A delegation approval launches a task; it is never an allow row.
                 if str(g.get("tool_id") or "").startswith("delegate:"):
                     continue
@@ -874,9 +886,9 @@ async def get_synced_overrides(runtime: Optional[str] = None,
                     "reason": f"JIT grant {g['id']} ({g['duration']})",
                     "source": "jit_grant",
                     "expires_at": g.get("expires_at"),
-                    # session-scoped grants only apply inside the requesting
-                    # session; hooks that pass their session honour this.
-                    "session_id": g.get("session_id") if g.get("duration") == "session" else None,
+                    # Every session-bound grant carries its session, so a
+                    # hook that checks the row's session also scopes it.
+                    "session_id": grant_sid,
                 }
                 merged.append({"tool_id": g["tool_id"], **grant_base})
                 if ':' in g["tool_id"]:

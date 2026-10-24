@@ -18,6 +18,9 @@ const App = {
         'agent-runs': AgentRunsPage,
         // Observability > Health: run health findings across runs.
         'run-health': RunHealthPage,
+        // Observability > Live grid: running sessions, large pinned tiles and
+        // a compact grid for hundreds (js/pages/live-grid.js).
+        'live-grid': LiveGridPage,
         'agent-timeline': AgentTimelinePage,
         'storylines': StorylinesPage,
         // Kept routable as an alias: opens Threat Monitor on the Blocked facet.

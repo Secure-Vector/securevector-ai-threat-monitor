@@ -562,13 +562,26 @@ async def decide(db, tool_name: str, tool_input: dict, *, harness: Optional[str]
     # egress path runs, without filing a request (a check is a question).
     # Named call-time rules: the Guard's egress-path check, nothing written.
     from securevector.app.services import call_rules
+    from securevector.app.services import response_rungs as _rungs
 
+    # An unspent "Allow once" for exactly this call answers allow here; the
+    # Guard's egress check spends it when the call runs.
+    once = False
     if tool_decision == ALLOW and egress_decision == ALLOW \
+            and (evaluation.network_capable or call_rules.network_capable(tool_name, harness)):
+        if await _rungs.once_grant_for(db, harness_session_id, harness, tool_name, tool_input or {}):
+            fired = await _rungs.holds_now(
+                db, tool_name, tool_input or {}, harness, harness_session_id,
+                [v.attempt.host for v in evaluation.verdicts], verified=verified,
+                rung_check=evaluation.network_capable, rule_check=True)
+            once = await _rungs.take_once(db, harness_session_id, harness, tool_name, tool_input or {},
+                                          verified=verified, fired=fired, spend=False)
+    if tool_decision == ALLOW and egress_decision == ALLOW and not once \
             and (evaluation.network_capable or call_rules.network_capable(tool_name, harness)):
         if await call_rules.check_network(db, tool_name, harness, harness_session_id, tool_input or {},
                                           verified=verified, file=False):
             egress_decision = NEEDS_APPROVAL
-    if tool_decision == ALLOW and egress_decision == ALLOW and evaluation.network_capable:
+    if tool_decision == ALLOW and egress_decision == ALLOW and evaluation.network_capable and not once:
         from securevector.app.services import response_rungs
 
         if await response_rungs.check_call(

@@ -2687,7 +2687,8 @@ const ToolPermissionsPage = {
         meta.className = 'jit-meta';
         const rt = this._JIT_RUNTIME_LABEL[g.runtime_kind] || g.runtime_kind || 'all runtimes';
         meta.textContent = `${rt} · ${g.duration === 'session' ? 'this session' : g.duration}` +
-            ` · ${this._jitExpiresIn(g.expires_at)}`;
+            (g.state === 'used' ? ' · used' : ` · ${this._jitExpiresIn(g.expires_at)}`) +
+            (g.decision_source === 'cloud' ? ` · approved from the cloud by ${String(g.decided_by || 'a cloud user').slice(0, 120)}` : '');
         row.appendChild(meta);
         const revoke = document.createElement('button');
         revoke.type = 'button';

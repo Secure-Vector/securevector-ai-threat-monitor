@@ -121,10 +121,16 @@ function effectToAction(effect) {
   }
 }
 
+// Row sources that only gate a call before it runs (see pickMatch).
+const PRE_CALL_SOURCES = new Set(['run_limit', 'rung', 'rung_marker']);
+
 function pickMatch(candidates, overrides) {
   if (!overrides || !Array.isArray(overrides.synced) || overrides.synced.length === 0) return null;
   const byId = new Map();
   for (const row of overrides.synced) {
+    // Per-run limits and response rung rows gate a call before it runs;
+    // they say nothing about a call that already ran.
+    if (row && PRE_CALL_SOURCES.has(row.source)) continue;
     if (row && typeof row.tool_id === 'string' && !byId.has(row.tool_id)) byId.set(row.tool_id, row);
   }
   for (const c of candidates) {
@@ -139,7 +145,11 @@ async function audit(event, baseUrl) {
   const candidates = normalize(toolName);
   if (candidates.length === 0) return; // unknown tool — skip (fail-open)
 
-  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+  // The session puts that session's JIT grants in the answer, so a call
+  // that ran under one is recorded as allowed.
+  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND, {
+    sessionId: (event && (event.sessionId || event.session_id)) || null,
+  });
   const match = pickMatch(candidates, overrides);
   const toolId = match ? match.tool_id : candidates[0];
   const reason = match && typeof match.reason === 'string' ? match.reason : null;

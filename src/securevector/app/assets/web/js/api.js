@@ -1088,6 +1088,22 @@ const API = {
             body: JSON.stringify(body || {}),
         });
     },
+    // Observability (6.0): coverage per runtime, running sessions, and one
+    // session's governance summary. The read cookie is scoped to the
+    // terminals prefix, so these routes live under it.
+    async getObservabilityCoverage() {
+        return this._terminalsRead('/api/terminals/observability/coverage');
+    },
+    async getObservabilityLive(params = {}) {
+        const q = new URLSearchParams();
+        if (params.group) q.set('group', params.group);
+        if (params.limit) q.set('limit', params.limit);
+        const qs = q.toString();
+        return this._terminalsRead(`/api/terminals/observability/live${qs ? '?' + qs : ''}`);
+    },
+    async getSessionGovernance(sessionId) {
+        return this._terminalsRead(`/api/terminals/observability/sessions/${encodeURIComponent(sessionId)}/governance`);
+    },
     async terminalsExecutors() {
         return this._terminalsRead('/api/terminals/executors');
     },
@@ -1233,6 +1249,12 @@ const API = {
     },
     async setDelegationPolicy(body) {
         return this._jitDecision('/api/settings/delegation', body, 'PUT');
+    },
+    async getCloudApprovals() {
+        return this.request('/api/settings/cloud-approvals');
+    },
+    async setCloudApprovals(body) {
+        return this._jitDecision('/api/settings/cloud-approvals', body, 'PUT');
     },
     async terminalsEvents(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);

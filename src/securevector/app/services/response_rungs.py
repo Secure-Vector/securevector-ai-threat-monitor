@@ -802,11 +802,163 @@ def marker_kind(tool_name: Any, tool_input: Any, marker: Optional[Mapping[str, A
     return None
 
 
+def call_fingerprint(tool_id: Any, tool_input: Any) -> Optional[str]:
+    """SHA-256 over the tool id and its normalized arguments: the identity of
+    one exact call. JSON text and the parsed object give the same value."""
+    if not tool_id:
+        return None
+    args = tool_input
+    if isinstance(args, (bytes, bytearray)):
+        args = args.decode("utf-8", "replace")
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except ValueError:
+            pass
+    try:
+        norm = json.dumps(args, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        norm = str(args)
+    blob = f"{str(tool_id).strip().lower()}\n{norm}".encode("utf-8", "replace")
+    return hashlib.sha256(blob).hexdigest()
+
+
+# Hold kind recorded on a request filed by the per-call step-up check; the
+# named call rules record their own rule ids.
+HELD_STEP_UP = "step_up"
+CALL_PREVIEW_CHARS = 160
+
+
+def call_preview(tool_input: Any) -> Optional[str]:
+    """A short, secret-redacted preview of a held call's arguments, shown to
+    the person approving it."""
+    from securevector.app.utils.redaction import redact_secrets
+
+    try:
+        text = tool_input if isinstance(tool_input, str) else json.dumps(
+            tool_input, sort_keys=True, ensure_ascii=False, default=str)
+        text = redact_secrets(text or "", "outgoing")[0]
+    except Exception:  # noqa: BLE001 - no preview rather than an unredacted one
+        return None
+    text = " ".join(str(text).split())
+    if not text:
+        return None
+    return text if len(text) <= CALL_PREVIEW_CHARS else text[:CALL_PREVIEW_CHARS - 3] + "..."
+
+
+async def once_grant_for(db, session_id: Optional[str], runtime_kind: Optional[str], tool_name: Any,
+                         tool_input: Any) -> Optional[dict]:
+    """The unspent "Allow once" grant covering exactly this call in this
+    session ({id, request_id, held_by}), or None. Errors read as None."""
+    from securevector.app.database.repositories.jit_access import JitAccessRepository
+    from securevector.app.services.policy_check import tool_candidates
+
+    if not session_id or not tool_name:
+        return None
+    try:
+        cands = tool_candidates(tool_name)
+        key = (cands[0] if cands else str(tool_name)).lower()
+        return await JitAccessRepository(db).once_grant(
+            session_id, runtime_kind, key, call_fingerprint(key, tool_input))
+    except Exception:  # noqa: BLE001 - no grant, the hold stands
+        logger.debug("allow-once lookup failed", exc_info=True)
+        return None
+
+
+async def take_once(db, session_id: Optional[str], runtime_kind: Optional[str], tool_name: Any,
+                    tool_input: Any, *, verified: bool, fired=None, spend: bool = True) -> bool:
+    """True when an unspent "Allow once" grant covers exactly this call in
+    this session and may be used now.
+
+    - Only a verified session binding (the launched task's own hook token)
+      can use one; any other caller never does.
+    - `fired`: the hold kinds that would hold this call right now. Every one
+      of them must be among the kinds that filed the approved request, else
+      the call is held as normal and the grant is left unspent.
+    - With `spend` (the Guard's path, where the call then runs) the grant is
+      used up atomically and a decision row is written; a check that only
+      asks leaves it.
+    Any error reads as no grant, so the call stays held."""
+    from securevector.app.database.repositories.jit_access import JitAccessRepository
+
+    if not verified:
+        return False
+    grant = await once_grant_for(db, session_id, runtime_kind, tool_name, tool_input)
+    if not grant:
+        return False
+    if fired is not None:
+        allowed = {k for k in str(grant.get("held_by") or "").split(",") if k}
+        if not set(fired) <= allowed:
+            return False
+    if not spend:
+        return True
+    try:
+        if not await JitAccessRepository(db).spend_once_grant(grant["id"]):
+            return False
+    except Exception:  # noqa: BLE001 - not spent, the hold stands
+        logger.debug("allow-once spend failed", exc_info=True)
+        return False
+    try:
+        from securevector.app.services import decisions
+
+        await decisions.audit(db, "once_used", session_id=session_id, tool_id=str(tool_name)[:200],
+                              request_id=grant.get("request_id"), by="Guard",
+                              harness=runtime_kind, reason="An allow once approval was used by its call")
+    except Exception:  # noqa: BLE001 - the audit is best effort
+        logger.debug("allow-once audit failed", exc_info=True)
+    return True
+
+
+async def holds_now(db, tool_name: str, tool_input: Any, runtime_kind: Optional[str],
+                    session_id: Optional[str], hosts=(), *, verified: bool,
+                    rung_check: bool, rule_check: bool) -> set:
+    """The hold kinds that would hold this call right now, written nowhere:
+    the named call rules that fire (On mode, verified session) and the
+    step-up check. Used to decide whether an "Allow once" still covers it."""
+    from securevector.app.services import call_rules
+
+    fired: set = set()
+    if rule_check:
+        fired |= set(await call_rules.held_rules(db, tool_name, runtime_kind, session_id,
+                                                 tool_input, verified=verified))
+    if rung_check and await check_call(db, tool_name, tool_input, runtime_kind, session_id,
+                                       hosts, file=False):
+        fired.add(HELD_STEP_UP)
+    return fired
+
+
+async def _join_request(db, dup: dict, fingerprint: Optional[str], held_by: Optional[str]) -> dict:
+    """A retry joined into a pending request. A call with other arguments (or
+    one the server did not see) unbinds the request from one call, so
+    "Allow once" is no longer offered for it; new hold kinds are added."""
+    updates, params = [], []
+    if dup.get("call_fingerprint") and fingerprint != dup.get("call_fingerprint"):
+        updates.append("call_fingerprint = NULL, call_preview = NULL")
+        dup["call_fingerprint"] = dup["call_preview"] = None
+    kinds = [k for k in str(dup.get("held_by") or "").split(",") if k]
+    extra = [k for k in str(held_by or "").split(",") if k and k not in kinds]
+    if extra:
+        dup["held_by"] = ",".join(kinds + extra)
+        updates.append("held_by = ?")
+        params.append(dup["held_by"])
+    if updates:
+        await db.execute(
+            f"UPDATE jit_access_requests SET {', '.join(updates)} WHERE id = ? AND status = 'pending'",
+            tuple(params) + (dup["id"],),
+        )
+    return dup
+
+
 async def file_request(db, tool_id: str, function_name: Optional[str], runtime_kind: Optional[str],
-                       session_id: str, justification: str = "Session at step-up") -> Optional[dict]:
+                       session_id: str, justification: str = "Session at step-up",
+                       call_fingerprint: Optional[str] = None, call_preview: Optional[str] = None,
+                       held_by: Optional[str] = None) -> Optional[dict]:
     """File one rung approval request, deduped per tool, runtime and session.
     Past 20 in an hour for one session, new asks collapse into the pending
-    request (None when there is none)."""
+    request (None when there is none). `call_fingerprint` and `call_preview`
+    are set by paths that hold the call with its arguments in hand; they
+    bind the request to that one call for "Allow once". A joined retry with
+    other arguments unbinds it. `held_by` names the hold kinds that filed it."""
     from securevector.app.database.repositories.jit_access import JitAccessRepository
     from securevector.app.database.repositories.response_rungs import ResponseRungsRepository
 
@@ -821,12 +973,14 @@ async def file_request(db, tool_id: str, function_name: Optional[str], runtime_k
         (tool_id, runtime_kind, session_id),
     )
     if dup:
-        return dict(dup)
+        return await _join_request(db, dict(dup), call_fingerprint, held_by)
     if await repo.requests_in_last_hour(session_id) >= REQUESTS_PER_HOUR:
         return await repo.latest_pending(session_id)
     return await jit.create_request(tool_id=tool_id, rule_source=RUNG_SOURCE, function_name=function_name,
                                     runtime_kind=runtime_kind, session_id=session_id,
-                                    justification=justification)
+                                    justification=justification, call_fingerprint=call_fingerprint,
+                                    call_preview=call_preview if call_fingerprint else None,
+                                    held_by=held_by)
 
 
 async def expire_holds(db, now: Optional[datetime] = None, limit_s: int = HOLD_LIMIT_S,
@@ -906,7 +1060,9 @@ async def check_call(db, tool_name: str, tool_input: Any, runtime_kind: Optional
     if key in await repo.granted_tools(session_id):
         return None
     if file:
-        await file_request(db, key, tool_name, runtime_kind, session_id)
+        await file_request(db, key, tool_name, runtime_kind, session_id,
+                           call_fingerprint=call_fingerprint(key, tool_input),
+                           call_preview=call_preview(tool_input), held_by=HELD_STEP_UP)
     return kind
 
 

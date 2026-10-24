@@ -234,6 +234,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not install the fleet task-event sink: {_e}")
 
+    # Cloud sync of governance rows and approvals from SecureVector Cloud
+    # (design 25). Each pass is a no-op without an enabled fleet destination;
+    # the decision poll makes no call unless cloud approvals are on and a
+    # shared request is pending.
+    try:
+        from securevector.app.services.cloud_approvals import start_cloud_approvals
+        await start_cloud_approvals()
+    except Exception as _e:
+        logger.warning(f"Could not start cloud approvals sync: {_e}")
+
     # Register the pre-uninstall backstop (#112). Idempotent. Emits
     # device.lifecycle.uninstalling to enrollment-sourced destinations on a
     # hard process exit that bypasses the graceful lifespan shutdown below.
@@ -329,6 +339,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         from securevector.app.services.external_forwarder import stop_external_forwarder
         await stop_external_forwarder()
+        try:
+            from securevector.app.services.cloud_approvals import stop_cloud_approvals
+            await stop_cloud_approvals()
+        except Exception:  # noqa: BLE001 - shutdown continues
+            pass
     except Exception as _e:
         logger.warning(f"Could not stop external_forwarder cleanly: {_e}")
 
@@ -564,6 +579,10 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     from securevector.app.server.routes import detection_response as detection_response_routes
 
     app.include_router(detection_response_routes.router, prefix="/api")
+    # Observability: session governance, live sessions and coverage, same token scope.
+    from securevector.app.server.routes import observability as observability_routes
+
+    app.include_router(observability_routes.router, prefix="/api")
     app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
     # Pre-flight policy checks for the SecureVector MCP tools.
     from securevector.app.server.routes import policy as policy_routes

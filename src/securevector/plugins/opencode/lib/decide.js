@@ -180,7 +180,7 @@ async function decide(toolName, baseUrl, sessionId = null, toolInput = null) {
   // DESTINATION, so a tool with no name-based rule can still be denied for
   // where it points — the egress check must run even with no candidates.
   if (candidates.length > 0) {
-    const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+    const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND, { sessionId });
     const decision = decideFromOverrides(candidates, overrides, sessionId);
     // A name-based deny already stops the call; evaluating egress on top would
     // add latency and a duplicate audit row for a call that never happens.
@@ -207,10 +207,16 @@ function effectToAction(effect) {
   }
 }
 
+// Row sources that only gate a call before it runs (see pickMatch).
+const PRE_CALL_SOURCES = new Set(['run_limit', 'rung', 'rung_marker']);
+
 function pickMatch(candidates, overrides) {
   if (!overrides || !Array.isArray(overrides.synced) || overrides.synced.length === 0) return null;
   const byId = new Map();
   for (const row of overrides.synced) {
+    // Per-run limits and response rung rows gate a call before it runs;
+    // they say nothing about a call that already ran.
+    if (row && PRE_CALL_SOURCES.has(row.source)) continue;
     if (row && typeof row.tool_id === 'string' && !byId.has(row.tool_id)) byId.set(row.tool_id, row);
   }
   for (const c of candidates) {
