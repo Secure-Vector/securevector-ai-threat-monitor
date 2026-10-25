@@ -101,7 +101,9 @@ test('runs list is full width with the trace in its place, and offers a verified
   const src = read('js/pages/agent-runs.js');
   assert.match(src, /\.ar-layout\.runs-v2\.trace-open \.ar-listview \{ display:none; \}/);
   assert.match(src, /\.ar-layout\.runs-v2:not\(\.trace-open\) \.ar-pane \{ display:none; \}/);
-  assert.match(src, /<h2 class="rl-title">Runs<\/h2>/);
+  // 6.1: no "Runs" heading row; the filters sit on the tab row (ObsTabs.foldFilters).
+  assert.doesNotMatch(src, /<h2 class="rl-title">/);
+  assert.match(src, /ObsTabs\.foldFilters\(header,/);
   assert.match(src, /id="rl-filters" role="toolbar" aria-label="Run filters"/);
   assert.match(src, /sessionStorage\.setItem\('sv-agent-task-id', taskId\)/);
   assert.match(src, /Sidebar\.navigate\('terminals'\)/);

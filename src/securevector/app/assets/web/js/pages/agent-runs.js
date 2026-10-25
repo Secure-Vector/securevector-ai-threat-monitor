@@ -465,6 +465,18 @@ const AgentRunsPage = {
         howto.style.alignSelf = 'center';
         howto.title = 'How sessions, runs and spans work';
         header.appendChild(howto);
+        // The run filters sit on the tab row, right aligned (owner, 6.1):
+        // inline when they fit beside the tabs, else one "Filters · N"
+        // button with a popover. Search, range, grouping, views and export
+        // stay on the second row (#agent-runs-toolbar).
+        const fwrap = document.createElement('div');
+        fwrap.innerHTML = '<div class="rl-filters" id="rl-filters" role="toolbar" aria-label="Run filters"></div>';
+        this._fold = ObsTabs.foldFilters(header, fwrap.firstChild, {
+            label: 'Run filters',
+            count: () => this._foldChips().length,
+            chips: () => this._foldChips(),
+            clearAll: () => this._clearFoldFilters(),
+        });
         container.appendChild(header);
 
         const away = document.createElement('div');
@@ -478,8 +490,8 @@ const AgentRunsPage = {
         const layout = document.createElement('div');
         layout.className = 'ar-layout runs-v2';
         layout.innerHTML = '<div class="ar-listview" id="ar-listview">' +
-            '<div class="rl-head"><h2 class="rl-title">Runs</h2><div class="rl-toolbar" id="agent-runs-toolbar"></div></div>' +
-            '<div class="rl-filters" id="rl-filters" role="toolbar" aria-label="Run filters"></div>' +
+            // No "Runs" heading: the active tab names the page.
+            '<div class="rl-head"><div class="rl-toolbar" id="agent-runs-toolbar"></div></div>' +
             '<section class="rl-cards" id="rl-cards" aria-label="Summary for the runs in view"></section>' +
             '<div class="rl-status" id="rl-status" aria-live="polite"></div>' +
             '<div class="rl-tablewrap"><div class="ar-runlist rl-table" id="ar-runlist" aria-label="Runs"></div></div>' +
@@ -1139,6 +1151,11 @@ const AgentRunsPage = {
             .rl-head { display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap; }
             .rl-title { margin:0; font-size:20px; font-weight:650; color:var(--text-primary,#eef2f7); }
             .rl-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto; }
+            /* Second row: search left, the rest right. */
+            .rl-head .rl-toolbar { margin-left:0; flex:1 1 auto; }
+            .rl-toolbar .rl-search { margin-right:auto; }
+            /* The tab-row filters belong to the list; an open trace hides them. */
+            .page-content:has(.ar-layout.trace-open) .obs-fold { display:none; }
             .rl-search { font:inherit; font-size:13px; min-height:34px; width:260px; max-width:100%; padding:6px 10px; box-sizing:border-box;
                 border:1px solid var(--border-default,#232a33); border-radius:6px; background:var(--bg-card,#12171e); color:var(--text-primary,#eef2f7); }
             .rl-search:focus-visible, .rl-btn:focus-visible, .rl-link:focus-visible, .rl-row:focus-visible, .rl-sort:focus-visible,
@@ -1869,6 +1886,39 @@ const AgentRunsPage = {
         this.renderRuns();
     },
 
+    /** The Filters popover's chips: the list filters plus the span-level
+     *  Tool and Spans filters handed off by the Map or Blocked Actions. */
+    _foldChips() {
+        const RL = RunsList;
+        const f = this.filters || RL.emptyFilters();
+        const redraw = () => { if (this._inDetail() && this._trace) this.renderWaterfall(this._trace); };
+        const out = RL.filterChips(f).map(c => ({
+            label: c.label,
+            remove: () => {
+                RL.removeFilterChip(this.filters, c);
+                this.pageIdx = 0;
+                this.runtimeFilter = (this.filters.harness.length === 1 ? this.filters.harness[0] : null);
+                this.renderRuns();
+            },
+        }));
+        if (this.toolFilter) out.push({ label: `Tool: ${String(this.toolFilter).split(':').pop()}`, remove: () => { this.toolFilter = null; this.renderRuns(); redraw(); } });
+        if (this.outcomeFilter && this.outcomeFilter !== 'all') out.push({ label: `Spans: ${this.outcomeFilter.replace('_', ' ')}`, remove: () => { this.outcomeFilter = 'all'; this.renderRuns(); redraw(); } });
+        return out;
+    },
+
+    /** Clear all, from the Filters popover: every chip goes, the search
+     *  text on the second row stays. */
+    _clearFoldFilters() {
+        this.filters = RunsList.clearFilterChips(this.filters);
+        this.runtimeFilter = null;
+        this.toolFilter = null;
+        this.outcomeFilter = 'all';
+        this._extraDims = new Set();
+        this.pageIdx = 0;
+        this.renderRuns();
+        if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
+    },
+
     _clearAllFilters() {
         this.filters = RunsList.emptyFilters();
         this.runtimeFilter = null;
@@ -2065,6 +2115,8 @@ const AgentRunsPage = {
             clr.addEventListener('click', () => this._clearAllFilters());
             bar.appendChild(clr);
         }
+        // The bar's width changed: fit it beside the tabs or fold it.
+        if (this._fold) this._fold.refit();
     },
 
     _spark(values, kind, color, label) {

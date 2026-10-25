@@ -57,6 +57,22 @@ const LiveGridPage = {
         head.className = 'obs-header';
         if (window.ObsTabs) ObsTabs.render(head, 'grid');
         root.appendChild(head);
+        // Harness, Project and Status sit on the tab row, right aligned
+        // (owner, 6.1), or fold into one "Filters · N" button when they do
+        // not fit. Scope, size, grouping, views and Pause stay on row two.
+        const filters = document.createElement('div');
+        filters.className = 'lg-filters';
+        filters.id = 'lg-filters';
+        filters.setAttribute('role', 'group');
+        filters.setAttribute('aria-label', 'Live grid filters');
+        filters.innerHTML = this._filtersHtml();
+        this._fold = (window.ObsTabs && ObsTabs.foldFilters) ? ObsTabs.foldFilters(head, filters, {
+            label: 'Live grid filters',
+            count: () => this._foldChips().length,
+            chips: () => this._foldChips(),
+            clearAll: () => { ['harness', 'project', 'status'].forEach(k => { this.st[k] = ''; }); this._resetFilterSelects(); this.paint(); },
+        }) : null;
+        if (!this._fold) head.appendChild(filters);
         const bar = document.createElement('div');
         bar.className = 'lg-toolbar';
         bar.id = 'lg-toolbar';
@@ -275,21 +291,49 @@ const LiveGridPage = {
     _toolbarHtml() {
         const st = this.st;
         const sel = (id, label, opts) => `<label class="lg-sel"><span>${label}</span><select id="${id}" data-f="${id.slice(3)}">${opts}</select></label>`;
-        return `<h2 class="lg-title">Live grid</h2>` +
-            `<div class="lg-seg" role="group" aria-label="Scope">` +
+        // No "Live grid" heading: the active tab names the page.
+        return `<div class="lg-seg" role="group" aria-label="Scope">` +
             `<button type="button" data-act="scope" data-v="pinned" aria-pressed="${st.scope === 'pinned'}">Pinned <span id="lg-n-pinned">${this.pins.length}</span></button>` +
             `<button type="button" data-act="scope" data-v="all" aria-pressed="${st.scope === 'all'}">All running <span id="lg-n-all">0</span></button></div>` +
             this._seg('mode', [['large', 'Large'], ['compact', 'Compact']], st.mode) +
-            sel('lg-harness', 'Harness', '<option value="">All</option>') +
-            sel('lg-project', 'Project', '<option value="">All</option>') +
-            sel('lg-status', 'Status', [['', 'All running'], ['waiting', 'Waiting for approval'], ['blocked', 'Blocked'], ['quiet', 'Quiet'], ['running', 'Running']]
-                .map(([v, l]) => `<option value="${v}"${st.status === v ? ' selected' : ''}>${l}</option>`).join('')) +
             sel('lg-group', 'Group', [['host', 'Host'], ['project', 'Project'], ['harness', 'Harness'], ['none', 'None']]
                 .map(([v, l]) => `<option value="${v}"${st.group === v ? ' selected' : ''}>${l}</option>`).join('')) +
             `<div class="lg-views"><button type="button" class="lg-btn" data-act="views" aria-expanded="false" aria-haspopup="true">Views ▾</button>` +
             `<div class="lg-views-menu" id="lg-views-menu" hidden></div></div>` +
             `<span class="lg-live"><span class="lg-dot live" aria-hidden="true"></span><span id="lg-ago" aria-live="off">Live · loading</span></span>` +
             `<button type="button" class="lg-btn" data-act="pause" aria-pressed="${this._paused}">${this._paused ? 'Resume' : 'Pause'}</button>`;
+    },
+
+    STATUS_OPTS: [['', 'All running'], ['waiting', 'Waiting for approval'], ['blocked', 'Blocked'], ['quiet', 'Quiet'], ['running', 'Running']],
+
+    /** The tab-row filters: Harness, Project, Status (ids unchanged). */
+    _filtersHtml() {
+        const st = this.st;
+        const sel = (id, label, opts) => `<label class="lg-sel"><span>${label}</span><select id="${id}" data-f="${id.slice(3)}">${opts}</select></label>`;
+        return sel('lg-harness', 'Harness', '<option value="">All</option>') +
+            sel('lg-project', 'Project', '<option value="">All</option>') +
+            sel('lg-status', 'Status', this.STATUS_OPTS
+                .map(([v, l]) => `<option value="${v}"${st.status === v ? ' selected' : ''}>${l}</option>`).join(''));
+    },
+
+    /** Active tab-row filters as removable chips for the Filters popover. */
+    _foldChips() {
+        const M = this.M();
+        const st = this.st || {};
+        const out = [];
+        const drop = (k) => () => { this.st[k] = ''; this._resetFilterSelects(); this.paint(); };
+        if (st.harness) out.push({ label: `Harness: ${M && M.harnessLabel ? M.harnessLabel(st.harness) : st.harness}`, remove: drop('harness') });
+        if (st.project) out.push({ label: `Project: ${st.project}`, remove: drop('project') });
+        if (st.status) out.push({ label: `Status: ${(this.STATUS_OPTS.find(o => o[0] === st.status) || [0, st.status])[1]}`, remove: drop('status') });
+        return out;
+    },
+
+    /** Put the filter selects back in line with this.st after a chip goes. */
+    _resetFilterSelects() {
+        ['harness', 'project', 'status'].forEach(k => {
+            const el = document.getElementById('lg-' + k);
+            if (el) { el.value = this.st[k] || ''; if (k !== 'status') delete el.dataset.sig; }
+        });
     },
 
     /** Counts and dropdown options in place, so an open select or focus is
@@ -318,6 +362,7 @@ const LiveGridPage = {
         if (hostOpt) hostOpt.hidden = !(all.some(s => s.host) || this.st.group === 'host');
         document.querySelectorAll('#lg-toolbar [data-act="scope"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === this.st.scope)));
         document.querySelectorAll('#lg-toolbar [data-act="mode"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === this.st.mode)));
+        if (this._fold) this._fold.refit();
     },
 
     // ------------------------------------------------------------ views
@@ -418,6 +463,8 @@ const LiveGridPage = {
             this._closeViews();
             const bar = document.getElementById('lg-toolbar');
             if (bar) bar.innerHTML = this._toolbarHtml();
+            const fl = document.getElementById('lg-filters');
+            if (fl) fl.innerHTML = this._filtersHtml();
             if (groupChanged || this.st.mode === 'large') this.refresh({ force: true }); else this.paint();
         } else if (act === 'view-del') {
             const V = this._viewsApi();
@@ -481,6 +528,11 @@ const LiveGridPage = {
 .lg-root { --lg-warn: var(--warning); --lg-bad: var(--danger); padding-bottom:96px; }
 .lg-toolbar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 12px; margin:0 0 12px; }
 .lg-title { margin:0 6px 0 0; font-size:18px; color:var(--text-primary); align-self:center; }
+.lg-filters { display:flex; align-items:center; gap:8px 10px; }
+.obs-fold .lg-filters .lg-sel, .lg-toolbar .lg-sel { flex-direction:row; align-items:center; gap:6px; white-space:nowrap; }
+.lg-toolbar { align-items:center; }
+.obs-fold-pop .lg-filters { flex-direction:column; align-items:stretch; }
+.obs-fold-pop .lg-filters .lg-sel select { max-width:none; }
 .lg-seg { display:inline-flex; border:1px solid var(--border-default); border-radius:8px; overflow:hidden; background:var(--bg-tertiary); }
 .lg-seg button { border:0; background:transparent; color:var(--text-secondary); font:600 12.5px var(--font-body); padding:7px 11px; cursor:pointer; }
 .lg-seg button + button { border-left:1px solid var(--border-default); }

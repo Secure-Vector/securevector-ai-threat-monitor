@@ -220,6 +220,46 @@ const RunsList = {
         return true;
     },
 
+    /** The tab-row filters as removable chips, one per chosen value (the
+     *  search box is not one: it stays on the second row). Pure. */
+    filterChips(f) {
+        const out = [];
+        if (!f) return out;
+        const name = (list, k) => ((list.find(x => x[0] === k) || [0, k])[1]);
+        if (f.status) out.push({ key: 'status', value: f.status, label: `Status: ${name(this.STATUS, f.status)}` });
+        const dims = [
+            ['decision', 'Decision', (v) => name(this.DECISION, v)],
+            ['harness', 'Harness', (v) => v],
+            ['project', 'Project', (v) => v],
+            ['model', 'Model', (v) => v],
+            ['host', 'Host', (v) => v],
+            ['user', 'User', (v) => v],
+            ['health', 'Health', (v) => name(this.HEALTH, v)],
+        ];
+        dims.forEach(([key, label, show]) => {
+            (Array.isArray(f[key]) ? f[key] : []).forEach(v => out.push({ key, value: v, label: `${label}: ${show(v)}` }));
+        });
+        return out;
+    },
+
+    /** Remove one chip from the filters, in place. Returns the filters. */
+    removeFilterChip(f, chip) {
+        if (!f || !chip) return f;
+        if (chip.key === 'status') { f.status = ''; return f; }
+        const list = f[chip.key];
+        if (Array.isArray(list)) {
+            const at = list.indexOf(chip.value);
+            if (at >= 0) list.splice(at, 1);
+        }
+        return f;
+    },
+
+    /** Every chip cleared; the search text is kept (it is not in the
+     *  Filters popover). Returns new filters. */
+    clearFilterChips(f) {
+        return Object.assign(this.emptyFilters(), { search: (f && f.search) || '' });
+    },
+
     /** Count of active filters (the search box included). */
     activeCount(f) {
         if (!f) return 0;
