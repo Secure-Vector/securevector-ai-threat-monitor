@@ -254,7 +254,7 @@ function loadSidebar() {
   return S;
 }
 
-test('rail: Detection & Response sits right after Agents, active on its page, with a badge slot', () => {
+test('rail: Detection & Response sits right after Agents (below Visibility), active on its page, with a badge slot', () => {
   const S = loadSidebar();
   const rail = S._createProductRail(S._activeProductGroup('detection-response'));
   const buttons = rail.children[1].children;
@@ -269,7 +269,7 @@ test('rail: Detection & Response sits right after Agents, active on its page, wi
   const badge = detect.children.find(c => c.dataset && c.dataset.drProductBadge);
   assert.ok(badge && badge.hidden === true && badge.className === 'product-rail-attention');
   const onAgents = S._createProductRail(S._activeProductGroup('terminals')).children[1].children;
-  assert.doesNotMatch(onAgents[1].className, /active/);
+  assert.doesNotMatch(onAgents[2].className, /active/);
 });
 
 test('Settings: pinned above Theme on every page, out of More, and no rail button', () => {
