@@ -451,6 +451,6 @@ test('index.html pins the bumped asset versions', () => {
   const html = read('index.html');
   assert.match(html, /api\.js\?v=341/);
   assert.match(html, /terminals\.js\?v=129/);
-  assert.match(html, /sidebar\.js\?v=206/);
+  assert.match(html, /sidebar\.js\?v=207/);
   assert.match(html, /styles\.css\?v=499/);
 });

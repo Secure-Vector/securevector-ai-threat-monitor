@@ -259,8 +259,8 @@ test('rail: Detection & Response sits right after Agents, active on its page, wi
   const rail = S._createProductRail(S._activeProductGroup('detection-response'));
   const buttons = rail.children[1].children;
   const ids = buttons.map(b => b.dataset.productGroup);
-  assert.equal(JSON.stringify(ids), JSON.stringify(['tasks', 'detect', 'visibility', 'governance', 'policies', 'connect', 'more']));
-  const detect = buttons[1];
+  assert.equal(JSON.stringify(ids), JSON.stringify(['visibility', 'tasks', 'detect', 'governance', 'policies', 'connect', 'more']));
+  const detect = buttons[2];
   assert.match(detect.className, /product-rail-button active/);
   assert.equal(detect.attrs['aria-current'], 'page');
   assert.equal(detect.attrs['aria-label'], 'Agent Detection & Response');
