@@ -447,6 +447,40 @@ def test_live_lists_running_sessions_in_triage_order(obs):
     assert "groups" not in body
 
 
+def test_live_rows_carry_the_latest_call_and_egress_host(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("lc", ago=40, args='{"command": "ls"}')
+    s.call("lc", "block", ago=10, tool="Write", args='{"file_path": "/tmp/a"}')
+    s.egress("lc", "old.example.test", ago=50)
+    s.egress("lc", "api.example.test", "block", ago=5)
+    s.call("oc2", ago=5, rk="openclaw")
+    s.call("quiet2", ago=20, rk="unknown-kind")
+    s.done()
+    by = {x["session_id"]: x for x in client.get(f"{BASE}/live", headers=AUTH).json()["sessions"]}
+    lc = by["lc"]
+    assert lc["last_call"]["tool_id"] == "Write" and lc["last_call"]["action"] == "block"
+    assert lc["last_call"]["reason"] == "Denied by rule" and lc["last_call"]["args_preview"] == '{"file_path": "/tmp/a"}'
+    assert lc["last_egress"]["host"] == "api.example.test" and lc["last_egress"]["action"] == "block"
+    assert lc["egress_visible"] is True
+    assert by["oc2"]["last_egress"] is None and by["oc2"]["egress_visible"] is True
+    assert by["quiet2"]["egress_visible"] is False
+    assert lc["waiting_call"] is None
+
+
+def test_live_rows_name_the_waiting_call_that_expires_soonest(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("wc", ago=30)
+    s.request("wc", ago=60, tool="WebFetch", preview="GET https://a.example.test")
+    s.request("wc", ago=20, tool="Bash", preview="curl b.example.test")
+    s.done()
+    row = {x["session_id"]: x for x in client.get(f"{BASE}/live", headers=AUTH).json()["sessions"]}["wc"]
+    assert row["waiting"] == 2
+    assert row["waiting_call"]["tool_id"] == "WebFetch"
+    assert row["waiting_call"]["call_preview"] == "GET https://a.example.test"
+
+
 def test_live_grouping_rollups(obs):
     client, ws, db = obs
     _seed_live(db, ws)

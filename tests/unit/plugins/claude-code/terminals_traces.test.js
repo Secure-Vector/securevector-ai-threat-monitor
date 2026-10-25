@@ -109,8 +109,8 @@ test('index.html pins the bumped cache versions', () => {
   assert.match(html, /styles\.css\?v=499/);
   assert.match(html, /terminals\.js\?v=129/);
   assert.match(html, /agent-runs\.js\?v=385/);
-  assert.match(html, /live-grid-model\.js\?v=7/);
-  assert.match(html, /pages\/live-grid\.js\?v=8/);
+  assert.match(html, /live-grid-model\.js\?v=9/);
+  assert.match(html, /pages\/live-grid\.js\?v=10/);
 });
 
 test('terminals.js coerces run counters with Number() before interpolating', () => {

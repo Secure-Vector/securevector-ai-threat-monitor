@@ -6,9 +6,11 @@
  * live). Large tiles show the pinned sessions with their full governance;
  * compact tiles scale to hundreds of running sessions.
  *
- * The grid never approves or denies anything. Approvals happen only in the
- * trace span panel, with the full context of the one call they apply to; a
- * tile shows the waiting state and its expiry and links to that panel.
+ * Tiles and lists never approve or deny. A decision is made only in the
+ * span panel (the same one the Runs details and the trace show), with the
+ * full context of the one call it applies to. Review opens that panel in
+ * place, inside the tile's own panel, so many sessions can be watched and
+ * acted on without leaving the grid (owner, 6.1).
  *
  * Every server string is escaped before it reaches markup.
  */
@@ -115,7 +117,28 @@
         defaults(pins) {
             const any = (pins || []).length > 0;
             return { scope: any ? 'pinned' : 'all', mode: any ? 'large' : 'compact',
-                harness: '', project: '', status: '', group: 'none', toggles: {} };
+                harness: '', project: '', status: '', group: 'none', toggles: {}, chip: '' };
+        },
+
+        /** A saved view from before the chips carries `toggles`: the first
+         *  waiting, blocked or quiet toggle becomes the chip and the rest go,
+         *  so the grid never narrows without a visible control. */
+        viewFilters(f) {
+            const v = Object.assign({}, f || {});
+            const t = v.toggles || {};
+            if (!v.chip) v.chip = (this.CHIPS.map(c => c[0]).find(k => t[k])) || '';
+            v.toggles = {};
+            return v;
+        },
+
+        /** Pinned focus shows only while something is pinned: with no pins
+         *  the view falls back to the grid of all running sessions. */
+        viewFor(st, pins) {
+            const out = Object.assign({}, st || {});
+            const any = (pins || []).length > 0;
+            if (!any && out.mode === 'large') out.mode = 'compact';
+            if (!any && out.scope === 'pinned') out.scope = 'all';
+            return { st: out, showFocus: any };
         },
 
         // ----------------------------------------------------------- state
@@ -249,7 +272,10 @@
             const bucket = Math.floor((now || 0) / 10000);
             const ses = ((data && data.sessions) || []).map(s => [s.session_id, s.waiting, s.blocked, s.score, s.cost_usd,
                 s.tokens, s.tokens_pending, s.tool_calls, s.oldest_waiting_expires_at, s.project, s.harness,
-                s.coverage_level, s.repeat_attempt, s.started_at, Math.floor((Number(s.quiet_seconds) || 0) / 10)]);
+                s.coverage_level, s.repeat_attempt, s.started_at, Math.floor((Number(s.quiet_seconds) || 0) / 10),
+                s.last_call && [s.last_call.at, s.last_call.action, s.last_call.tool_id, s.last_call.reason],
+                s.last_egress && [s.last_egress.host, s.last_egress.action], s.egress_visible,
+                s.waiting_call && [s.waiting_call.tool_id, s.waiting_call.function_name]]);
             const det = Object.keys(details || {}).sort().map(k => {
                 const d = details[k] || {}, g = d.gov || {};
                 return [k, d.traceId, (d.spans || []).map(x => [x.span_id || x.row_hash, x.action, x.called_at]),
@@ -288,6 +314,7 @@
                 if (o.harness && (s.harness || 'unknown') !== o.harness) return false;
                 if (o.project && (s.project || 'unknown') !== o.project) return false;
                 if (o.status && this.state(s) !== o.status) return false;
+                if (o.chip && !this.matchToggle(s, o.chip)) return false;
                 return on.every(k => this.matchToggle(s, k));
             });
         },
@@ -311,6 +338,107 @@
             };
         },
 
+        // ------------------------------------------------- attention chips
+
+        CHIPS: [['waiting', 'Waiting'], ['blocked', 'Blocked'], ['quiet', 'Quiet']],
+
+        /** Sessions per chip (not requests): how many tiles each would show. */
+        chipCounts(sessions) {
+            const out = { waiting: 0, blocked: 0, quiet: 0 };
+            (sessions || []).forEach(s => this.CHIPS.forEach(([k]) => { if (this.matchToggle(s, k)) out[k]++; }));
+            return out;
+        },
+
+        /** One chip at a time: a chip narrows the grid, clicking it again
+         *  clears it. All sessions show by default. */
+        chipToggle(cur, key) { return cur === key ? '' : key; },
+
+        chipsHtml(sessions, cur) {
+            const n = this.chipCounts(sessions);
+            return `<div class="lg-chips" role="group" aria-label="Narrow by attention">` +
+                this.CHIPS.map(([k, l]) => {
+                    const on = cur === k;
+                    return `<button type="button" class="lg-chip k-${k}${on ? ' on' : ''}" data-act="chip" data-key="${k}" aria-pressed="${on}"` +
+                        ` aria-label="${l}, ${n[k]} session${n[k] === 1 ? '' : 's'}${on ? ', showing only these' : ''}">` +
+                        `${l}<span class="lg-chip-n">${n[k]}</span></button>`;
+                }).join('<span class="lg-chip-sep" aria-hidden="true">·</span>') + `</div>`;
+        },
+
+        // ------------------------------------------------ tile glance lines
+
+        /** Egress for a tile, honest about what is known: a harness without
+         *  an egress view is "not monitored", a monitored session with no
+         *  destination is "no egress observed", and missing data is "not
+         *  synced yet". Never a clear signal it has not earned. */
+        egressState(s, gov) {
+            const eg = gov && gov.egress;
+            const visible = eg ? eg.visible !== false
+                : (s && typeof s.egress_visible === 'boolean' ? s.egress_visible : null);
+            if (visible === false) return { key: 'off', text: 'Egress not monitored' };
+            if (visible === null) return { key: 'missing', text: 'Not synced yet' };
+            const le = s && s.last_egress;
+            if (le && le.host) return { key: le.action === 'block' ? 'blocked' : 'host', text: String(le.host), host: String(le.host) };
+            const hosts = (eg && Array.isArray(eg.hosts)) ? eg.hosts.filter(h => h && h.host) : [];
+            if (hosts.length) {
+                const h = hosts.find(x => x.status === 'blocked' || x.status === 'waiting') || hosts[0];
+                return { key: h.status === 'blocked' ? 'blocked' : 'host', text: String(h.host), host: String(h.host) };
+            }
+            if (!eg && s && s.last_egress === undefined) return { key: 'missing', text: 'Not synced yet' };
+            return { key: 'none', text: 'No egress observed' };
+        },
+
+        /** The latest governance result in plain words. */
+        govWord(action) {
+            if (action === 'block') return { key: 'blocked', label: 'blocked' };
+            if (action === 'hold' || action === 'waiting') return { key: 'waiting', label: 'held' };
+            if (action === 'log_only') return { key: 'recorded', label: 'logged' };
+            return { key: 'allowed', label: 'allowed' };
+        },
+
+        /** What a tile says: the current or last action (tool plus target,
+         *  no values), the latest governance result with its rule, and the
+         *  egress state. */
+        glance(s) {
+            const lc = (s && s.last_call) || null;
+            const RT = root.RunTrace;
+            let tool = lc ? (lc.function_name || lc.tool_id || 'tool') : '';
+            let target = '';
+            if (lc && lc.args_preview) {
+                const names = RT && RT.dataNames ? (RT.dataNames(lc.args_preview) || []) : [];
+                target = this.previewOf(lc.args_preview);
+                // A preview that names secret-like data shows the names only.
+                if (names.length) target = names.join(', ');
+            }
+            const wc = this.state(s) === 'waiting' ? (s.waiting_call || null) : null;
+            if (wc) {
+                // The held call leads: its data names and destination only,
+                // never the raw preview (it may carry values).
+                tool = wc.function_name || wc.tool_id || 'tool';
+                const names = RT && RT.dataNames ? (RT.dataNames(wc.call_preview) || []) : [];
+                const host = RT && RT.hostOf ? (RT.hostOf(wc.tool_id) || RT.hostOf(wc.call_preview)) : null;
+                target = [names.join(', '), host ? 'to ' + host : ''].filter(Boolean).join(' ');
+            }
+            let gov;
+            if (this.state(s) === 'waiting') {
+                const exp = this.clock(s.oldest_waiting_expires_at);
+                gov = { key: 'waiting', label: 'held', rule: 'waiting for approval' + (exp ? `, expires ${exp}` : '') };
+            } else if (lc) {
+                const w = this.govWord(lc.action);
+                const rule = lc.reason ? String(lc.reason).replace(/\s+/g, ' ').slice(0, 60) : '';
+                gov = { key: w.key, label: w.label, rule };
+            } else gov = null;
+            return { tool, target, gov, egress: this.egressState(s, null) };
+        },
+
+        /** "updated 12s ago" from a time in ms. */
+        agoText(atMs, now) {
+            if (atMs == null || !Number.isFinite(atMs)) return 'no activity yet';
+            const n = Math.max(0, Math.round(((now == null ? Date.now() : now) - atMs) / 1000));
+            if (n < 60) return `updated ${n}s ago`;
+            if (n < 3600) return `updated ${Math.floor(n / 60)}m ago`;
+            return `updated ${Math.floor(n / 3600)}h ago`;
+        },
+
         /** Coverage as information, not an alert. */
         coverageLine(c) {
             return `Coverage: ${(c && c.coverage_partial) || 0} partial · ${(c && c.coverage_not_enforced) || 0} not enforced`;
@@ -321,21 +449,6 @@
             if (!w.length) return null;
             // Expiry order stands in for request order; the oldest waits longest.
             return this.sort(w)[0];
-        },
-
-        counterCells(c, sessions, now) {
-            const cc = c || this.counters(sessions);
-            const ow = this.oldestWaiting(sessions, now);
-            const owExp = ow ? this.clock(ow.oldest_waiting_expires_at) : '';
-            const cost = cc.cost_usd != null ? this.fmtUsd(cc.cost_usd) : '—';
-            return [
-                { key: 'waiting', label: 'Waiting for approval', value: cc.waiting || 0, sub: owExp ? `next expires ${owExp}` : 'none waiting' },
-                { key: 'blocked', label: 'With blocked calls', value: cc.blocked_sessions || 0, sub: 'sessions' },
-                { key: 'score70', label: 'Score 70+', value: cc.score_70_plus || 0, sub: 'high' },
-                { key: 'quiet', label: 'Quiet over 5m', value: cc.quiet_over_5m || 0, sub: 'may be stuck' },
-                { key: 'cost', label: 'Cost, running', value: cost,
-                    sub: `${this.fmtTok(cc.tokens || 0)} tokens` + (cc.cost_known_sessions != null && cc.cost_known_sessions < (cc.running || 0) ? ` · recorded for ${cc.cost_known_sessions}` : '') },
-            ];
         },
 
         // ---------------------------------------------------------- groups
@@ -381,51 +494,74 @@
 
         // -------------------------------------------------------- markup
 
-        /** One small tile. No listeners: the page delegates clicks on
-         *  [data-sid]. No approve or deny control. */
-        compactTileHtml(s, pinned, open) {
+        /** One tile: harness and session, the current or last action, the
+         *  latest governance result, egress and how long ago it updated. No
+         *  listeners: the page delegates clicks on [data-sid]. No approve or
+         *  deny control on the tile itself. `s._gone` marks a pinned session
+         *  that is not in the live list ('ended' or 'outside' a cut list). */
+        compactTileHtml(s, pinned, open, opts = {}) {
             const e = (x) => this.esc(x);
-            const st = this.state(s);
-            const harness = this.harnessLabel(s.harness);
-            const cov = this.coverageWord(s.coverage_level);
+            const st = s._gone ? 'quiet' : this.state(s);
+            const harness = s._gone && !s.harness ? 'Session' : this.harnessLabel(s.harness);
+            const cov = s._gone ? '' : this.coverageWord(s.coverage_level);
             const tc = s.tool_calls || {};
             const title = [
                 `Session ${s.session_id}`,
-                `Calls ${tc.total || 0}: ${tc.allowed || 0} allowed, ${tc.waiting || 0} waiting, ${tc.blocked || 0} blocked`,
-                `Cost ${this.costText(s)}`,
+                s._gone ? '' : `Calls ${tc.total || 0}: ${tc.allowed || 0} allowed, ${tc.waiting || 0} waiting, ${tc.blocked || 0} blocked`,
+                s._gone ? '' : `Cost ${this.costText(s)}`,
+                typeof s.score === 'number' ? `Score ${s.score}` : '',
                 s.coverage ? `Coverage ${s.coverage}` : '',
             ].filter(Boolean).join('\n');
-            const score = typeof s.score === 'number' ? `<span class="lg-c-score">${e(s.score)}</span>` : '<span class="lg-c-score none">no score</span>';
             const sid = e(s.session_id);
-            const name = s.project || this.short(s.session_id);
+            const shortId = this.short(s.session_id);
+            const name = s.project || shortId;
+            const g = this.glance(s);
             const exp = `<button type="button" class="lg-exp" data-act="expand" data-sid="${sid}" aria-expanded="${open ? 'true' : 'false'}"` +
-                ` aria-controls="lg-cx-${sid}" aria-label="${open ? 'Hide' : 'Show'} tool calls and egress for ${e(name)}" title="${open ? 'Hide' : 'Show'} tool calls and egress">` +
+                ` aria-controls="lg-cx-${sid}" aria-label="${open ? 'Hide' : 'Show'} recent calls and egress for ${e(name)}" title="${open ? 'Hide' : 'Show'} recent calls and egress">` +
                 `<span aria-hidden="true">${open ? '▾' : '▸'}</span></button>`;
-            // A waiting tile is the waiting badge: it goes to the call's
-            // details on the Runs list (Review), not the full trace.
+            // A waiting tile is the waiting badge: Review opens its panel with
+            // the waiting call's details, in place. Any other tile opens or
+            // closes its panel. Neither leaves the grid.
             const wait = st === 'waiting';
-            return `<div class="lg-cw${pinned ? ' pinned' : ''}${open ? ' open' : ''}"><button type="button" class="lg-c st-${st}" data-act="${wait ? 'review' : 'open'}" data-sid="${sid}" title="${e(title)}" aria-label="${e((s.project || harness) + ', ' + this.stateLine(s) + (wait ? ', review the waiting call' : ', open trace'))}">` +
+            const actLine = s._gone
+                ? `<span class="lg-c-act none">${s._gone === 'outside' ? 'Not in the live list (cut at the limit)' : 'Not running now'}</span>`
+                : g.tool ? `<span class="lg-c-act"><span class="lg-c-tool">${e(g.tool)}</span>${g.target ? ` <span class="lg-c-tgt">${e(g.target)}</span>` : ''}</span>`
+                    : `<span class="lg-c-act none">No calls recorded yet</span>`;
+            const govLine = g.gov && !s._gone
+                ? `<span class="lg-c-gov"><span class="lg-dec ${g.gov.key}">${e(g.gov.label)}</span>${g.gov.rule ? ` <span class="lg-c-rule">${e(g.gov.rule)}</span>` : ''}</span>` : '';
+            const egLine = s._gone ? '' : `<span class="lg-c-eg k-${g.egress.key}"><span class="lg-c-egl">Egress</span> ${e(g.egress.text)}</span>`;
+            const atMs = this.ms(s.last_activity_at) != null ? this.ms(s.last_activity_at)
+                : (s.quiet_seconds != null && opts.now ? opts.now - Number(s.quiet_seconds) * 1000 : null);
+            const ago = s._gone ? '' : `<span class="lg-c-ago" data-at="${atMs == null ? '' : e(atMs)}">${e(this.agoText(atMs, opts.now))}</span>`;
+            const label = `${harness}, ${name}${s.project ? ' ' + shortId : ''}, ${s._gone ? 'not running now' : this.stateLine(s)}` +
+                (wait ? ', review the waiting call' : `, ${open ? 'hide' : 'show'} recent calls`);
+            return `<div class="lg-cw st-${st}${pinned ? ' pinned' : ''}${open ? ' open' : ''}" data-tsid="${sid}">` +
+                `<button type="button" class="lg-c st-${st}" data-act="${wait ? 'review' : 'peek'}" data-sid="${sid}" title="${e(title)}"` +
+                `${wait ? '' : ` aria-expanded="${open ? 'true' : 'false'}" aria-controls="lg-cx-${sid}"`} aria-label="${e(label)}">` +
                 `<span class="lg-c-bar" aria-hidden="true"></span>` +
-                `<span class="lg-c-main"><span class="lg-c-name">${e(s.project || this.short(s.session_id))}</span>` +
-                `<span class="lg-c-state">${e(this.stateLine(s))}</span>` +
-                `<span class="lg-c-sub">${e(harness)} · ${e(cov)}</span></span>` + score + `</button>` +
-                `<button type="button" class="lg-pin" data-act="pin" data-sid="${sid}" aria-pressed="${pinned ? 'true' : 'false'}" aria-label="${pinned ? 'Unpin' : 'Pin'} session ${e(this.short(s.session_id))}" title="${pinned ? 'Unpin' : 'Pin for the large view'}">◆</button>` + exp + `</div>`;
+                `<span class="lg-c-main"><span class="lg-c-head"><span class="lg-c-h">${e(harness)}</span>` +
+                `<span class="lg-c-name">${e(s.project || '')}${s.project ? ' ' : ''}<span class="lg-c-id">${e(shortId)}</span></span></span>` +
+                actLine + govLine + egLine + `</span></button>` +
+                `<div class="lg-c-foot">${ago}${cov ? `<span class="lg-c-cov">${e(cov)}</span>` : ''}` +
+                (wait ? `<button type="button" class="lg-rv" data-act="review" data-sid="${sid}" data-key="btn">Review</button>` : '') + `</div>` +
+                `<button type="button" class="lg-pin" data-act="pin" data-sid="${sid}" aria-pressed="${pinned ? 'true' : 'false'}" aria-label="${pinned ? 'Unpin' : 'Pin'} session ${e(shortId)}" title="${pinned ? 'Unpin' : 'Pin for Pinned focus'}">◆</button>` + exp + `</div>`;
         },
 
         /** A tile and, when it is expanded, its full-row panel right after
          *  it. The grid packs densely, so the panel opens under the tile's
          *  row and the tiles after it keep their places in that row. */
-        _tileWithPanel(s, pins, openSet, details) {
+        _tileWithPanel(s, pins, openSet, details, panels, now) {
             const open = openSet.has(s.session_id);
-            const tile = this.compactTileHtml(s, pins.has(s.session_id), open);
+            const tile = this.compactTileHtml(s, pins.has(s.session_id), open, { now });
             if (!open) return tile;
             const sid = this.esc(s.session_id);
             const d = (details || {})[s.session_id] || null;
-            return tile + `<div class="lg-cx" id="lg-cx-${sid}" role="region" aria-label="${this.esc((s.project || this.short(s.session_id)) + ': tool calls and egress')}">` +
+            return tile + `<div class="lg-cx" id="lg-cx-${sid}" role="region" aria-label="${this.esc((s.project || this.short(s.session_id)) + ': recent calls and egress')}">` +
                 `<div class="lg-cx-head"><span class="lg-cx-name">${this.esc(s.project || this.harnessLabel(s.harness))}</span>` +
                 `<span class="lg-th-id">${this.esc(this.short(s.session_id))}</span>` +
-                `<button type="button" class="lg-link" data-act="open-panel" data-sid="${sid}">Open trace →</button></div>` +
-                this.sectionsHtml(s.session_id, d) + `</div>`;
+                `<button type="button" class="lg-link" data-act="open-panel" data-sid="${sid}">Open trace →</button>` +
+                `<button type="button" class="lg-link lg-link-2" data-act="open-runs" data-sid="${sid}">Open in Runs</button></div>` +
+                this.sectionsHtml(s.session_id, d, { panel: (panels || {})[s.session_id] || null }) + `</div>`;
         },
 
         /** The whole compact body as one string: groups with a caret,
@@ -436,7 +572,7 @@
             const expanded = opts.expanded || {};
             const pins = new Set(opts.pins || []);
             const openSet = new Set(opts.open || []);
-            const tiles = (list) => list.map(s => this._tileWithPanel(s, pins, openSet, opts.details)).join('');
+            const tiles = (list) => list.map(s => this._tileWithPanel(s, pins, openSet, opts.details, opts.panels, opts.now)).join('');
             const by = opts.group || 'none';
             const label = (k) => (by === 'harness' ? this.harnessLabel(k) : k);
             if (!groups.length || !groups.some(g => g.sessions.length)) {
@@ -444,7 +580,7 @@
             }
             return groups.map(g => {
                 if (by === 'none') {
-                    return `<div class="lg-cgrid">${tiles(g.sessions)}</div>`;
+                    return `<div class="lg-cgrid${opts.focus ? ' lg-focus' : ''}">${tiles(g.sessions)}</div>`;
                 }
                 const open = !collapsed[g.key];
                 const total = (g.rollup && g.rollup.running) || g.sessions.length;
@@ -474,9 +610,9 @@
         recentCalls(spans, pending, n = 5) {
             const tools = (spans || []).filter(s => s && s.span_kind !== 'generation');
             const rows = tools.map(s => ({ at: s.called_at, name: s.function_name || s.tool_id || 'tool',
-                preview: s.args_preview, action: s.action }));
+                preview: s.args_preview, action: s.action, span: s }));
             (pending || []).forEach(p => rows.push({ at: p.requested_at, name: p.function_name || p.tool_id || 'tool',
-                preview: p.call_preview, action: 'hold' }));
+                preview: p.call_preview, action: 'hold', reqId: p.id || null }));
             rows.sort((a, b) => (this.ms(b.at) || 0) - (this.ms(a.at) || 0));
             return rows.slice(0, n);
         },
@@ -484,10 +620,12 @@
         previewOf(x) {
             // The trace tree's reading first (command, url, file path), so a
             // tile names a call the way its span does.
+            // RunTrace.previewText picks the command, url or path and masks
+            // secret values; a tile target always goes through it.
             const RT = root.RunTrace;
-            if (RT && RT.previewText && typeof x === 'string') {
-                const r = String(RT.previewText(x) || '');
-                if (r !== x) return r.replace(/\s+/g, ' ').slice(0, 90);
+            if (RT && RT.previewText) {
+                const raw = x && typeof x === 'object' ? JSON.stringify(x) : String(x == null ? '' : x);
+                return String(RT.previewText(raw) || '').replace(/\s+/g, ' ').slice(0, 90);
             }
             let t = x;
             if (t && typeof t === 'object') t = t.command || t.url || t.file_path || t.path || JSON.stringify(t);
@@ -517,6 +655,149 @@
             return (open || []).filter(id => live.has(id));
         },
 
+        /** Open `sid`'s panel without closing it when it is open (Review).
+         *  Same cap as toggleOpen: the oldest closes. */
+        ensureOpen(open, sid) {
+            const list = (open || []).slice();
+            if (sid && !list.includes(sid)) list.push(sid);
+            return list.slice(-this.MAX_OPEN);
+        },
+
+        // --------------------------------------- call details in a panel
+
+        /** The session's requests: the pending list's rows for `sid`, plus
+         *  any the governance summary holds that the list does not. */
+        sessionReqs(sid, reqs, gov) {
+            const mine = (reqs || []).filter(r => r && r.session_id === sid);
+            const ids = new Set(mine.map(r => r.id));
+            ((gov && gov.approvals && gov.approvals.pending) || []).forEach(p => {
+                if (p && p.id && !ids.has(p.id)) mine.push(Object.assign({ session_id: sid, status: 'pending' }, p));
+            });
+            return mine;
+        },
+
+        /** What Review on a tile targets: the session's waiting request that
+         *  expires soonest (pending, not a delegate's), or null. */
+        reviewTarget(reqs, sid) {
+            const ms = (t) => { const v = this.ms(t); return v == null ? Infinity : v; };
+            const w = (reqs || []).filter(x => x && x.session_id === sid && (!x.status || x.status === 'pending') && x.rule_source !== 'delegate')
+                .sort((a, b) => ms(a.expires_at) - ms(b.expires_at));
+            return w.length ? w[0].id : null;
+        },
+
+        /** Details open per tile: { sid: { key, req, wait } }, one per tile.
+         *  A row click toggles that row; another row replaces it. */
+        detToggle(det, sid, key) {
+            const next = Object.assign({}, det || {});
+            const cur = next[sid];
+            if (cur && cur.key === key) delete next[sid];
+            else next[sid] = { key, req: null, wait: false };
+            return next;
+        },
+
+        /** Review: the waiting call's details, by request id when the tile
+         *  names one, else the soonest-expiring one when it is drawn. */
+        detReview(det, sid, reqId) {
+            return Object.assign({}, det || {}, { [sid]: { key: null, req: reqId || null, wait: true } });
+        },
+
+        detClose(det, sid) {
+            const next = Object.assign({}, det || {});
+            delete next[sid];
+            return next;
+        },
+
+        /** Only tiles whose panel shows keep their open details. */
+        detPrune(det, sids) {
+            const keep = new Set(sids || []);
+            const next = {};
+            Object.keys(det || {}).forEach(k => { if (keep.has(k)) next[k] = det[k]; });
+            return next;
+        },
+
+        /** Review on a tile, in place: the panel opens (compact) and the
+         *  waiting call's details open in it. Never a navigation. */
+        reviewPlan(state, sid, reqId, reqs, gov) {
+            const st = state || {};
+            const target = reqId || this.reviewTarget(this.sessionReqs(sid, reqs, gov), sid);
+            // Pinned focus and the grid both open the full-row panel.
+            return {
+                open: this.ensureOpen(st.open, sid),
+                det: this.detReview(st.det, sid, target),
+                focus: sid,
+                navigate: false,
+            };
+        },
+
+        /** Resolve a tile's open details against its run: the span node and
+         *  the RunTrace context the span panel needs. A waiting request the
+         *  run's spans do not hold yet shows as its own node. Null when
+         *  nothing resolves. */
+        detailFor(sid, d, reqs, entry, live) {
+            const RT = root.RunTrace;
+            if (!entry || !d || !RT || !RT.buildTree) return null;
+            const gov = d.gov || null;
+            const mine = this.sessionReqs(sid, reqs, gov);
+            const trace = { trace_id: d.traceId || ('session:' + sid), session_id: sid, spans: d.spans || [],
+                started_at: (d.spans && d.spans[0] && d.spans[0].called_at) || null };
+            const tree = RT.buildTree(trace, { requests: mine, grants: [], newest: true });
+            const reqId = entry.req || (entry.wait ? this.reviewTarget(mine, sid) : null);
+            let found = null;
+            if (reqId) RT.walk(tree, (n, p) => { if (!found && n.req && n.req.id === reqId) found = { node: n, parent: p }; });
+            if (!found && reqId) {
+                const r = mine.find(x => x.id === reqId && (!x.status || x.status === 'pending'));
+                if (r) {
+                    const s = { span_kind: 'tool_call', tool_id: r.tool_id, function_name: r.function_name,
+                        args_preview: r.call_preview, called_at: r.requested_at, action: 'hold', _request: true };
+                    found = { node: { key: 'req:' + r.id, kind: 'tool', span: s, children: [], req: r, grant: null, repeat: false }, parent: tree };
+                }
+            }
+            if (!found && entry.key) found = RT.find(tree, entry.key);
+            if (!found || found.node.kind !== 'tool') return null;
+            const lv = live || {};
+            const ctx = {
+                trace,
+                coverage: (gov && gov.coverage) || null,
+                user: lv.user || (gov && gov.user) || null,
+                host: lv.host || (gov && gov.host) || null,
+                expiryOf: (req) => {
+                    const p = mine.find(x => x && req && x.id === req.id);
+                    return (p && p.expires_at) || (req && req.expires_at) || null;
+                },
+            };
+            return { ctx, found, key: found.node.key, tree };
+        },
+
+        /** The `panel` option sectionsHtml takes: a key for each call row
+         *  and the open call's span panel (the Runs one, with its approval
+         *  controls), or no detail. */
+        panelFor(sid, d, reqs, entry, live) {
+            const RT = root.RunTrace;
+            if (!d || !RT || !RT.buildTree) return null;
+            const res = entry ? this.detailFor(sid, d, reqs, entry, live) : null;
+            const tree = res ? res.tree : RT.buildTree({ trace_id: d.traceId || ('session:' + sid), session_id: sid, spans: d.spans || [] },
+                { requests: this.sessionReqs(sid, reqs, d.gov), grants: [], newest: true });
+            const bySpan = new Map();
+            const byReq = new Map();
+            RT.walk(tree, n => {
+                if (n.kind !== 'tool') return;
+                if (n.span) bySpan.set(n.span, n.key);
+                if (n.req && n.req.id && !byReq.has(n.req.id)) byReq.set(n.req.id, n.key);
+            });
+            const keyOf = (r) => (r.span && bySpan.get(r.span)) || (r.reqId && (byReq.get(r.reqId) || 'req:' + r.reqId)) || null;
+            let detailHtml = '';
+            if (res) {
+                const e = (x) => this.esc(x);
+                const name = RT.toolName ? RT.toolName(res.found.node.span || {}) : 'Call';
+                detailHtml = `<div class="lg-det" role="region" data-dsid="${e(sid)}" aria-label="${e('Details: ' + name)}">` +
+                    RT.spanPanelHtml(res.ctx, res.found)
+                        .replace('aria-label="Close span detail, show session governance"', 'aria-label="Close these call details"')
+                        .replace('<div class="rt-ph"><h3>', `<div class="rt-ph"><h3 tabindex="-1" data-act="det-h" data-sid="${e(sid)}">`) +
+                    `</div>`;
+            }
+            return { keyOf, openKey: res ? res.key : null, detailHtml, resolved: res };
+        },
+
         /** Tool calls section: the latest calls (newest first, at most cap)
          *  and how many more the trace holds. */
         callSection(d, cap) {
@@ -532,7 +813,7 @@
                 const target = dw.key === 'waiting'
                     ? ((RT && RT.dataNames ? RT.dataNames(r.preview) : []) || []).join(', ')
                     : (this.previewOf(r.preview) || '');
-                return { at: r.at, name: r.name, target, key: dw.key, label: dw.label };
+                return { at: r.at, name: r.name, target, key: dw.key, label: dw.label, span: r.span || null, reqId: r.reqId || null };
             });
             const tc = (gov && gov.tool_calls) || {};
             const total = Math.max(Number(tc.total) || 0, all.length);
@@ -576,26 +857,40 @@
             const cap = opts.cap || this.SECTION_CAP;
             const more = (n, what, act) => n > 0 ? `<button type="button" class="lg-link lg-more" data-act="${act}" data-sid="${e(sid)}">+${e(n)} more ${what}</button>` : '';
             const cs = this.callSection(d, cap);
+            // With a panel (the page passes one), each call row opens its
+            // details below it, one open per tile.
+            const pn = opts.panel || null;
+            let shownDet = false;
+            const detLi = () => { shownDet = true; return `<li class="lg-calldet" id="lg-cd-${e(sid)}">${pn.detailHtml}</li>`; };
+            const rowsHtml = cs.rows.map(r => {
+                const tgt = r.target || r.name;
+                const inner = `<span class="lg-call-t">${e(this.clock(r.at))}</span>` +
+                    `<span class="lg-call-n" title="${e(r.name + (r.target ? ': ' + r.target : ''))}"><span class="lg-call-tool">${e(r.name)}</span>${r.target ? ` <span class="lg-call-arg">${e(tgt)}</span>` : ''}</span>` +
+                    `<span class="lg-dec ${r.key}">${e(r.label)}</span>`;
+                const key = pn && pn.keyOf ? pn.keyOf(r) : null;
+                if (!key) return `<li>${inner}</li>`;
+                const on = !!(pn.openKey && key === pn.openKey && pn.detailHtml && !shownDet);
+                return `<li class="lg-crow"><button type="button" class="lg-call${on ? ' on' : ''}" data-act="call" data-sid="${e(sid)}" data-key="${e(key)}" aria-expanded="${on}"` +
+                    `${on ? ` aria-controls="lg-cd-${e(sid)}"` : ''} aria-label="${e((on ? 'Hide' : 'Show') + ' details: ' + r.name + ', ' + r.label)}">${inner}</button></li>` +
+                    (on ? detLi() : '');
+            }).join('');
+            // The open call is not among the latest rows: its details lead.
+            const lead = pn && pn.detailHtml && !shownDet ? `<ol class="lg-calls">${detLi()}</ol>` : '';
             const callsBody = !d ? '<div class="lg-sec-empty">Loading calls…</div>'
-                : cs.rows.length ? `<ol class="lg-calls">${cs.rows.map(r => {
-                    const tgt = r.target || r.name;
-                    return `<li><span class="lg-call-t">${e(this.clock(r.at))}</span>` +
-                        `<span class="lg-call-n" title="${e(r.name + (r.target ? ': ' + r.target : ''))}"><span class="lg-call-tool">${e(r.name)}</span>${r.target ? ` <span class="lg-call-arg">${e(tgt)}</span>` : ''}</span>` +
-                        `<span class="lg-dec ${r.key}">${e(r.label)}</span></li>`;
-                }).join('')}</ol>` : '<div class="lg-sec-empty">No calls recorded yet.</div>';
+                : lead + (cs.rows.length ? `<ol class="lg-calls">${rowsHtml}</ol>` : '<div class="lg-sec-empty">No calls recorded yet.</div>');
             const es = this.egressSection(d && d.gov, cap);
             const egCount = es.loading || (!es.visible && !es.total) ? '' : `${es.total} host${es.total === 1 ? '' : 's'}`;
             let egBody;
-            if (!d || es.loading) egBody = `<div class="lg-sec-empty">${d && d.gov === null ? 'No governance summary for this session.' : 'Loading egress…'}</div>`;
+            if (!d || es.loading) egBody = `<div class="lg-sec-empty">${d && d.gov === null ? 'Not synced yet.' : 'Loading egress…'}</div>`;
             else {
-                egBody = (!es.visible ? '<div class="lg-sec-empty">Not checked: this harness has no egress view.</div>' : '') +
+                egBody = (!es.visible ? '<div class="lg-sec-empty">Egress not monitored: this harness has no egress view.</div>' : '') +
                     (es.rows.length ? `<ul class="lg-hosts">${es.rows.map(h =>
                         `<li><span class="lg-host" title="${e(h.host)}">${e(h.host)}</span>` +
                         `<span class="lg-host-n">${h.calls ? e(h.calls + ' call' + (h.calls === 1 ? '' : 's')) : ''}</span>` +
                         `<span class="lg-dec ${h.key}">${e(h.label)}</span></li>`).join('')}</ul>`
-                        : (es.visible ? '<div class="lg-sec-empty">No network destinations yet.</div>' : ''));
+                        : (es.visible ? '<div class="lg-sec-empty">No egress observed.</div>' : ''));
             }
-            return `<div class="lg-secs">` +
+            return `<div class="lg-secs${shownDet ? ' has-det' : ''}">` +
                 `<section class="lg-sec" aria-label="Tool calls"><h4 class="lg-sec-h">Tool calls<span class="lg-sec-n">${d ? e(cs.total) : ''}</span></h4>${callsBody}${d ? more(cs.more, cs.more === 1 ? 'call' : 'calls', 'more-calls') : ''}</section>` +
                 `<section class="lg-sec" aria-label="Egress"><h4 class="lg-sec-h">Egress<span class="lg-sec-n">${e(egCount)}</span></h4>${egBody}${more(es.more, es.more === 1 ? 'host' : 'hosts', 'more-hosts')}</section>` +
                 `</div>`;
@@ -623,7 +918,8 @@
 
         /** One large tile. `s` is the live row (may be null when the pinned
          *  session is no longer running), `d` the detail: { gov, spans,
-         *  reqs }. No approve or deny control: Review opens the span panel. */
+         *  reqs }. No approve or deny control on the tile: Review opens the
+         *  span panel below the call, inside this tile. */
         largeTileHtml(sid, s, d, now, opts = {}) {
             const e = (x) => this.esc(x);
             const gov = (d && d.gov) || null;
@@ -680,7 +976,7 @@
                 (b.partial ? ' · approving with partial coverage' : '') +
                 (b.count > 1 ? ` · ${e(b.count - 1)} more waiting` : '') +
                 `</div><button type="button" class="lg-btn lg-review" data-act="review" data-sid="${e(sid)}" data-req="${e(b.id)}">Review</button></div>` : '';
-            const callsHtml = this.sectionsHtml(sid, d);
+            const callsHtml = this.sectionsHtml(sid, d, { panel: opts.panel || null });
             const dot = !s ? (opts.cutAt ? 'quiet' : 'off') : quiet ? 'quiet' : 'live';
             return `<article class="lg-tile st-${st}" data-sid="${e(sid)}" aria-label="${e((project || harness) + ' session ' + this.short(sid))}">` +
                 `<header class="lg-thead"><span class="lg-dot ${dot}" aria-hidden="true"></span>` +
@@ -695,7 +991,8 @@
                 cell('Findings', findMain, findSub, f && (f.threats || f.secrets) ? 'bad' : '') +
                 cell('Score', scoreMain, scoreSub, '') +
                 `</div>` + bannerHtml + callsHtml +
-                `<div class="lg-tfoot"><button type="button" class="lg-link" data-act="open-foot" data-sid="${e(sid)}">Open trace →</button></div>` +
+                `<div class="lg-tfoot"><button type="button" class="lg-link" data-act="open-foot" data-sid="${e(sid)}">Open trace →</button>` +
+                `<button type="button" class="lg-link lg-link-2" data-act="open-runs" data-sid="${e(sid)}">Open in Runs</button></div>` +
                 `</article>`;
         },
     };

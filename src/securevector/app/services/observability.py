@@ -185,7 +185,7 @@ async def waiting_by_session(db, sids: list) -> dict:
     m = _marks(sids)
     pending = await _safe_all(
         db,
-        f"SELECT id, session_id, tool_id, function_name, requested_at, {_expiry_sql()} AS expires_at "
+        f"SELECT id, session_id, tool_id, function_name, call_preview, requested_at, {_expiry_sql()} AS expires_at "
         f"FROM jit_access_requests WHERE {_WAITING_SQL} AND session_id IN ({m})",
         tuple(sids),
     )
@@ -217,8 +217,12 @@ async def waiting_by_session(db, sids: list) -> dict:
     used: set = set()
     for p in sorted(pending, key=lambda p: str(p.get("requested_at") or "")):
         sid = p["session_id"]
-        row = out.setdefault(sid, {"waiting": 0, "unmatched": 0, "oldest": None})
+        row = out.setdefault(sid, {"waiting": 0, "unmatched": 0, "oldest": None, "call": None})
         row["waiting"] += 1
+        if row["call"] is None or row["oldest"] != _oldest(row["oldest"], p.get("expires_at")):
+            # The call that expires soonest: what the session waits on.
+            row["call"] = {"tool_id": p.get("tool_id"), "function_name": p.get("function_name"),
+                           "call_preview": p.get("call_preview")}
         row["oldest"] = _oldest(row["oldest"], p.get("expires_at"))
         keys = {str(p.get("tool_id") or "").lower(), str(p.get("function_name") or "").lower()} - {""}
         at = parse_ts(p.get("requested_at"))
@@ -636,6 +640,7 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
         "_unmatched": 0,
         "waiting": 0, "oldest_waiting_expires_at": None, "blocked": 0,
         "score": None, "cost_usd": None, "tokens": 0, "cost_source": None, "tokens_pending": False,
+        "last_call": None, "last_egress": None, "egress_visible": False, "waiting_call": None,
     } for sid in sids}
     if sids:
         m = _marks(sids)
@@ -686,12 +691,40 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
             s["started_at"] = _oldest(s["started_at"], r.get("first"))
             s["last_activity_at"] = _newest(s["last_activity_at"], r.get("last"))
             s["blocked"] += int(r.get("blocked") or 0)
+        # 4b. The latest call and the latest egress destination per session,
+        # so a tile says what the agent is doing without a detail fetch.
+        for r in await _safe_all(
+            db,
+            # Rank on id alone, then join back: the preview is not carried
+            # through the sort.
+            "SELECT t.session_id, t.tool_id, t.function_name, t.action, t.reason, t.args_preview, t.called_at "
+            "FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn "
+            f"FROM tool_call_audit WHERE session_id IN ({m}) AND tool_id NOT IN ({_marks(SESSION_BOUNDARY)})) r "
+            "JOIN tool_call_audit t ON t.id = r.id WHERE r.rn = 1",
+            (*sids, *SESSION_BOUNDARY),
+        ):
+            sessions[r["session_id"]]["last_call"] = {
+                "tool_id": r.get("tool_id"), "function_name": r.get("function_name"), "action": r.get("action"),
+                "reason": r.get("reason"), "args_preview": r.get("args_preview"), "at": iso(r.get("called_at")),
+            }
+        for r in await _safe_all(
+            db,
+            "SELECT e.session_id, e.host, e.action, e.timestamp "
+            "FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn "
+            f"FROM egress_audit WHERE session_id IN ({m}) AND host IS NOT NULL) r "
+            "JOIN egress_audit e ON e.id = r.id WHERE r.rn = 1",
+            tuple(sids),
+        ):
+            sessions[r["session_id"]]["last_egress"] = {
+                "host": r.get("host"), "action": r.get("action"), "at": iso(r.get("timestamp")),
+            }
         # 5. Waiting requests with the oldest expiry.
         for sid, w in (await waiting_by_session(db, sids)).items():
             s = sessions[sid]
             s["waiting"] = w["waiting"]
             s["_unmatched"] = w["unmatched"]
             s["oldest_waiting_expires_at"] = w["oldest"]
+            s["waiting_call"] = w.get("call")
         # 6. Stored scores (computed by the drift scorer, never here).
         scores = {r["session_id"]: r for r in await _safe_all(
             db, f"SELECT session_id, score FROM session_drift WHERE session_id IN ({m})", tuple(sids))}
@@ -713,6 +746,7 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
             cov = harness_coverage.coverage(s["harness"])
             s["coverage"] = harness_coverage.label(s["harness"])
             s["coverage_level"] = cov["level"]
+            s["egress_visible"] = bool(cov.get("egress_visible"))
             sc = scores.get(s["session_id"])
             if cov.get("enforced") == "before_call" and sc and sc.get("score") is not None:
                 s["score"] = int(sc["score"])

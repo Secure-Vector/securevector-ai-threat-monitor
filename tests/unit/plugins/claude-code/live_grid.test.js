@@ -100,8 +100,6 @@ test('counters and counter filters', () => {
   deq(M.filter(list, { harness: 'codex' }).map(s => s.session_id), []);
   // No cost recorded anywhere reads as unknown, never $0.
   assert.equal(M.counters([sess('x')]).cost_usd, null);
-  const cells = M.counterCells(M.counters([sess('x')]), [sess('x')]);
-  assert.equal(cells.find(x => x.key === 'cost').value, '—');
 });
 
 test('coverage wording is information, and per tile', () => {
@@ -113,7 +111,8 @@ test('coverage wording is information, and per tile', () => {
   assert.equal(M.coverageWord(undefined), 'not enforced');
   const html = M.compactTileHtml(sess('g', { harness: 'govrun', coverage_level: 'not_enforced' }));
   assert.match(html, /not enforced/);
-  assert.match(html, /no score/);
+  // Glanceable: no score or metric box on the tile.
+  assert.doesNotMatch(html, /lg-c-score|lg-cells/);
 });
 
 test('state lines: expiry when waiting, blocked count, quiet, running', () => {
@@ -186,7 +185,7 @@ test('pins persist; storage that throws or is missing is tolerated', () => {
   const bad = memStore(); bad.setItem(M.PIN_KEY, '{not json');
   deq(M.loadPins(bad), []);
   // Defaults follow the pins.
-  deq(M.defaults(['a']), { scope: 'pinned', mode: 'large', harness: '', project: '', status: '', group: 'none', toggles: {} });
+  deq(M.defaults(['a']), { scope: 'pinned', mode: 'large', harness: '', project: '', status: '', group: 'none', toggles: {}, chip: '' });
   assert.equal(M.defaults([]).mode, 'compact');
   assert.equal(M.defaults([]).scope, 'all');
 });
@@ -288,7 +287,10 @@ test('page wiring: route, script tags, delegated clicks, timers cleared, trace h
   assert.match(page, /AgentRunsPage\._pendingTrace = tid/);
   assert.match(page, /AgentRunsPage\._pendingReq = reqId/);
   assert.match(runs, /n\.req && n\.req\.id === wantReq/);
-  assert.doesNotMatch(page, /approveJitRequest|denyJitRequest/);
+  // Decisions only through the one guarded handler (the tile's span panel).
+  assert.equal((page.match(/approveJitRequest\(/g) || []).length, 1);
+  assert.equal((page.match(/denyJitRequest\(/g) || []).length, 1);
+  assert.match(page, /async _decide\(sid, act, reqId, duration\) \{[\s\S]*?req\.id !== reqId[\s\S]*?call_fingerprint[\s\S]*?st\.busy[\s\S]*?approveJitRequest/);
   // No em dash in UI copy.
   assert.doesNotMatch(page + read('js/components/live-grid-model.js').replace(/'—'/g, ''), /—/);
 });
@@ -376,7 +378,7 @@ test('compact expansion: toggle keeps other open tiles, only running ones load',
   // One panel, right after its own tile, and the chevrons say which is open.
   assert.equal((html.match(/class="lg-cx"/g) || []).length, 1);
   assert.ok(html.indexOf('id="lg-cx-b"') > html.indexOf('data-act="expand" data-sid="b"'));
-  assert.ok(html.indexOf('id="lg-cx-b"') < html.indexOf('data-act="open" data-sid="c"'));
+  assert.ok(html.indexOf('id="lg-cx-b"') < html.indexOf('data-act="peek" data-sid="c"'));
   assert.match(html, /data-act="expand" data-sid="b" aria-expanded="true" aria-controls="lg-cx-b"/);
   assert.match(html, /data-act="expand" data-sid="a" aria-expanded="false"/);
   assert.match(html, /Loading calls…/);

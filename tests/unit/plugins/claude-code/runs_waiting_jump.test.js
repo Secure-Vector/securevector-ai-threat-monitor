@@ -122,7 +122,7 @@ test('wiring: badges are buttons named "Review the waiting call"; Deny gets focu
   assert.match(lg, /AgentRunsPage\._pendingWait = \{ traceId: tid, reqId: reqId \|\| null \}/);
   assert.match(lg, /act === 'open-panel'[^\n]*\n\s*this\.openTrace\(sid, null\)/, 'Open trace unchanged');
   const lm = read('js/components/live-grid-model.js');
-  assert.match(lm, /data-act="\$\{wait \? 'review' : 'open'\}"/);
+  assert.match(lm, /data-act="\$\{wait \? 'review' : 'peek'\}"/);
 });
 
 test('waitingFirst: waiting runs lead, soonest expiry first; the rest keep their order', () => {
