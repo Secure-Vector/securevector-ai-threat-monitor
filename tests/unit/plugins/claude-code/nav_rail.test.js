@@ -29,6 +29,8 @@ test('product rail order and contextual route mappings are stable', () => {
   assert.match(groups, /id: 'settings', label: 'Settings', icon: 'settings', landing: 'settings', rail: false,[\s\S]*?items: \['settings'\]/);
   assert.match(groups, /id: 'tasks'[\s\S]*?landing: 'terminals',[\s\S]*?items: \['terminals'\]/);
   assert.match(groups, /id: 'visibility'[\s\S]*?items: \['dashboard', 'agent-runs', 'threats', 'costs', 'egress'\]/);
+  // Visibility opens Runs (owner, 6.1); Dashboard stays a menu item until the Overview ships.
+  assert.match(groups, /id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'agent-runs',/);
   assert.match(groups, /id: 'governance'[\s\S]*?items: \['governance'\]/);
   assert.doesNotMatch(groups, /extraPages: \['detection-response'\]/);
   assert.match(groups, /id: 'policies'[\s\S]*?items: \['policies'\]/);
@@ -195,7 +197,7 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=203/);
+  assert.match(html, /sidebar\.js\?v=206/);
   assert.match(html, /styles\.css\?v=499/);
   assert.match(html, /app\.js\?v=78/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
@@ -615,7 +617,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=203/);
+  assert.match(read('index.html'), /sidebar\.js\?v=206/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {

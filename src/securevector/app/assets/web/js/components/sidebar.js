@@ -79,7 +79,7 @@ const Sidebar = {
           subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
         { id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',
           subtitle: 'Sessions that did something unusual, and agent config changes to check', items: ['detection-response'] },
-        { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
+        { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'agent-runs',
           subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
         { id: 'governance', label: 'Governance', icon: 'gauge', landing: 'governance',
           subtitle: 'Review protection posture and approvals', items: ['governance'] },
@@ -167,6 +167,9 @@ const Sidebar = {
         if (!Sidebar._railDefaultApplied) {
             Sidebar._railDefaultApplied = true;
             this.collapsed = true;
+            // Persist it, or the next render in this session reads an older
+            // saved "expanded" and reopens the rail.
+            try { localStorage.setItem('sidebar-collapsed', 'true'); } catch (_) {}
         } else {
             this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : true;
         }
@@ -1210,6 +1213,12 @@ const Sidebar = {
                 this._suppressFlyoutFocus = false;
             }
         }
+        const flyGroup = this._flyoutAfterRender;
+        this._flyoutAfterRender = null;
+        if (flyGroup && container.classList.contains('collapsed')) {
+            const btn = productRail.querySelector(`.product-rail-button[data-product-group="${flyGroup}"]`);
+            if (btn) this._flyoutShow(btn);
+        }
     },
 
     // Context destination rows are divs, so they carry counts, badges and drag
@@ -1561,6 +1570,10 @@ const Sidebar = {
             }
 
             button.addEventListener('click', () => {
+                // On the collapsed rail a click opens the group's landing and
+                // keeps its menu visible, so the other destinations stay one
+                // click away (owner, 6.1).
+                if (group.items && group.items.length > 1) this._flyoutAfterRender = group.id;
                 if (group.id === 'tasks') this._showAgentTasksBoard();
                 else this.navigate(group.landing);
             });
