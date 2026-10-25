@@ -113,7 +113,11 @@
         /** A call's arguments as a person reads them: from a JSON preview the
          *  command, else the url, else the file path; else the raw text. A
          *  JSON preview cut short still gives its leading field. */
-        previewText(x) {
+        /** What a person reads for a call, secret values hidden. */
+        previewText(x) { return this.maskSecrets(this._previewRaw(x)); },
+
+        /** The readable argument before masking, for matching only. */
+        _previewRaw(x) {
             const raw = String(x == null ? '' : x);
             const t = raw.trim();
             if (!t.startsWith('{')) return raw;
@@ -133,7 +137,7 @@
             }
         },
 
-        _norm(x) { return String(this.previewText(x) || '').replace(/\s+/g, ' ').trim().toLowerCase(); },
+        _norm(x) { return String(this._previewRaw(x) || '').replace(/\s+/g, ' ').trim().toLowerCase(); },
 
         // Server preview caps: call_preview (CALL_PREVIEW_CHARS, ends in
         // "...") and args_preview (TRACE_TEXT_CAP, cut with no marker).
@@ -146,7 +150,7 @@
         truncated(raw) {
             const r = String(raw == null ? '' : raw).trim();
             if (!r) return false;
-            if (/(…|\.\.\.)("?\s*\}?)$/.test(r) || /(…|\.\.\.)$/.test(String(this.previewText(r)).trim())) return true;
+            if (/(…|\.\.\.)("?\s*\}?)$/.test(r) || /(…|\.\.\.)$/.test(String(this._previewRaw(r)).trim())) return true;
             if (this.PREVIEW_CAPS.includes(String(raw).length)) return true;
             if (r.startsWith('{')) { try { JSON.parse(r); } catch (_) { return true; } }
             return false;
@@ -174,7 +178,7 @@
         },
 
         hostOf(text) {
-            const t = String(this.previewText(text) || '');
+            const t = String(this._previewRaw(text) || '');
             if (t.toLowerCase().startsWith('egress:')) return t.slice(7);
             const m = t.match(/\b(?:https?|wss?):\/\/([^\/\s'"@:]+)/i);
             return m ? m[1] : null;
@@ -204,7 +208,7 @@
                     if (used.has(x.key)) return false;
                     const t = this.ms(x.s.called_at);
                     if (at != null && t != null && Math.abs(at - t) > this.SAME_CALL_MS) return false;
-                    if (host) return String(this.previewText(x.s.args_preview) || '').toLowerCase().includes(host.toLowerCase());
+                    if (host) return String(this._previewRaw(x.s.args_preview) || '').toLowerCase().includes(host.toLowerCase());
                     return [...this._keys(x.s)].some(k => rk.has(k));
                 }).sort((a, b) => Math.abs((this.ms(a.s.called_at) || 0) - (at || 0)) - Math.abs((this.ms(b.s.called_at) || 0) - (at || 0)));
             };
@@ -682,7 +686,7 @@
                 (ctx.extraHtml || '') + `</div>` +
                 `<div class="rt-status">${parts.join(' · ')}</div>` +
                 (sess.length ? `<div class="rt-sess">${sess.join(' · ')}</div>` : '') +
-                `</div><div class="rt-head-side">${nav}${stop}</div></div>`;
+                `</div><div class="rt-head-side">${this.exportMenuHtml(this.state(tr.trace_id))}${nav}${stop}</div></div>`;
         },
 
         stripHtml(gov, filter) {
@@ -826,70 +830,328 @@
             return html;
         },
 
-        /** Nothing selected: the session governance summary. */
+        /** Nothing selected: the session governance summary, one collapsible
+         *  section per subject (the Agent Sessions governance column's
+         *  pattern). Every section starts collapsed and shows its one-line
+         *  summary in the header; what the person opens is remembered. */
         govPanelHtml(ctx, gov) {
             const e = (s) => this.esc(s);
             let html = '<div class="rt-ph"><h3>Session governance</h3><span class="rt-muted">select a span for its details</span></div>';
             if (gov === null || gov === undefined) return html + '<p class="rt-muted">Loading…</p>';
             if (gov === false) return html + '<p class="rt-muted">No governance summary for this session.</p>';
+            return html + '<div class="rt-secs">' + this.govSections(ctx || {}, gov).map(sec => {
+                const open = this.secOpen(sec.id);
+                const sum = sec.summary.map((p, i) => (i ? (p.sep || ' · ') : '') + `<span class="${p.tone ? 'rt-' + p.tone : ''}">${e(p.t)}</span>`).join('');
+                return `<details class="terminals-gov-section rt-sec" id="rt-sec-${sec.id}" data-sec="${sec.id}"${open ? ' open' : ''}>` +
+                    `<summary data-act="sec" data-sec="${sec.id}" aria-expanded="${open ? 'true' : 'false'}" aria-controls="rt-sec-body-${sec.id}">` +
+                    `<h3>${e(sec.title)}</h3><span class="rt-sec-sum">${sum}</span></summary>` +
+                    `<div class="rt-sec-body" id="rt-sec-body-${sec.id}">${sec.body}</div></details>`;
+            }).join('') + '</div>';
+        },
+
+        GOV_SECTION_IDS: ['calls', 'egress', 'cost', 'findings', 'score', 'coverage', 'approvals'],
+        SEC_KEY: 'sv.runTrace.govSections',
+        _secOpen: null,
+
+        /** Open state per section, shared by every run and kept in the
+         *  browser when it allows; collapsed until the person opens one. */
+        _secStore() {
+            if (this._secOpen) return this._secOpen;
+            let saved = {};
+            try {
+                const ls = root.localStorage;
+                const v = ls && JSON.parse(ls.getItem(this.SEC_KEY) || '{}');
+                if (v && typeof v === 'object') saved = v;
+            } catch (_) { /* storage unavailable */ }
+            this._secOpen = {};
+            this.GOV_SECTION_IDS.forEach(id => { if (saved[id] === true) this._secOpen[id] = true; });
+            return this._secOpen;
+        },
+
+        secOpen(id) { return this._secStore()[id] === true; },
+
+        setSecOpen(id, open) {
+            const s = this._secStore();
+            if (open) s[id] = true; else delete s[id];
+            try { if (root.localStorage) root.localStorage.setItem(this.SEC_KEY, JSON.stringify(s)); } catch (_) { /* storage unavailable */ }
+        },
+
+        /** The sections, in panel order: id, title, the header's one-line
+         *  summary as parts (text and tone) and the body markup. */
+        govSections(ctx, gov) {
+            const e = (s) => this.esc(s);
+            const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
             const tc = gov.tool_calls || {};
             const blocked = Array.isArray(gov.blocked_calls) ? gov.blocked_calls : [];
             const runIdx = ctx.runIndexOf || (() => null);
-            html += this._dl([['Tool calls', `${Number(tc.total || 0)} · ${Number(tc.allowed || 0)} allowed${Number(tc.waiting) ? ` · <span class="rt-warn">${Number(tc.waiting)} waiting</span>` : ''}${Number(tc.blocked) ? ` · <span class="rt-bad">${Number(tc.blocked)} blocked</span>` : ''}`]]);
+            // The server's total is allowed + logged + blocked + waiting
+            // requests with no block row of their own; a waiting request
+            // matched to a block row is already counted as blocked. Every
+            // non-zero bucket shows, so the parts add up to the total; log_only
+            // calls read "recorded", the word the rows use.
+            const nTotal = Number(tc.total || 0), nAllowed = Number(tc.allowed || 0), nBlock = Number(tc.blocked || 0), nLog = Number(tc.logged || 0);
+            const nUnmatched = Math.max(0, nTotal - nAllowed - nLog - nBlock);
+            const nMatched = Math.min(nBlock, Math.max(0, Number(tc.waiting || 0) - nUnmatched));
+            const callParts = [nAllowed ? { t: `${nAllowed} allowed` } : null,
+                nBlock ? { t: `${nBlock} blocked`, tone: 'bad' } : null,
+                nLog ? { t: `${nLog} recorded` } : null,
+                nUnmatched ? { t: `${nUnmatched} waiting`, tone: 'warn' } : null].filter(Boolean);
+            const callNote = nMatched ? { t: `(${nMatched} of the blocked ${nMatched === 1 ? 'is' : 'are'} waiting for approval)`, tone: 'warn', sep: ' ' } : null;
+            let callsBody = this._dl([['Tool calls', `${nTotal}` + callParts.concat(callNote ? [callNote] : []).map((p, i, all) => `${p === callNote ? ' ' : ' · '}${p.tone ? `<span class="rt-${p.tone}">${e(p.t)}</span>` : e(p.t)}`).join('')]]);
             if (blocked.length) {
-                html += '<ul class="rt-blist">' + blocked.slice(0, 8).map(b => {
+                callsBody += '<ul class="rt-blist">' + blocked.slice(0, 8).map(b => {
                     const n = runIdx(b.trace_id);
                     const label = `${b.tool_id || 'call'}${b.args_preview ? ' ' + String(b.args_preview).slice(0, 60) : ''}${n ? ' · Run ' + n : ''}${b.repeat_attempt ? ' · repeat attempt' : ''}`;
                     return `<li><button type="button" class="rt-link rt-bad" data-act="goto" data-trace="${e(b.trace_id || '')}" data-span="${e(b.span_id || '')}"><span aria-hidden="true">✕</span> ${e(label)}</button></li>`;
                 }).join('') + (blocked.length > 8 ? `<li class="rt-muted">${blocked.length - 8} more</li>` : '') + '</ul>';
             }
+
             const eg = gov.egress || {};
             const eh = this.egressHosts(gov);
             const hosts = eg.visible === false ? eh.hosts.filter(h => h.status === 'tool') : eh.hosts;
-            html += '<hr class="rt-hr">';
-            if (eg.visible === false) html += this._dl([['Egress', 'not checked: this harness has no egress view']]);
-            {
-                if (eg.visible !== false) html += this._dl([['Egress', `${hosts.length} host${hosts.length === 1 ? '' : 's'} · ` + this.egressParts(eh).map(p => `<span class="${p.tone ? 'rt-' + p.tone : ''}">${e(p.t)}</span>`).join(' · ')]]);
-                const ordered = hosts.slice().sort((a, b) => (a.status === 'allowed') - (b.status === 'allowed') || (b.calls || 0) - (a.calls || 0));
-                const shown = ctx.allHosts ? ordered : ordered.slice(0, this.HOSTS_SHOWN);
-                if (shown.length) {
-                    html += '<ul class="rt-hosts">' + shown.map(h => `<li class="${h.status === 'blocked' || h.status === 'tool' ? 'rt-bad' : h.status === 'waiting' ? 'rt-warn' : ''}"><span class="rt-mono">${e(h.host)}</span><span>${h.status === 'allowed' ? `${Number(h.calls || 0)} call${Number(h.calls) === 1 ? '' : 's'}` : e(h.status === 'waiting' ? 'waiting for approval' : h.status === 'tool' ? 'stopped by a tool rule' : h.status)}</span></li>`).join('') + '</ul>';
-                }
-                if (!ctx.allHosts && ordered.length > shown.length) html += `<button type="button" class="rt-link" data-act="hosts">${ordered.length - shown.length} more host${ordered.length - shown.length === 1 ? '' : 's'}</button>`;
+            const stopped = eh.blocked + eh.tool;
+            const egParts = eg.visible === false
+                ? [{ t: 'not checked' }].concat(eh.tool ? [{ t: `${eh.tool} stopped by a tool rule`, tone: 'bad' }] : [])
+                : [{ t: plural(hosts.length, 'host') },
+                    eh.waiting ? { t: `${eh.waiting} waiting`, tone: 'warn' } : null,
+                    stopped ? { t: `${stopped} stopped`, tone: 'bad' } : (eh.waiting ? null : { t: 'none stopped' })].filter(Boolean);
+            let egBody = eg.visible === false
+                ? this._dl([['Egress', 'not checked: this harness has no egress view']])
+                : this._dl([['Egress', `${plural(hosts.length, 'host')} · ` + this.egressParts(eh).map(p => `<span class="${p.tone ? 'rt-' + p.tone : ''}">${e(p.t)}</span>`).join(' · ')]]);
+            const ordered = hosts.slice().sort((a, b) => (a.status === 'allowed') - (b.status === 'allowed') || (b.calls || 0) - (a.calls || 0));
+            const shown = ctx.allHosts ? ordered : ordered.slice(0, this.HOSTS_SHOWN);
+            if (shown.length) {
+                egBody += '<ul class="rt-hosts">' + shown.map(h => `<li class="${h.status === 'blocked' || h.status === 'tool' ? 'rt-bad' : h.status === 'waiting' ? 'rt-warn' : ''}"><span class="rt-mono">${e(h.host)}</span><span>${h.status === 'allowed' ? `${Number(h.calls || 0)} call${Number(h.calls) === 1 ? '' : 's'}` : e(h.status === 'waiting' ? 'waiting for approval' : h.status === 'tool' ? 'stopped by a tool rule' : h.status)}</span></li>`).join('') + '</ul>';
             }
+            if (!ctx.allHosts && ordered.length > shown.length) egBody += `<button type="button" class="rt-link" data-act="hosts">${ordered.length - shown.length} more host${ordered.length - shown.length === 1 ? '' : 's'}</button>`;
+
             const c = gov.cost || {};
+            const usd = c.usd == null ? 'not recorded' : (this.fmtUsd(c.usd) || '$0.00');
+            const tok = `${this.fmtTok(c.tokens) || '0'} tokens`;
+            const costBody = this._dl([
+                ['Cost', `${e(usd)} · ${e(tok)}${(c.models || []).length ? ' · ' + e(c.models.join(', ')) : ''}`],
+                c.usd == null ? ['Why', 'Only calls through the SecureVector proxy carry a price. Tokens come from the transcript.'] : null,
+            ]);
+
             const f = gov.findings || {};
             const num = (v) => (Array.isArray(v) ? v.length : Number(v || 0));
+            const nSec = num(f.secrets), nThr = num(f.threats);
+            const fText = `${plural(nSec, 'secret')}, ${plural(nThr, 'threat')}`;
+            const findBody = this._dl([['Findings', e(fText)]]);
+
             const sc = gov.score;
             const cov = gov.coverage || ctx.coverage || {};
-            const unchecked = Array.isArray(cov.unchecked) ? cov.unchecked : [];
-            html += '<hr class="rt-hr">' + this._dl([
-                ['Cost', `${c.usd == null ? 'not recorded' : e(this.fmtUsd(c.usd) || '$0.00')} · ${e(this.fmtTok(c.tokens) || '0')} tokens${(c.models || []).length ? ' · ' + e(c.models.join(', ')) : ''}`],
-                ['Findings', `${num(f.secrets)} secrets, ${num(f.threats)} threats`],
-                ['Score', sc && typeof sc.score === 'number'
+            const scored = sc && typeof sc.score === 'number';
+            const scParts = scored
+                ? [{ t: String(sc.score), tone: sc.score >= 70 ? 'bad' : null }].concat(sc.band ? [{ t: sc.band }] : [])
+                : [{ t: cov.enforced === 'before_call' ? 'no score yet' : 'no score: not enforced' }];
+            const scoreBody = this._dl([
+                ['Score', scored
                     ? `${sc.score}${sc.band ? ' ' + e(sc.band) : ''}${Array.isArray(sc.reasons) && sc.reasons.length ? ' · ' + e(sc.reasons.join(', ')) : ''}`
                     : `no score${cov.enforced === 'before_call' ? ' yet' : ': not enforced'}`],
-            ]);
-            html += `<hr class="rt-hr"><div id="rt-cov">` + this._dl([
+            ]) + `<p class="rt-scope">${scored ? 'How unusual this session is next to your usual sessions, 0 to 100. 70 or more needs review.'
+                : cov.enforced === 'before_call' ? 'This session has no score yet.' : 'Calls here are recorded after they run, so the session is not scored.'}</p>`;
+
+            const unchecked = Array.isArray(cov.unchecked) ? cov.unchecked : [];
+            const covParts = cov.enforced === 'before_call'
+                ? (cov.level === 'partial' || unchecked.length
+                    ? [{ t: 'partial' }, { t: `${plural(unchecked.length, 'path')} not checked`, tone: 'warn' }]
+                    : [{ t: 'enforced before each call' }])
+                : String(cov.label || 'not enforced · recorded after the call').split(' · ').map(t => ({ t }));
+            const covBody = this._dl([
                 ['Coverage', e(cov.enforced === 'before_call' ? (cov.level === 'partial' ? 'Partial: enforced before each call' : 'Enforced before each call') : (cov.label || 'not enforced'))],
                 unchecked.length ? ['Not checked', e(unchecked.join(' · ')), 'rt-warn-t'] : null,
-            ]) + '</div>';
+            ]);
+
             const ap = gov.approvals || {};
             const grants = (Array.isArray(ap.grants) ? ap.grants : []);
             const pend = Array.isArray(ap.pending) ? ap.pending : [];
-            if (!grants.length && !pend.length) html += this._dl([['Approvals', 'None active']]);
+            const active = grants.filter(g => g.state === 'active').length;
+            const apParts = !grants.length && !pend.length ? [{ t: 'None active' }]
+                : [{ t: `${active} active` }].concat(pend.length ? [{ t: `${pend.length} waiting`, tone: 'warn' }] : []);
+            let apBody;
+            if (!grants.length && !pend.length) apBody = this._dl([['Approvals', 'None active']]);
             else {
-                html += this._dl([['Approvals', `${grants.filter(g => g.state === 'active').length} active${pend.length ? ` · <span class="rt-warn">${pend.length} waiting</span>` : ''}`]]);
-                html += '<ul class="rt-grants">' + grants.map(g => {
+                apBody = this._dl([['Approvals', `${active} active${pend.length ? ` · <span class="rt-warn">${pend.length} waiting</span>` : ''}`]]);
+                apBody += '<ul class="rt-grants">' + grants.map(g => {
                     const d = this.DURATIONS.find(x => x[0] === g.duration);
                     const what = `${g.tool_id || 'tool'}${g.call_preview ? ' · ' + String(g.call_preview).slice(0, 60) : ''}`;
                     const state = g.state === 'used' ? 'used' : g.state === 'revoked' ? 'revoked' : (d ? d[1] : g.duration) + (g.expires_at ? `, until ${this.clock(g.expires_at)}` : '');
                     return `<li><span class="rt-mono">${e(what)}</span><span class="rt-muted">${e(state)}</span>` +
                         (g.state === 'active' ? `<button type="button" class="rt-btn sm" data-act="revoke" data-grant="${e(g.id)}">Revoke</button>` : '') + '</li>';
                 }).join('') + '</ul>';
-                html += '<p class="rt-scope">Every approval here applies only to this session.</p>';
+                apBody += '<p class="rt-scope">Every approval here applies only to this session.</p>';
             }
-            return html;
+
+            return [
+                { id: 'calls', title: 'Tool calls', summary: [{ t: String(nTotal) }].concat(callParts.map((p, i) => Object.assign({}, p, i ? { sep: ', ' } : {}))).concat(callNote ? [callNote] : []), body: callsBody },
+                { id: 'egress', title: 'Egress', summary: egParts, body: egBody },
+                { id: 'cost', title: 'Cost', summary: [{ t: usd }, { t: tok }], body: costBody },
+                { id: 'findings', title: 'Findings', summary: [{ t: fText, tone: nSec + nThr ? 'bad' : null }], body: findBody },
+                { id: 'score', title: 'Score', summary: scParts, body: scoreBody },
+                { id: 'coverage', title: 'Coverage', summary: covParts, body: covBody },
+                { id: 'approvals', title: 'Approvals', summary: apParts, body: apBody },
+            ];
+        },
+
+        /** One section's header line as plain text, for tests and exports. */
+        secSummaryText(sec) { return `${sec.title} · ${sec.summary.map((p, i) => (i ? (p.sep || ' · ') : '') + p.t).join('')}`; },
+
+        // ---------------------------------------------------------- export
+
+        EXPORT_FORMATS: [['csv', 'This run (CSV)'], ['json', 'This run (JSON)']],
+        EXPORT_TARGET_CAP: 200,
+
+        /** Hide values that look like secrets wherever a call is shown or
+         *  exported: NAME=value and NAME: value for a secret-like name (any
+         *  case, with or without export), secret query parameters, secret
+         *  headers, JSON fields, curl -u passwords, mysql -p and --password,
+         *  bearer and basic tokens, URL passwords and key-shaped strings.
+         *  The names stay, the values do not. */
+        SECRET_NAME: '[A-Za-z0-9_.-]*(?:key|token|secret|passw(?:or)?d|pass|pwd|auth|credential|signature)[A-Za-z0-9_.-]*',
+        maskSecrets(text) {
+            const N = this.SECRET_NAME;
+            const H = '[hidden]';
+            return String(text == null ? '' : text)
+                // JSON: "password":"v"
+                .replace(new RegExp(`("${N}"\\s*:\\s*)"(?:[^"\\\\]|\\\\.)*"`, 'gi'), `$1"${H}"`)
+                // Authorization headers keep their scheme.
+                .replace(/\b((?:proxy-)?authorization\s*:\s*)(?!(?:(?:bearer|basic|token|digest)\s+)?\[hidden\])(?:(bearer|basic|token|digest)\s+)?[^\s"',;]+/gi, (m, h, sch) => `${h}${sch ? sch + ' ' : ''}${H}`)
+                // Query parameters: ?api_key=v &token=v &sig=v
+                .replace(new RegExp(`([?&](?:${N}|sig)=)[^&#\\s"']+`, 'gi'), `$1${H}`)
+                // curl -u user:pass and --user user:pass keep the user.
+                .replace(/((?:^|\s)(?:-u\s*|--user[=\s]\s*)['"]?)([^:\s'"]+):([^\s'"]+)/g, `$1$2:${H}`)
+                // mysql -pSecret, --password v
+                .replace(/(\b(?:mysql|mysqldump|mariadb|mysqladmin)\b[^|;&\n]*?\s-p)(?=[^\s-])[^\s'"]+/gi, `$1${H}`)
+                .replace(/(--password\s+)(?!\[hidden\])("[^"]*"|'[^']*'|[^\s-][^\s]*)/gi, `$1${H}`)
+                // NAME=v, NAME: v, export NAME=v, x-api-key: v, --password=v
+                .replace(new RegExp(`\\b(${N})(\\s*[=:]\\s*)(?!\\[hidden\\])(?!(?:bearer|basic|token|digest)\\s)("[^"]*"|'[^']*'|[^\\s&;,"']+)`, 'gi'), `$1$2${H}`)
+                .replace(/\b(Bearer|Basic|token)\s+(?!\[hidden\])[A-Za-z0-9._~+\/=-]{8,}/gi, `$1 ${H}`)
+                .replace(/\b(?:sk|pk|rk|ghp|gho|ghs|github_pat|xox[abpr]|AKIA|glpat)[-_][A-Za-z0-9_-]{8,}|\bAKIA[A-Z0-9]{12,}/g, H)
+                .replace(/(\/\/[^\/\s:@]+:)[^@\s\/]+@/g, `$1${H}@`);
+        },
+
+        /** One row per span, in tree order: time, kind, name, target (the
+         *  readable argument the panel shows, secrets masked, capped), data
+         *  names, decision, rule, duration, tokens and cost. Never the raw
+         *  arguments. */
+        exportRows(ctx) {
+            const rows = [];
+            this.walk(ctx.tree, n => {
+                if (n.kind === 'run') return;
+                const s = n.span || {};
+                const d = this.decision(n);
+                const dur = Number(s.duration_ms);
+                const cost = this.nodeCost(n);
+                let target = '', data = '', rule = '';
+                if (n.kind === 'tool') {
+                    const t = (String(this.previewText((n.req && n.req.call_preview) || s.args_preview || '')).replace(/\s+/g, ' ').trim());
+                    target = t.length > this.EXPORT_TARGET_CAP ? t.slice(0, this.EXPORT_TARGET_CAP) + '…' : t;
+                    data = this.dataNames(this.previewText((n.req && n.req.call_preview) || s.args_preview || '')).join(' ');
+                    const r = n.req ? this.ruleText(n.req, s)
+                        : (Array.isArray(s.detection_rules) && s.detection_rules.length ? { name: s.detection_rules.join(', '), id: '' } : null);
+                    if (r) rule = r.id && r.id !== r.name ? `${r.name} (${r.id})` : r.name;
+                }
+                rows.push({
+                    time: s.called_at || '',
+                    kind: n.kind,
+                    name: n.kind === 'llm' ? `${s.model || 'model'} · turn ${n.turn || 1}` : this.toolName(s),
+                    target,
+                    data,
+                    decision: n.kind === 'tool' ? (d ? d.label : 'allowed') : '',
+                    rule,
+                    duration_ms: Number.isFinite(dur) && dur >= 0 ? Math.round(dur) : null,
+                    tokens: n.kind === 'llm' ? this.nodeTokens(n) : null,
+                    cost: cost != null ? cost : null,
+                    span_id: s.span_id || s.row_hash || '',
+                });
+            });
+            return rows;
+        },
+
+        EXPORT_COLS: [
+            ['time', 'time'], ['kind', 'kind'], ['name', 'name'], ['target', 'target'], ['data', 'data names'],
+            ['decision', 'decision'], ['rule', 'rule'], ['duration_ms', 'duration_ms'], ['tokens', 'tokens'], ['cost', 'cost_usd'], ['span_id', 'span_id'],
+        ],
+
+        /** The run summary and the governance strip, as label and value. */
+        exportSummary(ctx) {
+            const tr = ctx.trace || {};
+            const tok = this.nodeTokens(ctx.tree);
+            const cost = this.nodeCost(ctx.tree);
+            const cov = ctx.coverage || (ctx.gov && ctx.gov.coverage) || null;
+            const run = [
+                ['Run', this.maskSecrets(ctx.tree.title || '')],
+                ['Trace id', tr.trace_id || ''],
+                ['Session id', tr.session_id || ''],
+                ['Status', ctx.status || ''],
+                ['Harness', ctx.harness || tr.runtime_kind || ''],
+                ['Project', ctx.project || ''],
+                ['Started', tr.started_at || ''],
+                ['Ended', tr.ended_at || ''],
+                ['Duration', ctx.durationMs != null ? this.fmtDur(ctx.durationMs) : ''],
+                ['Spans', String((tr.spans || []).length)],
+                ['Tokens', String(tok || 0)],
+                ['Cost', cost != null ? this.fmtUsd(cost) : 'not recorded'],
+                ['Coverage', cov ? (cov.level === 'partial' ? `partial · ${(cov.unchecked || []).length} paths not checked` : cov.level === 'full' ? 'enforced before the call' : (cov.label || 'not enforced')) : ''],
+            ].filter(r => r[1] !== '');
+            const governance = this.stripTiles(ctx.gov && typeof ctx.gov === 'object' ? ctx.gov : null)
+                .map(t => [t.label, t.value, t.parts.map(p => p.t).join(' · ')]);
+            return { run, governance };
+        },
+
+        exportFileName(ctx, ext, now) {
+            const d = now ? new Date(now) : new Date();
+            const pad = (x) => String(x).padStart(2, '0');
+            const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+            const id = String(((ctx.trace || {}).trace_id) || 'run').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 8) || 'run';
+            return `securevector-run-${id}-${date}.${ext}`;
+        },
+
+        exportCSV(ctx) {
+            const OT = root.ObsTabs;
+            const sum = this.exportSummary(ctx);
+            const toCSV = OT && OT.toCSV ? OT.toCSV.bind(OT) : null;
+            const kv = [{ label: 'field', get: r => r[0] }, { label: 'value', get: r => r[1] }, { label: 'detail', get: r => r[2] || '' }];
+            const cols = this.EXPORT_COLS.map(([k, l]) => ({ label: l, get: r => r[k] }));
+            const rows = this.exportRows(ctx);
+            if (!toCSV) return '';
+            return toCSV(kv, sum.run.concat(sum.governance.map(g => ['Governance: ' + g[0], g[1], g[2]]))) + '\n' + toCSV(cols, rows);
+        },
+
+        exportJSON(ctx) {
+            const sum = this.exportSummary(ctx);
+            const obj = {
+                run: Object.fromEntries(sum.run),
+                governance: sum.governance.map(([label, value, detail]) => ({ label, value, detail })),
+                spans: this.exportRows(ctx),
+            };
+            return JSON.stringify(obj, null, 2);
+        },
+
+        exportRun(ctx, fmt) {
+            const OT = root.ObsTabs;
+            if (!OT || !ctx || !ctx.tree) return;
+            if (fmt === 'csv') OT.download(this.exportFileName(ctx, 'csv'), this.exportCSV(ctx), 'text/csv');
+            else if (fmt === 'json') OT.download(this.exportFileName(ctx, 'json'), this.exportJSON(ctx), 'application/json');
+        },
+
+        exportMenuHtml(st) {
+            const open = !!(st && st.exportOpen);
+            return `<div class="sv-export-wrap rt-export">` +
+                `<button type="button" class="sv-export-btn" data-act="export-menu" aria-haspopup="true" aria-expanded="${open ? 'true' : 'false'}">` +
+                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span>Export</span>' +
+                '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-left:1px" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>' +
+                `<div class="sv-export-menu${open ? ' open' : ''}">` +
+                this.EXPORT_FORMATS.map(([k, l]) => `<button type="button" class="sv-export-item" data-act="export" data-fmt="${k}">${this.esc(l)}</button>`).join('') +
+                '</div></div>';
+        },
+
+        _syncExport(box, st) {
+            const btn = box.querySelector('.rt-export .sv-export-btn');
+            const menu = box.querySelector('.rt-export .sv-export-menu');
+            if (btn) btn.setAttribute('aria-expanded', st.exportOpen ? 'true' : 'false');
+            if (menu) menu.classList[st.exportOpen ? 'add' : 'remove']('open');
         },
 
         // ----------------------------------------------------------- mount
@@ -915,6 +1177,11 @@
             if (!box._rtWired) {
                 box._rtWired = true;
                 box.addEventListener('click', (ev) => this._onClick(box, ev));
+                const shut = () => { const c = box._rt; if (!c) return; const s0 = this.state(c.trace.trace_id); if (s0.exportOpen) { s0.exportOpen = false; this._syncExport(box, s0); } };
+                if (root.document && root.document.addEventListener) {
+                    root.document.addEventListener('click', (ev) => { if (!box.contains(ev.target)) shut(); });
+                }
+                box.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && ev.target.closest && ev.target.closest('.rt-export')) { shut(); const b = box.querySelector('.rt-export .sv-export-btn'); if (b) b.focus(); } });
                 box.addEventListener('input', (ev) => {
                     const t = ev.target;
                     if (!t || t.dataset.act !== 'search') return;
@@ -972,9 +1239,14 @@
             const term = ev.target.closest && ev.target.closest('.ar-terminal-open');
             if (term) { ev.stopPropagation(); if (ctx.onTerminal) ctx.onTerminal(); return; }
             const el = ev.target.closest && ev.target.closest('[data-act]');
-            if (!el || !box.contains(el)) return;
+            if (!el || !box.contains(el)) {
+                const st0 = this.state(ctx.trace.trace_id);
+                if (st0.exportOpen) { st0.exportOpen = false; this._syncExport(box, st0); }
+                return;
+            }
             const st = this.state(ctx.trace.trace_id);
             const act = el.dataset.act;
+            if (st.exportOpen && act !== 'export-menu' && act !== 'export') { st.exportOpen = false; this._syncExport(box, st); }
             switch (act) {
                 case 'back': if (ctx.onBack) ctx.onBack(); break;
                 case 'run': if (el.dataset.run && ctx.onOpenRun) ctx.onOpenRun(el.dataset.run); break;
@@ -999,12 +1271,27 @@
                 }
                 case 'coverage': {
                     st.sel = null;
+                    this.setSecOpen('coverage', true);
                     this.paint(box);
-                    const c = box.querySelector('#rt-cov');
+                    const c = box.querySelector('#rt-sec-coverage');
                     if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest' });
                     break;
                 }
                 case 'hosts': ctx.allHosts = true; this.paint(box); break;
+                case 'sec': {
+                    // The page owns the open state, so a live refresh that
+                    // redraws the panel puts every section back as it was.
+                    ev.preventDefault();
+                    const id = el.dataset.sec;
+                    const open = !this.secOpen(id);
+                    this.setSecOpen(id, open);
+                    const det = el.parentElement;
+                    if (det) det.open = open;
+                    el.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    break;
+                }
+                case 'export-menu': st.exportOpen = !st.exportOpen; this._syncExport(box, st); break;
+                case 'export': st.exportOpen = false; this._syncExport(box, st); this.exportRun(ctx, el.dataset.fmt); break;
                 case 'goto': {
                     const tid = el.dataset.trace, sid = el.dataset.span;
                     if (tid && tid !== ctx.trace.trace_id) { if (ctx.onGoto) ctx.onGoto(tid, sid); break; }
@@ -1155,6 +1442,14 @@
 .rt-raw { margin:0 0 12px; font-size:12px; color:var(--text-muted); }
 .rt-raw summary { cursor:pointer; }
 .rt-raw .rt-cmd { margin-top:6px; }
+.rt-secs { display:flex; flex-direction:column; border-bottom:1px solid var(--border-default); }
+.rt-sec.terminals-gov-section { border-top:1px solid var(--border-default); }
+.rt-sec > summary { flex-wrap:wrap; min-height:34px; }
+.rt-sec > summary:focus-visible { outline:2px solid var(--accent-primary); outline-offset:2px; border-radius:4px; }
+.rt-sec > summary h3 { font-size:11px; color:var(--text-secondary); opacity:1; }
+.rt-sec-sum { margin-left:auto; font-size:12.5px; color:var(--text-secondary); text-align:right; overflow-wrap:anywhere; }
+.rt-sec-body { padding:2px 0 10px 13px; }
+.rt-export { position:relative; }
 .rt-legacy-h { margin:8px 0 0; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; }
 @media (max-width: 1600px) { .rt-axis i:nth-child(2), .rt-axis i:nth-child(4) { display:none; } }
 @media (max-width: 1100px) { .rt-body { grid-template-columns:minmax(0,1fr); } .rt-panel { position:static; border-left:0; border-top:1px solid var(--border-default); padding:12px 0 0; max-height:none; padding-bottom:88px; } }

@@ -409,5 +409,143 @@ test('trace tree caret: 24px button, 14px chevron that turns, 24px levels with t
   assert.match(src, /\.rt-caret\[aria-expanded="true"\] svg \{ transform:rotate\(90deg\); \}/);
   assert.match(src, /\.rt-g, \.rt-c \{ position:relative; flex:0 0 24px;/);
   assert.match(src, /\.rt-c::before \{ content:''; position:absolute; left:12px;/);
-  assert.match(read('index.html'), /run-trace\.js\?v=4/);
+  assert.match(read('index.html'), /run-trace\.js\?v=5/);
+});
+
+// ------------------------------------------------ run export + governance sections
+
+test('export rows: one per span in tree order, readable target, no raw arguments, secrets masked', () => {
+  const RT = load();
+  const t = trace();
+  t.spans.push(call('c5', 'Bash', 30, { args_preview: '{"command":"curl -H \\"Authorization: Bearer abcdef1234567890\\" https://api.example.test"}', raw_args: '{"secret":"x"}' }));
+  const ctx = { trace: t, tree: RT.buildTree(t, { requests: [pending()] }), gov: gov() };
+  const rows = RT.exportRows(ctx);
+  assert.equal(rows.length, t.spans.length);
+  deq(Object.keys(rows[0]), ['time', 'kind', 'name', 'target', 'data', 'decision', 'rule', 'duration_ms', 'tokens', 'cost', 'span_id']);
+  const llm = rows.find(r => r.kind === 'llm');
+  assert.match(llm.name, /^m-1 · turn 1$/);
+  assert.equal(llm.decision, '');
+  const c3 = rows.find(r => r.span_id === 'c3');
+  assert.equal(c3.kind, 'tool');
+  assert.match(c3.decision, /waiting/);
+  const c5 = rows.find(r => r.span_id === 'c5');
+  assert.match(c5.target, /^curl /);
+  assert.doesNotMatch(c5.target, /abcdef1234567890|"command"/);
+  assert.match(c5.target, /Bearer \[hidden\]/);
+  assert.doesNotMatch(JSON.stringify(rows), /raw_args|"secret"/);
+});
+
+test('export: file name, CSV with summary and span sections, JSON with run, governance and spans', () => {
+  const RT = load();
+  const t = trace();
+  t.trace_id = 'abcd1234ef567890';
+  const ctx = { trace: t, tree: RT.buildTree(t, {}), gov: gov(), status: 'completed' };
+  assert.equal(RT.exportFileName(ctx, 'csv', Date.parse('2026-10-25T12:00:00')), 'securevector-run-abcd1234-2026-10-25.csv');
+  assert.equal(RT.exportFileName(ctx, 'json', Date.parse('2026-10-25T12:00:00')), 'securevector-run-abcd1234-2026-10-25.json');
+  const j = JSON.parse(RT.exportJSON(ctx));
+  assert.equal(j.run['Trace id'], 'abcd1234ef567890');
+  assert.equal(j.run.Status, 'completed');
+  assert.ok(j.governance.length > 0);
+  assert.equal(j.spans.length, t.spans.length);
+  RT.EXPORT_FORMATS.forEach(([k]) => assert.ok(k === 'csv' || k === 'json'));
+  const html = RT.exportMenuHtml({ exportOpen: false });
+  assert.match(html, /data-act="export-menu" aria-haspopup="true" aria-expanded="false"/);
+  assert.match(html, /data-fmt="csv"/);
+  assert.match(html, /data-fmt="json"/);
+  assert.match(RT.headerHtml ? RT.headerHtml(ctx) : '', /rt-export/);
+});
+
+test('governance sections: one-line summaries per header', () => {
+  const RT = load();
+  const secs = RT.govSections({}, gov());
+  deq(secs.map(s => s.id), ['calls', 'egress', 'cost', 'findings', 'score', 'coverage', 'approvals']);
+  const line = (id) => RT.secSummaryText(secs.find(s => s.id === id));
+  assert.equal(line('calls'), 'Tool calls · 31 · 29 allowed, 1 blocked, 1 waiting');
+  assert.equal(line('egress'), 'Egress · 3 hosts · 1 waiting · 1 stopped');
+  assert.equal(line('findings'), 'Findings · 0 secrets, 0 threats');
+  assert.equal(line('coverage'), 'Coverage · partial · 2 paths not checked');
+  assert.equal(line('approvals'), 'Approvals · 1 active · 1 waiting');
+  const g2 = gov({ tool_calls: { total: 3, allowed: 1, waiting: 0, blocked: 2 } });
+  assert.equal(RT.secSummaryText(RT.govSections({}, g2)[0]), 'Tool calls · 3 · 1 allowed, 2 blocked');
+  const g3 = gov({ tool_calls: { total: 14, allowed: 5, logged: 6, waiting: 0, blocked: 3 } });
+  assert.equal(RT.secSummaryText(RT.govSections({}, g3)[0]), 'Tool calls · 14 · 5 allowed, 3 blocked, 6 recorded');
+  const g4 = gov({ tool_calls: { total: 4, allowed: 0, logged: 4, waiting: 0, blocked: 0 } });
+  assert.equal(RT.secSummaryText(RT.govSections({}, g4)[0]), 'Tool calls · 4 · 4 recorded');
+});
+
+test('governance sections: collapsed by default, aria-expanded on headers, open state kept across redraws', () => {
+  const RT = load();
+  RT._secOpen = null;
+  let html = RT.govPanelHtml({}, gov());
+  assert.equal((html.match(/<details class="terminals-gov-section rt-sec"/g) || []).length, 7);
+  assert.doesNotMatch(html, /<details[^>]* open>/);
+  assert.equal((html.match(/aria-expanded="false"/g) || []).length, 7);
+  RT.setSecOpen('egress', true);
+  html = RT.govPanelHtml({}, gov());
+  assert.match(html, /id="rt-sec-egress" data-sec="egress" open>/);
+  assert.match(html, /data-sec="egress" aria-expanded="true"/);
+  assert.equal((html.match(/aria-expanded="true"/g) || []).length, 1);
+  RT.setSecOpen('egress', false);
+  assert.doesNotMatch(RT.govPanelHtml({}, gov()), /aria-expanded="true"/);
+});
+
+test('export CSV: summary block then span table through the shared ObsTabs CSV helper', () => {
+  const window = {};
+  const sandbox = { window, console, document: { addEventListener() {} } };
+  vm.runInNewContext(read('js/components/obs-tabs.js'), sandbox);
+  vm.runInNewContext(read('js/components/trace-steps.js'), sandbox);
+  vm.runInNewContext(read('js/components/run-trace.js'), sandbox);
+  const RT = window.RunTrace;
+  RT._state = {};
+  assert.ok(window.ObsTabs && window.ObsTabs.toCSV);
+  const t = trace();
+  const ctx = { trace: t, tree: RT.buildTree(t, {}), gov: gov() };
+  const csv = RT.exportCSV(ctx);
+  assert.match(csv, /^field,value,detail/);
+  assert.match(csv, /Trace id,tr-1/);
+  assert.match(csv, /\ntime,kind,name,target,data names,decision,rule,duration_ms,tokens,cost_usd,span_id/);
+  assert.match(csv, /,tool,Bash,curl https:\/\/paste\.example\.test,/);
+});
+
+test('tool calls summary adds up: unmatched waiting is its own bucket, matched waiting is inside blocked', () => {
+  const RT = load();
+  const calls = (tc) => RT.secSummaryText(RT.govSections({}, gov({ tool_calls: tc }))[0]);
+  // total = allowed + logged + blocked + unmatched waiting (observability.py)
+  // 3 waiting: 2 matched to block rows, 1 with no row of its own.
+  assert.equal(calls({ total: 15, allowed: 5, logged: 6, blocked: 3, waiting: 3 }),
+    'Tool calls · 15 · 5 allowed, 3 blocked, 6 recorded, 1 waiting (2 of the blocked are waiting for approval)');
+  assert.equal(calls({ total: 14, allowed: 5, logged: 6, blocked: 3, waiting: 1 }),
+    'Tool calls · 14 · 5 allowed, 3 blocked, 6 recorded (1 of the blocked is waiting for approval)');
+  assert.equal(calls({ total: 2, allowed: 0, logged: 0, blocked: 0, waiting: 2 }), 'Tool calls · 2 · 2 waiting');
+  const html = RT.govPanelHtml({}, gov({ tool_calls: { total: 15, allowed: 5, logged: 6, blocked: 3, waiting: 3 } }));
+  assert.match(html, /15 · 5 allowed · <span class="rt-bad">3 blocked<\/span> · 6 recorded · <span class="rt-warn">1 waiting<\/span> <span class="rt-warn">\(2 of the blocked are waiting for approval\)<\/span>/);
+});
+
+test('maskSecrets: each secret shape keeps the name and hides the value', () => {
+  const RT = load();
+  const m = (t) => RT.maskSecrets(t);
+  assert.equal(m('curl https://api.example.test/v1?api_key=abc123secret&page=2'), 'curl https://api.example.test/v1?api_key=[hidden]&page=2');
+  assert.equal(m('curl https://a.example.test/x?sig=zzz&access_token=q1&Signature=s9'), 'curl https://a.example.test/x?sig=[hidden]&access_token=[hidden]&Signature=[hidden]');
+  assert.equal(m('export api_key=abc123secretvalue'), 'export api_key=[hidden]');
+  assert.equal(m('export DB_PASSWORD="p w"'), 'export DB_PASSWORD=[hidden]');
+  assert.equal(m('curl -H "x-api-key: abcdef123456" https://a.example.test'), 'curl -H "x-api-key: [hidden]" https://a.example.test');
+  assert.equal(m('curl -H "Authorization: Bearer abcdef1234567890" x'), 'curl -H "Authorization: Bearer [hidden]" x');
+  assert.equal(m('{"password":"hunter2hunter","user":"bob"}'), '{"password":"[hidden]","user":"bob"}');
+  assert.equal(m('mysql -u root -pSecret db'), 'mysql -u root -p[hidden] db');
+  assert.equal(m('mysql --password=topsecret db'), 'mysql --password=[hidden] db');
+  assert.equal(m('psql --password hunter2 -h db'), 'psql --password [hidden] -h db');
+  assert.equal(m('curl -u admin:hunter22 https://a.example.test'), 'curl -u admin:[hidden] https://a.example.test');
+  assert.equal(m('git clone https://bob:pa55word@git.example.test/r.git'), 'git clone https://bob:[hidden]@git.example.test/r.git');
+  assert.equal(m('npm run lint && git commit -m "fix tokenizer"'), 'npm run lint && git commit -m "fix tokenizer"');
+  // The on-screen preview is masked too; matching still uses the raw text.
+  assert.equal(RT.previewText('{"command":"export api_key=abc123secretvalue"}'), 'export api_key=[hidden]');
+});
+
+test('export: the run title is masked', () => {
+  const RT = load();
+  const t = trace();
+  const tree = RT.buildTree(t, {});
+  tree.title = 'deploy with TOKEN=abc123secretvalue';
+  const sum = RT.exportSummary({ trace: t, tree, gov: gov() });
+  assert.equal(sum.run.find(r => r[0] === 'Run')[1], 'deploy with TOKEN=[hidden]');
 });
