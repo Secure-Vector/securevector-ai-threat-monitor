@@ -2396,6 +2396,15 @@ const AgentRunsPage = {
             right.appendChild(only);
         }
         head.appendChild(right);
+        // Clicking anywhere on the header row toggles it too (owner, 6.1);
+        // its own buttons (copy, waiting badge, Only this session) keep
+        // their actions.
+        head.style.cursor = 'pointer';
+        head.addEventListener('click', (ev) => {
+            const t = ev.target;
+            if (t && t.closest && t.closest('button, a, input, select, [data-act]')) return;
+            caret.click();
+        });
         caret.addEventListener('click', () => {
             const closing = !closed;
             this._openSessions[g.key] = !closing;
@@ -2808,6 +2817,9 @@ const AgentRunsPage = {
             const b = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
             if (b && b.dataset.act === 'caret') { e.open[row.key] = !e.open[row.key]; this._renderRunsKeep(); return; }
             if (b && b.dataset.act === 'wait') { ev.stopPropagation(); this._jumpSeq = (this._jumpSeq || 0) + 1; e.det[row.key] = true; this._renderRunsKeep(); this._revealWait(tid, row.key); return; }
+            // A row with children (a model turn) expands on a click anywhere
+            // on it; a leaf (a tool call) opens its details.
+            if (!b && row.hasKids) { e.open[row.key] = !e.open[row.key]; this._renderRunsKeep(); return; }
             toggleDet();
         });
         el.addEventListener('keydown', (ev) => {
