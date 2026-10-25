@@ -94,7 +94,7 @@ const Sidebar = {
         { id: 'settings', label: 'Settings', icon: 'settings', landing: 'settings', rail: false,
           subtitle: 'App settings', items: ['settings'] },
     ],
-    currentPage: 'terminals',
+    currentPage: 'agent-runs',
 
     // The parent is the consolidated command centre; these direct session
     // entries are hydrated once terminal authentication is ready.

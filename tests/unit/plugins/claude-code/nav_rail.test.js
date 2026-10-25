@@ -17,7 +17,7 @@ function navItemsSource() {
 function productGroupsSource() {
   const src = read('js/components/sidebar.js');
   const start = src.indexOf('productGroups: [');
-  const end = src.indexOf("currentPage: 'terminals'", start);
+  const end = src.indexOf("currentPage: 'agent-runs'", start);
   return src.slice(start, end);
 }
 
@@ -37,7 +37,7 @@ test('product rail order and contextual route mappings are stable', () => {
   assert.match(read('js/components/sidebar.js'), /return this\.productGroups\.find\(group => \(group\.extraPages \|\| \[\]\)\.includes\(page\) \|\| group\.items\.some/);
 });
 
-test('Agent Tasks is first and root/fallback navigation is session-first', () => {
+test('Agent Tasks is first in the rail and root/fallback navigation opens Runs', () => {
   const ids = [...navItemsSource().matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
   assert.equal(ids[0], 'terminals');
   // Every destination the product rail offers must resolve to a real navItems
@@ -57,11 +57,12 @@ test('Agent Tasks is first and root/fallback navigation is session-first', () =>
   }
   const sidebar = read('js/components/sidebar.js');
   const app = read('js/app.js');
-  assert.match(sidebar, /currentPage: 'terminals'/);
-  assert.match(app, /currentPage: 'terminals'/);
-  assert.match(app, /return this\.pages\[path\] \? path : 'terminals';/);
+  assert.match(sidebar, /currentPage: 'agent-runs'/);
+  assert.match(app, /currentPage: 'agent-runs'/);
+  assert.match(app, /DEFAULT_PAGE: 'agent-runs'/);
+  assert.match(app, /return this\.pages\[path\] \? path : this\.DEFAULT_PAGE;/);
   assert.match(app, /initialPage = await this\.maybeAutoLaunchWizard\(initialPage\)/);
-  assert.match(app, /if \(initialPage !== 'terminals'\) return initialPage;/);
+  assert.match(app, /if \(initialPage !== this\.DEFAULT_PAGE\) return initialPage;/);
 });
 
 test('product controls are real accessible buttons and retain the SecureVector shield', () => {
@@ -194,9 +195,9 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=202/);
+  assert.match(html, /sidebar\.js\?v=203/);
   assert.match(html, /styles\.css\?v=499/);
-  assert.match(html, /app\.js\?v=77/);
+  assert.match(html, /app\.js\?v=78/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -614,7 +615,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=202/);
+  assert.match(read('index.html'), /sidebar\.js\?v=203/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {

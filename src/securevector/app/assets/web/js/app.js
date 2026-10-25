@@ -4,7 +4,9 @@
  */
 
 const App = {
-    currentPage: 'terminals',
+    currentPage: 'agent-runs',
+    // Owner decision (6.1): the app opens on Observability > Runs.
+    DEFAULT_PAGE: 'agent-runs',
 
     pages: {
         guide: GettingStartedPage,
@@ -159,7 +161,7 @@ const App = {
      * redirected, and any explicit deep link wins.
      */
     async maybeAutoLaunchWizard(initialPage) {
-        if (initialPage !== 'terminals') return initialPage;
+        if (initialPage !== this.DEFAULT_PAGE) return initialPage;
         if (localStorage.getItem('sv-wizard-autolaunched')) return initialPage;
         try {
             const ctrl = new AbortController();
@@ -201,7 +203,7 @@ const App = {
      */
     getPageFromURL() {
         const path = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
-        return this.pages[path] ? path : 'terminals';
+        return this.pages[path] ? path : this.DEFAULT_PAGE;
     },
 
     /**
