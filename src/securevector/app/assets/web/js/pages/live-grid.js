@@ -171,11 +171,38 @@ const LiveGridPage = {
         return ids;
     },
 
+    /** A session's governance and its newest run, paged: the newest 200
+     *  spans first, then on each poll only the spans after the newest one
+     *  held (after=). The full run is never fetched here; an opened call
+     *  loads its own full detail (RunTrace.hydrate). */
     async _detailOf(sid) {
         const gov = await API.getSessionGovernance(sid).catch(() => null);
         const tid = gov && gov.runs && (gov.runs.trace_ids || [])[0];
-        const trace = tid ? await API.getTrace(tid).catch(() => null) : null;
-        return [sid, { gov, spans: (trace && trace.spans) || [], traceId: tid || null }];
+        if (!this._traces) this._traces = {};
+        const cur = this._traces[sid];
+        let trace = null;
+        if (tid) {
+            if (cur && cur.trace_id === tid && cur.page && cur.page.newest && window.RunTrace) {
+                const pg = await API.getTraceTree(tid, { after: cur.page.newest });
+                if (pg && pg.page && !pg.page.gap) trace = RunTrace.mergePage(cur, pg, 'newer');
+                else if (pg === null) trace = cur; // a failed poll keeps what was there
+            }
+            if (!trace) trace = await API.getTraceTree(tid);
+        }
+        if (trace) this._traces[sid] = trace; else delete this._traces[sid];
+        return [sid, { gov, spans: (trace && trace.spans) || [], traceId: tid || null, trace: trace || null }];
+    },
+
+    /** An opened call that came slim: fetch its full detail once, then
+     *  repaint (the span is updated in place, so it stays full). */
+    _hydrateOpen(sid, p) {
+        const RT = window.RunTrace;
+        const span = p && p.resolved && p.resolved.found.node.span;
+        const d = this.details[sid];
+        if (!RT || !RT.hydrate || !span || !span._cut || !d || !d.traceId) return;
+        RT.hydrate(d.traceId, span).then(changed => {
+            if (changed && this._mounted()) { this._sig = null; this.paint(); }
+        });
     },
 
     /** Governance and the newest run's spans for each session in `ids`. */
@@ -191,6 +218,8 @@ const LiveGridPage = {
         // A tile opened while this poll ran keeps what its own fetch got.
         this._open.forEach(id => { if (!(id in next) && this.details[id]) next[id] = this.details[id]; });
         this.details = next;
+        // Paged runs held for the delta: only for sessions still shown.
+        if (this._traces) Object.keys(this._traces).forEach(id => { if (!(id in next)) delete this._traces[id]; });
     },
 
     /** Run `fn` over `ids`, at most `cap` at a time, results in order. */
@@ -305,6 +334,7 @@ const LiveGridPage = {
                 this._det[sid] = Object.assign({}, this._det[sid], { key: n.key, req: (n.req && n.req.id) || this._det[sid].req });
             }
             if (p.detailHtml) any = true;
+            this._hydrateOpen(sid, p);
         });
         if (any && window.RunTrace && RunTrace.injectStyle) RunTrace.injectStyle();
         return out;

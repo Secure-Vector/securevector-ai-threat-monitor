@@ -127,7 +127,8 @@ test('page wiring: the row opens in place, Details opens the full trace, spans l
   const fetch = src.slice(src.indexOf('    async _inlineFetch(traceId, force) {'), src.indexOf('    /** Live poll: refetch only'));
   assert.match(fetch, /RL\.inlineBegin\(e\)/);
   assert.match(fetch, /if \(!RL\.inlineCurrent\(e, seq\)\) return;/);
-  assert.match(fetch, /API\.getTrace\(traceId\)/);
+  // Paged: the newest page, then only the spans after the newest loaded.
+  assert.match(fetch, /this\._traceDelta\(traceId, e\.trace\)/);
   assert.match(src, /this\._inlineRefresh\(\);/);
   // Span details reuse the trace view's span panel, approvals included.
   assert.match(src, /RT\.spanPanelHtml\(ctx, found\)/);
@@ -140,7 +141,7 @@ test('page wiring: the row opens in place, Details opens the full trace, spans l
 test('cache-busting: runs-list.js and agent-runs.js versions moved', () => {
   const html = read('index.html');
   assert.match(html, /runs-list\.js\?v=5"/);
-  assert.match(html, /agent-runs\.js\?v=386"/);
+  assert.match(html, /agent-runs\.js\?v=387"/);
 });
 
 test('a failed fetch retries on the next live tick; a fetch in flight never doubles', () => {

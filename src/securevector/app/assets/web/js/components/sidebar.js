@@ -2833,9 +2833,35 @@ const Sidebar = {
         default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #5eadb8, #c0655e)', page: 'integrations' },
     },
 
+    // Status pollers (proxy, SIEM, each harness's Guard). A harness that is
+    // not installed, the proxy and SIEM are checked every STATUS_IDLE_MS,
+    // only while the tab is visible, and again when it becomes visible. They
+    // used to run every 2 s (harness not installed) and 5 s (proxy, SIEM,
+    // hidden tabs included): about 190 requests a minute per open window.
+    STATUS_IDLE_MS: 30000,
+    _statusInflight: null,
+
+    /** fetch() for the status pollers, one request per URL in flight: a
+     *  render() and a visibility change that land together share it. The
+     *  answer is read once and handed to every caller as { ok, json() }. */
+    _sharedFetch(url) {
+        if (!this._statusInflight) this._statusInflight = new Map();
+        const hit = this._statusInflight.get(url);
+        if (hit) return hit;
+        const p = fetch(url).then(async (r) => {
+            const data = r.ok ? await r.json().catch(() => null) : null;
+            return { ok: r.ok && data !== null, status: r.status, json: () => Promise.resolve(data) };
+        }).finally(() => this._statusInflight.delete(url));
+        this._statusInflight.set(url, p);
+        return p;
+    },
+
     async checkProxyStatus() {
+        // Hidden tab: no request and no next tick; the visibility hook runs
+        // this again when the tab is shown.
+        if (document.visibilityState === 'hidden') return;
         try {
-            const response = await fetch('/api/proxy/status');
+            const response = await this._sharedFetch('/api/proxy/status');
             if (response.ok) {
                 const data = await response.json();
                 const banner = document.getElementById('integration-proxy-banner');
@@ -2879,15 +2905,18 @@ const Sidebar = {
         } catch (e) {
             // Ignore errors
         }
-        // Refresh every 5 seconds. render() runs on every group switch and
+        // Refresh every 30 seconds. render() runs on every group switch and
         // kicks all six pollers again, so each one owns a single timer handle
         // and cancels its own pending tick before booking the next: calling a
         // poller twice leaves exactly one chain, never two.
+        // Every 30 s; a hidden tab stops the chain (see the top of this
+        // method) and the visibility hook in render() restarts it.
         clearTimeout(this._proxyStatusTimer);
-        this._proxyStatusTimer = setTimeout(() => this.checkProxyStatus(), 5000);
+        this._proxyStatusTimer = setTimeout(() => this.checkProxyStatus(), this.STATUS_IDLE_MS);
     },
 
     async checkSiemStatus() {
+        if (document.visibilityState === 'hidden') return; // as checkProxyStatus
         // Sidebar "SIEM active" indicator. Visible only when:
         //   (a) master toggle is enabled (siem-forwarders/global-settings)
         //   (b) at least one destination is configured + enabled
@@ -2895,8 +2924,8 @@ const Sidebar = {
         // thinking something's flowing when the pipe is paused or empty.
         try {
             const [global, list] = await Promise.all([
-                fetch('/api/siem-forwarders/global-settings').then(r => r.ok ? r.json() : null).catch(() => null),
-                fetch('/api/siem-forwarders').then(r => r.ok ? r.json() : null).catch(() => null),
+                this._sharedFetch('/api/siem-forwarders/global-settings').then(r => r.ok ? r.json() : null).catch(() => null),
+                this._sharedFetch('/api/siem-forwarders').then(r => r.ok ? r.json() : null).catch(() => null),
             ]);
             const banner = document.getElementById('siem-active-banner');
             const textEl = document.getElementById('siem-banner-text');
@@ -2913,7 +2942,7 @@ const Sidebar = {
             }
         } catch (_) { /* ignore */ }
         clearTimeout(this._siemStatusTimer);
-        this._siemStatusTimer = setTimeout(() => this.checkSiemStatus(), 5000);
+        this._siemStatusTimer = setTimeout(() => this.checkSiemStatus(), this.STATUS_IDLE_MS);
     },
 
     async checkClaudeCodePluginStatus() {
@@ -2929,7 +2958,7 @@ const Sidebar = {
         // both lookups return null. Stop polling — don't leak a timer.
         if (!banner || !textEl) return;
         try {
-            const res = await fetch('/api/hooks/claude-code/status');
+            const res = await this._sharedFetch('/api/hooks/claude-code/status');
             const status = res.ok ? await res.json() : null;
             if (!status || !status.installed) {
                 banner.style.display = 'none';
@@ -2947,13 +2976,13 @@ const Sidebar = {
         // Only re-schedule when the document is visible and the banner
         // is still mounted — saves CPU when the tab is in background.
         // Cadence: if the banner is currently HIDDEN (plugin not yet
-        // installed, or initial fetch raced an install), poll every
-        // 2s so the banner appears quickly after install completes.
-        // Once visible, drop to a 10s cadence — the state is settled.
+        // installed), check every STATUS_IDLE_MS (30 s) and on each
+        // return to the tab; it was 2 s, the bulk of the app's requests.
+        // Once visible, a 10s cadence.
         if (document.visibilityState === 'visible'
             && document.getElementById('cc-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
-            const delay = visible ? 10000 : 2000;
+            const delay = visible ? 10000 : this.STATUS_IDLE_MS;
             clearTimeout(this._ccPluginStatusTimer);
             this._ccPluginStatusTimer = setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
         }
@@ -2969,7 +2998,7 @@ const Sidebar = {
         const textEl = document.getElementById('copilot-plugin-banner-text');
         if (!banner || !textEl) return;
         try {
-            const res = await fetch('/api/hooks/copilot-cli/status');
+            const res = await this._sharedFetch('/api/hooks/copilot-cli/status');
             const status = res.ok ? await res.json() : null;
             if (!status || !status.installed) {
                 banner.style.display = 'none';
@@ -2987,7 +3016,7 @@ const Sidebar = {
         if (document.visibilityState === 'visible'
             && document.getElementById('copilot-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
-            const delay = visible ? 10000 : 2000;
+            const delay = visible ? 10000 : this.STATUS_IDLE_MS;
             clearTimeout(this._copilotPluginStatusTimer);
             this._copilotPluginStatusTimer = setTimeout(() => this.checkCopilotPluginStatus(), delay);
         }
@@ -3003,7 +3032,7 @@ const Sidebar = {
         const textEl = document.getElementById('opencode-plugin-banner-text');
         if (!banner || !textEl) return;
         try {
-            const res = await fetch('/api/hooks/opencode/status');
+            const res = await this._sharedFetch('/api/hooks/opencode/status');
             const status = res.ok ? await res.json() : null;
             if (!status || !status.installed) {
                 banner.style.display = 'none';
@@ -3021,7 +3050,7 @@ const Sidebar = {
         if (document.visibilityState === 'visible'
             && document.getElementById('opencode-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
-            const delay = visible ? 10000 : 2000;
+            const delay = visible ? 10000 : this.STATUS_IDLE_MS;
             clearTimeout(this._opencodePluginStatusTimer);
             this._opencodePluginStatusTimer = setTimeout(() => this.checkOpenCodePluginStatus(), delay);
         }
@@ -3039,7 +3068,7 @@ const Sidebar = {
         const textEl = document.getElementById('antigravity-plugin-banner-text');
         if (!banner || !textEl) return;
         try {
-            const res = await fetch('/api/hooks/antigravity/status');
+            const res = await this._sharedFetch('/api/hooks/antigravity/status');
             const status = res.ok ? await res.json() : null;
             if (!status || !status.installed) {
                 banner.style.display = 'none';
@@ -3057,7 +3086,7 @@ const Sidebar = {
         if (document.visibilityState === 'visible'
             && document.getElementById('antigravity-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
-            const delay = visible ? 10000 : 2000;
+            const delay = visible ? 10000 : this.STATUS_IDLE_MS;
             clearTimeout(this._antigravityPluginStatusTimer);
             this._antigravityPluginStatusTimer = setTimeout(() => this.checkAntigravityPluginStatus(), delay);
         }
@@ -3074,7 +3103,7 @@ const Sidebar = {
         const textEl = document.getElementById('codex-plugin-banner-text');
         if (!banner || !textEl) return;
         try {
-            const res = await fetch('/api/hooks/codex/status');
+            const res = await this._sharedFetch('/api/hooks/codex/status');
             const status = res.ok ? await res.json() : null;
             if (!status || !status.installed) {
                 banner.style.display = 'none';
@@ -3092,7 +3121,7 @@ const Sidebar = {
         if (document.visibilityState === 'visible'
             && document.getElementById('codex-plugin-active-banner')) {
             const visible = banner.style.display !== 'none';
-            const delay = visible ? 10000 : 2000;
+            const delay = visible ? 10000 : this.STATUS_IDLE_MS;
             clearTimeout(this._codexPluginStatusTimer);
             this._codexPluginStatusTimer = setTimeout(() => this.checkCodexPluginStatus(), delay);
         }

@@ -315,6 +315,7 @@ const DashboardPage = {
         }
         const poll = setInterval(async () => {
             if (!card.isConnected) { clearInterval(poll); return; }
+            if (document.hidden) return; // nobody is watching the card
             try {
                 const stats = await API.getToolCallAuditStats();
                 if (stats && stats.total > 0) {

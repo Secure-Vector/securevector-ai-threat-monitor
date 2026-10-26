@@ -279,7 +279,7 @@ const AgentRunsPage = {
         const id = this.selected;
         if (!id) return;
         this._live.lastDetail = Date.now();
-        const trace = await API.getTrace(id);
+        const trace = await this._traceDelta(id, this._trace);
         if (!trace || this.selected !== id || !document.getElementById('ar-detail')) return;
         this._trace = trace;
         // Re-check AFTER the fetch: the user may have entered replay, focused
@@ -305,6 +305,37 @@ const AgentRunsPage = {
             const el = document.getElementById(id);
             if (el && top) el.scrollTop = top;
         });
+        se.scrollTop = keepPage;
+    },
+
+    /** The open run, paged: only the spans newer than the newest loaded
+     *  (after=) when a paged copy is open, else its newest page. A run that
+     *  gained more than a page since starts again from the newest page. */
+    async _traceDelta(id, cur) {
+        if (cur && cur.trace_id === id && cur.page && cur.page.newest && window.RunTrace) {
+            const pg = await API.getTraceTree(id, { after: cur.page.newest });
+            if (pg && pg.page && !pg.page.gap) return RunTrace.mergePage(cur, pg, 'newer');
+        }
+        return API.getTraceTree(id);
+    },
+
+    /** "Show 200 more" in the trace view: the next older page. */
+    async _loadOlderDetail() {
+        const t = this._trace;
+        if (!t || !t.page || !t.page.next_before) return;
+        const id = t.trace_id;
+        const pg = await API.getTraceTree(id, { before: t.page.next_before });
+        if (this.selected !== id || !this._trace || this._trace.trace_id !== id) return;
+        if (!pg && window.Toast) Toast.error('Older spans could not be loaded.');
+        if (pg) this._trace = RunTrace.mergePage(this._trace, pg, 'older');
+        const se = document.scrollingElement || document.documentElement;
+        const keepPage = se.scrollTop;
+        const inner = ['ar-detail', 'ar-steps', 'ar-timeline'].map(x => {
+            const el = document.getElementById(x);
+            return [x, el ? el.scrollTop || 0 : 0];
+        });
+        this.renderWaterfall(this._trace);
+        inner.forEach(([x, top]) => { const el = document.getElementById(x); if (el && top) el.scrollTop = top; });
         se.scrollTop = keepPage;
     },
 
@@ -2604,29 +2635,33 @@ const AgentRunsPage = {
     async _findSpanHash(hash) {
         const q = String(hash || '').trim().toLowerCase();
         if (!RunsList.looksLikeHash(q)) return false;
-        const RL = RunsList;
-        const ctx = this._ctx || RL.buildCtx(this.runs);
-        const f = Object.assign({}, this.filters, { search: '' });
-        const pool = (this.runs || []).filter(r => RL.inRange(r, this.range, ctx.now) && RL.matches(r, f, ctx)).slice(0, 40);
-        if (window.Toast) Toast.info(`Looking for span ${q.slice(0, 12)} in ${pool.length} runs…`);
-        for (const r of pool) {
-            const t = await API.getTrace(r.trace_id);
-            const hit = t && (t.spans || []).find(s => s.row_hash && String(s.row_hash).toLowerCase().startsWith(q));
-            if (hit) {
-                this.filters.search = '';
-                const s = document.getElementById('rl-search');
-                if (s) s.value = '';
-                this._timelineForce = r.trace_id;
-                await this.selectRun(r.trace_id);
-                // The trace view selects the span the hash names.
-                if (window.RunTrace) RunTrace.state(r.trace_id).sel = RunTrace.spanKey(hit, 0);
-                this.runSearch = q;
-                if (this._trace) this.renderWaterfall(this._trace);
-                return true;
-            }
+        // One server lookup over the audit ids (it used to fetch up to 40
+        // whole runs and search them here).
+        if (window.Toast) Toast.info(`Looking for span ${q.slice(0, 12)}…`);
+        const hit = API.lookupSpanHash ? await API.lookupSpanHash(q) : null;
+        const r = hit && (this.runs || []).find(x => x.trace_id === hit.trace_id);
+        if (!r) {
+            if (window.Toast) Toast.info('No span with that hash in the runs in view.');
+            return false;
         }
-        if (window.Toast) Toast.info('No span with that hash in the runs in view.');
-        return false;
+        this.filters.search = '';
+        const box = document.getElementById('rl-search');
+        if (box) box.value = '';
+        this._timelineForce = r.trace_id;
+        await this.selectRun(r.trace_id);
+        // The run loads a page at a time: load older pages until the span
+        // is in the view (bounded), then select it.
+        const has = () => ((this._trace && this._trace.spans) || []).some(s => s.sk === hit.sk);
+        for (let i = 0; i < 20 && this.selected === r.trace_id && this._trace && !has() && this._trace.page && this._trace.page.next_before; i++) {
+            const pg = await API.getTraceTree(r.trace_id, { before: this._trace.page.next_before, limit: 1000 });
+            if (!pg || this.selected !== r.trace_id) break;
+            this._trace = RunTrace.mergePage(this._trace, pg, 'older');
+        }
+        const span = ((this._trace && this._trace.spans) || []).find(s => s.sk === hit.sk) || { span_id: hit.span_id, row_hash: hit.row_hash };
+        if (window.RunTrace) RunTrace.state(r.trace_id).sel = RunTrace.spanKey(span, 0);
+        this.runSearch = q;
+        if (this._trace) this.renderWaterfall(this._trace);
+        return true;
     },
 
     async selectRun(traceId, opts) {
@@ -2645,7 +2680,7 @@ const AgentRunsPage = {
         this._expandUnder(traceId, !(opts && opts.refresh));
         const detail = document.getElementById('ar-detail');
         if (detail) detail.innerHTML = '<div class="ar-empty">Loading trace…</div>';
-        const trace = await API.getTrace(traceId);
+        const trace = await API.getTraceTree(traceId);
         if (this.selected !== traceId) return; // a newer run was clicked mid-fetch
         if (!trace) { this._detailEmpty('Trace unavailable.', ''); return; }
         this._trace = trace;
@@ -2707,7 +2742,31 @@ const AgentRunsPage = {
         e.fclosed = {};
         e.caps = {};
         if (next) this._spanFilter[traceId] = next; else delete this._spanFilter[traceId];
+        e.fdata = null;
+        if (next) this._inlineFilterFetch(traceId, next);
         this._renderRunsKeep();
+    },
+
+    // A badge filter covers the whole run: the server narrows it
+    // (view=tree&decision=) to the matching calls and their turns, paged.
+    SPAN_FILTER_DECISION: { blocked: 'block', error: 'error', waiting: 'waiting', recorded: 'log_only' },
+
+    async _inlineFilterFetch(traceId, kind, older) {
+        const e = this._inlineEntry(traceId);
+        const decision = this.SPAN_FILTER_DECISION[kind];
+        if (!decision) return;
+        const cur = e.fdata && e.fdata.kind === kind ? e.fdata : null;
+        if (older && !(cur && cur.trace && cur.trace.page && cur.trace.page.next_before)) return;
+        const fd = cur || { kind, trace: null, tree: null };
+        fd.loading = true;
+        e.fdata = fd;
+        if (older) this._renderRunsKeep();
+        const pg = await API.getTraceTree(traceId, older ? { decision, before: fd.trace.page.next_before } : { decision });
+        fd.loading = false;
+        if (e.fdata !== fd || (this._spanFilter || {})[traceId] !== kind) return; // filter changed meanwhile
+        if (pg) { fd.trace = older ? RunTrace.mergePage(fd.trace, pg, 'older') : pg; fd.tree = null; }
+        else fd.error = true;
+        if ((this._openRuns || []).includes(traceId)) this._renderRunsKeep();
     },
 
     /** Fetch one run's spans and the session's requests and grants (read
@@ -2722,8 +2781,9 @@ const AgentRunsPage = {
         e.loading = true;
         e.error = false;
         const safe = (p) => Promise.resolve(p).catch(() => null);
+        // Paged: the newest 200 spans, then on a refresh only the newer ones.
         const [trace, reqs, grants] = await Promise.all([
-            safe(API.getTrace(traceId)),
+            safe(this._traceDelta(traceId, e.trace)),
             safe(API.getJitRequests ? API.getJitRequests() : null),
             safe(API.getJitGrants ? API.getJitGrants() : null),
         ]);
@@ -2739,6 +2799,9 @@ const AgentRunsPage = {
             e.requests = ((reqs && reqs.items) || []).filter(mine);
             e.grants = ((grants && grants.items) || []).filter(mine);
             e.tree = null;
+            // A badge filter's narrowed run follows the refresh.
+            const fk = (this._spanFilter || {})[traceId];
+            if (fk && e.fdata && e.fdata.trace && !e.fdata.loading) this._inlineFilterFetch(traceId, fk);
         }
         if ((this._openRuns || []).includes(traceId)) this._renderRunsKeep();
     },
@@ -2790,13 +2853,23 @@ const AgentRunsPage = {
         const base = sess === 'mid' ? '<span class="rl-guide" aria-hidden="true"></span>' : '';
         const fkind = (this._spanFilter || {})[r.trace_id] || null;
         let filtered = null;
+        const fd = fkind && e.fdata && e.fdata.kind === fkind && e.fdata.trace ? e.fdata : null;
         if (fkind && e.trace) {
             // Cached per tree, kind and folds: a live tick that did not
             // refetch reuses it instead of walking thousands of spans again.
-            const t = this._inlineTree(r, e);
+            // The server's narrowed run when it has answered; until then the
+            // loaded spans.
+            if (fd && !fd.tree) {
+                fd.tree = RunTrace.buildTree(fd.trace, { requests: e.requests, grants: e.grants,
+                    newest: RunsList.isNewest(r, this._ctx), title: RunsList.name(r, this._ctx), newestFirst: true });
+            }
+            const t = fd ? fd.tree : this._inlineTree(r, e);
             const sig = fkind + '|' + JSON.stringify(e.fclosed || {});
             if (!e.fcache || e.fcache.tree !== t || e.fcache.sig !== sig) e.fcache = { tree: t, sig, res: RL.filterSpans(t, fkind, RunTrace, window.TraceSteps, e.fclosed) };
             filtered = e.fcache.res;
+            // The count is the whole run's, not the page's.
+            const total = fd && fd.trace.page ? fd.trace.page.matches : null;
+            if (total != null) filtered = Object.assign({}, filtered, { matches: total });
         }
         if (fkind) list.appendChild(this._spanFilterNote(r, fkind, filtered, base, sess));
         if (!e.trace) {
@@ -2827,6 +2900,53 @@ const AgentRunsPage = {
             list.appendChild(this._spanRow(r, e, row, base, flat, sess));
             if (e.det[row.key]) list.appendChild(this._spanDetailRow(r, e, tree, row, base, sess));
         });
+        // Older spans still on the server: one more page, once every loaded
+        // turn at the run level is shown.
+        const last = rows[rows.length - 1];
+        const src = filtered ? (fd && fd.trace) : e.trace;
+        const left = RunTrace.olderLeft ? RunTrace.olderLeft(src) : 0;
+        if (left > 0 && !(last && last.more && last.depth === 1)) list.appendChild(this._inlineOlderRow(r, e, left, base, sess, filtered, fd));
+    },
+
+    /** "Show 200 more · N older" under an open run whose older spans are
+     *  not loaded yet (a run is fetched a page at a time). */
+    _inlineOlderRow(r, e, left, base, sess, filtered, fd) {
+        const m = document.createElement('div');
+        m.className = 'rl-row rl-spanrow rl-spanmsg rl-morerow' + (sess ? ' rl-child' : '');
+        const step = Math.min(left, API.TRACE_PAGE || 200);
+        const note = filtered ? ` · ${left === 1 ? 'match' : 'matches'} and turns` : '';
+        const busy = filtered ? !!(fd && fd.loading) : !!e.olderLoading;
+        m.innerHTML = base + this._inlineLines({ depth: 1, guides: [], last: true, expanded: false }, false) +
+            `<span class="rl-c"></span><span class="rl-c rl-name rl-fnote" style="--rl-ind:20px">` +
+            `<button type="button" class="rl-link" data-fk="older:${this._esc(r.trace_id)}"${busy ? ' disabled' : ''}>${busy ? 'Loading…' : `Show ${step} more`}</button> · ${left.toLocaleString()} older${note}</span>`;
+        m.querySelector('button').addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            if (filtered && fd) this._inlineFilterFetch(r.trace_id, fd.kind, true);
+            else this._inlineOlder(r.trace_id);
+        });
+        return m;
+    },
+
+    /** Fetch the page of spans older than an open run's oldest loaded. */
+    async _inlineOlder(traceId) {
+        const e = this._inlineEntry(traceId);
+        const t = e.trace;
+        if (!t || !t.page || !t.page.next_before || e.olderLoading) return;
+        e.olderLoading = true;
+        this._renderRunsKeep();
+        const pg = await API.getTraceTree(traceId, { before: t.page.next_before });
+        e.olderLoading = false;
+        if (this._inline[traceId] !== e) return; // closed meanwhile
+        if (pg && e.trace) {
+            e.trace = RunTrace.mergePage(e.trace, pg, 'older');
+            e.tree = null;
+            // Every loaded turn shows: the run level's display cap follows.
+            const RL = RunsList;
+            const key = RL.inlineRootKey ? RL.inlineRootKey(this._inlineTree((this.runs || []).find(x => x.trace_id === traceId) || {}, e)) : 'run';
+            e.caps = e.caps || {};
+            e.caps[key] = Math.max(RL.inlineCap(e.caps, key), e.tree && e.tree.children ? e.tree.children.length : 0);
+        } else if (window.Toast) Toast.error('Older spans could not be loaded.');
+        this._renderRunsKeep();
     },
 
     /** "Show 200 more · N left" at the end of a capped level, on its guide. */
@@ -2940,7 +3060,11 @@ const AgentRunsPage = {
         };
         RT.injectStyle();
         const html = found ? RT.spanPanelHtml(ctx, found)
-            .replace('aria-label="Close span detail, show session governance"', 'aria-label="Close these span details"') : '';
+            .replace('aria-label="Close span detail, show session governance"', 'aria-label="Close these span details"') + RT.hydratingHtml(found.node.span) : '';
+        // A slim span loads its full detail once, then the row redraws.
+        if (found && found.node.span && found.node.span._cut && RT.hydrate) {
+            RT.hydrate(tid, found.node.span).then(changed => { if (changed && e.det[row.key]) this._renderRunsKeep(); });
+        }
         const el = document.createElement('div');
         el.className = 'rl-spandet' + (sess ? ' rl-child' : '');
         el.dataset.det = `${tid}:${row.key}`;
@@ -3263,6 +3387,7 @@ const AgentRunsPage = {
                 this.selectRun(id, { refresh: true });
             },
             onPause: (btn) => this._livePauseToggle(btn),
+            onOlder: () => this._loadOlderDetail(),
             onTerminal: () => {
                 try { sessionStorage.setItem('sv-agent-task-id', taskId); } catch (_) { /* navigation still works */ }
                 if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');

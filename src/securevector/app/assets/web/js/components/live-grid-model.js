@@ -816,6 +816,8 @@
                     RT.spanPanelHtml(res.ctx, res.found)
                         .replace('aria-label="Close span detail, show session governance"', 'aria-label="Close these call details"')
                         .replace('<div class="rt-ph"><h3>', `<div class="rt-ph"><h3 tabindex="-1" data-act="det-h" data-sid="${e(sid)}">`) +
+                    // A slim (paged) call says its full detail is loading.
+                    (RT.hydratingHtml ? RT.hydratingHtml(res.found.node.span) : '') +
                     `</div>`;
             }
             return { keyOf, openKey: res ? res.key : null, detailHtml, resolved: res };

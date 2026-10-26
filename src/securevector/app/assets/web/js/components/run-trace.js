@@ -278,6 +278,99 @@
          *  turn order, via TraceSteps.build); calls with no turn sit flat
          *  under the run. Waiting requests with no span of their own join as
          *  tool rows. */
+        // ------------------------------------------------ paged traces
+        // A trace from GET /api/traces/{id}?view=tree carries one page of
+        // slim spans (trace.page) and the run totals; spans load older with
+        // "Show 200 more", newer on a live tick, and in full one at a time.
+
+        /** Spans in the run, not only the ones loaded. */
+        spanTotal(trace) {
+            const t = trace || {};
+            if (t.page && t.span_count != null) return Number(t.span_count) || 0;
+            return (t.spans || []).length;
+        },
+
+        /** Spans of the run (or of a decision= list) not loaded yet, older
+         *  than the oldest shown: the server's count when it gave one. */
+        olderLeft(trace) {
+            const t = trace || {};
+            if (!t.page || !t.page.has_more) return 0;
+            if (typeof t.page.older === 'number') return Math.max(0, t.page.older);
+            return Math.max(0, this.spanTotal(t) - (t.spans || []).length);
+        },
+
+        /** Fold a page into a loaded trace. how: 'older' (a before= page),
+         *  'newer' (an after= page), else the page replaces the trace. The
+         *  run totals and header fields always come from the newest answer;
+         *  a span already loaded is kept once (by its server key). */
+        mergePage(cur, page, how) {
+            if (!page) return cur;
+            if (!cur || !cur.page || (how !== 'older' && how !== 'newer')) return page;
+            const head = Object.assign({}, page);
+            delete head.spans; delete head.page;
+            const add = Array.isArray(page.spans) ? page.spans : [];
+            const keys = new Set(add.map(s => s && s.sk).filter(Boolean));
+            const keep = (cur.spans || []).filter(s => !(s && s.sk && keys.has(s.sk)));
+            const p = Object.assign({}, cur.page);
+            if (how === 'older') {
+                p.has_more = !!(page.page && page.page.has_more);
+                p.next_before = page.page ? page.page.next_before : null;
+                if (page.page && typeof page.page.older === 'number') p.older = page.page.older;
+            } else if (page.page && page.page.newest) {
+                p.newest = page.page.newest;
+            }
+            const head0 = how === 'older' ? Object.assign({}, cur) : Object.assign({}, cur, head);
+            delete head0.spans; delete head0.page;
+            return Object.assign(head0, { spans: how === 'older' ? add.concat(keep) : keep.concat(add), page: p });
+        },
+
+        /** A slim span (span._cut) gets its full detail from the server, in
+         *  place, so every view holding it sees the full text. Resolves true
+         *  when it changed. */
+        async hydrate(traceId, span) {
+            if (!span || !span._cut || !span.sk || !root.API || !root.API.getTraceSpan) return false;
+            if (span._hydrating) return span._hydrating;
+            span._hydrating = root.API.getTraceSpan(traceId, span.sk).then(res => {
+                span._hydrating = null;
+                if (!res || !res.span) return false;
+                Object.assign(span, res.span, { _cut: false, _slim: false });
+                return true;
+            }, () => { span._hydrating = null; return false; });
+            return span._hydrating;
+        },
+
+        /** The note a span panel shows while its full detail loads. */
+        hydratingHtml(span) {
+            return span && span._cut ? '<p class="rt-muted rt-loadfull" role="status">Loading full detail…</p>' : '';
+        },
+
+        /** The full trace for export and copy: the loaded one when it is
+         *  already full, else GET view=full. */
+        async fullTrace(trace) {
+            if (!trace || !trace.page) return trace;
+            const full = root.API && root.API.getTraceFull ? await root.API.getTraceFull(trace.trace_id) : null;
+            return full || null;
+        },
+
+        /** A ctx whose trace and tree are the run in full (export, copy). */
+        async fullCtx(ctx) {
+            if (!ctx || !ctx.trace || !ctx.trace.page) return ctx;
+            const full = await this.fullTrace(ctx.trace);
+            if (!full) return null;
+            const c = Object.assign({}, ctx, { trace: full });
+            c.tree = this.buildTree(full, { requests: ctx.requests, grants: ctx.grants, newest: ctx.newest, title: ctx.title, newestFirst: true });
+            return c;
+        },
+
+        /** "Show 200 more · N older" under a paged tree. */
+        olderHtml(trace) {
+            const left = this.olderLeft(trace);
+            if (!left) return '';
+            const step = Math.min(left, (root.API && root.API.TRACE_PAGE) || 200);
+            return `<div class="rt-more"><button type="button" class="rt-link" data-act="older">Show ${step} more</button>` +
+                `<span class="rt-muted"> · ${left.toLocaleString()} older</span></div>`;
+        },
+
         buildTree(trace, opts = {}) {
             const spans = (trace && Array.isArray(trace.spans) ? trace.spans : []).filter(s => s && typeof s === 'object');
             const keyOf = new Map();
@@ -301,6 +394,9 @@
                 return n;
             };
             const run = { key: 'run', kind: 'run', span: null, title: opts.title || 'Run', children: [] };
+            // A paged trace's run row and header count the whole run.
+            const tt = trace && trace.page && trace.totals;
+            if (tt) run.totals = { tokens: tt.tokens, cost: tt.cost == null ? null : Number(tt.cost), block: tt.block };
             const TS = root.TraceSteps;
             let steps;
             if (TS && TS.build) steps = TS.build(spans);
@@ -318,7 +414,10 @@
             steps.forEach(step => {
                 if (step.gen) {
                     const g = mk(step.gen, 'llm');
-                    g.turn = ++turn;
+                    // A paged trace numbers turns from the run's first one
+                    // (gen_no), not from the first loaded.
+                    turn += 1;
+                    g.turn = Number(step.gen.gen_no) || turn;
                     g.children = step.tools.map(t => mk(t, 'tool'));
                     run.children.push(g);
                     turns.push(g);
@@ -469,12 +568,14 @@
 
         nodeTokens(n) {
             if (n.kind === 'llm') { const s = n.span; return Number(s.input_tokens || 0) + Number(s.output_tokens || 0); }
+            if (n.kind === 'run' && n.totals && n.totals.tokens != null) return Number(n.totals.tokens) || 0; // paged: the whole run's
             if (n.kind === 'run') { let t = 0; this.walk(n, c => { if (c.kind === 'llm') t += this.nodeTokens(c); }); return t; }
             return 0;
         },
 
         nodeCost(n) {
             if (n.kind === 'llm') return n.span.cost != null ? Number(n.span.cost) : null;
+            if (n.kind === 'run' && n.totals && n.totals.cost !== undefined) return n.totals.cost;
             if (n.kind === 'run') {
                 let c = 0, any = false;
                 this.walk(n, x => { if (x.kind === 'llm' && x.span.cost != null) { c += Number(x.span.cost); any = true; } });
@@ -648,7 +749,7 @@
             const rootNode = ctx.tree;
             const tok = this.nodeTokens(rootNode);
             const cost = this.nodeCost(rootNode);
-            const nSpans = (tr.spans || []).length;
+            const nSpans = this.spanTotal(tr);
             const parts = [`<span class="rt-st ${e(st)}">${st === 'running' ? '<span class="rt-dot" aria-hidden="true"></span>' : ''}${e(st)}</span>`];
             const dur = ctx.durationMs != null ? this.fmtDur(ctx.durationMs) : '';
             if (dur) parts.push(e(dur));
@@ -669,6 +770,7 @@
                 if (d.key === 'blocked' || d.key === 'repeat') blocked++;
                 if (d.key === 'repeat') repeat = true;
             });
+            if (rootNode && rootNode.totals && rootNode.totals.block != null) blocked = Math.max(blocked, Number(rootNode.totals.block) || 0);
             const dec = [];
             if (waiting) dec.push(`<span class="rt-warn">${waiting} waiting for approval${soonest != null ? ', expires ' + e(this.clock(soonest)) : ''}</span>`);
             if (blocked) dec.push(`<span class="rt-bad">${blocked} blocked${repeat ? ' · retried after a block' : ''}</span>`);
@@ -734,7 +836,7 @@
             if (rows.length <= 1 && (st.filter !== 'all' || st.search)) {
                 return head + rows.map(r => this._rowHtml(r, ctx, st, ax)).join('') + '<div class="rt-empty">No spans match.</div>';
             }
-            return head + rows.map(r => this._rowHtml(r, ctx, st, ax)).join('');
+            return head + rows.map(r => this._rowHtml(r, ctx, st, ax)).join('') + this.olderHtml(ctx.trace);
         },
 
         _rowHtml(r, ctx, st, ax) {
@@ -781,7 +883,7 @@
             const close = '<button type="button" class="rt-x" data-act="unpick" aria-label="Close span detail, show session governance">×</button>';
             if (n.kind === 'run') {
                 return `<div class="rt-ph"><h3>${e(n.title)}</h3>${close}</div>` + this._dl([
-                    ['Spans', String((ctx.trace.spans || []).length)],
+                    ['Spans', String(this.spanTotal(ctx.trace))],
                     ['Started', e(this.clock(ctx.trace.started_at, true))],
                     ['Trace id', `<span class="rt-mono">${e(this.short(ctx.trace.trace_id, 12))}…</span>${this.copyBtn(ctx.trace.trace_id, 'Copy trace id')}`],
                 ]);
@@ -1109,7 +1211,7 @@
                 ['Started', tr.started_at || ''],
                 ['Ended', tr.ended_at || ''],
                 ['Duration', ctx.durationMs != null ? this.fmtDur(ctx.durationMs) : ''],
-                ['Spans', String((tr.spans || []).length)],
+                ['Spans', String(this.spanTotal(tr))],
                 ['Tokens', String(tok || 0)],
                 ['Cost', cost != null ? this.fmtUsd(cost) : 'not recorded'],
                 ['Coverage', cov ? (cov.level === 'partial' ? `partial · ${(cov.unchecked || []).length} paths not checked` : cov.level === 'full' ? 'enforced before the call' : (cov.label || 'not enforced')) : ''],
@@ -1153,6 +1255,45 @@
             if (!OT || !ctx || !ctx.tree) return;
             if (fmt === 'csv') OT.download(this.exportFileName(ctx, 'csv'), this.exportCSV(ctx), 'text/csv');
             else if (fmt === 'json') OT.download(this.exportFileName(ctx, 'json'), this.exportJSON(ctx), 'application/json');
+        },
+
+        /** Export a paged run: fetch it in full first ("Preparing…" on the
+         *  Export button meanwhile). */
+        async exportFull(box, ctx, fmt) {
+            if (!ctx || !ctx.trace || !ctx.trace.page) { this.exportRun(ctx, fmt); return; }
+            const btn = box && box.querySelector('.rt-export .sv-export-btn span');
+            const face = btn ? btn.textContent : null;
+            if (btn) btn.textContent = 'Preparing…';
+            try {
+                const full = await this.fullCtx(ctx);
+                if (full) this.exportRun(full, fmt);
+                else if (root.Toast) root.Toast.error('Export failed: the run could not be loaded.');
+            } finally {
+                if (btn) btn.textContent = face;
+            }
+        },
+
+        /** Copy run: the whole run's text, fetched in full for a paged run.
+         *  The clipboard write starts inside the click (a promise item) so
+         *  WebKit keeps the user gesture across the fetch. */
+        copyRun(btn, ctx) {
+            if (!ctx || !ctx.trace || !ctx.trace.page) { this.copyText(btn, this.runText(ctx)); return; }
+            const face = btn ? btn.innerHTML : '';
+            if (btn) btn.textContent = 'Preparing…';
+            const text = this.fullCtx(ctx).then(c => { if (!c) throw new Error('unavailable'); return this.runText(c); });
+            const nav = root.navigator;
+            const restore = (msg) => {
+                if (!btn) return;
+                btn.textContent = msg;
+                btn.classList.add('rt-copy-on');
+                setTimeout(() => { btn.innerHTML = face; btn.classList.remove('rt-copy-on'); }, 1200);
+            };
+            if (nav && nav.clipboard && nav.clipboard.write && root.ClipboardItem && root.Blob) {
+                const item = new root.ClipboardItem({ 'text/plain': text.then(t => new root.Blob([t], { type: 'text/plain' })) });
+                nav.clipboard.write([item]).then(() => restore('Copied'), () => restore('Copy failed'));
+                return;
+            }
+            text.then(t => nav.clipboard.writeText(t)).then(() => restore('Copied'), () => restore('Copy failed'));
         },
 
         /** Small icon button; the delegated listener copies the text of the pre it sits in. */
@@ -1247,9 +1388,10 @@
             box._rt = ctx;
             box.innerHTML = this.headerHtml(ctx) +
                 `<div class="rt-strip" data-part="strip">${this.stripHtml(ctx.gov, st.filter)}</div>` +
-                `<div class="rt-body"><section class="rt-main" aria-label="Spans">${this.toolbarHtml(st, (ctx.trace.spans || []).length)}` +
+                `<div class="rt-body"><section class="rt-main" aria-label="Spans">${this.toolbarHtml(st, this.spanTotal(ctx.trace))}` +
                 `<div class="rt-tree" data-part="tree" role="list">${this.treeHtml(ctx, st)}</div></section>` +
                 `<aside class="rt-panel" data-part="panel" aria-label="Span detail" aria-live="polite">${this._panel(ctx, st)}</aside></div>`;
+            this._ensureFull(box);
             if (!box._rtWired) {
                 box._rtWired = true;
                 box.addEventListener('click', (ev) => this._onClick(box, ev));
@@ -1270,7 +1412,24 @@
 
         _panel(ctx, st) {
             const found = st.sel ? this.find(ctx.tree, st.sel) : null;
-            return found ? this.spanPanelHtml(ctx, found) : this.govPanelHtml(ctx, ctx.gov);
+            return found ? this.spanPanelHtml(ctx, found) + this.hydratingHtml(found.node.span) : this.govPanelHtml(ctx, ctx.gov);
+        },
+
+        /** The selected span is slim: fetch its full detail, then repaint
+         *  the panel if it is still the one selected. */
+        _ensureFull(box) {
+            const ctx = box && box._rt;
+            if (!ctx) return;
+            const st = this.state(ctx.trace.trace_id);
+            const key = st.sel;
+            const found = key ? this.find(ctx.tree, key) : null;
+            const span = found && found.node.span;
+            if (!span || !span._cut) return;
+            this.hydrate(ctx.trace.trace_id, span).then(changed => {
+                if (!changed || box._rt !== ctx || this.state(ctx.trace.trace_id).sel !== key) return;
+                const panel = box.querySelector('[data-part="panel"]');
+                if (panel) panel.innerHTML = this._panel(ctx, this.state(ctx.trace.trace_id));
+            });
         },
 
         /** Repaint the strip, tree and panel (not the toolbar, so the search
@@ -1284,6 +1443,7 @@
             if (strip) strip.innerHTML = this.stripHtml(ctx.gov, st.filter);
             if (tree) tree.innerHTML = this.treeHtml(ctx, st);
             if (panel) panel.innerHTML = this._panel(ctx, st);
+            this._ensureFull(box);
             box.querySelectorAll('.rt-seg [data-filter]').forEach(b => b.setAttribute('aria-pressed', b.dataset.filter === st.filter ? 'true' : 'false'));
         },
 
@@ -1366,9 +1526,10 @@
                     el.setAttribute('aria-expanded', open ? 'true' : 'false');
                     break;
                 }
-                case 'copy-run': this.copyText(el, this.runText(ctx)); break;
+                case 'copy-run': this.copyRun(el, ctx); break;
                 case 'export-menu': st.exportOpen = !st.exportOpen; this._syncExport(box, st); break;
-                case 'export': st.exportOpen = false; this._syncExport(box, st); this.exportRun(ctx, el.dataset.fmt); break;
+                case 'export': st.exportOpen = false; this._syncExport(box, st); this.exportFull(box, ctx, el.dataset.fmt); break;
+                case 'older': if (ctx.onOlder && !el.disabled) { el.disabled = true; el.textContent = 'Loading…'; ctx.onOlder(el); } break;
                 case 'goto': {
                     const tid = el.dataset.trace, sid = el.dataset.span;
                     if (tid && tid !== ctx.trace.trace_id) { if (ctx.onGoto) ctx.onGoto(tid, sid); break; }
@@ -1435,6 +1596,8 @@
 .rt-sess { font-size:12.5px; color:var(--text-muted); overflow-wrap:anywhere; }
 .rt-link { font:inherit; background:none; border:0; padding:0; color:var(--accent-primary); text-decoration:underline; cursor:pointer; text-align:left; }
 .rt-link.rt-bad { color:color-mix(in srgb, var(--danger) 55%, var(--text-primary)); }
+.rt-more { padding:8px 12px; font-size:12px; }
+.rt-loadfull { margin:8px 0 0; font-size:12px; }
 .rt-gov { display:flex; flex-wrap:wrap; align-items:stretch; border:1px solid var(--accent-secondary); border-radius:8px; overflow:hidden;
   background:color-mix(in srgb, var(--accent-primary) 6%, var(--bg-primary)); }
 .rt-gov-lbl { display:flex; align-items:center; padding:0 14px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-primary);

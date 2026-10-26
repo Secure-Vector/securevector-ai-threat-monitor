@@ -12,7 +12,11 @@
  *   SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok
  *
  * Architecture:
- *   - Stats + timeline are fetched fresh on every invocation (~5 ms each).
+ *   - Stats + timeline are shared through a 15-second on-disk cache.
+ *     Claude Code renders the statusline every few seconds in every open
+ *     session, so fetching them on each render had the app answering the
+ *     same two questions hundreds of times a minute; the counts they show
+ *     do not need to be fresher than that.
  *   - Token usage is slow (~2–8 s — disk-scans Claude Code session
  *     transcripts) and lives behind a 5-minute on-disk cache.
  *   - When the token cache is stale, this script SPAWNS A DETACHED
@@ -56,6 +60,38 @@ const TOKEN_CACHE_TTL_MS = 5 * 60 * 1000;
 const SV_DIR = path.join(os.homedir(), '.securevector');
 const TOKEN_CACHE_FILE = path.join(SV_DIR, 'statusline-tokens.json');
 const REFRESH_LOCK_FILE = path.join(SV_DIR, 'statusline-refresh.lock');
+
+// Stats + timeline, shared by every session's statusline (see header).
+const LIVE_CACHE_TTL_MS = 15 * 1000;
+const LIVE_CACHE_FILE = path.join(SV_DIR, 'statusline-live.json');
+
+function readLiveCache(now = Date.now()) {
+  try {
+    const obj = JSON.parse(fs.readFileSync(LIVE_CACHE_FILE, 'utf8'));
+    if (obj && typeof obj.ts === 'number' && now - obj.ts >= 0 && now - obj.ts < LIVE_CACHE_TTL_MS) {
+      return { stats: obj.stats || null, timeline: obj.timeline || null };
+    }
+  } catch { /* missing or unreadable: fetch */ }
+  return null;
+}
+
+/** Keep only what buildLine reads: the counts, and each item's kind. */
+function writeLiveCache(stats, timeline) {
+  if (!stats && !timeline) return; // app unreachable: do not cache the miss
+  const slim = {
+    ts: Date.now(),
+    stats: stats ? { total: stats.total, allowed: stats.allowed, blocked: stats.blocked } : null,
+    timeline: timeline && Array.isArray(timeline.items)
+      ? { items: timeline.items.map((i) => ({ kind: i && i.kind })) }
+      : null,
+  };
+  try {
+    fs.mkdirSync(SV_DIR, { recursive: true });
+    const tmp = `${LIVE_CACHE_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(slim), { mode: 0o600 });
+    fs.renameSync(tmp, LIVE_CACHE_FILE);
+  } catch { /* cache is opportunistic: ignore */ }
+}
 
 function getJson(reqPath, timeoutMs) {
   return new Promise((resolve) => {
@@ -237,11 +273,17 @@ function buildLine(stats, tokens, timeline) {
 async function statuslineMain() {
   await drainStdin();
 
-  // Fast endpoints — fetched fresh each render. Sequential because the
+  // Fast endpoints: from the shared cache, else fetched. Sequential because the
   // local app's single uvicorn worker serialises requests; sequential
   // ordering avoids cheap calls queueing behind anything slow.
-  const stats = await getJson('/api/tool-permissions/call-audit/stats', FAST_TIMEOUT_MS);
-  const timeline = await getJson('/api/replay/timeline?limit=200', FAST_TIMEOUT_MS);
+  let live = readLiveCache();
+  if (!live) {
+    const fetchedStats = await getJson('/api/tool-permissions/call-audit/stats', FAST_TIMEOUT_MS);
+    const fetchedTimeline = await getJson('/api/replay/timeline?limit=200', FAST_TIMEOUT_MS);
+    writeLiveCache(fetchedStats, fetchedTimeline);
+    live = { stats: fetchedStats, timeline: fetchedTimeline };
+  }
+  const { stats, timeline } = live;
 
   // Slow endpoint (token usage) is served from the cache only. If the
   // cache is stale or missing, kick off a detached background refresh

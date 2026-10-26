@@ -21,7 +21,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import PurePath
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -47,6 +47,10 @@ _HIGH_RISK = {"delete", "admin", "write"}
 # Max generation (LLM turn) spans returned per trace. A huge session can have
 # thousands; rendering them all un-virtualised is slow, so we cap and disclose.
 _GENERATION_CAP = 1500
+
+# Tree view (GET /api/traces/{id}?view=tree): spans per page.
+_TREE_LIMIT_DEFAULT = 200
+_TREE_LIMIT_MAX = 1000
 
 # action → (outcome, verdict label, traffic-light colour)
 _VERDICT = {
@@ -327,9 +331,392 @@ async def blocked_ledger(window_days: int = Query(7, ge=1, le=90)):
 
 
 @router.get("/traces/{trace_id}")
-async def get_trace(trace_id: str):
-    """Return the ordered spans for one run (see _build_trace)."""
-    return await _build_trace(trace_id)
+async def get_trace(
+    trace_id: str,
+    view: Annotated[str, Query(pattern="^(full|tree)$")] = "full",
+    limit: Annotated[int, Query(ge=1, le=_TREE_LIMIT_MAX)] = _TREE_LIMIT_DEFAULT,
+    before: Annotated[Optional[str], Query(max_length=512)] = None,
+    after: Annotated[Optional[str], Query(max_length=512)] = None,
+    decision: Annotated[Optional[str], Query(pattern="^(block|error|waiting|log_only)$")] = None,
+):
+    """Return one run's spans.
+
+    ``view=full`` (the default, unchanged): every span with every field, for
+    export and for the callers that need it.
+
+    ``view=tree``: one page of spans for the span tree (``decision``: only
+    the blocked, failed or waiting calls and their turns), the newest ``limit``
+    (or the ``limit`` older than ``before``, or the spans newer than
+    ``after``), each cut to what a row needs (see ``_slim_span``), with the
+    run totals so badges stay right however few spans are loaded. A span's
+    full detail is ``GET /api/traces/{id}/spans/{sk}``.
+    """
+    full = await _build_trace_cached(trace_id)
+    if view == "full":
+        return full
+    pending = await _pending_requests(trace_id, full.get("session_id")) if decision == "waiting" else None
+    return _tree_page(full, limit=limit, before=before, after=after, decision=decision, pending=pending)
+
+
+async def _pending_requests(trace_id: str, session_id: Optional[str]) -> list:
+    """The run's pending approval requests (tool and time only)."""
+    try:
+        rows = await get_database().fetch_all(
+            "SELECT tool_id, function_name, requested_at FROM jit_access_requests "
+            "WHERE status = 'pending' AND (trace_id = ? OR (session_id IS NOT NULL AND session_id = ?))",
+            (trace_id, session_id or ""),
+        )
+    except Exception:  # noqa: BLE001 — no table, no waiting calls
+        return []
+    return [dict(r) for r in rows or []]
+
+
+@router.get("/trace-spans/lookup")
+async def lookup_span(hash: Annotated[str, Query(pattern="^[0-9a-fA-F]{8,128}$")]):
+    """The run and span a span hash (a row hash or span id, or the start of
+    one) names: one indexed-free scan of the audit table's two id columns,
+    instead of the client fetching run after run to look. Newest match wins."""
+    q = hash.lower()
+    row = await get_database().fetch_one(
+        "SELECT trace_id, seq, span_id, row_hash FROM tool_call_audit "
+        "WHERE trace_id IS NOT NULL AND (substr(lower(row_hash), 1, ?) = ? OR substr(lower(span_id), 1, ?) = ?) "
+        "ORDER BY seq DESC LIMIT 1",
+        (len(q), q, len(q), q),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="no span with that hash")
+    r = dict(row)
+    return {"trace_id": r["trace_id"], "sk": f"t:{r['seq']}", "span_id": r.get("span_id"), "row_hash": r.get("row_hash")}
+
+
+@router.get("/traces/{trace_id}/spans/{span_key}")
+async def get_trace_span(trace_id: str, span_key: str):
+    """One span's full detail, for the span panel and the copy command.
+
+    ``span_key`` is the span's ``sk`` from the tree view, or its span_id,
+    row_hash or request_id."""
+    full = await _build_trace_cached(trace_id)
+    spans = full.get("spans") or []
+    for field in ("sk", "span_id", "row_hash", "request_id"):
+        for i, s in enumerate(spans):
+            if (_span_key(s) if field == "sk" else s.get(field)) == span_key:
+                return {"trace_id": trace_id, "sk": _span_key(s), "span": s}
+    raise HTTPException(status_code=404, detail="span not found")
+
+
+# --- tree view (paged, slim spans) -----------------------------------------
+
+_TREE_TEXT_CAP = 300   # chars kept of any one text field in a tree span
+_TREE_LIST_CAP = 50    # items kept of any one list field in a tree span
+_TREE_DROP = frozenset({"input_text"})  # full user prompt: span detail only
+
+# The full build of one run is reused while the run is unchanged (same audit
+# rows, stored generations and transcript) and for at most _TRACE_MEMO_TTL_S,
+# so a page, the next page and a span detail opened together build it once.
+_TRACE_MEMO_TTL_S = 30.0
+_TRACE_MEMO_MAX = 2
+_trace_memo: "OrderedDict[tuple, tuple]" = OrderedDict()
+
+
+async def _trace_sig(db, trace_id: str, head: Optional[dict]) -> tuple:
+    """What changes when a run gains spans: its audit rows, its stored
+    generations and its transcript."""
+    try:
+        a = await db.fetch_one(
+            "SELECT COUNT(*) AS n, MAX(seq) AS m FROM tool_call_audit WHERE trace_id = ?", (trace_id,))
+        g = await db.fetch_one(
+            "SELECT COUNT(*) AS n FROM llm_cost_records WHERE trace_id = ?", (trace_id,))
+    except Exception:  # noqa: BLE001 — no signature, no reuse
+        return (time.monotonic(),)
+    a = dict(a) if a else {}
+    g = dict(g) if g else {}
+    stamp = ""
+    if head:
+        stamp = await asyncio.to_thread(transcript_stamp, head.get("runtime_kind"), head.get("session_id"))
+    return (a.get("n"), a.get("m"), g.get("n"), stamp)
+
+
+async def _build_trace_cached(trace_id: str) -> dict:
+    """``_build_trace`` reused while the run is unchanged. The result is
+    shared: callers must not mutate it."""
+    db = get_database()
+    key = (id(db), trace_id)
+    # Drop expired builds on every call, so a large run is not held in
+    # memory after the page that asked for it is gone.
+    cutoff = time.monotonic() - _TRACE_MEMO_TTL_S
+    for k in [k for k, v in _trace_memo.items() if v[1] < cutoff]:
+        _trace_memo.pop(k, None)
+    hit = _trace_memo.get(key)
+    if hit:
+        head = hit[2]
+    else:
+        try:
+            rk, sid = await _run_identity(db, trace_id)
+        except Exception:  # noqa: BLE001
+            rk, sid = None, None
+        head = {"runtime_kind": rk, "session_id": sid}
+    # Taken before the build, so rows that land during it force the next
+    # call to rebuild rather than hide behind this one.
+    sig = await _trace_sig(db, trace_id, head)
+    now = time.monotonic()
+    if hit and hit[0] == sig and now - hit[1] < _TRACE_MEMO_TTL_S:
+        _trace_memo.move_to_end(key)
+        return hit[3]
+    full = await _build_trace(trace_id)
+    _trace_memo[key] = (sig, now, head, full)
+    _trace_memo.move_to_end(key)
+    while len(_trace_memo) > _TRACE_MEMO_MAX:
+        _trace_memo.popitem(last=False)
+    return full
+
+
+def _span_key(s: dict) -> str:
+    """A span's stable key for cursors and the single-span route: the audit
+    seq for a tool call, the span/request id (else the time) for a turn."""
+    if s.get("span_kind") == "generation":
+        return "g:" + str(s.get("span_id") or s.get("request_id") or s.get("called_at") or "")
+    if s.get("audit_seq") is not None:
+        return "t:" + str(s.get("audit_seq"))
+    return "t:" + str(s.get("span_id") or s.get("row_hash") or s.get("called_at") or "")
+
+
+def _cursor(s: dict) -> str:
+    return f"{s.get('called_at') or ''}|{_span_key(s)}"
+
+
+def _cursor_index(spans: list, cursor: Optional[str]) -> Optional[int]:
+    """Index of the span a cursor names; else, by its time, the index just
+    past the last span at or before it (so paging never repeats a span)."""
+    if not cursor:
+        return None
+    ts, _, key = cursor.partition("|")
+    for i, s in enumerate(spans):
+        if _span_key(s) == key:
+            return i
+    t = _ts_key(ts or None)
+    n = sum(1 for s in spans if _ts_key(s.get("called_at")) <= t)
+    return n - 1
+
+
+def _slim_value(v, cut: list):
+    if isinstance(v, str):
+        if len(v) > _TREE_TEXT_CAP:
+            cut[0] = True
+            return v[:_TREE_TEXT_CAP]
+        return v
+    if isinstance(v, list):
+        if len(v) > _TREE_LIST_CAP:
+            cut[0] = True
+        return [_slim_value(x, cut) for x in v[:_TREE_LIST_CAP]]
+    if isinstance(v, dict):
+        return {k: _slim_value(x, cut) for k, x in v.items()}
+    return v
+
+
+def _span_failed(s: dict) -> bool:
+    return bool(s.get("is_error") or str(s.get("reason") or "").startswith("tool error"))
+
+
+def _same_tool(name: str, s: dict) -> bool:
+    """A transcript tool name and a governed call name the same tool (the
+    client's TraceSteps.sameTool: exact, or mcp__server__tool vs server:tool)."""
+    if not name:
+        return False
+    if s.get("function_name") == name or s.get("tool_id") == name:
+        return True
+    bare = name[5:] if name.startswith("mcp__") else name
+    i = bare.find("__")
+    if 0 < i < len(bare) - 2:
+        if s.get("tool_id") == f"{bare[:i]}:{bare[i + 2:]}" or s.get("function_name") == f"mcp__{bare}":
+            return True
+    return False
+
+
+def _failed_indices(spans: list) -> set:
+    """Tool calls that failed: an audit row that says so, or (as the client's
+    TraceSteps.markFailed pairs them) the turn's transcript result for the
+    same tool, in order, was an error that was not a refusal."""
+    out = {i for i, s in enumerate(spans) if s.get("span_kind") != "generation" and _span_failed(s)}
+    gen = None
+    used: dict = {}
+    for i, s in enumerate(spans):
+        if s.get("span_kind") == "generation":
+            gen, used = s, {}
+            continue
+        results = (gen or {}).get("tool_results") or []
+        if not results:
+            continue
+        names = list(dict.fromkeys(str((r or {}).get("name") or "") for r in results))
+        name = next((n for n in names if _same_tool(n, s)), None)
+        if name is None:
+            continue
+        k = used.get(name, 0)
+        used[name] = k + 1
+        mine = [r for r in results if str((r or {}).get("name") or "") == name]
+        r = mine[k] if k < len(mine) else None
+        if r and r.get("is_error") and not r.get("denied"):
+            out.add(i)
+    return out
+
+
+def _waiting_indices(spans: list, pending: list) -> set:
+    """Blocked calls a pending approval request is for: same tool, within a
+    minute, nearest first, one request per call (the client's
+    RunTrace.matchRequests window)."""
+    out: set = set()
+    blocks = [(i, s) for i, s in enumerate(spans)
+              if s.get("span_kind") != "generation" and s.get("action") == "block"]
+    for req in sorted(pending or [], key=lambda r: _ts_key(r.get("requested_at"))):
+        at = _ts_key(req.get("requested_at"))
+        best = None
+        for i, s in blocks:
+            if i in out:
+                continue
+            if s.get("tool_id") != req.get("tool_id") and s.get("function_name") != (req.get("function_name") or req.get("tool_id")):
+                continue
+            gap = abs((_ts_key(s.get("called_at")) - at).total_seconds())
+            if gap <= 60 and (best is None or gap < best[0]):
+                best = (gap, i)
+        if best:
+            out.add(best[1])
+    return out
+
+
+def _slim_span(s: dict, failed: bool = False) -> dict:
+    """What a tree row needs: every small field as is, any long text cut to
+    _TREE_TEXT_CAP, the full prompt left out. A blocked call keeps its full
+    arguments (few, and approvals match on them). ``_cut`` tells the client
+    the span detail route has more."""
+    cut = [False]
+    out = {}
+    for k, v in s.items():
+        if k in _TREE_DROP:
+            if v:
+                cut[0] = True
+            continue
+        if k == "args_preview" and s.get("action") == "block":
+            out[k] = v
+            continue
+        out[k] = _slim_value(v, cut)
+    out["sk"] = _span_key(s)
+    out["error"] = bool(failed or _span_failed(s))
+    out["_slim"] = True
+    out["_cut"] = cut[0]
+    return out
+
+
+def _tree_totals(spans: list, failed: set) -> dict:
+    """Counts over the whole run, plus the turns' tokens and cost (None when
+    no turn has a known price), so a paged view's header and run row match
+    the run and not the page."""
+    t = {"spans": len(spans), "tool_call": 0, "generation": 0,
+         "allow": 0, "block": 0, "log_only": 0, "failed": len(failed),
+         "tokens": 0, "cost": None}
+    for s in spans:
+        if s.get("span_kind") == "generation":
+            t["generation"] += 1
+            t["tokens"] += int(s.get("input_tokens") or 0) + int(s.get("output_tokens") or 0)
+            if s.get("cost") is not None:
+                t["cost"] = round((t["cost"] or 0.0) + float(s.get("cost") or 0.0), 6)
+            continue
+        t["tool_call"] += 1
+        a = s.get("action") or "allow"
+        t[a if a in ("allow", "block", "log_only") else "allow"] += 1
+    return t
+
+
+# decision= filter of the tree view: the run badges' kinds.
+TREE_DECISIONS = ("block", "error", "waiting", "log_only")
+
+
+def _tree_page(full: dict, *, limit: int, before: Optional[str] = None, after: Optional[str] = None,
+               decision: Optional[str] = None, pending: Optional[list] = None) -> dict:
+    """One page of the run, oldest first within the page (``order: asc``).
+
+    No cursor: the newest ``limit`` spans. ``before``: the ``limit`` spans
+    older than it (``has_more`` while older ones remain). ``after``: the
+    cursor span and every span newer than it, or ``gap: true`` and no spans
+    when more than ``limit`` arrived (the client then reloads the first
+    page). A page that starts inside a model turn reaches back to that turn
+    (up to ``limit`` more spans) so its calls keep their turn.
+
+    ``decision`` (block, error, waiting, log_only) narrows the run, over every span
+    and not only a page, to the calls of that kind plus the turns they were
+    made in; paging then walks that list. ``pending``: the session's pending
+    approval requests, for ``waiting``."""
+    all_spans = full.get("spans") or []
+    failed = _failed_indices(all_spans)
+    gen_no: dict = {}
+    for i, s in enumerate(all_spans):
+        if s.get("span_kind") == "generation":
+            gen_no[i] = len(gen_no) + 1
+    idx = list(range(len(all_spans)))
+    matches = None
+    if decision:
+        if decision in ("block", "log_only"):
+            hit = {i for i, s in enumerate(all_spans)
+                   if s.get("span_kind") != "generation" and s.get("action") == decision}
+        elif decision == "error":
+            hit = set(failed)
+        else:
+            hit = _waiting_indices(all_spans, pending or [])
+        matches = len(hit)
+        keep = set(hit)
+        last_gen = None
+        for i, s in enumerate(all_spans):
+            if s.get("span_kind") == "generation":
+                last_gen = i
+            elif i in hit and last_gen is not None:
+                keep.add(last_gen)
+        idx = sorted(keep)
+    spans = [all_spans[i] for i in idx]
+    n = len(spans)
+    gap = False
+    if after:
+        # The cursor span itself comes again: the newest turn may still be
+        # growing (tokens, the calls it made), and the client replaces it.
+        i = _cursor_index(spans, after)
+        start = max(0, i) if i is not None else 0
+        end = n
+        if end - start > limit:
+            gap = True
+            start = end
+    else:
+        end = n
+        if before:
+            i = _cursor_index(spans, before)
+            end = max(0, i if i is not None else n)
+        start = max(0, end - limit)
+        floor = max(0, start - limit)
+        while start > floor and spans[start].get("span_kind") != "generation":
+            start -= 1
+        if start > 0 and spans[start].get("span_kind") != "generation":
+            start = max(0, end - limit)  # no turn within reach: plain page
+    out = {k: v for k, v in full.items() if k != "spans"}
+    out["view"] = "tree"
+    slim = []
+    for j in range(start, end):
+        i = idx[j]
+        sp = _slim_span(all_spans[i], i in failed)
+        if i in gen_no:
+            sp["gen_no"] = gen_no[i]  # turn numbers count from the run's first
+        slim.append(sp)
+    out["spans"] = slim
+    out["totals"] = _tree_totals(all_spans, failed)
+    out["page"] = {
+        "limit": limit,
+        "order": "asc",
+        "returned": end - start,
+        "first": not before and not after,
+        "has_more": (start > 0) if not after else None,
+        "older": start,
+        "next_before": _cursor(spans[start]) if start < end and start > 0 and not after else None,
+        "newest": _cursor(spans[end - 1]) if end > 0 else (after or None),
+        "gap": gap,
+        "decision": decision,
+        "matches": matches,
+    }
+    return out
 
 
 async def _build_trace(trace_id: str, generations: Optional[list] = None):
@@ -387,6 +774,8 @@ async def _build_trace(trace_id: str, generations: Optional[list] = None):
             "ml_agreement": det.get("ml_agreement") if det else None,
             "span_id": r.get("span_id"),
             "parent_span_id": r.get("parent_span_id"),
+            # The audit chain seq: the tree view's stable key for this call.
+            "audit_seq": r.get("seq"),
             # The audit row hash: the id this call carries when it is sent to
             # the cloud (siem_ocsf sends it as span_id), shown so a cloud span
             # can be found here.

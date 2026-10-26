@@ -173,7 +173,67 @@ const API = {
     },
 
     async getTrace(traceId) {
-        return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+        // Shared while in flight: several views opening one run fetch it once.
+        return this.shared(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+    },
+
+    // ---- trace tree view (paged, slim spans) ----
+    // A run with thousands of calls is megabytes in full. The span tree asks
+    // for one page at a time: getTraceTree(id) is the newest 200 spans with
+    // the run totals; { before: page.next_before } is the 200 older; { after:
+    // page.newest } is only what arrived since (page.gap: too many, reload).
+    // Spans in a page are oldest first, each cut to what a row needs
+    // (span._cut: the full text is at getTraceSpan(id, span.sk)). Export and
+    // copy use getTraceFull. Identical requests in flight share one fetch.
+    _inflight: new Map(),
+
+    /** One fetch per URL while it is in flight; every caller gets the answer. */
+    shared(endpoint, options) {
+        const key = endpoint;
+        const hit = this._inflight.get(key);
+        if (hit) return hit;
+        const p = this.request(endpoint, options).finally(() => this._inflight.delete(key));
+        this._inflight.set(key, p);
+        return p;
+    },
+
+    TRACE_PAGE: 200,
+
+    async getTraceTree(traceId, opts = {}) {
+        const q = new URLSearchParams({ view: 'tree', limit: String(opts.limit || this.TRACE_PAGE) });
+        if (opts.before) q.set('before', opts.before);
+        if (opts.after) q.set('after', opts.after);
+        // decision: block | error | waiting | log_only, over the whole run.
+        if (opts.decision) q.set('decision', opts.decision);
+        return this.shared(`/api/traces/${encodeURIComponent(traceId)}?${q}`).catch(() => null);
+    },
+
+    /** The run and span a span hash (or its start) names, or null. */
+    async lookupSpanHash(hash) {
+        return this.request(`/api/trace-spans/lookup?hash=${encodeURIComponent(hash)}`).catch(() => null);
+    },
+
+    /** Every span with every field, for export and copy. */
+    async getTraceFull(traceId) {
+        return this.shared(`/api/traces/${encodeURIComponent(traceId)}?view=full`).catch(() => null);
+    },
+
+    _spanCache: new Map(),
+    SPAN_CACHE_MS: 60000,
+    SPAN_CACHE_MAX: 200,
+
+    /** One span's full detail (the span panel, the copy command), cached
+     *  briefly per run and key. */
+    async getTraceSpan(traceId, key) {
+        const ck = `${traceId}|${key}`;
+        const hit = this._spanCache.get(ck);
+        if (hit && Date.now() - hit.at < this.SPAN_CACHE_MS) return hit.data;
+        const data = await this.shared(`/api/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(key)}`).catch(() => null);
+        if (data && data.span) {
+            this._spanCache.set(ck, { at: Date.now(), data });
+            while (this._spanCache.size > this.SPAN_CACHE_MAX) this._spanCache.delete(this._spanCache.keys().next().value);
+        }
+        return data;
     },
 
     // Run health: one run's findings, and findings across runs in a window.
