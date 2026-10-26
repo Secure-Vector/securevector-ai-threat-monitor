@@ -686,7 +686,7 @@
                 (ctx.extraHtml || '') + `</div>` +
                 `<div class="rt-status">${parts.join(' · ')}</div>` +
                 (sess.length ? `<div class="rt-sess">${sess.join(' · ')}</div>` : '') +
-                `</div><div class="rt-head-side">${this.exportMenuHtml(this.state(tr.trace_id))}${nav}${stop}</div></div>`;
+                `</div><div class="rt-head-side"><button type="button" class="sv-export-btn rt-copy-run" data-act="copy-run" title="Copy the run as text">Copy run</button>${this.exportMenuHtml(this.state(tr.trace_id))}${nav}${stop}</div></div>`;
         },
 
         stripHtml(gov, filter) {
@@ -753,6 +753,9 @@
         /** The selected span's detail. Decision controls appear only for a
          *  span waiting for approval, and only here. */
         spanPanelHtml(ctx, found) {
+            // The panel also renders in the Runs table and the Live grid,
+            // which never call mount(): wire the copy listener here too.
+            this.installCopy();
             const e = (s) => this.esc(s);
             const n = found.node;
             const par = found.parent;
@@ -792,8 +795,8 @@
             const waiting = d && d.key === 'waiting';
             const badgeExtra = waiting && expiry ? `expires ${this.clock(expiry)}` : '';
             let html = `<div class="rt-ph"><h3>${e(this.toolName(s))}</h3>${d ? this.badge(d, badgeExtra) : ''}${close}</div>`;
-            if (cmd) html += `<pre class="rt-cmd">${e(cmd)}</pre>`;
-            if (rawCmd && String(rawCmd) !== String(cmd)) html += `<details class="rt-raw"><summary>Raw arguments</summary><pre class="rt-cmd">${e(rawCmd)}</pre></details>`;
+            if (cmd) html += `<pre class="rt-cmd">${e(cmd)}${this.copyBtnHtml()}</pre>`;
+            if (rawCmd && String(rawCmd) !== String(cmd)) html += `<details class="rt-raw"><summary>Raw arguments</summary><pre class="rt-cmd">${e(rawCmd)}${this.copyBtnHtml()}</pre></details>`;
             html += this._dl([
                 rule ? ['Rule', `${e(rule.name)}${rule.id ? ` <span class="rt-mono">${e(rule.id)}${rule.version ? ' ' + e(rule.version) : ''}</span>` : ''}${rule.source ? ` · ${e(rule.source)}` : ''}`, waiting || (d && d.key !== 'used') ? 'rt-warn-t' : ''] : null,
                 !req && s.reason ? ['Reason', e(s.reason)] : null,
@@ -1136,6 +1139,62 @@
             else if (fmt === 'json') OT.download(this.exportFileName(ctx, 'json'), this.exportJSON(ctx), 'application/json');
         },
 
+        /** Small icon button; the delegated listener copies the text of the pre it sits in. */
+        copyBtnHtml() {
+            return '<button type="button" class="rt-cmd-copy" data-rt-copy="pre" aria-label="Copy command" title="Copy">' +
+                '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button>';
+        },
+
+        /** Readable plain text of the whole run: summary, governance strip, one line per span. */
+        runText(ctx) {
+            const sum = this.exportSummary(ctx);
+            const rows = this.exportRows(ctx);
+            const depths = [];
+            const walkD = (n, d) => { if (n.kind !== 'run') depths.push(d); (n.children || []).forEach(c => walkD(c, n.kind === 'run' ? 0 : d + 1)); };
+            walkD(ctx.tree, 0);
+            const out = sum.run.map(r => `${r[0]}: ${r[1]}`);
+            if (sum.governance.length) {
+                out.push('');
+                sum.governance.forEach(g => out.push(`${g[0]}: ${g[1]}${g[2] ? ' (' + g[2] + ')' : ''}`));
+            }
+            out.push('');
+            rows.forEach((r, i) => {
+                const hms = r.time ? (String(r.time).match(/T(\d\d:\d\d:\d\d)/) || [])[1] || String(r.time) : '';
+                const label = r.kind === 'tool' && r.target ? `${r.name} ${r.target}` : r.name;
+                const cols = [hms, r.kind, label, r.decision, r.rule, r.duration_ms != null ? this.fmtDur(r.duration_ms) : '', r.tokens ? this.fmtTok(r.tokens) : '', r.cost != null ? this.fmtUsd(r.cost) : ''];
+                out.push('  '.repeat(depths[i] || 0) + cols.join('  ').replace(/\s+$/, ''));
+            });
+            return out.join('\n');
+        },
+
+        /** Write text to the clipboard and flash "Copied" or "Copy failed" on the button. */
+        async copyText(btn, text) {
+            let msg = 'Copied';
+            try { await root.navigator.clipboard.writeText(text); } catch (_) { msg = 'Copy failed'; }
+            if (!btn) return msg;
+            if (btn._rtT) clearTimeout(btn._rtT);
+            if (btn._rtHtml == null) btn._rtHtml = btn.innerHTML;
+            btn.textContent = msg;
+            btn.classList.add('rt-copy-on');
+            btn._rtT = setTimeout(() => { btn.innerHTML = btn._rtHtml; btn._rtHtml = null; btn.classList.remove('rt-copy-on'); }, 1200);
+            return msg;
+        },
+
+        installCopy() {
+            const doc = root.document;
+            if (!doc || !doc.addEventListener || doc._rtCopy) return;
+            doc._rtCopy = true;
+            doc.addEventListener('click', (ev) => {
+                const btn = ev.target && ev.target.closest ? ev.target.closest('[data-rt-copy]') : null;
+                if (!btn) return;
+                ev.stopPropagation();
+                const pre = btn.closest('pre');
+                if (!pre) return;
+                const t = Array.from(pre.childNodes).filter(n => n !== btn).map(n => n.textContent).join('');
+                this.copyText(btn, t);
+            });
+        },
+
         exportMenuHtml(st) {
             const open = !!(st && st.exportOpen);
             return `<div class="sv-export-wrap rt-export">` +
@@ -1161,6 +1220,7 @@
          *  onDecide, onRevoke, onGoto, onPause, onTerminal). */
         mount(box, ctx) {
             this.injectStyle();
+            this.installCopy();
             const st = this.state(ctx.trace.trace_id);
             ctx.tree = this.buildTree(ctx.trace, { requests: ctx.requests, grants: ctx.grants, newest: ctx.newest, title: ctx.title });
             if (st.sel && !this.find(ctx.tree, st.sel)) {
@@ -1290,6 +1350,7 @@
                     el.setAttribute('aria-expanded', open ? 'true' : 'false');
                     break;
                 }
+                case 'copy-run': this.copyText(el, this.runText(ctx)); break;
                 case 'export-menu': st.exportOpen = !st.exportOpen; this._syncExport(box, st); break;
                 case 'export': st.exportOpen = false; this._syncExport(box, st); this.exportRun(ctx, el.dataset.fmt); break;
                 case 'goto': {
@@ -1424,7 +1485,7 @@
 .rt-ph > .rt-muted { flex:1 0 100%; font-size:12px; }
 .rt-ph .rt-badge { margin-left:0; }
 .rt-x { font:inherit; font-size:16px; background:none; border:0; color:var(--text-muted); cursor:pointer; padding:0 4px; }
-.rt-cmd { margin:0 0 12px; padding:8px 10px; border:1px solid var(--border-default); border-radius:6px; background:var(--bg-primary);
+.rt-cmd { position:relative; margin:0 0 12px; padding:8px 34px 8px 10px; border:1px solid var(--border-default); border-radius:6px; background:var(--bg-primary);
   font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .rt-dl { display:grid; grid-template-columns:100px minmax(0,1fr); gap:8px 12px; margin:0 0 10px; }
 .rt-dl dt { color:var(--text-muted); }
@@ -1441,6 +1502,11 @@
 .rt-grants li .rt-mono { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .rt-raw { margin:0 0 12px; font-size:12px; color:var(--text-muted); }
 .rt-raw summary { cursor:pointer; }
+.rt-cmd-copy { position:absolute; top:4px; right:4px; display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; padding:0 5px;
+  font:inherit; font-size:11px; background:var(--bg-secondary); color:var(--text-secondary); border:1px solid var(--border-default); border-radius:4px; cursor:pointer; }
+.rt-cmd-copy:hover, .rt-cmd-copy.rt-copy-on { color:var(--text-primary); background:var(--bg-hover); }
+.rt-cmd-copy:focus-visible { outline:2px solid var(--accent-primary); outline-offset:2px; }
+.rt-copy-run { margin-right:6px; }
 .rt-raw .rt-cmd { margin-top:6px; }
 .rt-secs { display:flex; flex-direction:column; border-bottom:1px solid var(--border-default); }
 .rt-sec.terminals-gov-section { border-top:1px solid var(--border-default); }
