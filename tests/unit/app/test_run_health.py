@@ -596,7 +596,8 @@ async def test_runtime_baseline_is_memoised(tmp_path):
     finally:
         traces_mod._runtime_baseline_read = orig
         traces_mod._baseline_memo.clear()
-    assert traces_mod._PARSE_CACHE_MAX >= 32
+    from securevector.app.services import transcript_cache
+    assert transcript_cache.MAX_ENTRIES >= 32
 
 
 # ---------------- regression: a real failing loop the audit never saw ----------------

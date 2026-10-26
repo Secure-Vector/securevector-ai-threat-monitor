@@ -1004,67 +1004,82 @@ def _aggregate_session_usage(
     files can be partially-written if Claude Code is mid-flush, and we
     refuse to crash the route on a single bad row.
     """
+    # Incremental and shared (services/transcript_cache): a live transcript
+    # is read only from where the last call stopped.
+    from securevector.app.services import transcript_cache
+
+    snap = transcript_cache.parse(Path(jsonl_path), ("cc-usage",), _usage_machine, view=_copy_usage)
+    if snap is None:
+        # File is locked / unreadable — treat as empty rather than 500.
+        return 0, 0, 0, 0, 0, None, {}, {}
+    return snap
+
+
+def _copy_usage(snap: tuple) -> tuple:
+    turns, inp, out, cc, cr, last_iso, per_model, per_day = snap
+    return (turns, inp, out, cc, cr, last_iso,
+            {k: dict(v) for k, v in per_model.items()},
+            {k: dict(v) for k, v in per_day.items()})
+
+
+def _usage_machine():
+    """The parser behind ``_aggregate_session_usage``, as a generator:
+    ``send(record)`` adds one transcript record, ``send(None)`` answers the
+    totals so far."""
     turns = 0
     inp = out = cc = cr = 0
     last_iso: str | None = None
     per_model: dict[str, dict[str, int]] = {}
     per_day: dict[str, dict[str, int]] = {}
-    try:
-        with jsonl_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                msg = rec.get("message") or {}
-                u = msg.get("usage")
-                if not isinstance(u, dict):
-                    continue
-                # Claude Code system-injected turns carry model "<synthetic>"
-                # and zero usage — not real API calls. Same filter as the
-                # Traces LLM-run capture (transcript_generations).
-                if msg.get("model") == "<synthetic>":
-                    continue
-                turns += 1
-                t_in = int(u.get("input_tokens") or 0)
-                t_out = int(u.get("output_tokens") or 0)
-                t_cc = int(u.get("cache_creation_input_tokens") or 0)
-                t_cr = int(u.get("cache_read_input_tokens") or 0)
-                inp += t_in
-                out += t_out
-                cc += t_cc
-                cr += t_cr
-                model = msg.get("model") or "unknown"
-                mu = per_model.setdefault(model, {
+    snap = None
+    while True:
+        rec = yield snap
+        snap = None
+        if rec is None:
+            snap = (turns, inp, out, cc, cr, last_iso, per_model, per_day)
+            continue
+        msg = rec.get("message") or {}
+        u = msg.get("usage")
+        if not isinstance(u, dict):
+            continue
+        # Claude Code system-injected turns carry model "<synthetic>"
+        # and zero usage — not real API calls. Same filter as the
+        # Traces LLM-run capture (transcript_generations).
+        if msg.get("model") == "<synthetic>":
+            continue
+        turns += 1
+        t_in = int(u.get("input_tokens") or 0)
+        t_out = int(u.get("output_tokens") or 0)
+        t_cc = int(u.get("cache_creation_input_tokens") or 0)
+        t_cr = int(u.get("cache_read_input_tokens") or 0)
+        inp += t_in
+        out += t_out
+        cc += t_cc
+        cr += t_cr
+        model = msg.get("model") or "unknown"
+        mu = per_model.setdefault(model, {
+            "turns": 0, "input": 0, "output": 0,
+            "cache_create": 0, "cache_read": 0,
+        })
+        mu["turns"] += 1
+        mu["input"] += t_in
+        mu["output"] += t_out
+        mu["cache_create"] += t_cc
+        mu["cache_read"] += t_cr
+        ts = rec.get("timestamp")
+        if isinstance(ts, str):
+            last_iso = ts
+            day = _iso_to_local_day(ts)
+            if day is not None:
+                du = per_day.setdefault(day, {
                     "turns": 0, "input": 0, "output": 0,
                     "cache_create": 0, "cache_read": 0,
                 })
-                mu["turns"] += 1
-                mu["input"] += t_in
-                mu["output"] += t_out
-                mu["cache_create"] += t_cc
-                mu["cache_read"] += t_cr
-                ts = rec.get("timestamp")
-                if isinstance(ts, str):
-                    last_iso = ts
-                    day = _iso_to_local_day(ts)
-                    if day is not None:
-                        du = per_day.setdefault(day, {
-                            "turns": 0, "input": 0, "output": 0,
-                            "cache_create": 0, "cache_read": 0,
-                        })
-                        du["turns"] += 1
-                        du["input"] += t_in
-                        du["output"] += t_out
-                        du["cache_create"] += t_cc
-                        du["cache_read"] += t_cr
-    except OSError:
-        # File is locked / unreadable — treat as empty rather than 500.
-        pass
-    return turns, inp, out, cc, cr, last_iso, per_model, per_day
+                du["turns"] += 1
+                du["input"] += t_in
+                du["output"] += t_out
+                du["cache_create"] += t_cc
+                du["cache_read"] += t_cr
 
 
 def _compute_token_usage_sync() -> TokenUsageResponse:

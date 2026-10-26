@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -948,9 +947,10 @@ async def _runtime_baseline_read(db, runtime_kind: str) -> dict:
 
 # --- transcript parsing, off the event loop and parsed once -----------------
 
-_PARSE_CACHE_MAX = 40  # a full warm-up pass (20 runs) fits with room for opens
-_parse_cache: "OrderedDict[tuple, list]" = OrderedDict()
-_parse_lock = threading.Lock()
+# Parsing is incremental and shared across callers: services/transcript_cache
+# keeps each transcript's parser state and reads only what was appended, so
+# a live session's growing transcript is not parsed from the start on every
+# request. Callers get their own copies.
 
 
 def _transcript_path(runtime_kind: Optional[str], session_id: Optional[str]):
@@ -972,36 +972,23 @@ def transcript_stamp(runtime_kind: Optional[str], session_id: Optional[str]) -> 
 
 
 def _parse_with_stamp(runtime_kind, session_id, store_text: bool, with_analysis: bool) -> tuple:
-    """Blocking: parse (or reuse) one session's generations. Cached by
-    (path, mtime, size, flags), bounded; callers get their own copies."""
+    """Blocking: one session's generations (incremental, shared parse) and
+    the transcript's mtime stamp. Callers get their own copies."""
     path = _transcript_path(runtime_kind, session_id)
-    key = None
     stamp = ""
+    kw = {"store_text": store_text, "with_analysis": with_analysis}
     if path is not None:
         try:
-            st = path.stat()
-            stamp = str(st.st_mtime_ns)
-            key = (str(path), st.st_mtime_ns, st.st_size, store_text, with_analysis)
+            stamp = str(path.stat().st_mtime_ns)
+            kw["path"] = path
         except OSError:
-            key = None
-    gens = None
-    if key is not None:
-        with _parse_lock:
-            gens = _parse_cache.get(key)
-            if gens is not None:
-                _parse_cache.move_to_end(key)
-    if gens is None:
-        gens = (
-            build_generations_codex(session_id, store_text=store_text, with_analysis=with_analysis)
-            if runtime_kind == "codex"
-            else build_generations(session_id, store_text=store_text, with_analysis=with_analysis)
-        ) or []
-        if key is not None:
-            with _parse_lock:
-                _parse_cache[key] = gens
-                while len(_parse_cache) > _PARSE_CACHE_MAX:
-                    _parse_cache.popitem(last=False)
-    return [dict(g) for g in gens], stamp
+            pass
+    gens = (
+        build_generations_codex(session_id, **kw)
+        if runtime_kind == "codex"
+        else build_generations(session_id, **kw)
+    ) or []
+    return gens, stamp
 
 
 async def parse_generations(runtime_kind, session_id, *, store_text: bool, with_analysis: bool = False) -> list:

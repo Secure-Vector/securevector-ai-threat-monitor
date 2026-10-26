@@ -165,17 +165,11 @@ def _session_calls(runtime_kind: str, session_id: str, path) -> Optional[list]:
     hit = _cached_calls(path)
     if hit is not None:
         return hit
-    gens = None
-    # A trace open or the health warm-up may already hold this parse.
-    with T._parse_lock:
-        for k, v in T._parse_cache.items():
-            if k[:3] == key:
-                gens = v
-                break
-    if gens is None:
-        gens = (T.build_generations_codex(session_id, store_text=False, path=path)
-                if runtime_kind == "codex"
-                else T.build_generations(session_id, store_text=False, path=path)) or []
+    # The parse is shared and incremental (services/transcript_cache): a
+    # trace open or the health warm-up may already hold it.
+    gens = (T.build_generations_codex(session_id, store_text=False, path=path)
+            if runtime_kind == "codex"
+            else T.build_generations(session_id, store_text=False, path=path)) or []
     compact = [(T._ts_key(g.get("called_at")), list(g.get("tool_use_names") or [])) for g in gens]
     with _calls_lock:
         _calls_cache[key] = compact
