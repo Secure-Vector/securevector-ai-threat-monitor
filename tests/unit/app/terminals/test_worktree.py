@@ -97,7 +97,7 @@ async def test_v61_columns_and_idempotent(tmp_path):
     cols = {r["name"] for r in await db.fetch_all("PRAGMA table_info(terminal_tasks)")}
     assert {"run_dir", "worktree_branch", "worktree_base", "worktree_state"} <= cols
     row = await db.fetch_one("SELECT MAX(version) AS v FROM schema_version")
-    assert row["v"] == 66
+    assert row["v"] == 67
 
 
 # --- create and end --------------------------------------------------------------

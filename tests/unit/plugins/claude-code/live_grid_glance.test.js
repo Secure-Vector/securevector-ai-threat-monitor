@@ -124,7 +124,7 @@ test('stable order: widths, density, open panels and polls keep the tile order',
 test('filter chips: Waiting · Blocked · Quiet with counts, one at a time, all by default', () => {
   const { M } = load();
   const list = [sess('w', { waiting: 2 }), sess('b', { blocked: 1 }), sess('q', { quiet_seconds: 900 }), sess('r')];
-  deq(M.chipCounts(list), { waiting: 1, blocked: 1, quiet: 1 });
+  deq(M.chipCounts(list), { waiting: 1, blocked: 1, quiet: 1, running: 4 });
   deq(M.filter(list, { chip: '' }).map(s => s.session_id), ['w', 'b', 'q', 'r']);
   deq(M.filter(list, { chip: 'waiting' }).map(s => s.session_id), ['w']);
   deq(M.filter(list, { chip: 'blocked' }).map(s => s.session_id), ['b']);

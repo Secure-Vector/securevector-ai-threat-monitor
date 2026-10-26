@@ -19,6 +19,12 @@
  * numbers: no generated text, so the bot cannot say anything the data does
  * not. Strict discipline: one bubble at a time, per-category cooldowns, a
  * mute switch, and nothing at all on the first tick (baselines only).
+ *
+ * Security alerts break mute (owner, 6.1): mute silences tips only. A
+ * suspicious egress (a new host, a paste or file-sharing host, a raw IP, a
+ * network call right after a credential read, or a blocked destination,
+ * detected server-side) still shows, once per session and host, unless
+ * "Alert me on suspicious egress" is turned off on purpose.
  */
 
 const GuardianAssistant = {
@@ -681,12 +687,27 @@ const GuardianAssistant = {
         quietRow.className = 'sv-ga-quiet';
         const paintQuiet = () => {
             quietRow.textContent = this._quiet()
-                ? 'Announcements are off. Turn them back on'
-                : 'Announcements are on: new threats, secret catches, blocks, session recaps. Mute';
+                ? 'Tips are muted. Security alerts still show. Turn tips back on'
+                : 'Announcements are on: new threats, secret catches, blocks, session recaps. Mute tips';
         };
         paintQuiet();
         quietRow.addEventListener('click', () => { this._setQuiet(!this._quiet()); paintQuiet(); });
         body.appendChild(quietRow);
+
+        // Separate from mute, so turning security alerts off is deliberate.
+        const egRow = document.createElement('button');
+        egRow.type = 'button';
+        egRow.className = 'sv-ga-quiet sv-ga-egress-toggle';
+        const paintEg = () => {
+            const on = this._egressAlertsOn();
+            egRow.setAttribute('aria-pressed', on ? 'true' : 'false');
+            egRow.textContent = on
+                ? 'Alert me on suspicious egress: on, even when tips are muted. Turn off'
+                : 'Alert me on suspicious egress: off. Turn on';
+        };
+        paintEg();
+        egRow.addEventListener('click', () => { this._setEgressAlertsOn(!this._egressAlertsOn()); paintEg(); });
+        body.appendChild(egRow);
 
         const pinRow = document.createElement('button');
         pinRow.type = 'button';
@@ -776,7 +797,101 @@ const GuardianAssistant = {
     },
     _setQuiet(on) {
         try { localStorage.setItem('sv-guardian-quiet', on ? '1' : '0'); } catch (_) { /* private mode */ }
-        if (on) this._hideBubble();
+        // Mute hides a tip on screen, never a security alert.
+        if (on && !(this._bubbleEl && this._bubbleEl.dataset && this._bubbleEl.dataset.kind === 'security')) this._hideBubble();
+    },
+
+    // ------------- security alerts: suspicious egress, shown even when muted -------------
+
+    EGRESS_SEEN_MAX: 300,
+
+    /** "Alert me on suspicious egress": on unless turned off on purpose. */
+    _egressAlertsOn() {
+        try { return localStorage.getItem('sv-guardian-egress-alerts') !== '0'; } catch (_) { return true; }
+    },
+    _setEgressAlertsOn(on) {
+        try { localStorage.setItem('sv-guardian-egress-alerts', on ? '1' : '0'); } catch (_) { /* private mode */ }
+        if (!on && this._bubbleEl && this._bubbleEl.dataset && this._bubbleEl.dataset.kind === 'security') this._hideBubble();
+    },
+    _egressSeen() {
+        try {
+            const v = JSON.parse(localStorage.getItem('sv-ga-egress-seen') || '{}');
+            return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+        } catch (_) { return {}; }
+    },
+    /** 2 for blocked or right after a credential read, 1 for the rest. */
+    _egressStrength(a) {
+        const r = (a && a.reasons) || [];
+        return (r.includes('blocked') || r.includes('cred_then_net')) ? 2 : 1;
+    },
+    // A seen entry is { t, s } (time, strength); an older plain number is
+    // a time with strength 1.
+    _seenT(v) { return v && typeof v === 'object' ? (Number(v.t) || 0) : (Number(v) || 0); },
+    _seenS(v) { return v && typeof v === 'object' ? (Number(v.s) || 1) : (v ? 1 : 0); },
+    _egressSeenSave(seen) {
+        const keys = Object.keys(seen);
+        if (keys.length > this.EGRESS_SEEN_MAX) {
+            keys.sort((a, b) => this._seenT(seen[a]) - this._seenT(seen[b]))
+                .slice(0, keys.length - this.EGRESS_SEEN_MAX).forEach(k => delete seen[k]);
+        }
+        try { localStorage.setItem('sv-ga-egress-seen', JSON.stringify(seen)); } catch (_) { /* full */ }
+    },
+
+    /** The alerts not yet shown, newest first: one per (session, host). A
+     *  shown one comes back only when a stronger reason was added (blocked
+     *  or after a credential read, over a new host or a paste host). */
+    _egressPick(alerts, seen) {
+        const out = [];
+        const ids = new Set();
+        (alerts || []).forEach(a => {
+            if (!a || !a.id || ids.has(a.id)) return;
+            if (this._seenS(seen[a.id]) >= this._egressStrength(a)) return;
+            ids.add(a.id);
+            out.push(a);
+        });
+        return out;
+    },
+
+    /** The line a security bubble says: the server's plain sentence, plus
+     *  how many more are waiting in the Live grid. */
+    _egressText(a, more) {
+        const base = String(a.text || `${a.who || 'A session'} reached ${a.host}.`);
+        return more > 0 ? `${base} ${more} more on the Live grid.` : base;
+    },
+
+    async _securityTick() {
+        if (!this._egressAlertsOn() || !this._fab) return false;
+        // The shell watcher (egress-alert-watch.js) polls and keeps what
+        // arrived while hidden; the Guardian speaks from its list.
+        const W = window.EgressAlertWatch;
+        if (W && W.latest) return this._securityShow(W.latest());
+        if (!window.API || !API.getEgressAlerts) return false;
+        const body = await API.getEgressAlerts().catch(() => null);
+        if (!body || !Array.isArray(body.alerts)) return false;
+        return this._securityShow(body.alerts);
+    },
+
+    /** Show the newest unseen alert (security outranks a tip on screen) and
+     *  mark every alert in hand as seen, so each (session, host) speaks
+     *  once. Mute does not apply here; the egress alert setting does. */
+    _securityShow(alerts) {
+        if (!this._egressAlertsOn()) return false;
+        const seen = this._egressSeen();
+        const fresh = this._egressPick(alerts, seen);
+        if (!fresh.length) return false;
+        const cur = this._bubbleEl && this._bubbleEl.isConnected ? this._bubbleEl : null;
+        if (cur && cur.dataset && cur.dataset.kind === 'security') return false; // one alert at a time
+        if (cur) this._hideBubble();
+        const a = fresh[0];
+        const spoke = this._speak({
+            text: this._egressText(a, fresh.length - 1),
+            cta: 'Review', page: 'live-grid', mood: 'alert', security: true, openSession: a.session_id,
+        });
+        if (!spoke) return false;
+        const now = Date.now();
+        fresh.forEach(x => { seen[x.id] = { t: now, s: this._egressStrength(x) }; });
+        this._egressSeenSave(seen);
+        return true;
     },
 
     _sentinelState() {
@@ -797,8 +912,12 @@ const GuardianAssistant = {
     _sentinelStart() {
         if (this._sentinelTimer) return;
         this._sentinelTimer = setInterval(() => {
-            if (document.hidden || this._quiet()) return;
-            this._sentinelTick().catch(() => { /* endpoint hiccup: next tick */ });
+            if (document.hidden) return;
+            // Security alerts first, muted or not; tips only when not muted.
+            (this._securityTick() || Promise.resolve(false)).catch(() => false).then((spoke) => {
+                if (spoke || this._quiet()) return;
+                this._sentinelTick().catch(() => { /* endpoint hiccup: next tick */ });
+            });
         }, this.SENTINEL_MS);
     },
 
@@ -871,7 +990,9 @@ const GuardianAssistant = {
                 cta: 'See them', page: 'blocked-ledger', mood: 'alert',
             });
             if (spoke) bump('blocked');
-        } else if (grew('egress') && ready('egress')) {
+        } else if (grew('egress') && ready('egress') && !this._egressAlertsOn()) {
+            // With egress alerts on, a blocked destination is already a
+            // security alert (rule e); the tip would say it twice.
             const n = totals.egress - st.totals.egress;
             spoke = this._speak({
                 text: n === 1 ? 'An agent reached for a blocked destination. I stopped it.'
@@ -1528,20 +1649,22 @@ const GuardianAssistant = {
     THOUGHT_GAP_MS: 5 * 60 * 1000,   // first thought 5 min after the last word
     THOUGHT_SETTLE_MS: 2 * 60 * 1000,
 
-    _speak({ text, cta, page, tab, mood, act, openTask }) {
-        if (this._quiet() || !this._fab) return false;
-        if (this._noBubblePage()) return false;
+    _speak({ text, cta, page, tab, mood, act, openTask, security, openSession }) {
+        if (!this._fab) return false;
+        if (!security && (this._quiet() || this._noBubblePage())) return false; // mute: tips only
         this._lastEventAt = Date.now(); // something happened; the shift is not quiet
         if (this._bubbleEl && this._bubbleEl.isConnected) return false; // one at a time
         this._spokeAt = Date.now(); // thoughts wait their turn after any bubble
         const b = document.createElement('div');
-        b.className = 'sv-ga-bubble';
-        b.setAttribute('role', 'status');
+        b.className = 'sv-ga-bubble' + (security ? ' sv-ga-security' : '');
+        b.dataset.kind = security ? 'security' : 'tip';
+        b.setAttribute('role', security ? 'alert' : 'status');
         b.innerHTML =
+            (security ? '<div class="sv-ga-bubble-k">Security alert</div>' : '') +
             '<div class="sv-ga-bubble-t"></div>' +
             '<div class="sv-ga-bubble-row">' +
             '<button type="button" class="sv-ga-bubble-go"></button>' +
-            '<button type="button" class="sv-ga-bubble-mute">Mute the Guardian</button>' +
+            (security ? '' : '<button type="button" class="sv-ga-bubble-mute">Mute tips</button>') +
             '<button type="button" class="sv-ga-bubble-x" aria-label="Dismiss">&times;</button>' +
             '</div>';
         b.querySelector('.sv-ga-bubble-t').textContent = text;
@@ -1553,9 +1676,12 @@ const GuardianAssistant = {
             if (openTask) { try { sessionStorage.setItem('sv-agent-task-id', openTask); } catch (e) { /* storage unavailable */ } }
             if (tab && page === 'costs' && window.CostsPage) CostsPage._pendingTab = tab;
             if (tab && page === 'egress' && window.EgressPage) EgressPage._state.tab = tab;
+            // Review: the Live grid opens with that session's tile panel open.
+            if (openSession && page === 'live-grid' && window.LiveGridPage) LiveGridPage._pendingOpen = openSession;
             if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(page);
         });
-        b.querySelector('.sv-ga-bubble-mute').addEventListener('click', () => this._setQuiet(true));
+        const mute = b.querySelector('.sv-ga-bubble-mute');
+        if (mute) mute.addEventListener('click', () => this._setQuiet(true));
         b.querySelector('.sv-ga-bubble-x').addEventListener('click', () => this._hideBubble());
         document.body.appendChild(b);
         this._bubbleEl = b;
@@ -1563,7 +1689,8 @@ const GuardianAssistant = {
         requestAnimationFrame(() => b.classList.add('show'));
         this._react(mood, page);
         clearTimeout(this._bubbleHideTimer);
-        this._bubbleHideTimer = setTimeout(() => this._hideBubble(), 16000);
+        // A security alert stays until dismissed or reviewed.
+        if (!security) this._bubbleHideTimer = setTimeout(() => this._hideBubble(), 16000);
         return true;
     },
 
@@ -2153,6 +2280,11 @@ body.sv-ga-on #page-content { padding-bottom: 128px; }
   border-right: 1px solid var(--border-light, #303844);
   border-bottom: 1px solid var(--border-light, #303844); }
 .sv-ga-bubble.show { opacity: 1; transform: translateY(0); }
+.sv-ga-bubble.sv-ga-security { border-color: var(--danger); box-shadow: inset 3px 0 0 var(--danger), 0 10px 28px rgba(0,0,0,0.4); }
+.sv-ga-bubble.sv-ga-security::after { border-right-color: var(--danger); border-bottom-color: var(--danger); }
+.sv-ga-bubble-k { font-size: 10.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+  color: color-mix(in srgb, var(--danger) 75%, var(--text-primary)); margin-bottom: 4px; }
+.sv-ga-security .sv-ga-bubble-go { border-color: var(--danger); color: var(--text-primary); }
 .sv-ga-bubble-t { font-size: 12.5px; color: var(--text-primary, #eef2f7); line-height: 1.5; }
 .sv-ga-bubble-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
 .sv-ga-bubble-go { background: var(--bg-secondary, #0e1218);

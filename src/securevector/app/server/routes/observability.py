@@ -9,6 +9,7 @@ expiry of lapsed approval requests that the JIT list route also performs.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -54,3 +55,25 @@ async def live(
 ):
     """Running sessions with attention counters, sorted for triage."""
     return await observability.live_sessions(_db(request), group=group, limit=limit)
+
+
+@router.get("/egress-alerts", dependencies=[Depends(require_read)])
+async def egress_alerts(request: Request, since: Optional[str] = Query(None, max_length=40)):
+    """Suspicious egress, one alert per (session, host): new host, paste or
+    file-sharing host, raw public IP, network right after a credential read,
+    or blocked by policy. The last 30 minutes by default (shared with the
+    Live grid); `since` (ISO time) reads further back, at most 24 hours, so
+    a tab that was hidden catches up."""
+    from datetime import datetime, timezone
+
+    from securevector.app.services import egress_alerts as ea
+
+    if since:
+        start = observability.parse_ts(since)
+        if start is None:
+            raise HTTPException(status_code=400, detail="Invalid since")
+        now = datetime.now(timezone.utc)
+        window = int(min(ea.MAX_SINCE_S, max(ea.WINDOW_S, (now - start).total_seconds() + 60)))
+        alerts = await ea.suspicious_egress(_db(request), now=now, window_s=window)
+        return {"alerts": alerts, "window_s": window}
+    return {"alerts": await ea.shared_alerts(_db(request)), "window_s": ea.WINDOW_S}

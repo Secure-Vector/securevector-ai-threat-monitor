@@ -1110,6 +1110,11 @@ const API = {
         const qs = q.toString();
         return this._terminalsRead(`/api/terminals/observability/live${qs ? '?' + qs : ''}`);
     },
+    // Suspicious egress in the last 30 minutes, one per (session, host).
+    async getEgressAlerts(params = {}) {
+        const qs = params.since ? '?since=' + encodeURIComponent(params.since) : '';
+        return this._terminalsRead(`/api/terminals/observability/egress-alerts${qs}`);
+    },
     async getSessionGovernance(sessionId) {
         return this._terminalsRead(`/api/terminals/observability/sessions/${encodeURIComponent(sessionId)}/governance`);
     },

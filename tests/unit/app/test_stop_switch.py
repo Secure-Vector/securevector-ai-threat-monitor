@@ -122,8 +122,8 @@ def _evaluate(w, sid, result=HIGH):
 
 
 def test_migration_v64_adds_the_switch_and_the_stop_record_idempotently(w):
-    assert CURRENT_SCHEMA_VERSION == 66
-    assert w.one("SELECT MAX(version) FROM schema_version")[0] == 66
+    assert CURRENT_SCHEMA_VERSION == 67
+    assert w.one("SELECT MAX(version) FROM schema_version")[0] == 67
     cols = {r[1]: r for r in w.raw.execute("PRAGMA table_info(rung_modes)")}
     assert "stop_high" in cols and cols["stop_high"][4] == "0"
     assert w.one("SELECT name FROM sqlite_master WHERE name = 'session_stops'")

@@ -163,7 +163,7 @@ test('the reaction rides the existing per-category cooldown, not a new timer', (
   const calls = [...a.matchAll(/this\._react\(/g)];
   assert.equal(calls.length, 1, 'the Guardian must react from exactly one call site');
   assert.match(a, /BUBBLE_COOLDOWN_MS/);
-  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood, act, openTask })'));
+  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood, act, openTask, security, openSession })'));
   assert.match(speak.slice(0, 400), /if \(this\._bubbleEl && this\._bubbleEl\.isConnected\) return false;/);
 });
 
@@ -171,7 +171,7 @@ test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
   assert.match(html, /guardian-bot\.js\?v=14/);
   assert.match(html, /guardian-3d\.js\?v=18/);
-  assert.match(html, /guardian-assistant\.js\?v=50/);
+  assert.match(html, /guardian-assistant\.js\?v=51/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {

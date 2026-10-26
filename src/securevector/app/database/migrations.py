@@ -213,6 +213,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         64: migrate_to_v64,
         65: migrate_to_v65,
         66: migrate_to_v66,
+        67: migrate_to_v67,
     }
 
     if version in migrations:
@@ -2163,6 +2164,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_outbox_alert_kind(db)
     await ensure_jit_call_fingerprint(db)
     await ensure_activity_time_indexes(db)
+    await ensure_egress_host_time_index(db)
     await ensure_cloud_approval_storage(db)
     await cleanup_old_policy_decisions(db)
     await cleanup_old_response_holds(db)
@@ -3770,6 +3772,30 @@ async def migrate_to_v66(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v66: time indexes for live sessions")
+
+
+async def ensure_egress_host_time_index(db: DatabaseConnection) -> None:
+    """(host, timestamp) on egress_audit, so "has this device reached this
+    host before?" is one index probe (suspicious egress, new-host rule).
+    Idempotent."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(egress_audit)")
+    if {"host", "timestamp"} <= {row[1] for row in await cur.fetchall()}:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_host_time ON egress_audit (host, timestamp)")
+    await conn.commit()
+
+
+async def migrate_to_v67(db: DatabaseConnection) -> None:
+    """v66 -> v67: host and time index for egress alerts. Idempotent."""
+    await ensure_egress_host_time_index(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (67, CURRENT_TIMESTAMP, 'Host and time index for egress alerts')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v67: host and time index for egress alerts")
 
 
 _GOVERNANCE_OUTBOX_KINDS = ("egress", "approval_request", "harness_coverage")

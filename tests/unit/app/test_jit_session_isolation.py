@@ -353,7 +353,7 @@ def test_migration_v65_idempotent_and_column_survives_rule_source_rebuild(tmp_pa
         cols = {r["name"] for r in asyncio.run(db.fetch_all("PRAGMA table_info(jit_access_grants)"))}
         assert {"call_fingerprint", "used_at"} <= cols
         v = asyncio.run(db.fetch_one("SELECT MAX(version) AS v FROM schema_version"))
-        assert v["v"] == 66
+        assert v["v"] == 67
     finally:
         asyncio.run(db.disconnect())
 

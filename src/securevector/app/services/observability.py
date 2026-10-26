@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # A session counts as running when it did something in this window, or when
 # a terminal task holding it is still alive.
 LIVE_WINDOW_S = 600
+# An ended session (not running, no running task) keeps its tile, dimmed,
+# for this long after its last activity, so the grid does not jump.
+ENDED_KEEP_S = 1800
 QUIET_AFTER_S = 300
 # A blocked call that follows another blocked call to a different target
 # within this many seconds reads as a retry by another route.
@@ -587,6 +590,7 @@ def _sort_key(s: dict, now: datetime):
     last = parse_ts(s.get("last_activity_at"))
     exp = parse_ts(s.get("oldest_waiting_expires_at"))
     return (
+        1 if s.get("ended") else 0,
         0 if s["waiting"] else 1,
         exp.timestamp() if exp else 0.0,
         0 if s["blocked"] else 1,
@@ -596,9 +600,12 @@ def _sort_key(s: dict, now: datetime):
 
 
 def _rollup(items: list[dict]) -> dict:
+    ended = sum(1 for s in items if s.get("ended"))
+    items = [s for s in items if not s.get("ended")]
     scores = [s["score"] for s in items if isinstance(s.get("score"), (int, float))]
     return {
         "running": len(items),
+        "ended": ended,
         "waiting": sum(s["waiting"] for s in items),
         "blocked_sessions": sum(1 for s in items if s["blocked"]),
         "blocked": sum(s["blocked"] for s in items),
@@ -610,9 +617,12 @@ def _rollup(items: list[dict]) -> dict:
 
 
 async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional[datetime] = None) -> dict:
-    """Running sessions with their attention counters, in aggregate SQL."""
+    """Running sessions with their attention counters, in aggregate SQL, plus
+    sessions that ended within ENDED_KEEP_S (`ended: true`, `ended_at`).
+    Counters count running sessions only; `ended` counts the rest."""
     now = now or datetime.now(timezone.utc)
-    cutoff = (now - timedelta(seconds=LIVE_WINDOW_S)).strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (now - timedelta(seconds=ENDED_KEEP_S)).strftime("%Y-%m-%d %H:%M:%S")
+    running_after = now - timedelta(seconds=LIVE_WINDOW_S)
     await expire_stale(db)
 
     # 1. Which sessions are running.
@@ -641,6 +651,7 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
         "waiting": 0, "oldest_waiting_expires_at": None, "blocked": 0,
         "score": None, "cost_usd": None, "tokens": 0, "cost_source": None, "tokens_pending": False,
         "last_call": None, "last_egress": None, "egress_visible": False, "waiting_call": None,
+        "ended": False, "ended_at": None, "alert": None,
     } for sid in sids}
     if sids:
         m = _marks(sids)
@@ -785,21 +796,40 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
                 s["tokens"] = int(usage["tokens"])
                 s["cost_source"] = "transcript"
 
+    # Suspicious egress per session (services/egress_alerts), so a tile
+    # turns red with the reason. Never fails the grid.
+    if sids:
+        try:
+            from securevector.app.services import egress_alerts
+
+            alerts = egress_alerts.latest_by_session(await egress_alerts.shared_alerts(db))
+            for sid, a in alerts.items():
+                if sid in sessions:
+                    sessions[sid]["alert"] = a
+        except Exception:  # noqa: BLE001
+            logger.debug("egress alert lookup failed", exc_info=True)
+
+    running_tasks = {t["session_id"] for t in tasks}
     out = []
     for s in sessions.values():
         s["started_at"] = iso(s["started_at"])
         s["last_activity_at"] = iso(s["last_activity_at"])
         last = parse_ts(s["last_activity_at"])
         s["quiet_seconds"] = max(0, int((now - last).total_seconds())) if last else None
+        # A session with a call waiting for approval is never ended.
+        if s["session_id"] not in running_tasks and last is not None and last < running_after and not s["waiting"]:
+            s["ended"] = True
+            s["ended_at"] = s["last_activity_at"]
         tc = s["tool_calls"]
         tc["waiting"], tc["blocked"] = s["waiting"], s["blocked"]
         tc["total"] = tc["allowed"] + tc["logged"] + tc["blocked"] + s.pop("_unmatched", 0)
         out.append(s)
     out.sort(key=lambda s: _sort_key(s, now))
     # Counters and group rollups cover every running session; the list
-    # itself stops at `limit`.
-    everything, out = out, out[:max(1, int(limit))]
+    # itself stops at `limit`. Ended sessions sort last and count apart.
+    listed, out = out, out[:max(1, int(limit))]
     shown = {s["session_id"] for s in out}
+    everything = [s for s in listed if not s["ended"]]
 
     counters = {
         "running": len(everything),
@@ -812,11 +842,13 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
         "tokens": sum(s["tokens"] or 0 for s in everything),
         "coverage_partial": sum(1 for s in everything if s.get("coverage_level") == "partial"),
         "coverage_not_enforced": sum(1 for s in everything if s.get("coverage_level") == "not_enforced"),
+        "ended": len(listed) - len(everything),
+        "alerts": sum(1 for s in listed if s.get("alert")),
     }
     body: dict = {"group": group, "sessions": out, "counters": counters, "limit": int(limit)}
     if group in ("host", "project", "harness"):
         groups: dict = {}
-        for s in everything:
+        for s in listed:
             groups.setdefault(_group_key(s, group), []).append(s)
         body["groups"] = [{"key": k, "session_ids": [s["session_id"] for s in v if s["session_id"] in shown],
                            "rollup": _rollup(v)} for k, v in groups.items()]

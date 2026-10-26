@@ -474,10 +474,10 @@ def test_v63_table_and_version(w):
     from securevector.app.database.migrations import migrate_to_v63
     from securevector.app.database.models import CURRENT_SCHEMA_VERSION
 
-    assert CURRENT_SCHEMA_VERSION == 66
+    assert CURRENT_SCHEMA_VERSION == 67
     asyncio.run(migrate_to_v63(w.db))
     asyncio.run(migrate_to_v63(w.db))
-    assert w.one("SELECT MAX(version) FROM schema_version")[0] == 66
+    assert w.one("SELECT MAX(version) FROM schema_version")[0] == 67
     cols = {r[1] for r in w.raw.execute("PRAGMA table_info(session_rule_state)")}
     assert {"session_id", "cred_read_at", "outside_read_at", "cleared_cred_at", "cleared_outside_at",
             "fired_rules", "updated_at"} <= cols

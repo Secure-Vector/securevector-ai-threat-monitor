@@ -126,6 +126,9 @@ const App = {
         // The floating Guardian (replaces the retired TryItChat panel):
         // cost optimization first, threats/secrets/blocked actions alongside.
         if (window.GuardianAssistant) GuardianAssistant.mount();
+        // Security alerts are watched from the shell, whether or not the
+        // Guardian is shown (badge, system notification, catch-up).
+        if (window.EgressAlertWatch) EgressAlertWatch.start();
 
         // Handle browser back/forward
         window.addEventListener('popstate', (e) => {

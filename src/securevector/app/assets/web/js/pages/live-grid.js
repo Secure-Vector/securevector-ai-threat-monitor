@@ -55,6 +55,10 @@ const LiveGridPage = {
         // Pinned focus opens with the pinned tiles' panels open (capped).
         if (this.st.mode === 'large') this.pins.forEach(id => { this._open = M.ensureOpen(this._open, id); });
         this.data = null; this.details = {}; this._order = null; this._waiting = null; this._missed = []; this._sig = null;
+        // A Review from a Guardian egress alert opens that tile's panel.
+        if (this._pendingOpen) { this._open = M.ensureOpen(this._open, this._pendingOpen); this._pendingOpen = null; }
+        // Opening the Live grid is seeing the pending security alerts.
+        if (window.EgressAlertWatch) EgressAlertWatch.acknowledge();
         this._paused = false; this._updatedAt = 0;
         this._det = {}; this._focusDet = null; this._raw = {};
         if (window.Header) Header.setPageInfo('Observability: Live grid', 'Running sessions, the approvals waiting on you, and what each one is allowed to do.');
@@ -138,7 +142,7 @@ const LiveGridPage = {
             const M = this.M();
             this._order = M.order(this._order, data.sessions || [], !!opts.resort, this._waiting);
             this._waiting = M.waitingIds(data.sessions || []);
-            const complete = !(data.counters && (data.sessions || []).length < (data.counters.running || 0));
+            const complete = !(data.counters && (data.sessions || []).length < (data.counters.running || 0) + (data.counters.ended || 0));
             const pr = M.prunePins(this.pins, data.sessions || [], this._missed, complete);
             this.pins = pr.pins;
             this._missed = pr.missed;
@@ -247,7 +251,7 @@ const LiveGridPage = {
             // each with the same full-row panel under its row as the grid.
             const bySid = new Map(all.map(s => [s.session_id, s]));
             const c = this.data && this.data.counters;
-            const cut = !!(c && all.length < (c.running || 0));
+            const cut = !!(c && all.length < (c.running || 0) + (c.ended || 0));
             const rows = this.pins.map(sid => bySid.get(sid) || { session_id: sid, _gone: cut ? 'outside' : 'ended' });
             html += M.compactHtml([{ key: 'all', sessions: rows }], { group: 'none', focus: true, pins: this.pins, open: this._open,
                 details: this.details, panels: this._panels || {}, now, emptyText: 'No pinned sessions.' });
@@ -314,7 +318,8 @@ const LiveGridPage = {
         const c = (this.data && this.data.counters) || M.counters(all);
         // Waiting · Blocked · Quiet: one chip narrows the grid, clicking it
         // again clears it. Coverage stays as plain information.
-        const strip = `<div class="lg-filterrow"><span class="lg-run-n">${M.esc(c.running || 0)} running</span>` +
+        const strip = `<div class="lg-filterrow"><span class="lg-run-n">${M.esc(c.running || 0)} running` +
+            `${c.ended ? `<span class="lg-run-ended"> · ${M.esc(c.ended)} ended</span>` : ''}</span>` +
             M.chipsHtml(all, st.chip || '') +
             `<span class="lg-covline">${M.esc(M.coverageLine(c))}</span></div>`;
         const groups = M.groups(list, st.group, this.data && this.data.groups);
@@ -333,7 +338,7 @@ const LiveGridPage = {
         const now = Date.now();
         document.querySelectorAll('#lg-body .lg-c-ago[data-at]').forEach(t => {
             const v = t.dataset.at ? Number(t.dataset.at) : null;
-            const txt = M.agoText(v, now);
+            const txt = M.agoText(v, now, t.dataset.ended === '1');
             if (t.textContent !== txt) t.textContent = txt;
         });
         const el = document.getElementById('lg-ago');
@@ -825,6 +830,16 @@ const LiveGridPage = {
 .lg-c.st-waiting .lg-c-bar { background:var(--lg-warn); }
 .lg-c.st-blocked .lg-c-bar { background:var(--lg-bad); }
 .lg-c.st-quiet .lg-c-bar { background:var(--text-muted); }
+/* Ended: the tile stays in place, dimmed, for 30 minutes after its last activity. */
+.lg-cw.ended { opacity:.55; border-style:dashed; }
+.lg-cw.ended:hover, .lg-cw.ended.open, .lg-cw.ended:focus-within { opacity:.85; }
+.lg-c.st-ended .lg-c-bar { background:transparent; }
+.lg-run-ended { color:var(--text-muted); font-weight:400; }
+/* Suspicious egress: red with the reason (colour is security state). */
+.lg-cw.alert, .lg-cw.alert.ended { opacity:1; border-color:var(--lg-bad); border-style:solid; background:color-mix(in srgb, var(--lg-bad) 10%, var(--bg-card)); }
+.lg-c.alert .lg-c-bar { background:var(--lg-bad); }
+.lg-c-alert { font-size:11.5px; color:color-mix(in srgb, var(--lg-bad) 70%, var(--text-primary)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lg-c-alert-w { font-weight:700; }
 .lg-c-main { display:flex; flex-direction:column; gap:2px; min-width:0; }
 .lg-cw:hover .lg-pin, .lg-pin:focus-visible, .lg-cw.pinned .lg-pin { opacity:1; }
 .lg-cw.pinned .lg-pin { color:var(--accent-primary); }

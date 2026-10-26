@@ -143,10 +143,14 @@
 
         // ----------------------------------------------------------- state
 
-        /** waiting | blocked | quiet | running */
+        /** ended | waiting | blocked | quiet | running. An ended session
+         *  (not running, last activity within 30 minutes) keeps its tile,
+         *  dimmed, until the server drops it. */
         state(s) {
             if (!s) return 'running';
+            // A call waiting for approval outranks ended: it still needs you.
             if ((s.waiting || 0) > 0) return 'waiting';
+            if (s.ended) return 'ended';
             if ((s.blocked || 0) > 0) return 'blocked';
             if ((Number(s.quiet_seconds) || 0) > this.QUIET_S) return 'quiet';
             return 'running';
@@ -166,6 +170,7 @@
             }
             if (st === 'blocked') return `${s.blocked} blocked` + (s.repeat_attempt ? ' · repeat attempt' : '');
             if (st === 'quiet') return `quiet ${this.dur(s.quiet_seconds)}`;
+            if (st === 'ended') return `ended ${this.dur(s.quiet_seconds)} ago`;
             return 'running';
         },
 
@@ -199,6 +204,8 @@
         /** Triage order: waiting (oldest expiry first), blocked, score, then
          *  the most recent activity. */
         compare(a, b) {
+            const ea0 = a.ended ? 1 : 0, eb0 = b.ended ? 1 : 0;
+            if (ea0 !== eb0) return ea0 - eb0;
             const wa = (a.waiting || 0) > 0 ? 0 : 1, wb = (b.waiting || 0) > 0 ? 0 : 1;
             if (wa !== wb) return wa - wb;
             if (!wa) {
@@ -275,7 +282,8 @@
                 s.coverage_level, s.repeat_attempt, s.started_at, Math.floor((Number(s.quiet_seconds) || 0) / 10),
                 s.last_call && [s.last_call.at, s.last_call.action, s.last_call.tool_id, s.last_call.reason],
                 s.last_egress && [s.last_egress.host, s.last_egress.action], s.egress_visible,
-                s.waiting_call && [s.waiting_call.tool_id, s.waiting_call.function_name]]);
+                s.waiting_call && [s.waiting_call.tool_id, s.waiting_call.function_name], !!s.ended,
+                s.alert && [s.alert.id, s.alert.label]]);
             const det = Object.keys(details || {}).sort().map(k => {
                 const d = details[k] || {}, g = d.gov || {};
                 return [k, d.traceId, (d.spans || []).map(x => [x.span_id || x.row_hash, x.action, x.called_at]),
@@ -297,10 +305,13 @@
         },
 
         matchToggle(s, key) {
-            if (key === 'waiting') return (s.waiting || 0) > 0;
-            if (key === 'blocked') return (s.blocked || 0) > 0;
+            // Attention chips count running sessions only; ended tiles show
+            // under no chip but stay in the full grid.
+            if (key === 'running') return !s.ended;
+            if (key === 'waiting') return !s.ended && (s.waiting || 0) > 0;
+            if (key === 'blocked') return !s.ended && (s.blocked || 0) > 0;
             if (key === 'score70') return typeof s.score === 'number' && s.score >= 70;
-            if (key === 'quiet') return (Number(s.quiet_seconds) || 0) > this.QUIET_S;
+            if (key === 'quiet') return !s.ended && (Number(s.quiet_seconds) || 0) > this.QUIET_S;
             if (key === 'cost') return s.cost_usd != null;
             return true;
         },
@@ -322,7 +333,8 @@
         /** Counters over every running session (the server sends these; this
          *  rebuilds them from a list when it does not). */
         counters(sessions) {
-            const all = sessions || [];
+            const every = sessions || [];
+            const all = every.filter(s => !s.ended);
             const known = all.filter(s => s.cost_usd != null);
             return {
                 running: all.length,
@@ -335,16 +347,18 @@
                 tokens: all.reduce((a, s) => a + (Number(s.tokens) || 0), 0),
                 coverage_partial: all.filter(s => s.coverage_level === 'partial').length,
                 coverage_not_enforced: all.filter(s => s.coverage_level === 'not_enforced').length,
+                ended: every.length - all.length,
             };
         },
 
         // ------------------------------------------------- attention chips
 
-        CHIPS: [['waiting', 'Waiting'], ['blocked', 'Blocked'], ['quiet', 'Quiet']],
+        CHIPS: [['waiting', 'Waiting'], ['blocked', 'Blocked'], ['quiet', 'Quiet'], ['running', 'Running only']],
 
-        /** Sessions per chip (not requests): how many tiles each would show. */
+        /** Sessions per chip (not requests): how many tiles each would show.
+         *  "Running only" hides the dimmed tiles of sessions that ended. */
         chipCounts(sessions) {
-            const out = { waiting: 0, blocked: 0, quiet: 0 };
+            const out = { waiting: 0, blocked: 0, quiet: 0, running: 0 };
             (sessions || []).forEach(s => this.CHIPS.forEach(([k]) => { if (this.matchToggle(s, k)) out[k]++; }));
             return out;
         },
@@ -430,13 +444,15 @@
             return { tool, target, gov, egress: this.egressState(s, null) };
         },
 
-        /** "updated 12s ago" from a time in ms. */
-        agoText(atMs, now) {
-            if (atMs == null || !Number.isFinite(atMs)) return 'no activity yet';
+        /** "updated 12s ago" from a time in ms; "ended 4m ago" for a
+         *  session that stopped running. */
+        agoText(atMs, now, ended) {
+            if (atMs == null || !Number.isFinite(atMs)) return ended ? 'ended' : 'no activity yet';
             const n = Math.max(0, Math.round(((now == null ? Date.now() : now) - atMs) / 1000));
-            if (n < 60) return `updated ${n}s ago`;
-            if (n < 3600) return `updated ${Math.floor(n / 60)}m ago`;
-            return `updated ${Math.floor(n / 3600)}h ago`;
+            const w = ended ? 'ended' : 'updated';
+            if (n < 60) return `${w} ${n}s ago`;
+            if (n < 3600) return `${w} ${Math.floor(n / 60)}m ago`;
+            return `${w} ${Math.floor(n / 3600)}h ago`;
         },
 
         /** Coverage as information, not an alert. */
@@ -462,6 +478,7 @@
 
         rollupText(key, r, label) {
             const parts = [`${label || key}`, `${(r && r.running) || 0} running`];
+            if (r && r.ended) parts.push(`${r.ended} ended`);
             const flags = [];
             if (r && r.waiting) flags.push(`${r.waiting} waiting`);
             if (r && r.blocked_sessions) flags.push(`${r.blocked} blocked`);
@@ -483,8 +500,8 @@
             });
             const out = [...m.entries()].map(([key, list]) => {
                 const c = this.counters(list);
-                const local = { running: c.running, waiting: c.waiting, blocked_sessions: c.blocked_sessions,
-                    blocked: list.reduce((a, s) => a + (s.blocked || 0), 0) };
+                const local = { running: c.running, ended: c.ended, waiting: c.waiting, blocked_sessions: c.blocked_sessions,
+                    blocked: list.filter(s => !s.ended).reduce((a, s) => a + (s.blocked || 0), 0) };
                 return { key, sessions: list, rollup: roll.get(key) || local };
             });
             return out.sort((a, b) => ((b.rollup.waiting || 0) - (a.rollup.waiting || 0))
@@ -532,16 +549,22 @@
             const egLine = s._gone ? '' : `<span class="lg-c-eg k-${g.egress.key}"><span class="lg-c-egl">Egress</span> ${e(g.egress.text)}</span>`;
             const atMs = this.ms(s.last_activity_at) != null ? this.ms(s.last_activity_at)
                 : (s.quiet_seconds != null && opts.now ? opts.now - Number(s.quiet_seconds) * 1000 : null);
-            const ago = s._gone ? '' : `<span class="lg-c-ago" data-at="${atMs == null ? '' : e(atMs)}">${e(this.agoText(atMs, opts.now))}</span>`;
+            const ended = !s._gone && !!s.ended;
+            const ago = s._gone ? '' : `<span class="lg-c-ago" data-at="${atMs == null ? '' : e(atMs)}"${ended ? ' data-ended="1"' : ''}>${e(this.agoText(atMs, opts.now, ended))}</span>`;
+            // Suspicious egress turns the tile red with the reason, in
+            // plain words (services/egress_alerts.py).
+            const al = !s._gone && s.alert && s.alert.host ? s.alert : null;
+            const alertLine = al ? `<span class="lg-c-alert" title="${e(al.text || '')}"><span class="lg-c-alert-w">Check egress</span> ${e(al.host)}${al.label ? `: ${e(al.label)}` : ''}</span>` : '';
             const label = `${harness}, ${name}${s.project ? ' ' + shortId : ''}, ${s._gone ? 'not running now' : this.stateLine(s)}` +
+                (al ? `, suspicious egress: ${al.text || al.host}` : '') +
                 (wait ? ', review the waiting call' : `, ${open ? 'hide' : 'show'} recent calls`);
-            return `<div class="lg-cw st-${st}${pinned ? ' pinned' : ''}${open ? ' open' : ''}" data-tsid="${sid}">` +
-                `<button type="button" class="lg-c st-${st}" data-act="${wait ? 'review' : 'peek'}" data-sid="${sid}" title="${e(title)}"` +
+            return `<div class="lg-cw st-${st}${pinned ? ' pinned' : ''}${open ? ' open' : ''}${ended ? ' ended' : ''}${al ? ' alert' : ''}" data-tsid="${sid}">` +
+                `<button type="button" class="lg-c st-${st}${al ? ' alert' : ''}" data-act="${wait ? 'review' : 'peek'}" data-sid="${sid}" title="${e(title)}"` +
                 `${wait ? '' : ` aria-expanded="${open ? 'true' : 'false'}" aria-controls="lg-cx-${sid}"`} aria-label="${e(label)}">` +
                 `<span class="lg-c-bar" aria-hidden="true"></span>` +
                 `<span class="lg-c-main"><span class="lg-c-head"><span class="lg-c-h">${e(harness)}</span>` +
                 `<span class="lg-c-name">${e(s.project || '')}${s.project ? ' ' : ''}<span class="lg-c-id">${e(shortId)}</span></span></span>` +
-                actLine + govLine + egLine + `</span></button>` +
+                alertLine + actLine + govLine + egLine + `</span></button>` +
                 `<div class="lg-c-foot">${ago}${cov ? `<span class="lg-c-cov">${e(cov)}</span>` : ''}` +
                 (wait ? `<button type="button" class="lg-rv" data-act="review" data-sid="${sid}" data-key="btn">Review</button>` : '') + `</div>` +
                 `<button type="button" class="lg-pin" data-act="pin" data-sid="${sid}" aria-pressed="${pinned ? 'true' : 'false'}" aria-label="${pinned ? 'Unpin' : 'Pin'} session ${e(shortId)}" title="${pinned ? 'Unpin' : 'Pin for Pinned focus'}">◆</button>` + exp + `</div>`;
@@ -583,7 +606,7 @@
                     return `<div class="lg-cgrid${opts.focus ? ' lg-focus' : ''}">${tiles(g.sessions)}</div>`;
                 }
                 const open = !collapsed[g.key];
-                const total = (g.rollup && g.rollup.running) || g.sessions.length;
+                const total = ((g.rollup && ((g.rollup.running || 0) + (g.rollup.ended || 0))) || g.sessions.length);
                 const all = !!expanded[g.key];
                 const shown = all ? g.sessions : g.sessions.slice(0, this.GROUP_PREVIEW);
                 const more = Math.max(total, g.sessions.length) > shown.length;
