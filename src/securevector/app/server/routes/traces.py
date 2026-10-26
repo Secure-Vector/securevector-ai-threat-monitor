@@ -255,7 +255,7 @@ async def _collect_runs(window_days: int, limit: int) -> list:
         })
     runs.sort(key=lambda x: _ts_key(x.get("ended_at")), reverse=True)
     runs = runs[:limit]
-    await _add_egress_blocked(db, runs)
+    await _add_egress_blocked(db, runs, window_days)
     # allowed / waiting / oldest_waiting_expires_at next to `blocked`.
     from securevector.app.services.observability import add_decision_counts
     await add_decision_counts(db, runs)
@@ -850,14 +850,15 @@ def _assign_egress(calls: list, windows: list) -> dict:
     return out
 
 
-async def _egress_calls_by_trace(db, session_ids) -> dict:
-    """{trace_id: [refused call, ...]} for these sessions, each call in one run."""
+async def _egress_calls_by_trace(db, session_ids, window_days: Optional[int] = None) -> dict:
+    """{trace_id: [refused call, ...]} for these sessions, each call in one run.
+    `window_days` limits the refusals to the runs list's window."""
     sids = [s for s in dict.fromkeys(session_ids or []) if s]
     if not sids:
         return {}
     try:
         from securevector.app.database.repositories.egress import EgressRepository
-        calls = await EgressRepository(db).blocked_calls(sids)
+        calls = await EgressRepository(db).blocked_calls(sids, window_days=window_days)
     except Exception:  # noqa: BLE001 — egress is additive; never 500 a trace read
         return {}
     if not calls:
@@ -872,15 +873,16 @@ async def _egress_calls_by_trace(db, session_ids) -> dict:
     return by_trace
 
 
-async def _add_egress_blocked(db, runs: list) -> None:
+async def _add_egress_blocked(db, runs: list, window_days: Optional[int] = None) -> None:
     """Fold each run's egress denies into its blocked count and risk.
 
     A hook's egress deny is recorded only in egress_audit (never as a
     tool_call_audit block), so `blocked` from the audit rows alone reads 0 for
     a run whose only refusal was a destination. One query covers every listed
     run; each refused call counts once, in the run `_assign_egress` gives it.
-    `egress_blocked` keeps that part visible on its own."""
-    by_trace = await _egress_calls_by_trace(db, [r.get("session_id") for r in runs])
+    `egress_blocked` keeps that part visible on its own. Only refusals inside
+    `window_days` (the list's own window) count, never all-time ones."""
+    by_trace = await _egress_calls_by_trace(db, [r.get("session_id") for r in runs], window_days)
     for r in runs:
         n = len(by_trace.get(r.get("trace_id"), []))
         r["egress_blocked"] = n

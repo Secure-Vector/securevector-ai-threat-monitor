@@ -75,11 +75,24 @@ const DetectionResponsePage = {
                 'A score appears after the first tool calls',
                 '<a href="/terminals" class="dr-link" data-dr-launch>Launch a session</a>');
         }
+        // Same scope as the queue heading and the rail badge.
         const sub = b.state === 'partial'
-            ? 'comparison still settling'
-            : `in the last ${this._esc((this._data && this._data.window_days) || 7)} days`;
+            ? `${this._esc(this._scopeText())} · comparison still settling`
+            : `to review · ${this._esc(this._scopeText())}`;
         const normal = d.marked_normal ? ` · ${this._esc(d.marked_normal)} marked normal` : '';
         return this._tile('Unusual sessions', this._esc(this._num(n)), sub + normal);
+    },
+
+    /** "this device · last 7 days": what the review queue, the Unusual
+     *  sessions tile and the rail badge all count over. */
+    _scopeText(data) {
+        const d = data || this._data;
+        return `this device · last ${Math.max(1, Number(d && d.window_days) || 7)} days`;
+    },
+
+    /** Hand the summary to the rail badge so it equals the queue. */
+    _syncBadge(data) {
+        if (data && window.Sidebar && Sidebar.applyDrSummary) Sidebar.applyDrSummary(data);
     },
 
     _hardenTile(h) {
@@ -732,6 +745,10 @@ const DetectionResponsePage = {
                 await API.terminalsDriftFeedback(row.task_id);
                 this._bump('normal');
                 box.textContent = 'Marked normal';
+                // The queue changed: the rail badge follows the fresh count.
+                Promise.resolve(API.detectionResponseSummary()).then(d => {
+                    if (d) { this._data = d; this._syncBadge(d); }
+                }).catch(() => {});
             } catch (e) {
                 box.remove(); btn.hidden = false; if (cap) cap.hidden = false;
                 btn.textContent = 'Could not save, try again';
@@ -960,7 +977,7 @@ const DetectionResponsePage = {
             <div data-dr-tiles>${this._skeletonHtml()}</div>
             <div id="dr-sec-sessions">
             <section class="dr-card" aria-labelledby="dr-review-h">
-              <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted">Newest first. A higher score means less like earlier sessions.</span></div>
+              <div class="dr-card-head"><h3 id="dr-review-h">Sessions to review</h3><span class="dr-muted" data-dr-scope>this device · last 7 days.</span><span class="dr-muted">Newest first. A higher score means less like earlier sessions.</span></div>
               <div data-dr-list><p class="dr-muted">Loading sessions…</p></div>
             </section>
             </div>
@@ -975,6 +992,9 @@ const DetectionResponsePage = {
         if (gen !== this._gen || !container.isConnected) return;
         this._data = data;
         this._rungs = rungs;
+        this._syncBadge(data);
+        const scopeEl = container.querySelector('[data-dr-scope]');
+        if (scopeEl && data) scopeEl.textContent = this._scopeText(data) + '.';
         this._cloud = cloud;
         const tiles = container.querySelector('[data-dr-tiles]');
         const list = container.querySelector('[data-dr-list]');

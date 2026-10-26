@@ -139,8 +139,8 @@ test('page wiring: the row opens in place, Details opens the full trace, spans l
 
 test('cache-busting: runs-list.js and agent-runs.js versions moved', () => {
   const html = read('index.html');
-  assert.match(html, /runs-list\.js\?v=4"/);
-  assert.match(html, /agent-runs\.js\?v=385"/);
+  assert.match(html, /runs-list\.js\?v=5"/);
+  assert.match(html, /agent-runs\.js\?v=386"/);
 });
 
 test('a failed fetch retries on the next live tick; a fetch in flight never doubles', () => {
@@ -171,7 +171,7 @@ test('follow-ups wired: allow once needs a fingerprint, raw arguments stay open,
   assert.match(src.slice(src.indexOf('    async _inlineDecide('), src.indexOf('    /** Optimizer finding')), guard);
   assert.match(src.slice(src.indexOf('    async _rtDecide('), src.indexOf('    async _rtRevoke(')), guard);
   assert.match(src, /RunsList\.inlinePrune\(this\._inline, this\._openRuns\)/);
-  assert.match(src, /RunsList\.inlineNeedsFetch\(e, r\)/);
+  assert.match(src, /RunsList\.inlineNeedsFetch\(e, r, Date\.now\(\)\)/);
   assert.match(src, /raw\.open = !!e\.raw\[row\.key\]/);
   assert.match(src, /el\.setAttribute\('aria-expanded', open \? 'true' : 'false'\)/);
 });

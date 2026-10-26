@@ -95,7 +95,7 @@ test('only Sessions to review has a count, and it hides at zero', () => {
   S._paintDrSections({ detect: { to_review: 0 }, harden: { available: false, changes: 4 } }, wrap);
   assert.equal(count(rows[0]).hidden, true);
   // Same cached summary the rail badge reads.
-  assert.match(read('js/components/sidebar.js'), /this\._drSummary = d \|\| null;[\s\S]{0,140}this\._paintDrSections\(this\._drSummary\);/);
+  assert.match(read('js/components/sidebar.js'), /this\._drSummary = d \|\| null;[\s\S]{0,900}this\._paintDrSections\(this\._drSummary\);/);
 });
 
 test('first visible row active on load; a clicked or in-view section takes over', () => {

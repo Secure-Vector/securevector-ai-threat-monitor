@@ -205,7 +205,7 @@ const DashboardPage = {
             const d = parse(t.created_at);
             return t.is_threat && d && d.getTime() >= cutoff;
         });
-        const blocked = inRange.filter(t => String(t.action_taken || '').toLowerCase().includes('block'));
+        const blocked = inRange.filter(t => API.threatBlocked(t));
         const allowedThrough = inRange.length - blocked.length;
         const latest = inRange[0];
 
@@ -950,7 +950,7 @@ const DashboardPage = {
         strip.style.cssText = 'display: flex; flex-wrap: wrap; border-top: 1px solid var(--border-default); margin-top: 4px;';
         host.appendChild(strip);
 
-        const makeStat = (label, color, navPage) => {
+        const makeStat = (label, color, navPage, sub) => {
             const cell = document.createElement('div');
             cell.style.cssText = 'flex: 1 1 130px; min-width: 120px; padding: 16px 22px 14px 0; cursor: pointer;';
             const valEl = document.createElement('div');
@@ -966,6 +966,14 @@ const DashboardPage = {
             lblEl.style.cssText = 'font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; margin-top: 4px; letter-spacing: 0.3px; text-transform: uppercase;';
             lblEl.textContent = label;
             cell.appendChild(lblEl);
+            // What the figure counts and where: source, device, window.
+            if (sub) {
+                const subEl = document.createElement('div');
+                subEl.className = 'stat-sub';
+                subEl.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;';
+                subEl.textContent = sub;
+                cell.appendChild(subEl);
+            }
             // Reserved slot for the number's own shape. Kept between value and
             // label so a sparkline reads as an attribute of the figure rather
             // than a chart that happens to sit nearby, and so the strip's
@@ -987,9 +995,11 @@ const DashboardPage = {
         const NEUTRAL = 'var(--text-primary)';
         const guarded = makeStat('Runtimes guarded', NEUTRAL, 'guide-connect-agents');
         const calls = makeStat(`Tool calls · ${rangeTag}`, NEUTRAL, 'tool-activity');
-        // Same number, same words as Agent Governance: tool actions SecureVector
-        // stopped. Block Mode blocks are a different, usually empty, count.
-        const blockedStat = makeStat(`Actions blocked · ${rangeTag}`, NEUTRAL, 'blocked-ledger');
+        // Tool calls the tool policy blocked (tool_call_audit). Egress refusals
+        // are a separate figure beside it, never folded into this one.
+        const scopeWin = days === 1 ? 'last 24h' : `last ${days} days`;
+        const blockedStat = makeStat('Tool calls blocked', NEUTRAL, 'blocked-ledger', `tool policy · this device · ${scopeWin}`);
+        const egressStat = makeStat('Egress blocked', NEUTRAL, 'egress', `egress policy · this device · ${scopeWin}`);
         const criticalStat = makeStat(`Critical · ${rangeTag}`, NEUTRAL, 'threats');
         const secretsStat = makeStat(`Secrets caught · ${rangeTag}`, NEUTRAL, 'redactions');
         const spendStat = makeStat('Spend today', NEUTRAL, 'costs');
@@ -1005,7 +1015,7 @@ const DashboardPage = {
             const d = parseTs(t.created_at);
             return t.is_threat && d && d.getTime() >= cutoff;
         });
-        const blocked = inRange.filter(t => String(t.action_taken || '').toLowerCase().includes('block')).length;
+        const blocked = inRange.filter(t => API.threatBlocked(t)).length;
         const critical = inRange.filter(t => t.risk_score >= 80).length;
 
         // Calendar days across the window, oldest first. The daily tool-call
@@ -1027,7 +1037,7 @@ const DashboardPage = {
 
         // Async fills — each independent, each failure-tolerant.
         try {
-            const [agents, auditDaily, redactions, costData, guardian, threatWindow] = await Promise.all([
+            const [agents, auditDaily, redactions, costData, guardian, threatWindow, egressDest] = await Promise.all([
                 fetch('/api/detection/agents').then(r => r.ok ? r.json() : null).catch(() => null),
                 API.getToolCallAuditDaily(days).catch(() => null),
                 API.getRedactions(days, { limit: 1 }).catch(() => null),
@@ -1055,6 +1065,8 @@ const DashboardPage = {
                         return { items, total };
                     })()
                     : Promise.resolve(null)).catch(() => null),
+                // Same source and sum as the sidebar Egress count, same window.
+                API.getEgressDestinations(days).catch(() => null),
             ]);
             if (!strip.isConnected) return; // page switched mid-fetch
 
@@ -1084,7 +1096,14 @@ const DashboardPage = {
                 ? auditDaily.days.filter(d => d.day >= sinceDay).reduce((s, d) => s + (d.blocked || 0), 0)
                 : 0;
             blockedStat.valEl.textContent = blockedActions.toLocaleString();
-            if (blockedActions > 0) blockedStat.valEl.style.color = '#ef4444';
+            if (blockedActions > 0) blockedStat.valEl.style.color = 'var(--danger, #ef4444)';
+            if (egressDest) {
+                const egressBlocked = DashboardPage.egressBlockedCount(egressDest);
+                egressStat.valEl.textContent = egressBlocked.toLocaleString();
+                if (egressBlocked > 0) egressStat.valEl.style.color = 'var(--danger, #ef4444)';
+            } else {
+                egressStat.valEl.textContent = 'Not recorded';
+            }
             // Milestone prompt: the first blocked action is the moment the app
             // has visibly done its job; real volume (tool calls plus
             // detections) is the fallback for machines that only observe.
@@ -1167,7 +1186,7 @@ const DashboardPage = {
                 est.textContent = 'est. from transcripts · not billed';
                 spendStat.cell.appendChild(est);
             } else {
-                spendStat.valEl.textContent = costData ? formatCost(metered) : '$0.00';
+                spendStat.valEl.textContent = costData ? formatCost(metered) : 'Not recorded';
             }
 
             // Budget progress bar ONLY when a budget is actually configured.
@@ -1432,9 +1451,11 @@ const DashboardPage = {
             const total = this.data.total_threats || 0;
             const blocked = this.data.blocked_count || 0;
             const critical = this.data.critical_count || 0;
+            // No server count of blocked threats exists, so this is the
+            // sample's count and says so (same rule as the posture sentence).
             setStats(threatsCard, [
                 { value: total.toLocaleString(), label: 'scanned' },
-                { value: blocked.toLocaleString(), label: 'blocked' },
+                { value: blocked.toLocaleString(), label: DashboardPage.threatsBlockedLabel(this.data) },
                 { value: critical.toLocaleString(), label: 'critical' },
             ]);
         }
@@ -1994,6 +2015,21 @@ const DashboardPage = {
         }).catch(() => {});
 
         return card;
+    },
+
+    /** Blocked egress across destinations: the sum the sidebar Egress
+     *  count shows, from GET /api/egress/destinations?days=N. */
+    egressBlockedCount(dest) {
+        return ((dest && dest.destinations) || []).reduce((a, d) => a + (Number(d.blocked) || 0), 0);
+    },
+
+    /** The Threats card's blocked label. Counted from the newest threats
+     *  only (no server total exists), so it names the sample when the total
+     *  is larger than the sample. */
+    threatsBlockedLabel(data) {
+        const n = Number((data && data.sample_size) || 0);
+        const total = Number((data && data.total_threats) || 0);
+        return n && total > n ? `blocked in the latest ${n}` : 'blocked';
     },
 
     renderError(container, error) {

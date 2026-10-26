@@ -405,19 +405,70 @@ const RunsList = {
      *  children show only when its key is in `openKeys`, so every level
      *  starts collapsed. `guides[k]` says whether the line of the depth k+1
      *  ancestor continues past this row; `last` ends its own connector. */
-    inlineRows(tree, openKeys) {
+    inlineRows(tree, openKeys, caps) {
         const out = [];
         const open = openKeys || {};
+        // Each parent shows at most `caps[key]` children (INLINE_CAP by
+        // default), in the tree's own order; the rest wait behind a "Show
+        // more" row on the same guide, which takes the last-child elbow.
+        const shownOf = (key, total) => Math.min(total, this.inlineCap(caps, key));
+        const level = (parentKey, kids, depth, guides) => {
+            const n = shownOf(parentKey, kids.length);
+            const more = kids.length - n;
+            for (let i = 0; i < n; i++) visit(kids[i], depth, guides, i === n - 1 && !more);
+            if (more > 0) out.push({ more: true, key: `more:${parentKey}`, parentKey, depth, guides, last: true, left: more, hasKids: false, expanded: false });
+        };
         const visit = (n, depth, guides, last) => {
             const kids = n.children || [];
             const expanded = !!open[n.key] && kids.length > 0;
             out.push({ node: n, key: n.key, depth, guides, last, hasKids: kids.length > 0, expanded });
-            if (expanded) kids.forEach((c, i) => visit(c, depth + 1, guides.concat([!last]), i === kids.length - 1));
+            if (expanded) level(n.key, kids, depth + 1, guides.concat([!last]));
         };
-        const top = (tree && tree.children) || [];
-        top.forEach((c, i) => visit(c, 1, [], i === top.length - 1));
+        level(this.inlineRootKey(tree), (tree && tree.children) || [], 1, []);
         return out;
     },
+
+    /** Children shown per parent before "Show more": keeps a run with
+     *  thousands of calls from rendering thousands of rows. */
+    INLINE_CAP: 200,
+
+    inlineRootKey(tree) { return (tree && tree.key) || '__run__'; },
+
+    inlineCap(caps, key) {
+        const v = caps && Number(caps[key]);
+        return v > 0 ? v : this.INLINE_CAP;
+    },
+
+    /** "Show 200 more · N left": one more page of children for a parent. */
+    inlineShowMore(caps, key) {
+        caps[key] = this.inlineCap(caps, key) + this.INLINE_CAP;
+        return caps;
+    },
+
+    /** Raise the caps along a path so a span past them shows (the waiting
+     *  jump). `path` is waitPath's { open: [ancestor keys], key }. Each
+     *  parent's cap grows by whole pages until the next step is inside. */
+    inlineReveal(tree, path, caps) {
+        if (!tree || !path) return caps;
+        const chain = (path.open || []).concat([path.key]);
+        let parent = tree;
+        let pkey = this.inlineRootKey(tree);
+        for (const k of chain) {
+            const kids = (parent && parent.children) || [];
+            const i = kids.findIndex(c => c && c.key === k);
+            if (i < 0) break;
+            const cap = this.inlineCap(caps, pkey);
+            if (i >= cap) caps[pkey] = Math.ceil((i + 1) / this.INLINE_CAP) * this.INLINE_CAP;
+            parent = kids[i];
+            pkey = k;
+        }
+        return caps;
+    },
+
+    /** A run this large refetches its spans on a live tick at most every
+     *  INLINE_BIG_MS, so a busy run with thousands of calls stays cheap. */
+    INLINE_BIG: 2000,
+    INLINE_BIG_MS: 30000,
 
     /** What makes an open run fetch its spans again on a live refresh: its
      *  span count, and its waiting count (a decision made elsewhere). */
@@ -428,11 +479,13 @@ const RunsList = {
     /** On a live tick: should this open run fetch again? Yes after a failed
      *  fetch (a retry, at most once a tick since a fetch in flight blocks
      *  another), or when its signature moved. */
-    inlineNeedsFetch(entry, r) {
+    inlineNeedsFetch(entry, r, now) {
         if (!entry || entry.loading) return false;
         if (entry.error) return true;
         if (!entry.trace || !r) return false;
-        return this.inlineSig(r) !== entry.sig;
+        if (this.inlineSig(r) === entry.sig) return false;
+        if (now != null && Number(r.spans || 0) >= this.INLINE_BIG && entry.fetchedAt && now - entry.fetchedAt < this.INLINE_BIG_MS) return false;
+        return true;
     },
 
     /** Drop the cached spans of every run that is no longer open. */
@@ -588,6 +641,74 @@ const RunsList = {
             if (v != null) bins[i].push(v);
         });
         return bins.map(b => agg === 'count' ? b.length : agg === 'p95' ? this.p95(b) : b.reduce((a, x) => a + x, 0));
+    },
+
+    // ------------------------------------------------ cards: scope words
+    /** "last 24h", "last 7 days": the window a card counts over. */
+    windowShort(rangeKey) {
+        return ({ '1h': 'last hour', '24h': 'last 24h', '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days' })[rangeKey] || 'last 24h';
+    },
+
+    /** Cost across runs: "Not recorded" when no run has a model turn with a
+     *  cost record, never "$0"; a measured zero stays "$0.00". */
+    costText(runs) {
+        const list = runs || [];
+        const recorded = list.some(r => Number(r.generations || 0) > 0 || Number(r.cost || 0) > 0);
+        if (!recorded) return 'Not recorded';
+        const c = list.reduce((a, r) => a + Number(r.cost || 0), 0);
+        return '$' + c.toFixed(2);
+    },
+
+    // ----------------------------------------- run row badge span filters
+    // A run row's blocked and error badges filter its inline spans to that
+    // kind. Waiting keeps its jump to the waiting call.
+    SPAN_FILTERS: { blocked: 'blocked', error: 'error', waiting: 'waiting', recorded: 'recorded' },
+
+    /** The kinds one span node is: blocked (incl. a repeat attempt), error,
+     *  waiting, recorded (logged only). RT is RunTrace, TS is TraceSteps. */
+    spanKinds(n, RT, TS) {
+        const out = [];
+        if (!n || n.kind !== 'tool') return out;
+        const s = n.span || {};
+        const d = RT && RT.decision ? RT.decision(n) : null;
+        if (d && (d.key === 'blocked' || d.key === 'repeat')) out.push('blocked');
+        if (d && d.key === 'waiting') out.push('waiting');
+        if (TS && TS.isFailed ? TS.isFailed(s) : !!s.is_error) out.push('error');
+        if (s.action === 'log_only') out.push('recorded');
+        return out;
+    },
+
+    /** One run's span tree narrowed to `kind`: matching spans plus the
+     *  parent turns on their path, as a pruned copy (keys unchanged, so the
+     *  open details stay). `open` expands every kept parent so each match
+     *  shows; `closed` ({key: true}) folds a parent the user folded.
+     *  Returns { tree, matches, open }. */
+    filterSpans(tree, kind, RT, TS, closed) {
+        const open = {};
+        let matches = 0;
+        const shut = closed || {};
+        const visit = (n) => {
+            const kids = (n.children || []).map(visit).filter(Boolean);
+            const hit = this.spanKinds(n, RT, TS).includes(kind);
+            if (hit) matches++;
+            if (!hit && !kids.length) return null;
+            if (kids.length && !shut[n.key]) open[n.key] = true;
+            return Object.assign({}, n, { children: kids });
+        };
+        const top = ((tree && tree.children) || []).map(visit).filter(Boolean);
+        return { tree: Object.assign({}, tree || {}, { children: top }), matches, open };
+    },
+
+    /** Clicking a badge: the same kind again (or null) clears it. */
+    nextSpanFilter(current, kind) {
+        return !kind || current === kind ? null : kind;
+    },
+
+    /** Drop the filters of runs that are no longer open. */
+    pruneSpanFilters(filters, open) {
+        const keep = new Set(open || []);
+        Object.keys(filters || {}).forEach(id => { if (!keep.has(id)) delete filters[id]; });
+        return filters;
     },
 
     p95(values) {

@@ -45,7 +45,7 @@ test('tiles are four plain-word numbers with neutral counts', () => {
   assert.match(html, /Automatic actions[\s\S]*dr-tile-sub">nothing enforced \(test mode\)</);
   assert.match(html, /12 checks \u00b7 1 denied before it ran/);
   assert.doesNotMatch(html, /Detect|Harden|Respond|Pre-flight|Shadow/);
-  assert.match(html, /in the last 7 days/);
+  assert.match(html, /to review · this device · last 7 days/);
   assert.doesNotMatch(html, /is-red|is-amber|is-high|is-watch/);
 });
 
@@ -308,7 +308,7 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=27/);
+  assert.match(read('index.html'), /detection-response\.js\?v=28/);
   assert.match(read('index.html'), /styles\.css\?v=499/);
 });
 

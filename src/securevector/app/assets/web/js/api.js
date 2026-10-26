@@ -55,6 +55,12 @@ const API = {
 
     // ==================== Threat Analytics ====================
 
+    /** One definition of a blocked threat for every dashboard count:
+     *  its action_taken contains "block" (blocked, block, auto_blocked). */
+    threatBlocked(t) {
+        return String((t && t.action_taken) || '').toLowerCase().includes('block');
+    },
+
     async getThreatAnalytics() {
         // Get dashboard summary from threat intel and rules
         try {
@@ -88,7 +94,10 @@ const API = {
             return {
                 total_threats: totalCount,  // Use actual total from API
                 critical_count: criticalCount,
-                blocked_count: items.filter(t => t.action_taken === 'blocked').length,
+                // Same definition as the dashboard posture sentence. Counted
+                // from this newest-N sample: no server total exists.
+                blocked_count: items.filter(t => this.threatBlocked(t)).length,
+                sample_size: items.length,
                 active_rules: activeRulesCount,
                 recent_threats: recentThreats,
                 threat_types: threatTypes,

@@ -197,7 +197,7 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=207/);
+  assert.match(html, /sidebar\.js\?v=208/);
   assert.match(html, /styles\.css\?v=499/);
   assert.match(html, /app\.js\?v=78/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
@@ -617,7 +617,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=207/);
+  assert.match(read('index.html'), /sidebar\.js\?v=208/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {

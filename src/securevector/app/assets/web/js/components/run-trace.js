@@ -334,7 +334,23 @@
                 const owner = turns.filter(g => at != null && (this.ms(g.span.called_at) || 0) <= at).pop();
                 (owner || run).children.push(n);
             });
+            // Newest first (opts.newestFirst): turns, and the calls in each
+            // turn, list the latest at the top. Turn numbers stay in time
+            // order; the waterfall's time axis still runs left to right.
+            if (opts.newestFirst) {
+                run.children.reverse();
+                run.children.forEach(c => { if (c.children && c.children.length) c.children.reverse(); });
+                run.newestFirst = true;
+            }
             return run;
+        },
+
+        /** The tree in time order (oldest first) for exports and copy, even
+         *  when the view lists it newest first. Shallow copies; keys kept. */
+        chrono(tree) {
+            if (!tree || !tree.newestFirst) return tree;
+            const flip = (n) => Object.assign({}, n, { children: (n.children || []).slice().reverse().map(flip) });
+            return Object.assign(flip(tree), { newestFirst: false });
         },
 
         /** Every node, depth first. */
@@ -1040,7 +1056,7 @@
          *  arguments. */
         exportRows(ctx) {
             const rows = [];
-            this.walk(ctx.tree, n => {
+            this.walk(this.chrono(ctx.tree), n => {
                 if (n.kind === 'run') return;
                 const s = n.span || {};
                 const d = this.decision(n);
@@ -1151,7 +1167,7 @@
             const rows = this.exportRows(ctx);
             const depths = [];
             const walkD = (n, d) => { if (n.kind !== 'run') depths.push(d); (n.children || []).forEach(c => walkD(c, n.kind === 'run' ? 0 : d + 1)); };
-            walkD(ctx.tree, 0);
+            walkD(this.chrono(ctx.tree), 0);
             const out = sum.run.map(r => `${r[0]}: ${r[1]}`);
             if (sum.governance.length) {
                 out.push('');
@@ -1222,7 +1238,7 @@
             this.injectStyle();
             this.installCopy();
             const st = this.state(ctx.trace.trace_id);
-            ctx.tree = this.buildTree(ctx.trace, { requests: ctx.requests, grants: ctx.grants, newest: ctx.newest, title: ctx.title });
+            ctx.tree = this.buildTree(ctx.trace, { requests: ctx.requests, grants: ctx.grants, newest: ctx.newest, title: ctx.title, newestFirst: true });
             if (st.sel && !this.find(ctx.tree, st.sel)) {
                 // A span named by its id may be keyed by its row hash.
                 const alt = /^s:/.test(st.sel) ? 'h:' + st.sel.slice(2) : null;

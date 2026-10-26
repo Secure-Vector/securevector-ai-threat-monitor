@@ -1287,25 +1287,38 @@ const Sidebar = {
      *  shared quiet summary read (cached 15 s by the API). Zero hides it. */
     loadDrCount() {
         if (!window.API || typeof document === 'undefined') return;
-        const paint = (n) => {
-            document.querySelectorAll('[data-dr-product-badge]').forEach(badge => {
-                const meaning = n === 1 ? '1 session needs a look' : n + ' sessions need a look';
-                badge.textContent = String(n);
-                badge.title = meaning;
-                badge.setAttribute('aria-label', meaning);
-                badge.hidden = n <= 0;
-                const button = badge.closest ? badge.closest('.product-rail-button') : null;
-                if (button) button.setAttribute('aria-label', n > 0 ? `${button.dataset.baseLabel}: ${meaning}` : button.dataset.baseLabel);
-            });
-        };
         try {
             Promise.resolve((API.detectionResponseSummaryQuiet || API.detectionResponseSummary).call(API))
-                .then(d => {
-                    this._drSummary = d || null;
-                    paint(Math.max(0, Number(d && d.detect && d.detect.to_review) || 0));
-                    this._paintDrSections(this._drSummary);
-                }).catch(() => {});
+                .then(d => this.applyDrSummary(d, { fromPoll: true })).catch(() => {});
         } catch (e) { /* no count */ }
+    },
+
+    /** "3 sessions to review · this device · last 7 days": the badge's
+     *  meaning, the same scope the page's tile and queue heading state. */
+    drBadgeTitle(n, d) {
+        const days = Math.max(1, Number(d && d.window_days) || 7);
+        return `${n} ${n === 1 ? 'session' : 'sessions'} to review · this device · last ${days} days`;
+    },
+
+    /** Paint the rail badge and panel counts from one summary. The
+     *  Detection & Response page calls this with the summary it just read
+     *  (and after each decision), so the badge always equals its queue; it
+     *  also primes the shared 15 s cache so the next poll agrees. */
+    applyDrSummary(d, opts) {
+        if (typeof document === 'undefined') return;
+        if (!(opts && opts.fromPoll) && d && window.API) API._drQuiet = { at: Date.now(), p: Promise.resolve(d) };
+        this._drSummary = d || null;
+        const n = Math.max(0, Number(d && d.detect && d.detect.to_review) || 0);
+        const meaning = this.drBadgeTitle(n, d);
+        document.querySelectorAll('[data-dr-product-badge]').forEach(badge => {
+            badge.textContent = String(n);
+            badge.title = meaning;
+            badge.setAttribute('aria-label', meaning);
+            badge.hidden = n <= 0;
+            const button = badge.closest ? badge.closest('.product-rail-button') : null;
+            if (button) button.setAttribute('aria-label', n > 0 ? `${button.dataset.baseLabel}: ${meaning}` : button.dataset.baseLabel);
+        });
+        this._paintDrSections(this._drSummary);
     },
 
     /** The Detection & Response panel keeps the two main page anchors. */

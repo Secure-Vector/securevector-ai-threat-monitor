@@ -395,16 +395,23 @@ class EgressRepository:
     # request_id (one row per host); without one, the second and the tool.
     _CALL_KEY_SQL = "COALESCE(request_id, timestamp || '|' || COALESCE(tool_name, ''))"
 
-    async def blocked_calls(self, session_ids, limit: int = 5000) -> list:
+    async def blocked_calls(self, session_ids, limit: int = 5000,
+                            window_days: Optional[int] = None) -> list:
         """Refused egress calls for these sessions, one row per call (deduped
         and grouped in SQL), newest first so the row cap drops the oldest.
         Each row: session_id, runtime_kind, called_at (the call's first
-        stamp), tool_name, hosts and rule_ids (comma lists), call_key."""
+        stamp), tool_name, hosts and rule_ids (comma lists), call_key.
+        `window_days` keeps only refusals inside the same window the runs
+        list reads, so a run's count never mixes in older refusals."""
         ids = [s for s in dict.fromkeys(session_ids or []) if s][:500]
         if not ids:
             return []
         conn = await self.db.connect()
         marks = ", ".join("?" for _ in ids)
+        since_sql, since_args = "", ()
+        if window_days is not None:
+            since_sql = " AND timestamp >= datetime('now', ?)"
+            since_args = (f"-{max(1, int(window_days))} days",)
         cur = await conn.execute(
             f"""
             SELECT session_id,
@@ -415,12 +422,12 @@ class EgressRepository:
                    GROUP_CONCAT(DISTINCT rule_id) AS rule_ids,
                    {self._CALL_KEY_SQL}       AS call_key
             FROM egress_audit
-            WHERE session_id IN ({marks}) AND action = 'block' AND host IS NOT NULL
+            WHERE session_id IN ({marks}) AND action = 'block' AND host IS NOT NULL{since_sql}
             GROUP BY session_id, call_key
             ORDER BY called_at DESC
             LIMIT ?
             """,
-            (*ids, max(1, min(int(limit), 50000))),
+            (*ids, *since_args, max(1, min(int(limit), 50000))),
         )
         cols = ["session_id", "runtime_kind", "called_at", "tool_name", "hosts", "rule_ids", "call_key"]
         out = []
