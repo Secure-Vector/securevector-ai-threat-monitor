@@ -518,7 +518,7 @@
             const g = this.glance(s);
             const exp = `<button type="button" class="lg-exp" data-act="expand" data-sid="${sid}" aria-expanded="${open ? 'true' : 'false'}"` +
                 ` aria-controls="lg-cx-${sid}" aria-label="${open ? 'Hide' : 'Show'} recent calls and egress for ${e(name)}" title="${open ? 'Hide' : 'Show'} recent calls and egress">` +
-                `<span aria-hidden="true">${open ? '▾' : '▸'}</span></button>`;
+                `<span class="lg-exp-ico" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" focusable="false"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>`;
             // A waiting tile is the waiting badge: Review opens its panel with
             // the waiting call's details, in place. Any other tile opens or
             // closes its panel. Neither leaves the grid.

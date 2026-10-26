@@ -765,7 +765,7 @@ const LiveGridPage = {
 .lg-covline { margin-left:auto; font-size:12px; color:var(--text-secondary); }
 .lg-cgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); grid-auto-flow:row dense; gap:8px; }
 .lg-cgrid.lg-focus { grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:10px; }
-.lg-cw { position:relative; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 26px; grid-template-rows:1fr auto; border:1px solid var(--border-default); border-radius:6px; background:var(--bg-card); overflow:hidden; }
+.lg-cw { position:relative; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 40px; grid-template-rows:1fr auto; border:1px solid var(--border-default); border-radius:6px; background:var(--bg-card); overflow:hidden; }
 .lg-cw.st-waiting { border-color:color-mix(in srgb, var(--lg-warn) 55%, var(--border-default)); }
 .lg-c { grid-column:1; grid-row:1; display:grid; grid-template-columns:4px minmax(0,1fr); gap:9px; align-items:stretch; padding:8px 10px 2px 0; border:0;
   background:transparent; color:var(--text-primary); font:12px var(--font-body); text-align:left; cursor:pointer; overflow:hidden; min-width:0; }
@@ -799,6 +799,10 @@ const LiveGridPage = {
 .lg-cw:hover { border-color:var(--accent-primary); }
 .lg-cw.open { border-color:var(--accent-primary); }
 .lg-exp:hover, .lg-exp[aria-expanded="true"] { background:var(--bg-hover); color:var(--text-primary); }
+.lg-exp { display:flex; align-items:center; justify-content:center; width:36px; color:var(--accent-primary); }
+.lg-exp-ico { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; border:1px solid var(--accent-primary); background:var(--bg-secondary); transition:transform .15s ease, background .15s ease; }
+.lg-exp:hover .lg-exp-ico { background:var(--accent-primary); color:var(--bg-primary); }
+.lg-exp[aria-expanded="true"] .lg-exp-ico { transform:rotate(90deg); background:var(--accent-primary); color:var(--bg-primary); }
 .lg-exp:focus-visible { outline:2px solid var(--accent-primary); outline-offset:-2px; }
 .lg-c:focus-visible, .lg-cw .lg-pin:focus-visible { outline-offset:-2px; }
 .lg-cx { grid-column:1 / -1; background:var(--bg-card); border:1px solid var(--accent-primary); border-radius:8px; padding:10px 14px 12px; display:flex; flex-direction:column; gap:8px; min-width:0; }
