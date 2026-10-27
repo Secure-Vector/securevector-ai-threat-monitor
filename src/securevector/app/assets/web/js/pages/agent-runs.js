@@ -524,7 +524,7 @@ const AgentRunsPage = {
         layout.innerHTML = '<div class="ar-listview" id="ar-listview">' +
             // No "Runs" heading: the active tab names the page.
             '<div class="rl-head"><div class="rl-toolbar" id="agent-runs-toolbar"></div></div>' +
-            '<section class="rl-cards" id="rl-cards" aria-label="Summary for the runs in view"></section>' +
+            '<section class="rl-summary" id="rl-summary" aria-label="Summary for the runs in view"></section>' +
             '<div class="rl-status" id="rl-status" aria-live="polite"></div>' +
             '<div class="rl-tablewrap"><div class="ar-runlist rl-table" id="ar-runlist" aria-label="Runs"></div></div>' +
             '<nav class="rl-pager" id="rl-pager" aria-label="Pages of runs"></nav></div>' +
@@ -1233,15 +1233,23 @@ const AgentRunsPage = {
             .rl-chip button { font:inherit; background:none; border:0; color:var(--text-secondary,#aeb7c2); cursor:pointer; padding:0 2px; }
             .rl-link { font:inherit; font-size:13px; background:none; border:0; padding:0; cursor:pointer; color:var(--accent-primary,#5eadb8); }
             .rl-link:hover { text-decoration:underline; }
-            .rl-cards { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
-            @media (max-width:900px) { .rl-cards { grid-template-columns:repeat(2, minmax(0,1fr)); } }
-            .rl-card { display:flex; flex-direction:column; gap:6px; padding:12px 14px; min-width:0;
-                border:1px solid var(--border-default,#232a33); border-radius:8px; background:var(--bg-card,#12171e); }
-            .rl-card-k { font-size:12px; color:var(--text-muted,#7f8a97); }
-            .rl-card-v { font-size:20px; font-weight:650; color:var(--text-primary,#eef2f7); }
-            .rl-card-sub { font-size:13px; font-weight:400; color:var(--text-muted,#7f8a97); }
-            .rl-card-note { font-size:11px; color:var(--text-muted,#7f8a97); margin-top:-4px; }
-            .rl-card svg { width:100%; height:32px; display:block; }
+            .rl-summary { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; min-height:28px; font-size:13px;
+                color:var(--text-secondary,#aeb7c2); }
+            .rl-sum-i { white-space:nowrap; font-variant-numeric:tabular-nums; }
+            button.rl-sum-i { font:inherit; font-size:13px; line-height:20px; padding:0 7px; border-radius:4px; cursor:pointer;
+                background:none; border:1px solid transparent; color:inherit; }
+            button.rl-sum-i.rl-amb-t { border-color:color-mix(in srgb, var(--warning,#f59e0b) 45%, transparent); }
+            button.rl-sum-i.rl-red-t { border-color:color-mix(in srgb, var(--danger,#ef4444) 45%, transparent); }
+            button.rl-sum-i:hover { background:var(--bg-hover,#1b212b); }
+            button.rl-sum-i:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:1px; }
+            button.rl-sum-i[aria-pressed="true"] { box-shadow:inset 0 0 0 1px currentColor; font-weight:600; }
+            .rl-now { display:inline-block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+                font-size:12px; color:var(--text-secondary,#aeb7c2); }
+            .rl-now > span + span::before { content:'·'; margin:0 6px; color:var(--text-muted,#7f8a97); }
+            .rl-now .rl-now-gov { margin-left:8px; padding:0 6px; border-radius:4px; border:1px solid var(--border-light,#303844); }
+            .rl-now .rl-now-gov.rl-red { border-color:color-mix(in srgb, var(--danger,#ef4444) 45%, transparent); }
+            .rl-now .rl-now-gov::before { content:none; }
+            .rl-now .rl-now-gov + span::before { content:'·'; margin:0 6px; color:var(--text-muted,#7f8a97); }
             .rl-amb-t { color:color-mix(in srgb, var(--warning,#f59e0b) 75%, var(--text-primary,#eef2f7)); }
             .rl-red-t { color:color-mix(in srgb, var(--danger,#ef4444) 70%, var(--text-primary,#eef2f7)); }
             .rl-status { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--text-muted,#7f8a97); }
@@ -1316,6 +1324,7 @@ const AgentRunsPage = {
             .rl-sh.rl-sh-wait > * { white-space:nowrap; flex-shrink:0; }
             .rl-sh.rl-sh-wait .rl-cov { flex-shrink:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
             .rl-sh.rl-sh-wait .rl-sh-right { flex-shrink:0; white-space:nowrap; }
+            .rl-sh.rl-sh-wait .rl-now { flex-shrink:1; }
             .rl-pager { display:flex; align-items:center; gap:8px; justify-content:flex-start; font-size:12.5px; }
             .rl-pager .rl-sub { margin-right:4px; }
             .ar-layout.runs-v2 .ar-listview { padding-bottom:80px; }
@@ -2159,57 +2168,49 @@ const AgentRunsPage = {
         if (this._fold) this._fold.refit();
     },
 
-    _spark(values, kind, color, label) {
-        const W = 240, H = 32;
-        const max = Math.max(...values, 0);
-        let body = '';
-        if (kind === 'bars') {
-            const w = W / values.length;
-            values.forEach((v, i) => {
-                if (!v || !max) return;
-                const h = Math.max(2, Math.round((v / max) * (H - 2)));
-                body += `<rect x="${(i * w).toFixed(1)}" y="${H - h}" width="${Math.max(1, w - 1).toFixed(1)}" height="${h}"/>`;
-            });
-            body = `<g fill="${color}">${body}</g>`;
-        } else {
-            const pts = values.map((v, i) => `${(values.length > 1 ? (i / (values.length - 1)) * W : 0).toFixed(1)},${(H - 2 - (max ? (v / max) * (H - 6) : 0)).toFixed(1)}`).join(' ');
-            body = `<polyline fill="none" stroke="${color}" stroke-width="2" points="${pts}"/>`;
-        }
-        return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${this._esc(label)}">${body}` +
-            `<line x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}" stroke="var(--border-default,#232a33)"/></svg>`;
-    },
-
-    _renderCards(shown) {
-        const box = document.getElementById('rl-cards');
+    /** One summary line: runs, waiting, refused, cost (when recorded),
+     *  median run. Waiting and refused are buttons that toggle the
+     *  matching Decision filter. */
+    _renderSummary(shown) {
+        const box = document.getElementById('rl-summary');
         if (!box) return;
         const RL = RunsList;
-        const now = this._ctx.now;
-        const per = this.range === '1h' ? 'by 5 minutes' : 'by hour';
-        const sum = (k) => shown.reduce((a, r) => a + Number(r[k] || 0), 0);
-        const waiting = sum('waiting'), blocked = sum('blocked'), tokens = sum('tokens');
-        const p95 = RL.p95(RL.finishedDurations(shown, this._ctx));
-        const b = (fn, agg) => RL.buckets(shown, this.range, now, fn, agg);
-        const muted = 'var(--text-secondary,#aeb7c2)';
-        const cards = [
-            ['Runs', `${shown.length.toLocaleString()}`, '', this._spark(b(() => 1, 'count'), 'line', muted, `Runs ${per}`)],
-            ['Waiting for approval', String(waiting), waiting ? 'rl-amb-t' : '', this._spark(b(r => Number(r.waiting || 0), 'sum'), 'bars', 'var(--warning,#f59e0b)', `Waiting for approval ${per}`)],
-            // Tool-policy blocks plus egress refusals of the listed runs, both
-            // counted over the selected range (the server windows egress too).
-            ['Calls refused', String(blocked), blocked ? 'rl-red-t' : '', this._spark(b(r => Number(r.blocked || 0), 'sum'), 'bars', 'var(--danger,#ef4444)', `Calls refused ${per}`),
-                `tool policy + egress · listed runs · ${RL.windowShort(this.range)}`],
-            ['Cost · tokens', `${this._esc(RL.costText(shown))} <span class="rl-card-sub">${this._fmtTokens(tokens)}</span>`, '', this._spark(b(r => Number(r.cost || 0), 'sum'), 'line', muted, `Cost ${per}`)],
-            ['Run duration, p95', p95 ? this._fmtDur(p95) : '—', '', this._spark(b(r => (RL.status(r, this._ctx) === 'running' ? null : RL.duration(r)), 'p95'), 'line', muted, `p95 run duration ${per}`)],
-        ];
-        box.innerHTML = cards.map(([k, v, cls, svg, note]) =>
-            `<div class="rl-card"><span class="rl-card-k">${k}</span>${note ? `<span class="rl-card-note">${this._esc(note)}</span>` : ''}<span class="rl-card-v ${cls}">${v}</span>${svg}</div>`).join('');
+        const items = RL.summaryItems(shown, this._ctx, this.range, this.filters, (ms) => this._fmtDur(ms));
+        box.innerHTML = items.map(it => {
+            const cls = 'rl-sum-i' + (it.tone === 'amber' ? ' rl-amb-t' : it.tone === 'red' ? ' rl-red-t' : '');
+            const title = it.title ? ` title="${this._esc(it.title)}"` : '';
+            if (it.filter && (it.n > 0 || it.pressed)) {
+                return `<button type="button" class="${cls}" data-sum="${it.filter}" aria-pressed="${it.pressed ? 'true' : 'false'}"${title}>${this._esc(it.text)}</button>`;
+            }
+            return `<span class="${cls}"${title}>${this._esc(it.text)}</span>`;
+        }).join('');
+        box.onclick = (ev) => {
+            const b = ev.target && ev.target.closest ? ev.target.closest('[data-sum]') : null;
+            if (!b) return;
+            const key = b.dataset.sum;
+            RL.toggleSummaryFilter(this.filters, key);
+            this.pageIdx = 0;
+            this.renderRuns();
+            // The line was rebuilt: keep keyboard focus on the same button.
+            const again = box.querySelector ? box.querySelector(`[data-sum="${key}"]`) : null;
+            if (again && again.focus) again.focus();
+        };
     },
 
-    _fmtTokens(n) {
-        n = Number(n || 0);
-        if (!n) return '—';
-        if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
-        if (n >= 1e3) return Math.round(n / 1e3) + 'k';
-        return String(n);
+    /** The "now" segment of a running session's header: latest activity,
+     *  governance badge, egress in the Live grid's words. '' without a
+     *  live row. */
+    _sessionNowHtml(sid) {
+        const live = ((this._liveData && this._liveData.sessions) || []).find(s => s && s.session_id === sid);
+        const n = RunsList.sessionNow(live, (this._ctx && this._ctx.now) || Date.now(), window.LiveGridModel, window.RunTrace);
+        if (!n) return '';
+        const parts = [];
+        if (n.activity) parts.push(`<span class="rl-now-act">${this._esc(n.activity)}</span>`);
+        if (n.gov) parts.push(`<span class="rl-now-gov${n.gov.key === 'blocked' ? ' rl-red' : ''}">${this._esc(n.gov.text)}</span>`);
+        if (n.egress) parts.push(`<span class="rl-now-eg${n.egress.key === 'blocked' ? ' rl-red-t' : ''}">${this._esc(n.egress.text)}</span>`);
+        if (!parts.length) return '';
+        const label = [n.activity, n.gov && n.gov.text, n.egress && n.egress.text].filter(Boolean).join(', ');
+        return `<span class="rl-now" title="${this._esc(label)}">${parts.join('')}</span>`;
     },
 
     _fmtDur(ms) {
@@ -2323,7 +2324,7 @@ const AgentRunsPage = {
         cells.push(`<span class="rl-c rl-stcell">${this._statusCell(r)}</span>`);
         cells.push(`<span class="rl-c rl-r">${this._callsCell(r)}</span>`);
         cells.push(`<span class="rl-c rl-r rl-sub">${this._esc(this._fmtDur(RL.shownDuration(r, ctx)))}</span>`);
-        cells.push(`<span class="rl-c rl-r">${this._esc(this._fmtTokens(r.tokens))}</span>`);
+        cells.push(`<span class="rl-c rl-r">${this._esc(RunsList.tokensText(r.tokens) || '—')}</span>`);
         cells.push(`<span class="rl-c rl-r" title="${this._esc(this._costTitle(r))}">${Number(r.cost) > 0 ? '$' + Number(r.cost).toFixed(2) : '—'}</span>`);
         row.innerHTML = (guide ? '<span class="rl-guide" aria-hidden="true"></span><span class="rl-conn" aria-hidden="true"></span>' : '') +
             (open ? '<span class="rl-tg rl-tg-down" aria-hidden="true" style="--rl-x:12px"></span>' : '') + cells.join('');
@@ -2414,6 +2415,11 @@ const AgentRunsPage = {
             const paths = (cov && cov.unchecked) || [];
             badge.title = 'What SecureVector can check for this session' + (paths.length ? `. Not checked: ${paths.join(', ')}` : '');
             head.appendChild(badge);
+        }
+        // A running session says what it is doing now, from the live row.
+        if (running && first.session_id) {
+            const nowHtml = this._sessionNowHtml(first.session_id);
+            if (nowHtml) head.insertAdjacentHTML('beforeend', nowHtml);
         }
         const right = document.createElement('span');
         right.className = 'rl-sh-right';
@@ -2561,7 +2567,7 @@ const AgentRunsPage = {
         const inRange = (this.runs || []).filter(r => RL.inRange(r, this.range, ctx.now));
         this._renderFilterBar(inRange);
         const shown = inRange.filter(r => RL.matches(r, this.filters, ctx));
-        this._renderCards(shown);
+        this._renderSummary(shown);
         list.textContent = '';
         const review = this._reviewMode();
         const flat = review || !this.groupBySession;

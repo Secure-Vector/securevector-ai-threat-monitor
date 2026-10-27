@@ -46,10 +46,10 @@ test('cards: scope words follow the range; cost never recorded is "Not recorded"
   assert.equal(RL.costText([{ cost: 0, generations: 0 }, {}]), 'Not recorded');
   assert.equal(RL.costText([{ cost: 0, generations: 3 }]), '$0.00');
   assert.equal(RL.costText([{ cost: 1.234, generations: 1 }, { cost: 0.5 }]), '$1.73');
-  const src = read('js/pages/agent-runs.js');
-  assert.match(src, /\['Calls refused', String\(blocked\)/);
-  assert.match(src, /`tool policy \+ egress · listed runs · \$\{RL\.windowShort\(this\.range\)\}`/);
-  assert.doesNotMatch(src, /'Blocked calls'/);
+  const src = read('js/components/runs-list.js');
+  assert.match(src, /`\$\{blocked\} call\$\{blocked === 1 \? '' : 's'\} refused`/);
+  assert.match(src, /`tool policy \+ egress · listed runs · \$\{this\.windowShort\(rangeKey\)\}`/);
+  assert.doesNotMatch(read('js/pages/agent-runs.js'), /'Blocked calls'/);
 });
 
 test('span kinds keep blocked, error, waiting and recorded apart', () => {

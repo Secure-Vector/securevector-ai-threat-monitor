@@ -104,6 +104,7 @@ const GuardianAssistant = {
         document.body.appendChild(fab);
         document.body.classList.add('sv-ga-on'); // page bottom clears the FAB
         this._fab = fab;
+        this._badgeRender(); // unread findings saved before a reload show at once
         this._initMoves(fab);
         // First paint: content exists now, so the fade starts out honest
         // instead of sitting opaque over a button until the first scroll.
@@ -447,6 +448,10 @@ const GuardianAssistant = {
 
     async open() {
         this._open = true;
+        // Opening the Guardian reads the new findings: the panel lists them
+        // with their links, the badge clears.
+        this._openFindings = this._findingsGet();
+        this._findingsClear();
         if (!this._panel) this._build();
         this._panel.classList.add('open');
         // Click-away closes the card, like every other popover in the app.
@@ -577,7 +582,7 @@ const GuardianAssistant = {
         return false;
     },
 
-    _row({ label, value, sub, page, tab, primary }) {
+    _row({ label, value, sub, page, tab, primary, act, openTask }) {
         const row = document.createElement('button');
         row.type = 'button';
         row.className = 'sv-ga-row' + (primary ? ' primary' : '');
@@ -591,9 +596,9 @@ const GuardianAssistant = {
         row.querySelector('.sv-ga-row-val').textContent = value || '';
         row.addEventListener('click', () => {
             this.close();
-            if (tab && page === 'costs' && window.CostsPage) CostsPage._pendingTab = tab;
-            if (tab && page === 'egress' && window.EgressPage) EgressPage._state.tab = tab;
-            if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(page);
+            if (act) { this._act(act); return; } // a note that answers on this page
+            if (openTask) { try { sessionStorage.setItem('sv-agent-task-id', openTask); } catch (e) { /* storage unavailable */ } }
+            this._go(page, tab);
         });
         return row;
     },
@@ -621,6 +626,9 @@ const GuardianAssistant = {
         }
 
         body.textContent = '';
+
+        // --- new findings and notes since the last look ---
+        this._findingsSection(body);
 
         // --- live sessions first: what is happening right now ---
         try {
@@ -687,8 +695,8 @@ const GuardianAssistant = {
         quietRow.className = 'sv-ga-quiet';
         const paintQuiet = () => {
             quietRow.textContent = this._quiet()
-                ? 'Tips are muted. Security alerts still show. Turn tips back on'
-                : 'Announcements are on: new threats, secret catches, blocks, session recaps. Mute tips';
+                ? 'Tips and session recaps are muted. Security findings still show. Turn tips back on'
+                : 'Tips and session recaps are on. Mute tips';
         };
         paintQuiet();
         quietRow.addEventListener('click', () => { this._setQuiet(!this._quiet()); paintQuiet(); });
@@ -894,6 +902,156 @@ const GuardianAssistant = {
         return true;
     },
 
+    // ------------- findings: unread badge, one brief toast, no bubble -------------
+
+    FINDINGS: {
+        'threats': { page: 'threats', cta: 'Review threats', label: 'Threats',
+            text: (n) => (n === 1 ? '1 new threat flagged.' : `${n} new threats flagged.`) },
+        redactions: { page: 'redactions', cta: 'Review secrets', label: 'Secret leaks',
+            text: (n) => (n === 1 ? '1 secret caught before it left this machine.' : `${n} secrets caught before they left this machine.`) },
+        blocked: { page: 'blocked-ledger', cta: 'Review blocks', label: 'Blocked tool calls',
+            text: (n) => (n === 1 ? '1 tool call blocked by your policy.' : `${n} tool calls blocked by your policy.`) },
+    },
+    TOAST_MS: 6000,
+    NOTES_MAX: 5,
+
+    /** Unread findings by category: { threats: n, redactions: n, blocked: n }. */
+    _findingsGet() {
+        try {
+            const v = JSON.parse(localStorage.getItem('sv-ga-findings') || '{}');
+            if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+            const out = {};
+            Object.keys(this.FINDINGS).forEach(k => { if (Number(v[k]) > 0) out[k] = Number(v[k]); });
+            return out;
+        } catch (_) { return {}; }
+    },
+    _findingsSave(f) {
+        try { localStorage.setItem('sv-ga-findings', JSON.stringify(f || {})); } catch (_) { /* private mode */ }
+        this._badgeRender();
+    },
+
+    /** A new finding: count it on the badge (until the user opens the
+     *  Guardian or visits its page) and, when `toast`, say it once in a
+     *  brief toast. Already on that page: nothing to add. Returns true
+     *  when a toast showed. */
+    _findingAdd(cat, n, toast) {
+        const F = this.FINDINGS[cat];
+        if (!F || !(n > 0)) return false;
+        let here = null;
+        try { here = this._currentPage(); } catch (_) { /* no page yet */ }
+        if (here === F.page) return false;
+        const f = this._findingsGet();
+        f[cat] = (f[cat] || 0) + n;
+        this._findingsSave(f);
+        return toast ? this._findingToast(cat, n) : false;
+    },
+
+    /** Clear one category, or all of them. */
+    _findingsClear(cat) {
+        if (!cat) { this._findingsSave({}); return; }
+        const f = this._findingsGet();
+        if (!f[cat]) return;
+        delete f[cat];
+        this._findingsSave(f);
+    },
+
+    /** Visiting a finding's page reads it. */
+    _findingsVisit() {
+        let page = null;
+        try { page = this._currentPage(); } catch (_) { return; }
+        Object.keys(this.FINDINGS).forEach(k => { if (this.FINDINGS[k].page === page) this._findingsClear(k); });
+    },
+
+    _go(page, tab) {
+        if (tab && page === 'costs' && window.CostsPage) CostsPage._pendingTab = tab;
+        if (tab && page === 'egress' && window.EgressPage) EgressPage._state.tab = tab;
+        if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(page);
+    },
+
+    /** One brief, non-blocking toast in the bottom-right corner, with the
+     *  action that opens the finding's page. Never more than one. */
+    _findingToast(cat, n) {
+        const F = this.FINDINGS[cat];
+        if (!F || !this._fab) return false;
+        if (this._toastEl && this._toastEl.isConnected) return false;
+        const t = document.createElement('div');
+        t.className = 'sv-ga-toast';
+        t.setAttribute('role', 'status');
+        t.dataset.cat = cat;
+        t.innerHTML = '<span class="sv-ga-toast-t"></span>' +
+            '<button type="button" class="sv-ga-toast-go"></button>' +
+            '<button type="button" class="sv-ga-toast-x" aria-label="Dismiss">&times;</button>';
+        t.querySelector('.sv-ga-toast-t').textContent = F.text(n);
+        const go = t.querySelector('.sv-ga-toast-go');
+        go.textContent = F.cta;
+        go.addEventListener('click', () => {
+            this._toastHide();
+            this._findingsClear(cat);
+            this._go(F.page);
+        });
+        t.querySelector('.sv-ga-toast-x').addEventListener('click', () => this._toastHide());
+        document.body.appendChild(t);
+        this._toastEl = t;
+        this._toastStack();
+        requestAnimationFrame(() => t.classList.add('show'));
+        clearTimeout(this._toastTimer);
+        this._toastTimer = setTimeout(() => this._toastHide(), this.TOAST_MS);
+        return true;
+    },
+    /** Both up at once: the toast sits above the corner security alert;
+     *  both stay above the Guardian button. */
+    _toastStack() {
+        const t = this._toastEl;
+        if (!t || !t.style) return;
+        const b = this._bubbleEl;
+        const corner = b && b.isConnected && b.dataset && b.dataset.kind === 'security';
+        t.style.bottom = corner ? (100 + (b.offsetHeight || 140) + 8) + 'px' : '';
+    },
+    _toastHide() {
+        clearTimeout(this._toastTimer);
+        const t = this._toastEl;
+        if (!t) return;
+        this._toastEl = null;
+        t.classList.remove('show');
+        setTimeout(() => t.remove(), 220);
+    },
+
+    /** A tip or recap, kept for the panel instead of a bubble. */
+    _noteAdd(note) {
+        if (!note || !note.text) return;
+        this._notes = (this._notes || []).filter(x => x.text !== note.text);
+        this._notes.unshift(note);
+        this._notes = this._notes.slice(0, this.NOTES_MAX);
+    },
+
+    /** The top of the panel: the findings that were unread when it opened,
+     *  each with its link, then the notes. */
+    _findingsSection(body) {
+        const f = this._openFindings || {};
+        const cats = Object.keys(this.FINDINGS).filter(k => f[k] > 0);
+        if (cats.length) {
+            const sec = document.createElement('div');
+            sec.className = 'sv-ga-sec';
+            sec.textContent = 'New';
+            body.appendChild(sec);
+            cats.forEach((k) => {
+                const F = this.FINDINGS[k];
+                body.appendChild(this._row({ label: F.cta, sub: F.text(f[k]), value: String(f[k]), page: F.page }));
+            });
+        }
+        const notes = ((!this._quiet() && this._notes) || []).filter(x => x.page || x.act);
+        if (notes.length) {
+            const sec = document.createElement('div');
+            sec.className = 'sv-ga-sec';
+            sec.textContent = 'Notes';
+            body.appendChild(sec);
+            notes.forEach((x) => {
+                body.appendChild(this._row({ label: x.cta || 'Open', sub: x.text, value: '', page: x.page, tab: x.tab,
+                    act: x.act, openTask: x.openTask }));
+            });
+        }
+    },
+
     _sentinelState() {
         try {
             const raw = localStorage.getItem('sv-ga-sentinel');
@@ -914,8 +1072,10 @@ const GuardianAssistant = {
         this._sentinelTimer = setInterval(() => {
             if (document.hidden) return;
             // Security alerts first, muted or not; tips only when not muted.
-            (this._securityTick() || Promise.resolve(false)).catch(() => false).then((spoke) => {
-                if (spoke || this._quiet()) return;
+            (this._securityTick() || Promise.resolve(false)).catch(() => false).then(() => {
+                // Findings count muted or not; tips inside go through _speak,
+                // which keeps the mute.
+                this._findingsVisit();
                 this._sentinelTick().catch(() => { /* endpoint hiccup: next tick */ });
             });
         }, this.SENTINEL_MS);
@@ -966,38 +1126,24 @@ const GuardianAssistant = {
 
         const grew = (k) => totals[k] != null && st.totals[k] != null && totals[k] > st.totals[k];
         let spoke = false;
-        if (grew('threats') && ready('threats')) {
-            const n = totals.threats - st.totals.threats;
-            spoke = this._speak({
-                text: n === 1 ? 'I flagged a new threat just now.'
-                    : `I flagged ${n} new threats just now.`,
-                cta: 'See it', page: 'threats', mood: 'alert',
-            });
-            if (spoke) bump('threats');
-        } else if (grew('redactions') && ready('redactions')) {
-            const n = totals.redactions - st.totals.redactions;
-            spoke = this._speak({
-                text: n === 1 ? 'I caught a secret before it left this machine.'
-                    : `I caught ${n} secrets before they left this machine.`,
-                cta: 'See what', page: 'redactions', mood: 'alert',
-            });
-            if (spoke) bump('redactions');
-        } else if (grew('blocked') && ready('blocked')) {
-            const n = totals.blocked - st.totals.blocked;
-            spoke = this._speak({
-                text: n === 1 ? 'I blocked a tool call your policy forbids.'
-                    : `I blocked ${n} tool calls your policy forbids.`,
-                cta: 'See them', page: 'blocked-ledger', mood: 'alert',
-            });
-            if (spoke) bump('blocked');
-        } else if (grew('egress') && ready('egress') && !this._egressAlertsOn()) {
+        // Findings (threats, secrets, blocks): an unread count on the
+        // button, plus one brief toast per category cooldown. Never a
+        // bubble, and never muted: a finding is not a tip.
+        let toasted = false;
+        ['threats', 'redactions', 'blocked'].forEach((cat) => {
+            if (!grew(cat)) return;
+            const n = totals[cat] - st.totals[cat];
+            const toast = !toasted && ready(cat);
+            if (this._findingAdd(cat, n, toast) && toast) { bump(cat); toasted = true; }
+        });
+        if (grew('egress') && ready('egress') && !this._egressAlertsOn()) {
             // With egress alerts on, a blocked destination is already a
             // security alert (rule e); the tip would say it twice.
             const n = totals.egress - st.totals.egress;
             spoke = this._speak({
                 text: n === 1 ? 'An agent reached for a blocked destination. I stopped it.'
                     : `Agents reached for blocked destinations ${n} times. I stopped every one.`,
-                cta: 'See the destinations', page: 'egress', mood: 'alert',
+                cta: 'See the destinations', page: 'egress', mood: 'alert', urgent: true,
             });
             if (spoke) bump('egress');
         } else if (grew('setup') && ready('setup')) {
@@ -1005,7 +1151,7 @@ const GuardianAssistant = {
             spoke = this._speak({
                 text: n === 1 ? 'Your agent setup changed since you approved it. Have a look before the next session.'
                     : `Your agent setup changed in ${n} places since you approved it. Have a look before the next session.`,
-                cta: 'See what changed', page: 'guide-connect-agents', mood: 'alert',
+                cta: 'See what changed', page: 'guide-connect-agents', mood: 'alert', urgent: true,
             });
             if (spoke) bump('setup');
         }
@@ -1021,7 +1167,7 @@ const GuardianAssistant = {
                     const kTok = Math.round(liveBig.context_tokens_now / 1000);
                     spoke = this._speak({
                         text: `${this._liveWho(liveBig).title} is re-sending about ${kTok}K tokens of context with every turn. Compacting it now shrinks every turn that follows.`,
-                        cta: 'See the session', page: 'costs', tab: 'optimizer', mood: 'concerned',
+                        cta: 'See the session', page: 'costs', tab: 'optimizer', mood: 'concerned', urgent: true,
                     });
                     if (spoke) {
                         bump('context');
@@ -1042,7 +1188,7 @@ const GuardianAssistant = {
                 const pct = Math.round((spent / limit) * 100);
                 spoke = this._speak({
                     text: `Today's metered spend is at ${pct}% of the daily budget you set.`,
-                    cta: 'See the spend', page: 'costs', tab: 'overview', mood: 'concerned',
+                    cta: 'See the spend', page: 'costs', tab: 'overview', mood: 'concerned', urgent: true,
                 });
                 if (spoke) bump('budget');
             }
@@ -1285,6 +1431,7 @@ const GuardianAssistant = {
                 // Two triggers, one discipline: the click expanded something,
                 // or it landed the user on a different page. Arrival gets a
                 // longer beat so the brief never races the page render.
+                this._findingsVisit();
                 if (this._openCount() > before) this._orient();
                 else if (this._currentPage() !== pageBefore) {
                     setTimeout(() => this._orient(), this.ORIENT_ARRIVE_MS);
@@ -1351,7 +1498,7 @@ const GuardianAssistant = {
             this._speak({
                 text: 'I cannot rank these traces yet: no Cost Optimizer scan covers them. '
                     + 'Run a scan and ask me again.',
-                cta: 'Open the Optimizer', page: 'costs', tab: 'optimizer', mood: 'none',
+                cta: 'Open the Optimizer', page: 'costs', tab: 'optimizer', mood: 'none', asked: true,
             });
             return;
         }
@@ -1366,7 +1513,7 @@ const GuardianAssistant = {
         this._speak({
             text: `This one. Its session billed ${fmt(bestTok)} tokens, the most of any trace `
                 + 'listed here. The turn where tokens jump is usually the one to read first.',
-            cta: 'Why it cost that', page: 'costs', tab: 'optimizer', mood: 'none',
+            cta: 'Why it cost that', page: 'costs', tab: 'optimizer', mood: 'none', asked: true,
         });
     },
 
@@ -1649,14 +1796,25 @@ const GuardianAssistant = {
     THOUGHT_GAP_MS: 5 * 60 * 1000,   // first thought 5 min after the last word
     THOUGHT_SETTLE_MS: 2 * 60 * 1000,
 
-    _speak({ text, cta, page, tab, mood, act, openTask, security, openSession }) {
+    _speak({ text, cta, page, tab, mood, act, openTask, security, openSession, asked, urgent }) {
         if (!this._fab) return false;
-        if (!security && (this._quiet() || this._noBubblePage())) return false; // mute: tips only
+        if (!security && !asked && this._quiet()) return false; // mute: tips only
+        if (!security && !asked && !urgent) {
+            // Unsolicited tips, recaps and wins never open a bubble over the
+            // page: they wait in the panel's Notes until the user opens it.
+            // Time-sensitive advice (context, budget, setup, blocked egress)
+            // passes `urgent` and still speaks.
+            this._lastEventAt = Date.now();
+            this._spokeAt = Date.now();
+            this._noteAdd({ text, cta, page, tab, act, openTask });
+            return true;
+        }
+        if (!security && this._noBubblePage()) return false;
         this._lastEventAt = Date.now(); // something happened; the shift is not quiet
         if (this._bubbleEl && this._bubbleEl.isConnected) return false; // one at a time
         this._spokeAt = Date.now(); // thoughts wait their turn after any bubble
         const b = document.createElement('div');
-        b.className = 'sv-ga-bubble' + (security ? ' sv-ga-security' : '');
+        b.className = 'sv-ga-bubble' + (security ? ' sv-ga-security sv-ga-corner' : '');
         b.dataset.kind = security ? 'security' : 'tip';
         b.setAttribute('role', security ? 'alert' : 'status');
         b.innerHTML =
@@ -1664,7 +1822,7 @@ const GuardianAssistant = {
             '<div class="sv-ga-bubble-t"></div>' +
             '<div class="sv-ga-bubble-row">' +
             '<button type="button" class="sv-ga-bubble-go"></button>' +
-            (security ? '' : '<button type="button" class="sv-ga-bubble-mute">Mute tips</button>') +
+            (security || asked ? '' : '<button type="button" class="sv-ga-bubble-mute">Mute tips</button>') +
             '<button type="button" class="sv-ga-bubble-x" aria-label="Dismiss">&times;</button>' +
             '</div>';
         b.querySelector('.sv-ga-bubble-t').textContent = text;
@@ -1685,7 +1843,10 @@ const GuardianAssistant = {
         b.querySelector('.sv-ga-bubble-x').addEventListener('click', () => this._hideBubble());
         document.body.appendChild(b);
         this._bubbleEl = b;
-        this._placeNear(b);
+        // A security alert stays in the bottom-right corner, clear of the
+        // page header and toolbars; an answer the user asked for sits by the bot.
+        if (!security) this._placeNear(b);
+        else this._toastStack();
         requestAnimationFrame(() => b.classList.add('show'));
         this._react(mood, page);
         clearTimeout(this._bubbleHideTimer);
@@ -1700,6 +1861,7 @@ const GuardianAssistant = {
         const b = this._bubbleEl;
         if (!b) return;
         this._bubbleEl = null;
+        this._toastStack();
         b.classList.remove('show');
         setTimeout(() => b.remove(), 220);
         // A page brief that lost its slot to this bubble gets it back now,
@@ -1853,7 +2015,15 @@ const GuardianAssistant = {
     },
 
     _badgeSet(count) {
-        if (!this._fab) return;
+        this._liveUnread = Number(count) || 0;
+        this._badgeRender();
+    },
+
+    /** The button's count: live advisories plus unread findings. */
+    _badgeRender() {
+        if (!this._fab || !this._fab.querySelector) return;
+        const f = this._findingsGet();
+        const count = (this._liveUnread || 0) + Object.keys(f).reduce((a, k) => a + (Number(f[k]) || 0), 0);
         let b = this._fab.querySelector('.sv-ga-badge');
         if (!count) { if (b) b.remove(); return; }
         if (!b) {
@@ -1862,6 +2032,7 @@ const GuardianAssistant = {
             this._fab.appendChild(b);
         }
         b.textContent = count > 9 ? '9+' : String(count);
+        b.setAttribute('aria-label', `${count} new for you`);
     },
 
     /** Two short blips, synthesized in place. Honors the sounds pref upstream
@@ -2025,7 +2196,7 @@ const GuardianAssistant = {
     _speakContextAlert(text, s) {
         const gov = this._taskFor(s.session_id);
         return this._speak({
-            text, mood: 'concerned',
+            text, mood: 'concerned', urgent: true,
             ...(gov
                 ? { cta: 'Open the session', page: 'terminals', openTask: gov.id }
                 : { cta: 'See it in Cost Optimizer', page: 'costs', tab: 'optimizer' }),
@@ -2296,6 +2467,32 @@ body.sv-ga-on #page-content { padding-bottom: 128px; }
 .sv-ga-bubble-x { margin-left: auto; background: none; border: none; cursor: pointer;
   color: var(--text-muted, #7f8a97); font-size: 16px; line-height: 1; padding: 0 2px; }
 .sv-ga-bubble-x:hover { color: var(--text-primary, #eef2f7); }
+/* A security alert sits in the bottom-right corner, clear of page headers
+   and toolbars, never over the content it is about. */
+.sv-ga-bubble.sv-ga-corner { left: auto !important; top: auto !important; right: 16px; bottom: 100px;
+  width: min(320px, calc(100vw - 32px)); max-width: none; }
+.sv-ga-bubble.sv-ga-corner::after { display: none; }
+/* A finding: one brief toast, bottom-right, non-blocking. */
+.sv-ga-toast { position: fixed; right: 16px; bottom: 100px; z-index: 902;
+  width: max-content; max-width: min(320px, calc(100vw - 32px)); box-sizing: border-box;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  background: var(--bg-card, #12171e); border: 1px solid var(--border-light, #303844);
+  border-radius: 10px; padding: 9px 10px 9px 12px; box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+  font-size: 12.5px; color: var(--text-primary, #eef2f7);
+  opacity: 0; transform: translateY(6px); transition: opacity 160ms ease, transform 160ms ease; }
+.sv-ga-toast.show { opacity: 1; transform: translateY(0); }
+.sv-ga-toast-t { flex: 1 1 160px; min-width: 0; line-height: 1.4; }
+.sv-ga-toast-go { background: var(--bg-secondary, #0e1218); border: 1px solid var(--accent-primary, #5eadb8);
+  color: var(--accent-primary, #5eadb8); border-radius: 8px; font-size: 11.5px; font-weight: 600;
+  padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+.sv-ga-toast-go:hover { background: color-mix(in srgb, var(--accent-primary, #5eadb8) 12%, transparent); }
+.sv-ga-toast-go:focus-visible, .sv-ga-toast-x:focus-visible { outline: 2px solid var(--accent-primary, #5eadb8); outline-offset: 1px; }
+.sv-ga-toast-x { background: none; border: none; cursor: pointer; color: var(--text-muted, #7f8a97);
+  font-size: 16px; line-height: 1; padding: 0 2px; }
+@media (max-width: 700px) {
+  .sv-ga-toast, .sv-ga-bubble.sv-ga-corner { right: 16px; left: 16px !important;
+    width: auto; max-width: none; }
+}
 .sv-ga-badge { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px;
   border-radius: 8px; background: var(--accent-primary, #5eadb8); color: #06121a;
   font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; padding: 0 3px; }

@@ -64,7 +64,7 @@ const RunsList = {
         return this.duration(r);
     },
 
-    /** p95 of finished runs only: a running run has no duration yet. */
+    /** Durations of finished runs only: a running run has no duration yet. */
     finishedDurations(runs, ctx) {
         return runs.filter(r => this.status(r, ctx) !== 'running').map(r => this.duration(r)).filter(v => v != null);
     },
@@ -627,24 +627,8 @@ const RunsList = {
         } catch (_) { /* nothing saved, nothing lost */ }
     },
 
-    /** Bucketed values for a sparkline across the range. agg: sum | count | p95. */
-    buckets(runs, rangeKey, now, valueFn, agg) {
-        const rg = this.RANGES[rangeKey] || this.RANGES['24h'];
-        const n = Math.max(1, Math.min(720, Math.round(rg.ms / rg.bucket)));
-        const start = now - n * rg.bucket;
-        const bins = Array.from({ length: n }, () => []);
-        runs.forEach(r => {
-            const t = this.ms(r.started_at) || this.ms(r.ended_at);
-            if (!t || t < start) return;
-            const i = Math.min(n - 1, Math.floor((t - start) / rg.bucket));
-            const v = valueFn(r);
-            if (v != null) bins[i].push(v);
-        });
-        return bins.map(b => agg === 'count' ? b.length : agg === 'p95' ? this.p95(b) : b.reduce((a, x) => a + x, 0));
-    },
-
-    // ------------------------------------------------ cards: scope words
-    /** "last 24h", "last 7 days": the window a card counts over. */
+    // ------------------------------------------------ summary: scope words
+    /** "last 24h", "last 7 days": the window the summary counts over. */
     windowShort(rangeKey) {
         return ({ '1h': 'last hour', '24h': 'last 24h', '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days' })[rangeKey] || 'last 24h';
     },
@@ -711,10 +695,96 @@ const RunsList = {
         return filters;
     },
 
-    p95(values) {
+    /** Median of the numbers given; 0 for none. */
+    median(values) {
         const v = (values || []).filter(x => typeof x === 'number' && isFinite(x)).sort((a, b) => a - b);
         if (!v.length) return 0;
-        return v[Math.min(v.length - 1, Math.ceil(0.95 * v.length) - 1)];
+        const m = Math.floor(v.length / 2);
+        return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+    },
+
+    // ------------------------------------------------ summary line
+    /** "12k" style token count, '' for none. */
+    tokensText(n) {
+        n = Number(n || 0);
+        if (!n) return '';
+        if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+        if (n >= 1e3) return Math.round(n / 1e3) + 'k';
+        return String(n);
+    },
+
+    /** The one-line summary above the list, in order: runs, waiting,
+     *  refused, cost and tokens (only when cost was recorded), median run
+     *  (only with 2+ finished runs). Waiting and refused carry the
+     *  decision filter they toggle; `pressed` when that filter is on. */
+    summaryItems(shown, ctx, rangeKey, filters, fmtDur) {
+        const list = shown || [];
+        const sum = (k) => list.reduce((a, r) => a + Number(r[k] || 0), 0);
+        const dec = (filters && filters.decision) || [];
+        const waiting = sum('waiting'), blocked = sum('blocked'), tokens = sum('tokens');
+        const items = [{ key: 'runs', text: `${list.length.toLocaleString()} run${list.length === 1 ? '' : 's'}` }];
+        items.push({ key: 'waiting', n: waiting, text: `${waiting} waiting for approval`, tone: waiting ? 'amber' : '',
+            filter: 'waiting', pressed: dec.includes('waiting') });
+        items.push({ key: 'refused', n: blocked, text: `${blocked} call${blocked === 1 ? '' : 's'} refused`, tone: blocked ? 'red' : '',
+            filter: 'blocked', pressed: dec.includes('blocked'),
+            // Tool-policy blocks plus egress refusals of the listed runs, both
+            // counted over the selected range (the server windows egress too).
+            title: `tool policy + egress · listed runs · ${this.windowShort(rangeKey)}` });
+        const cost = this.costText(list);
+        if (cost !== 'Not recorded') {
+            const tok = this.tokensText(tokens);
+            items.push({ key: 'cost', text: tok ? `${cost} · ${tok} tokens` : cost });
+        }
+        const done = this.finishedDurations(list, ctx);
+        if (done.length >= 2) {
+            const med = this.median(done);
+            items.push({ key: 'median', text: `median run ${fmtDur ? fmtDur(med) : Math.round(med / 1000) + 's'}` });
+        }
+        return items;
+    },
+
+    /** A summary button click: turn its decision filter on, or off when it
+     *  is already on. Returns the filters. */
+    toggleSummaryFilter(filters, key) {
+        if (!filters || !Array.isArray(filters.decision) || !key) return filters;
+        const i = filters.decision.indexOf(key);
+        if (i >= 0) filters.decision.splice(i, 1); else filters.decision.push(key);
+        return filters;
+    },
+
+    // ------------------------------------------- running session "now"
+    /** What a running session is doing now, from its live row: latest
+     *  activity (tool, short target, age) or "Quiet 7m"; a governance badge
+     *  (Blocked N, or Governed; none while waiting, the waiting button says
+     *  it); egress in the Live grid's words. LGM is LiveGridModel, RT is
+     *  RunTrace. Null without a live row. */
+    sessionNow(live, now, LGM, RT) {
+        if (!live || !LGM) return null;
+        const quiet = Number(live.quiet_seconds);
+        let activity = '';
+        if (isFinite(quiet) && live.quiet_seconds != null && quiet > (LGM.QUIET_S || 300)) {
+            activity = `Quiet ${LGM.dur(quiet)}`;
+        } else {
+            const g = LGM.glance ? LGM.glance(live) : { tool: '', target: '' };
+            let target = String(g.target || '').replace(/\s+/g, ' ').trim();
+            if (RT && RT.maskSecrets) target = String(RT.maskSecrets(target) || '');
+            if (target.length > 48) target = target.slice(0, 47) + '…';
+            const lc = live.last_call || {};
+            const t = this.ms(lc.at) || this.ms(live.last_activity_at);
+            const age = t ? `${LGM.dur(Math.max(0, ((now || Date.now()) - t) / 1000))} ago`
+                : (isFinite(quiet) && live.quiet_seconds != null ? `${LGM.dur(quiet)} ago` : '');
+            activity = [g.tool, target, age].filter(Boolean).join(' · ');
+        }
+        const blocked = Number(live.blocked || 0);
+        const gov = blocked > 0 ? { key: 'blocked', text: `Blocked ${blocked}` }
+            : Number(live.waiting || 0) > 0 ? null
+                : { key: 'governed', text: 'Governed' };
+        const es = LGM.egressState(live, null);
+        // Always led by "Egress", in the Live grid's states.
+        const egText = es.host ? `Egress ${es.text}`
+            : ({ off: 'Egress not monitored', missing: 'Egress not synced yet', none: 'Egress none observed' })[es.key] || `Egress ${es.text}`;
+        const egress = { key: es.key, text: egText };
+        return { activity, quiet: activity.startsWith('Quiet '), gov, egress };
     },
 };
 window.RunsList = RunsList;

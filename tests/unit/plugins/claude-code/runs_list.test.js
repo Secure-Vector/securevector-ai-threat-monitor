@@ -111,16 +111,14 @@ test('saved views survive storage that is missing or throws', () => {
   assert.equal(RL.saveView('  ', { filters: {} }, ok), false, 'a view needs a name');
 });
 
-test('paging and sparkline buckets', () => {
+test('paging', () => {
   const RL = load();
   const list = Array.from({ length: 120 }, (_, i) => ({ trace_id: 'r' + i }));
   const p = RL.page(list, 2, 50);
   assert.deepEqual([p.from, p.to, p.total, p.pages, p.page], [101, 120, 120, 3, 2]);
   assert.equal(RL.page(list, 9, 50).page, 2, 'a page past the end clamps');
-  const b = RL.buckets(runs(), '24h', NOW, () => 1, 'count');
-  assert.equal(b.length, 24);
-  assert.equal(b.reduce((a, x) => a + x, 0), 4);
-  assert.equal(RL.p95([1, 2, 3, 4, 100]), 100);
+  assert.equal(RL.buckets, undefined, 'the sparkline helpers left with the cards');
+  assert.equal(RL.p95, undefined);
 });
 
 test('the runs list has no approve or deny control', () => {
@@ -139,7 +137,7 @@ test('the Observability row carries an amber waiting badge, hidden at zero', () 
   assert.match(sb, /querySelectorAll\('\[data-live-waiting\]'\)\.forEach\(el => \{[\s\S]*?el\.hidden = n <= 0;/);
 });
 
-test('duration: a running run shows time since start, a finished one its span, and p95 skips running runs', () => {
+test('duration: a running run shows time since start, a finished one its span, and only finished runs have a duration', () => {
   const RL = load();
   const running = { trace_id: 'a', session_id: 'x', started_at: at(3), ended_at: at(0.5) };
   const done = { trace_id: 'b', session_id: 'y', started_at: at(90), ended_at: at(80) };
@@ -162,7 +160,7 @@ test('the Duration cell reads "<1s" for a zero run and a dash when unknown', () 
   assert.equal(P._fmtDur(null), '—');
   assert.equal(P._fmtDur(65000), '1m 05s');
   assert.match(read('js/pages/agent-runs.js'), /this\._fmtDur\(RL\.shownDuration\(r, ctx\)\)/);
-  assert.match(read('js/pages/agent-runs.js'), /RL\.p95\(RL\.finishedDurations\(shown, this\._ctx\)\)/);
+  assert.match(read('js/pages/agent-runs.js'), /RL\.summaryItems\(shown, this\._ctx, this\.range, this\.filters, \(ms\) => this\._fmtDur\(ms\)\)/);
 });
 
 test('the Waterfall / Live feed toggle shows on the Live feed page only, not on Runs', () => {
