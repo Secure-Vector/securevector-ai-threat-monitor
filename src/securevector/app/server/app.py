@@ -381,6 +381,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.port = port
+    # The address the app listens on; Remote access mode is offered only
+    # when it is not loopback only.
+    app.state.bind_host = host
 
     # Build allowed origins based on configured host/port
     # Restrict to localhost only for security (prevents malicious websites from accessing API)
@@ -398,6 +401,13 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Content-Type", "X-Api-Key", "Authorization"],
     )
+
+    # Remote access mode (6.1.0): Host allowlist and HTTPS through a listed
+    # proxy for /api and /ws, only while the mode is on. Registered before
+    # the ingress-token gate below, which therefore runs first, unchanged.
+    from securevector.app.server.remote_access import RemoteAccessMiddleware
+
+    app.add_middleware(RemoteAccessMiddleware)
 
     # --- Inbound ingress-token enforcement (#190, engine v4.9.0+) ----------
     # When SECUREVECTOR_INGRESS_TOKEN is set (e.g. by the Terraform self-host
@@ -562,6 +572,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
     app.include_router(jit_access.router, prefix="/api", tags=["JIT Access"])
+    from securevector.app.server import remote_access as remote_access_routes
+
+    app.include_router(remote_access_routes.router, prefix="/api", tags=["Remote Access"])
     # Decision routes answer 202 until the person confirms on this computer.
     from securevector.app.services import confirmations
 

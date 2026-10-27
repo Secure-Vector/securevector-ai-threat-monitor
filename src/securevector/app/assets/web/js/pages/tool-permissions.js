@@ -2688,7 +2688,8 @@ const ToolPermissionsPage = {
         const rt = this._JIT_RUNTIME_LABEL[g.runtime_kind] || g.runtime_kind || 'all runtimes';
         meta.textContent = `${rt} · ${g.duration === 'session' ? 'this session' : g.duration}` +
             (g.state === 'used' ? ' · used' : ` · ${this._jitExpiresIn(g.expires_at)}`) +
-            (g.decision_source === 'cloud' ? ` · approved from the cloud by ${String(g.decided_by || 'a cloud user').slice(0, 120)}` : '');
+            (g.decision_source === 'cloud' ? ` · approved from the cloud by ${String(g.decided_by || 'a cloud user').slice(0, 120)}` : '') +
+            (g.decision_source === 'remote' ? ` · approved from another machine by ${String(g.decided_by || '').replace(/^remote:/, '').slice(0, 120) || 'another machine'}` : '');
         row.appendChild(meta);
         const revoke = document.createElement('button');
         revoke.type = 'button';

@@ -111,6 +111,20 @@ const SettingsPage = {
             this.renderCloudApprovals(caBody);
         }
 
+        // Remote access mode: off by default, changed only on this machine.
+        if (window.RemoteAccess) {
+            const raSection = this.createSection(
+                'Remote access',
+                'Approve, deny and stop agent sessions from another machine over HTTPS with an access token.',
+            );
+            const raCard = Card.create({ gradient: true });
+            const raBody = raCard.querySelector('.card-body');
+            raBody.setAttribute('data-remote-access', '');
+            raSection.appendChild(raCard);
+            container.appendChild(raSection);
+            RemoteAccess.renderSettings(raBody);
+        }
+
         // AI Analysis Section (disabled when cloud mode is on)
         const cloudModeActive = this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled;
         const llmDesc = cloudModeActive

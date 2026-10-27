@@ -109,7 +109,7 @@ const LiveGridPage = {
         this._onResize = () => this._sizeMatrix();
         window.addEventListener('resize', this._onResize);
         await this.refresh();
-        this._timer = setInterval(() => this._tick(), this.POLL_MS);
+        this._timer = setInterval(() => (window.API && API.asPoll ? API.asPoll(() => this._tick()) : this._tick()), this.POLL_MS);
         this._ticker = setInterval(() => this._paintAgo(), 1000);
     },
 

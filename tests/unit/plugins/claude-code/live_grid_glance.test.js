@@ -238,5 +238,6 @@ test('decide guards: request id, Allow once fingerprint, one decision in flight'
   assert.equal(P._focusDet, 's');
   // The same JIT wrappers as Runs (UI token and confirmation live there).
   const apiSrc = read('js/api.js');
-  assert.match(apiSrc, /approveJitRequest\(id, duration\) \{\n\s*return this\._jitDecision\(/);
+  // (A signed-in remote browser takes the remote branch first.)
+  assert.match(apiSrc, /approveJitRequest\(id, duration\) \{\n\s*if \(this\.remoteSignedIn\(\)\) return this\._remoteDecision\([^\n]*\n\s*return this\._jitDecision\(/);
 });

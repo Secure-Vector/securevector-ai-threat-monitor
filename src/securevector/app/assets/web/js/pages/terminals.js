@@ -118,6 +118,13 @@ const TerminalsPage = {
         this._container = container;
         // Opened by a network address (or already refused): no terminals
         // call, no socket and no timers, only a plain note.
+        // Remote access mode: a browser signed in by the network address gets
+        // the session list and Stop, nothing else.
+        if (window.API && API.terminalsRemote && API.terminalsRemote() && window.RemoteAccess) {
+            try { await RemoteAccess.refresh(); } catch (_) { /* reads as off */ }
+            if (this._container !== container) return;
+            if (RemoteAccess.signedIn()) { await this._renderRemote(container); return; }
+        }
         if (window.API && API.terminalsLocked && API.terminalsLocked()) { this._renderLocalOnly(container); return; }
         container.innerHTML = `
           <div class="terminals-page">
@@ -274,7 +281,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (gen !== this._gen) return;
         if (API.terminalsRefused) { this._renderLocalOnly(container); return; }
         this._maybeOpenSettings();
-        this._pollTimer = setInterval(() => this._refreshTasks(), 3000);
+        this._pollTimer = setInterval(() => (window.API && API.asPoll ? API.asPoll(() => this._refreshTasks()) : this._refreshTasks()), 3000);
         this._railTimer = setInterval(() => { this._refreshRail(); this._refreshPaneGov(); this._tickTimes(); }, 4000);
     },
 
@@ -282,11 +289,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
      *  machine, so the page explains that instead of showing the refusal. */
     _localOnlyHtml(host) {
         const h = this._esc(host || '');
+        const remoteOn = !!(window.RemoteAccess && RemoteAccess.state && RemoteAccess.state.enabled);
         return `<div class="terminals-page terminals-local-only" role="status">` +
             `<h2 class="terminals-local-title">Agent Sessions run on this machine only</h2>` +
             `<p class="terminals-local-body">This app is opened by its network address${h ? ` (${h})` : ''}. ` +
             `Agent Sessions, approvals and session controls work only when the app is opened on this machine (localhost). ` +
-            `Remote access to sessions is not enabled.</p>` +
+            (remoteOn
+                ? `Remote access is on: sign in with the access token to approve, deny and stop sessions from here.</p>` +
+                  `<p class="terminals-local-body"><button type="button" class="btn btn-sm remote-sign-in" data-act="remote-sign-in">Sign in for remote access</button></p>`
+                : `Remote access to sessions is not enabled.</p>`) +
             `<p class="terminals-local-body">You can still watch runs, governance and costs in ` +
             `<button type="button" class="terminals-local-link" data-act="open-runs">Observability</button>.</p></div>`;
     },
@@ -297,6 +308,59 @@ ${this.CLI_BIN} stop &lt;id&gt;
         container.innerHTML = this._localOnlyHtml((window.location && window.location.hostname) || '');
         const b = container.querySelector('[data-act="open-runs"]');
         if (b) b.onclick = () => { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs'); };
+        const s = container.querySelector('[data-act="remote-sign-in"]');
+        if (s) s.onclick = () => RemoteAccess.promptSignIn();
+    },
+
+    // --- Remote access mode: the session list and Stop --------------------
+
+    /** Signed in by the network address: each session with its status and
+     *  a Stop button while it runs, and the phase 1 note. */
+    _remoteHtml(items, error) {
+        const e = (v) => this._esc(v == null ? '' : String(v));
+        const live = new Set(['starting', 'working', 'blocked', 'idle']);
+        const rows = (items || []).map(t => {
+            const name = t.title || t.executor_id || t.id;
+            const stop = live.has(t.status) && t.origin !== 'linked'
+                ? `<button type="button" class="btn btn-sm terminals-remote-stop" data-act="remote-stop" data-task="${e(t.id)}">Stop</button>` : '';
+            return `<li class="terminals-remote-row"><span class="terminals-remote-name">${e(name)}</span>` +
+                `<span class="terminals-remote-meta">${e(t.executor_id || '')}</span>` +
+                `<span class="terminals-remote-status">${e(this._statusLabel(t.status))}</span>${stop}</li>`;
+        }).join('');
+        return `<div class="terminals-page terminals-remote" role="region" aria-label="Agent Sessions">` +
+            `<h2 class="terminals-local-title">Agent Sessions</h2>` +
+            `<p class="terminals-local-body">${e(RemoteAccess.PHASE1_NOTE)}</p>` +
+            (error ? `<p class="terminals-local-body" role="alert">${e(error)}</p>` : '') +
+            (rows ? `<ul class="terminals-remote-list">${rows}</ul>` : `<p class="terminals-local-body">No sessions yet.</p>`) +
+            `</div>`;
+    },
+
+    async _renderRemote(container) {
+        if (!container) return;
+        this._detach();
+        let items = [], error = '';
+        try {
+            const r = await API.terminalsTasks();
+            items = (r && r.items) || [];
+        } catch (err) {
+            error = (err && err.message) || 'Could not load sessions';
+        }
+        if (this._container !== container) return;
+        container.innerHTML = this._remoteHtml(items, error);
+        container.querySelectorAll('[data-act="remote-stop"]').forEach((btn) => {
+            btn.onclick = async () => {
+                btn.disabled = true;
+                try {
+                    await API.terminalsStop(btn.dataset.task);
+                    if (window.Toast) Toast.success('Session stopped');
+                } catch (err) {
+                    if (window.Toast) Toast.error((err && err.message) || 'Could not stop the session');
+                }
+                this._renderRemote(container);
+            };
+        });
+        clearInterval(this._pollTimer);
+        this._pollTimer = setInterval(() => { if (this._container === container) (window.API && API.asPoll ? API.asPoll(() => this._renderRemote(container)) : this._renderRemote(container)); }, 10000);
     },
 
     destroy() {

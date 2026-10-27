@@ -70,6 +70,13 @@ const Header = {
         const right = document.createElement('div');
         right.className = 'header-right';
 
+        // Remote access mode: the "Remote access on" badge and, by a network
+        // address, Sign in or Sign out (components/remote-access.js).
+        const remoteSlot = document.createElement('span');
+        remoteSlot.id = 'remote-access-slot';
+        remoteSlot.className = 'remote-access-slot';
+        right.appendChild(remoteSlot);
+
         // Guardian ML — moved out of the left nav (v5 IA): it's one global
         // on/off switch, not a destination, so it lives here as a status
         // control. Click opens an anchored card with the explainer + toggle.

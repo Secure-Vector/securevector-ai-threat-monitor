@@ -737,7 +737,7 @@ const Sidebar = {
         // same id each time.
         this.loadJitPendingCount();
         if (!this._jitBadgeTimer) {
-            this._jitBadgeTimer = setInterval(() => this.loadJitPendingCount(), 30000);
+            this._jitBadgeTimer = setInterval(() => (window.API && API.asPoll ? API.asPoll(() => this.loadJitPendingCount()) : this.loadJitPendingCount()), 30000);
         }
 
         // Live counts on the rail: threats in the last 24 hours, egress calls
@@ -746,7 +746,7 @@ const Sidebar = {
         this.loadLiveCounts();
         this.loadDrCount();
         if (!this._countsTimer) {
-            this._countsTimer = setInterval(() => { this.loadLiveCounts(); this.loadDrCount(); }, 60000);
+            this._countsTimer = setInterval(() => (window.API && API.asPoll ? API.asPoll(() => Promise.all([this.loadLiveCounts(), this.loadDrCount()])) : Promise.all([this.loadLiveCounts(), this.loadDrCount()])), 60000);
         }
 
         // A hoisted single-item group (see the hoist above) with no views at
@@ -768,7 +768,7 @@ const Sidebar = {
         if (!this._agentTaskTimer) {
             this._agentTaskTimer = setInterval(() => {
                 if (document.hidden) return;
-                this._loadAgentTaskViews(true);
+                (window.API && API.asPoll ? API.asPoll(() => this._loadAgentTaskViews(true)) : this._loadAgentTaskViews(true));
             }, 30000);
         }
         this._fadeInit(nav);

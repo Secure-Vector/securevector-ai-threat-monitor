@@ -18,6 +18,14 @@ const API = {
             },
             ...options,
         };
+        // Remote access mode: a signed-in remote browser sends its session
+        // (sessionStorage only) on every API request.
+        const remoteAuth = this._remoteAuthHeader();
+        if (remoteAuth) {
+            config.headers = { ...(config.headers || {}), 'X-SV-Remote-Session': remoteAuth };
+            // A background poll does not keep a remote session alive.
+            if (this._pollDepth > 0) config.headers['X-SV-Poll'] = '1';
+        }
 
         try {
             const response = await fetch(url, config);
@@ -35,6 +43,63 @@ const API = {
         } catch (error) {
             console.error(`API Error [${endpoint}]:`, error);
             throw error;
+        }
+    },
+
+    // ==================== Remote access mode ====================
+
+    // {enabled, signedIn}, filled by RemoteAccess.refresh() from
+    // GET /api/remote-access (public fields only).
+    remote: { enabled: false, signedIn: false },
+    // >0 while a background poll runs (asPoll): its requests carry
+    // X-SV-Poll: 1, so they never refresh a remote session's idle time.
+    _pollDepth: 0,
+    async asPoll(fn) {
+        this._pollDepth++;
+        try { return await fn(); } finally { this._pollDepth--; }
+    },
+    _remoteAuthHeader() {
+        const ra = (typeof window !== 'undefined' && window.RemoteAccess) || null;
+        return ra && ra.authHeader ? ra.authHeader() : '';
+    },
+    /** Signed in for remote access from this browser. */
+    remoteSignedIn() {
+        const ra = (typeof window !== 'undefined' && window.RemoteAccess) || null;
+        return !!(ra && ra.signedIn && ra.signedIn());
+    },
+    /** Turn the mode on or off, rotate the token or change the addresses.
+     *  Answers only on this machine, with the UI token. */
+    async changeRemoteAccess(body) {
+        // From a signed-in remote browser only Off is offered, after the
+        // token is entered again (within 10 minutes).
+        if (this.remoteSignedIn()) {
+            await window.RemoteAccess.ensureFresh();
+            return this.request('/api/remote-access', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+            });
+        }
+        return this._retryUnconfirmed(async () => this.request('/api/remote-access', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-UI-Token': await this._getJitToken() },
+            body: JSON.stringify(body || {}),
+        }));
+    },
+    /** A decision from a signed-in remote browser: no UI token; approve
+     *  and revoke ask for the token again when the last entry is older
+     *  than 10 minutes (and once more if the server says so). */
+    async _remoteDecision(endpoint, body, fresh) {
+        const ra = window.RemoteAccess;
+        const call = () => this.request(endpoint, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+        });
+        if (fresh) await ra.ensureFresh();
+        try {
+            return await call();
+        } catch (e) {
+            if (!fresh || String(e && e.message) !== ra.REAUTH_DETAIL) throw e;
+            ra.state.reauthAt = 0;
+            await ra.ensureFresh();
+            return call();
         }
     },
 
@@ -716,14 +781,17 @@ const API = {
     },
 
     async approveJitRequest(id, duration) {
+        if (this.remoteSignedIn()) return this._remoteDecision(`/api/jit/requests/${encodeURIComponent(id)}/approve`, { duration }, true);
         return this._jitDecision(`/api/jit/requests/${encodeURIComponent(id)}/approve`, { duration });
     },
 
     async denyJitRequest(id, reason = null) {
+        if (this.remoteSignedIn()) return this._remoteDecision(`/api/jit/requests/${encodeURIComponent(id)}/deny`, { reason }, false);
         return this._jitDecision(`/api/jit/requests/${encodeURIComponent(id)}/deny`, { reason });
     },
 
     async revokeJitGrant(id) {
+        if (this.remoteSignedIn()) return this._remoteDecision(`/api/jit/grants/${encodeURIComponent(id)}/revoke`, {}, true);
         return this._jitDecision(`/api/jit/grants/${encodeURIComponent(id)}/revoke`, {});
     },
 
@@ -1238,6 +1306,9 @@ const API = {
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(taskId)}/archive`, {});
     },
     async terminalsTasks() {
+        // Signed in for remote access: the session list answers the remote
+        // session (the one terminals read it accepts).
+        if (this.remoteSignedIn()) return this.request('/api/terminals/tasks');
         return this._terminalsRead('/api/terminals/tasks');
     },
     async terminalsTask(id) {
@@ -1289,6 +1360,11 @@ const API = {
         return this._terminalsRead('/api/terminals/sessions/unlinked');
     },
     async terminalsStop(id) {
+        if (this.remoteSignedIn()) {
+            return this.request(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+            });
+        }
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`);
     },
     // Stop from a step-up card: the audit records the origin as "rung".

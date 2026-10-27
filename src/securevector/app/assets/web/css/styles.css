@@ -10604,3 +10604,34 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .sv-confirm-msg:empty { display: none; }
 .sv-confirm-failed { border-color: var(--danger); }
 .sv-confirm-cancel { margin-top: 8px; }
+
+/* Remote access mode (6.1.0): header badge, sign-in, token dialog, settings,
+   and the remote session list. Neutral colours: the mode is not a warning. */
+.remote-access-slot { display: inline-flex; align-items: center; gap: 8px; }
+.remote-access-slot:empty { display: none; }
+.remote-badge { font-size: 12px; padding: 2px 8px; border: 1px solid var(--border-default); border-radius: 999px; color: var(--text-secondary); background: var(--bg-secondary); white-space: nowrap; }
+.remote-link { border: 0; padding: 0; background: transparent; color: var(--accent-primary); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
+.remote-dialog-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; z-index: 10000; }
+.remote-dialog { width: min(420px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-card); color: var(--text-primary); }
+.remote-dialog h3 { margin: 0 0 8px; font-size: 15px; }
+.remote-dialog-note, .remote-guide, .remote-note, .remote-hint { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.remote-dialog-label, .remote-form label { display: block; margin: 8px 0 4px; font-size: 12px; color: var(--text-secondary); }
+.remote-dialog-input, .remote-form input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); font: inherit; }
+.remote-dialog-actions, .remote-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.remote-control { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.remote-control-label { font-weight: 600; margin-right: 8px; }
+.remote-seg { padding: 4px 12px; border: 1px solid var(--border-default); background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; border-radius: 6px; }
+.remote-seg.is-active { border-color: var(--accent-primary); color: var(--text-primary); }
+.remote-seg:disabled { cursor: not-allowed; opacity: 0.6; }
+.remote-state { margin-left: 8px; font-size: 12px; color: var(--text-secondary); }
+.remote-token { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; }
+.remote-token-value { padding: 4px 8px; border-radius: 6px; background: var(--bg-secondary); word-break: break-all; }
+.remote-error { margin: 0 0 8px; font-size: 13px; color: var(--danger); }
+.remote-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 13px; }
+.remote-facts dt { color: var(--text-secondary); }
+.remote-facts dd { margin: 0; word-break: break-all; }
+.terminals-remote { max-width: 720px; margin: 32px auto; padding: 20px 24px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-card); color: var(--text-primary); }
+.terminals-remote-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.terminals-remote-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border-default); font-size: 13px; }
+.terminals-remote-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminals-remote-meta, .terminals-remote-status { color: var(--text-secondary); }

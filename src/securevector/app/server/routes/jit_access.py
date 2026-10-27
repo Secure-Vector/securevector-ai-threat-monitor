@@ -29,7 +29,7 @@ import logging
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
@@ -38,6 +38,8 @@ from securevector.app.database.repositories.settings import SettingsRepository
 from securevector.app.database.repositories.tool_permissions import (
     ToolPermissionsRepository,
 )
+from securevector.app.server import remote_access
+from securevector.app.server.remote_access import require_remote_or_local
 
 logger = logging.getLogger(__name__)
 
@@ -164,39 +166,12 @@ def _browser_same_origin(request: Request) -> bool:
 LOCAL_ONLY_DETAIL = "Approvals answer only on this machine (localhost)"
 
 
-def _loopback_ip(host: Optional[str]) -> bool:
-    """127.0.0.0/8, ::1 or an IPv4-mapped 127.x address."""
-    import ipaddress
-
-    try:
-        ip = ipaddress.ip_address(str(host or "").strip())
-    except ValueError:
-        return False
-    mapped = getattr(ip, "ipv4_mapped", None)
-    return (mapped or ip).is_loopback
-
-
-def _loopback_host_header(value: Optional[str]) -> bool:
-    """Host header naming this machine: localhost, 127.0.0.1 or [::1], with
-    an optional port."""
-    v = str(value or "").strip().lower()
-    if v.startswith("["):
-        end = v.find("]")
-        if end < 0:
-            return False
-        name, rest = v[: end + 1], v[end + 1:]
-    else:
-        name, _, port = v.partition(":")
-        rest = ":" + port if port else ""
-    port = rest[1:]
-    if rest and not (rest.startswith(":") and port.isascii() and port.isdigit()):
-        return False
-    return name in _LOOPBACK_NAMES
-
-
-def _asked_on_this_machine(request: Request) -> bool:
-    client = getattr(request, "client", None)
-    return _loopback_ip(client.host if client else None) and _loopback_host_header(request.headers.get("host"))
+# Shared with the remote access routes (server/loopback.py).
+from securevector.app.server.loopback import (  # noqa: E402
+    asked_on_this_machine as _asked_on_this_machine,
+    loopback_host_header as _loopback_host_header,
+    loopback_ip as _loopback_ip,
+)
 
 
 @router.get("/jit/ui-token")
@@ -363,7 +338,13 @@ async def approve_request(
     body: JitApprove,
     request: Request,
     x_sv_ui_token: Optional[str] = Header(None),
+    remote: Optional[dict] = Depends(require_remote_or_local),
 ):
+    # From another machine (Remote access mode): the token entered again
+    # within 10 minutes and the cloud approval rules replace the code shown
+    # on this machine.
+    if isinstance(remote, dict):
+        return await remote_access.remote_approve(request, remote, request_id, body.duration)
     from securevector.app.services import confirmations, decisions
     if not confirmations.is_replay(request):
         _require_ui_token(x_sv_ui_token)
@@ -412,7 +393,10 @@ async def deny_request(
     body: JitDeny,
     request: Request,
     x_sv_ui_token: Optional[str] = Header(None),
+    remote: Optional[dict] = Depends(require_remote_or_local),
 ):
+    if isinstance(remote, dict):
+        return await remote_access.remote_deny(request, remote, request_id, body.reason)
     from securevector.app.services import confirmations, decisions
     if not confirmations.is_replay(request):
         _require_ui_token(x_sv_ui_token)
@@ -459,8 +443,8 @@ async def list_grants():
                 by_id = {dict(r)["id"]: dict(r) for r in rows}
                 for g in items + active:
                     r = by_id.get(g.get("request_id"))
-                    if r and r.get("decision_source") == "cloud":
-                        g["decision_source"] = "cloud"
+                    if r and r.get("decision_source") in ("cloud", "remote"):
+                        g["decision_source"] = r.get("decision_source")
                         g["decided_by"] = r.get("decided_by")
             except Exception:  # noqa: BLE001 - column absent before the storage step
                 pass
@@ -474,7 +458,11 @@ async def list_grants():
 async def revoke_grant(
     grant_id: str,
     x_sv_ui_token: Optional[str] = Header(None),
+    remote: Optional[dict] = Depends(require_remote_or_local),
+    request: Request = None,
 ):
+    if isinstance(remote, dict):
+        return await remote_access.remote_revoke(request, remote, grant_id)
     _require_ui_token(x_sv_ui_token)
     try:
         db = get_database()

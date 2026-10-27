@@ -341,6 +341,45 @@ class SettingsRepository:
         )
         return clean
 
+    async def _ensure_remote_access_column(self) -> None:
+        """Add ``app_settings.remote_access`` when missing (idempotent)."""
+        try:
+            rows = await self.db.fetch_all("PRAGMA table_info(app_settings)")
+        except Exception:  # noqa: BLE001 - no table: nothing to add to
+            return
+        cols = {dict(r)["name"] for r in rows or []}
+        if cols and "remote_access" not in cols:
+            await self.db.execute("ALTER TABLE app_settings ADD COLUMN remote_access TEXT")
+
+    async def get_remote_access(self) -> dict:
+        """Remote access mode state as stored (a dict, {} when unset). The
+        token is kept only as a salted hash; see server/remote_access.py."""
+        try:
+            row = await self.db.fetch_one("SELECT remote_access FROM app_settings WHERE id = 1")
+        except Exception:  # column absent before the remote access step
+            return {}
+        raw = dict(row).get("remote_access") if row else None
+        if not raw:
+            return {}
+        try:
+            stored = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return stored if isinstance(stored, dict) else {}
+
+    async def set_remote_access(self, state: dict) -> dict:
+        """Store the remote access mode state (a JSON object) and return it."""
+        await self._ensure_remote_access_column()
+        cur = await self.db.execute(
+            "UPDATE app_settings SET remote_access = ?, updated_at = ? WHERE id = 1",
+            (json.dumps(state, sort_keys=True), datetime.utcnow().isoformat()),
+        )
+        if getattr(cur, "rowcount", 1) == 0:
+            # No settings row: nothing was stored, so the caller must not
+            # report (or cache) the new state.
+            raise RuntimeError("Settings are not initialised; remote access was not changed")
+        return dict(state)
+
     async def update_window_state(
         self,
         width: int,

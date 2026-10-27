@@ -47,9 +47,24 @@
          *  off the page. No location (tests) reads as this machine. */
         controlsLocked() {
             const api = (typeof API !== 'undefined' && API) || root.API;
+            // Signed in for remote access (Remote access mode): approve,
+            // deny, revoke and stop are offered; the server checks each.
+            if (this.remoteSignedIn()) return false;
             if (api && api.terminalsRefused) return true;
             const host = root.location && root.location.hostname;
             return !!host && !this.isLocalHost(host);
+        },
+
+        /** Signed in for remote access from this browser. */
+        remoteSignedIn() {
+            const ra = root.RemoteAccess;
+            return !!(ra && ra.signedIn && ra.signedIn());
+        },
+
+        /** A remote browser cannot approve this request (device-only rule). */
+        remoteDeviceOnly(req) {
+            const ra = root.RemoteAccess;
+            return this.remoteSignedIn() && !!(ra.isDeviceOnly && ra.isDeviceOnly(req));
         },
 
         esc(s) {
@@ -705,7 +720,11 @@
         /** Which durations the panel offers: "once" only when the server held
          *  this exact call with its arguments (a fingerprint). */
         durations(req) {
-            return this.DURATIONS.filter(d => d[0] !== 'once' || !!(req && req.call_fingerprint));
+            const list = this.DURATIONS.filter(d => d[0] !== 'once' || !!(req && req.call_fingerprint));
+            // From another machine: only what the device allowance permits
+            // (Allow once by default).
+            const ra = root.RemoteAccess;
+            return this.remoteSignedIn() && ra.allowedDurations ? ra.allowedDurations(list) : list;
         },
 
         scopeText(sessionId, req, expiresAt) {
@@ -720,6 +739,13 @@
         cloudDecisionText(req) {
             const who = String((req && req.decided_by) || 'a cloud user').slice(0, 120);
             return `${req && req.status === 'denied' ? 'denied' : 'approved'} from the cloud by ${who}`;
+        },
+
+        /** "approved from another machine by <address>" for a decision made
+         *  in Remote access mode. */
+        remoteDecisionText(req) {
+            const who = String((req && req.decided_by) || '').replace(/^remote:/, '').slice(0, 120) || 'another machine';
+            return `${req && req.status === 'denied' ? 'denied' : 'approved'} from another machine by ${who}`;
         },
 
         timedScopeText(sessionId, req) {
@@ -948,11 +974,20 @@
                 req ? ['Asked', `${e(ctx.user || 'you')}, on ${e(ctx.host || 'this machine')} (Approvals)`] : null,
                 req && req.decision_source === 'cloud' && (req.status === 'approved' || req.status === 'denied')
                     ? ['Decided', e(this.cloudDecisionText(req))] : null,
+                req && req.decision_source === 'remote' && (req.status === 'approved' || req.status === 'denied')
+                    ? ['Decided', e(this.remoteDecisionText(req))] : null,
             ]);
             if (waiting && this.controlsLocked()) {
                 // Waiting and its expiry still show (badge above); the
                 // decision is made on the machine running the app.
                 html += `<p class="rt-scope rt-locked">${e(this.LOCKED_NOTE)}</p>`;
+            } else if (waiting && this.remoteDeviceOnly(req)) {
+                // Deny always works from another machine; approving a
+                // device-only hold does not.
+                const busy = this.state(ctx.trace.trace_id).busy ? ' disabled' : '';
+                html += `<div class="rt-actions" role="group" aria-label="Decide this held call">` +
+                    `<button type="button" class="rt-btn primary" data-act="deny" data-req="${e(req.id)}"${busy}>Deny</button></div>` +
+                    `<p class="rt-scope rt-locked">${e(root.RemoteAccess.DEVICE_ONLY_NOTE)}</p>`;
             } else if (waiting) {
                 const primaryDeny = this.denyPrimary(req, s);
                 const busy = this.state(ctx.trace.trace_id).busy ? ' disabled' : '';

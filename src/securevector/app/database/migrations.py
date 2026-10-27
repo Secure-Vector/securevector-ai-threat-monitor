@@ -2166,6 +2166,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_activity_time_indexes(db)
     await ensure_egress_host_time_index(db)
     await ensure_cloud_approval_storage(db)
+    await ensure_remote_access_column(db)
     await cleanup_old_policy_decisions(db)
     await cleanup_old_response_holds(db)
 
@@ -3897,4 +3898,15 @@ async def ensure_cloud_approval_storage(db: DatabaseConnection) -> None:
         " shared_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
         " updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
     )
+    await conn.commit()
+
+
+async def ensure_remote_access_column(db: DatabaseConnection) -> None:
+    """``app_settings.remote_access``: the remote access mode state as JSON
+    (off by default; the token only as a salted hash). Idempotent."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(app_settings)")
+    cols = [r[1] for r in await cur.fetchall()]
+    if cols and "remote_access" not in cols:
+        await conn.execute("ALTER TABLE app_settings ADD COLUMN remote_access TEXT")
     await conn.commit()

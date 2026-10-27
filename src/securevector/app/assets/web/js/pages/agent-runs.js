@@ -171,7 +171,7 @@ const AgentRunsPage = {
             }, 1000);
         }
         if (this._live.timer) return;
-        this._live.timer = setInterval(() => { this._liveTick(); }, this._POLL_MS);
+        this._live.timer = setInterval(() => { (window.API && API.asPoll ? API.asPoll(() => this._liveTick()) : this._liveTick()); }, this._POLL_MS);
     },
 
     _liveStop() {

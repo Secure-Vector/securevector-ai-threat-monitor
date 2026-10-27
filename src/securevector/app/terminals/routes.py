@@ -67,6 +67,40 @@ async def require_write(request: Request, auth: TerminalAuth = Depends(get_auth)
     await auth.require_write(request)
 
 
+def _remote_mode_on() -> bool:
+    from securevector.app.server.remote_access import cached_state
+
+    return bool(cached_state().get("remote_access_enabled"))
+
+
+async def require_read_or_remote(request: Request) -> None:
+    """The session list only: a live remote session (Remote access mode)
+    satisfies it; otherwise the terminals lock applies unchanged."""
+    from securevector.app.server.remote_access import require_remote_or_local
+
+    from securevector.app.server.loopback import asked_on_this_machine
+
+    if await require_remote_or_local(request) is not None:
+        return
+    if not asked_on_this_machine(request) and _remote_mode_on():
+        raise HTTPException(status_code=403, detail="Terminals: request not authorised")
+    await (await get_auth(request)).require_read(request)
+
+
+async def require_write_or_remote(request: Request) -> None:
+    """Stop only: a live remote session (Remote access mode) satisfies it;
+    otherwise the terminals lock applies unchanged."""
+    from securevector.app.server.remote_access import require_remote_or_local
+
+    from securevector.app.server.loopback import asked_on_this_machine
+
+    if await require_remote_or_local(request) is not None:
+        return
+    if not asked_on_this_machine(request) and _remote_mode_on():
+        raise HTTPException(status_code=403, detail="Terminals: request not authorised")
+    await (await get_auth(request)).require_write(request)
+
+
 async def _not_a_governed_task(request: Request) -> None:
     """Launching, linking or stopping a session, or removing its worktree,
     is a person's action, from the page or from their own terminal (the CLI
@@ -364,7 +398,7 @@ async def list_executors(manager: TerminalManager = Depends(get_manager)):
 LIST_WORKTREE_REFRESH = 10
 
 
-@router.get("/tasks", dependencies=[Depends(require_read)])
+@router.get("/tasks", dependencies=[Depends(require_read_or_remote)])
 async def list_tasks(manager: TerminalManager = Depends(get_manager)):
     items = await manager.store.list_tasks()
     budget = LIST_WORKTREE_REFRESH
@@ -525,20 +559,33 @@ async def open_worktree(task_id: str, request: Request, manager: TerminalManager
     return {"ok": True, "folder": folder}
 
 
-@router.post("/tasks/{task_id}/stop", dependencies=[Depends(require_write), Depends(_not_a_governed_task)])
+@router.post("/tasks/{task_id}/stop", dependencies=[Depends(require_write_or_remote), Depends(_not_a_governed_task)])
 async def stop_task(
     task_id: str,
     origin: Optional[str] = None,
     manager: TerminalManager = Depends(get_manager),
+    request: Request = None,
 ):
+    remote = getattr(getattr(request, "state", None), "remote_session", None)
     if await manager.store.get_task(task_id) is None:
+        if remote is not None:
+            from securevector.app.server.remote_access import audit_stop
+            await audit_stop(request, remote, task_id, "not_found")
         raise HTTPException(status_code=404, detail="Unknown task")
     try:
-        await manager.stop(task_id, origin=_actor(origin))
+        # A remote stop is a page action ("ui"); its own audit row below
+        # records the remote address.
+        await manager.stop(task_id, origin="ui" if remote is not None else _actor(origin))
     except NotLinkable as exc:
+        if remote is not None:
+            from securevector.app.server.remote_access import audit_stop
+            await audit_stop(request, remote, task_id, "not_linkable")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError:
         pass  # already gone from the host; the row is authoritative
+    if remote is not None:
+        from securevector.app.server.remote_access import audit_stop
+        await audit_stop(request, remote, task_id, "ok")
     return {"ok": True}
 
 

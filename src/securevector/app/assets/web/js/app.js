@@ -123,6 +123,12 @@ const App = {
         if (window.Community) Community.init();
         Sidebar.render();
         Header.render();
+        // Remote access mode: by a network address, know whether this
+        // browser is signed in before the first page draws its controls.
+        if (window.RemoteAccess) {
+            if (API.terminalsRemote && API.terminalsRemote()) await RemoteAccess.refresh();
+            else RemoteAccess.refresh();
+        }
         // The floating Guardian (replaces the retired TryItChat panel):
         // cost optimization first, threats/secrets/blocked actions alongside.
         if (window.GuardianAssistant) GuardianAssistant.mount();

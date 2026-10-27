@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SIEM forwarders receive a new `alert` event for those stops.
 - Fleet (Professional and Enterprise): the cloud panel shows held counts, rule matches and stopped sessions across devices.
 
+**Remote access mode**
+- Remote access mode (off by default): approve, deny, revoke and stop agent sessions from another machine over HTTPS with an access token. Launching, linking and typing into sessions stay on the machine itself.
+
 ### Changed
 - OpenClaw Guard works with OpenClaw 2026.10: the tool audit and the tool output scan run on `after_tool_call`, one audit row per tool call. `securevector-app --install-plugin openclaw` sets `hooks.allowConversationAccess` for the Guard's entry so cost tracking keeps working; see docs/OPENCLAW.md.
 - Database schema 64.

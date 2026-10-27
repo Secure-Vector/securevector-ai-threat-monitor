@@ -278,7 +278,8 @@
             // Every 20 s while visible; while hidden, every 60 s.
             this._timer = setInterval(() => {
                 if (!this.due(doc && doc.hidden, Date.now())) return;
-                this.tick();
+                const api = (typeof window !== 'undefined' && window.API) || null;
+                if (api && api.asPoll) api.asPoll(() => this.tick()); else this.tick();
             }, this.POLL_MS);
             if (doc && doc.addEventListener) {
                 // Coming back to a hidden tab: catch up at once.
