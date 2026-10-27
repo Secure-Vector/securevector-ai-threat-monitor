@@ -1814,7 +1814,7 @@ const GuardianAssistant = {
         if (this._bubbleEl && this._bubbleEl.isConnected) return false; // one at a time
         this._spokeAt = Date.now(); // thoughts wait their turn after any bubble
         const b = document.createElement('div');
-        b.className = 'sv-ga-bubble' + (security ? ' sv-ga-security sv-ga-corner' : '');
+        b.className = 'sv-ga-bubble' + (security ? ' sv-ga-security sv-ga-corner' : urgent ? ' sv-ga-corner' : '');
         b.dataset.kind = security ? 'security' : 'tip';
         b.setAttribute('role', security ? 'alert' : 'status');
         b.innerHTML =
@@ -1822,7 +1822,7 @@ const GuardianAssistant = {
             '<div class="sv-ga-bubble-t"></div>' +
             '<div class="sv-ga-bubble-row">' +
             '<button type="button" class="sv-ga-bubble-go"></button>' +
-            (security || asked ? '' : '<button type="button" class="sv-ga-bubble-mute">Mute tips</button>') +
+            (security || asked || urgent ? '' : '<button type="button" class="sv-ga-bubble-mute">Mute tips</button>') +
             '<button type="button" class="sv-ga-bubble-x" aria-label="Dismiss">&times;</button>' +
             '</div>';
         b.querySelector('.sv-ga-bubble-t').textContent = text;

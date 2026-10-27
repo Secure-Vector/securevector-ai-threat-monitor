@@ -420,3 +420,9 @@ test('after a summary button toggles, focus returns to the same button', () => {
   click(box, 'waiting');
   assert.equal(focused, '[data-sum="waiting"]');
 });
+
+test('urgent advice sits in the corner and never offers Mute tips', () => {
+  const src = read('js/components/guardian-assistant.js');
+  assert.match(src, /security \? ' sv-ga-security sv-ga-corner' : urgent \? ' sv-ga-corner' : ''/);
+  assert.match(src, /\(security \|\| asked \|\| urgent \? '' : '<button type="button" class="sv-ga-bubble-mute">Mute tips<\/button>'\)/);
+});
