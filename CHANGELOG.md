@@ -52,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Cost & Tokens prices Amazon Bedrock calls reported by plugins (for example Hermes and OpenClaw), including model ids with a region prefix, instead of showing $0.
+- The Live grid and session governance load when the app is opened by its network address; session controls still need localhost.
+- Approvals and session controls answer only on this machine.
 
 ## [6.0.1] - 2026-10-08
 

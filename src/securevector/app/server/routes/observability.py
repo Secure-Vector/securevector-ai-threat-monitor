@@ -1,9 +1,21 @@
-"""Observability read routes under /api/terminals/observability.
+"""Observability read routes.
 
-Behind the Agent Terminals UI token, like the detection-response summary:
-the token cookie is scoped to /api/terminals, so a route outside that prefix
-would never receive it from the browser. Read only, apart from the lazy
-expiry of lapsed approval requests that the JIT list route also performs.
+Served twice, by the same handlers:
+
+* ``/api/observability/...`` (``read_router``): the same access as the Runs
+  and trace routes (``/api/traces``), that is the app-wide ingress token
+  middleware and the localhost-only CORS origins in ``server/app.py``, and
+  nothing more. The Live grid and the session governance strip use these,
+  so they load when the app is opened by its network address.
+* ``/api/terminals/observability/...`` (``router``): the original paths,
+  behind the Agent Terminals UI token, kept unchanged for one release.
+
+Read only, apart from the lazy expiry of lapsed approval requests that the
+JIT list route and ``/api/traces`` also perform. They return no more than
+``/api/traces`` and ``/api/jit/requests`` already return to the same caller:
+the secret-redacted ``call_preview``, ``args_preview``, and a terminal
+task's folder name (never its path). Every state change (approve, deny,
+revoke, stop, launch, link) stays on its own guarded route.
 """
 
 from __future__ import annotations
@@ -77,3 +89,12 @@ async def egress_alerts(request: Request, since: Optional[str] = Query(None, max
         alerts = await ea.suspicious_egress(_db(request), now=now, window_s=window)
         return {"alerts": alerts, "window_s": window}
     return {"alerts": await ea.shared_alerts(_db(request)), "window_s": ea.WINDOW_S}
+
+
+# The same four reads with the access the Runs and trace routes have (see
+# the module docstring). No terminals dependency: the handlers are read only.
+read_router = APIRouter(prefix="/observability", tags=["Observability"])
+read_router.add_api_route("/coverage", coverage, methods=["GET"])
+read_router.add_api_route("/sessions/{session_id}/governance", session_governance, methods=["GET"])
+read_router.add_api_route("/live", live, methods=["GET"])
+read_router.add_api_route("/egress-alerts", egress_alerts, methods=["GET"])

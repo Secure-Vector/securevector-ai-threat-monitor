@@ -508,6 +508,12 @@ const ObsTabs = {
             b.dataset.p = t.page;
             b.innerHTML = this._icon(t.icon) + `<span>${t.label}</span>`;
             if (t.page === 'live-grid') {
+                // Sessions running now: neutral, filled by every live read.
+                const run = document.createElement('span');
+                run.className = 'nav-count nav-count-quiet';
+                run.dataset.liveRunning = '1';
+                run.hidden = true;
+                b.appendChild(run);
                 // Same amber count as the rail row, filled by the sidebar poll.
                 const wait = document.createElement('span');
                 wait.className = 'nav-count nav-count-warn';
@@ -540,8 +546,15 @@ const ObsTabs = {
             tabs[next].click();
         });
         container.appendChild(wrap);
+        this._paintRunning();
         // Fill the Live grid badge now instead of waiting for the next tick.
         if (window.Sidebar && Sidebar.loadJitPendingCount) Sidebar.loadJitPendingCount();
+        // Runs and the Live grid read live data on their own; other tabs
+        // ask once when the count is older than 20 s.
+        if (Date.now() - (this._runningAt || 0) > 20000 && window.API && API.getObservabilityLive) {
+            this._runningAt = Date.now();
+            API.getObservabilityLive({ limit: 1 }).catch(() => {});
+        }
         if (this._restoreTabFocus) {
             this._restoreTabFocus = false;
             if (activeBtn) activeBtn.focus();
@@ -554,6 +567,28 @@ const ObsTabs = {
         if (active === 'timeline') {
             container.appendChild(this._viewToggle(active));
         }
+    },
+
+    _running: null,
+    _runningAt: 0,
+
+    /** Record the number of sessions running now and show it on the tab. */
+    setRunning(n) {
+        this._running = Math.max(0, Number(n) || 0);
+        this._runningAt = Date.now();
+        this._paintRunning();
+    },
+
+    _paintRunning() {
+        const n = this._running;
+        if (n == null) return;
+        document.querySelectorAll('[data-live-running]').forEach(el => {
+            const meaning = n === 1 ? '1 session running now' : `${n} sessions running now`;
+            el.textContent = String(n);
+            el.title = meaning;
+            el.setAttribute('aria-label', meaning);
+            el.hidden = false;
+        });
     },
 
     /** Small segmented "By trace | Live feed" control shown on the Traces tab. */

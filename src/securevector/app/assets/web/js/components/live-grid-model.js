@@ -603,19 +603,73 @@
 
         /** A tile and, when it is expanded, its full-row panel right after
          *  it. The grid packs densely, so the panel opens under the tile's
-         *  row and the tiles after it keep their places in that row. */
-        _tileWithPanel(s, pins, openSet, details, panels, now) {
+         *  row and the tiles after it keep their places in that row. With
+         *  `above` the panel is drawn in the open-sessions matrix instead. */
+        _tileWithPanel(s, pins, openSet, details, panels, now, above) {
             const open = openSet.has(s.session_id);
             const tile = this.compactTileHtml(s, pins.has(s.session_id), open, { now });
-            if (!open) return tile;
+            if (!open || above) return tile;
+            return tile + this.panelHtml(s, details, panels);
+        },
+
+        /** One session's panel: recent calls and egress. `close` adds a
+         *  Close link (the matrix, where the panel is away from its tile). */
+        panelHtml(s, details, panels, close) {
             const sid = this.esc(s.session_id);
             const d = (details || {})[s.session_id] || null;
-            return tile + `<div class="lg-cx" id="lg-cx-${sid}" role="region" aria-label="${this.esc((s.project || this.short(s.session_id)) + ': recent calls and egress')}">` +
+            return `<div class="lg-cx" id="lg-cx-${sid}" role="region" aria-label="${this.esc((s.project || this.short(s.session_id)) + ': recent calls and egress')}">` +
                 `<div class="lg-cx-head"><span class="lg-cx-name">${this.esc(s.project || this.harnessLabel(s.harness))}</span>` +
                 `<span class="lg-th-id">${this.esc(this.short(s.session_id))}</span>` +
                 `<button type="button" class="lg-link" data-act="open-panel" data-sid="${sid}">Open trace →</button>` +
-                `<button type="button" class="lg-link lg-link-2" data-act="open-runs" data-sid="${sid}">Open in Runs</button></div>` +
+                `<button type="button" class="lg-link lg-link-2" data-act="open-runs" data-sid="${sid}">Open in Runs</button>` +
+                (close ? `<button type="button" class="lg-link lg-link-2" data-act="close-panel" data-sid="${sid}" aria-label="Close panel for ${this.esc(s.project || this.short(s.session_id))}">Close</button>` : '') +
+                `</div>` +
                 this.sectionsHtml(s.session_id, d, { panel: (panels || {})[s.session_id] || null }) + `</div>`;
+        },
+
+        // ------------------------------------------ open-sessions matrix
+
+        MATRIX_MIN_W: 360,
+        MATRIX_GAP: 10,
+        MATRIX_ONE_COL_BELOW: 700,
+
+        /** Columns for N open panels: none below 2 (the panel stays under
+         *  its tile), else ceil(sqrt(N)) (2 → 2, 3-4 → 2x2, 5-9 → 3),
+         *  fewer when `width` cannot hold MATRIX_MIN_W per column, one
+         *  under 700px. */
+        matrixCols(n, width) {
+            if (!(n >= 2)) return 0;
+            let cols = Math.ceil(Math.sqrt(n));
+            if (typeof width === 'number' && width > 0) {
+                if (width < this.MATRIX_ONE_COL_BELOW) return 1;
+                const fit = Math.max(1, Math.floor((width + this.MATRIX_GAP) / (this.MATRIX_MIN_W + this.MATRIX_GAP)));
+                cols = Math.min(cols, fit);
+            }
+            return cols;
+        },
+
+        matrixRows(n, cols) { return cols > 0 ? Math.ceil(n / cols) : 0; },
+
+        /** The open sessions to draw in the matrix, in the order they were
+         *  opened (`open` keeps that order). Only sessions in `candidates`
+         *  (the tiles on the page) count. Empty below two. */
+        matrixList(open, candidates) {
+            const by = new Map((candidates || []).map(s => [s.session_id, s]));
+            const list = [];
+            (open || []).forEach(id => { const s = by.get(id); if (s && !list.includes(s)) list.push(s); });
+            return list.length >= 2 ? list : [];
+        },
+
+        /** Two or more open panels together above the tiles, as a matrix.
+         *  The page sets --lg-mx-cols/--lg-mx-rows again for the real width. */
+        matrixHtml(list, opts = {}) {
+            if (!list || list.length < 2) return '';
+            const cols = this.matrixCols(list.length, opts.width);
+            const rows = this.matrixRows(list.length, cols);
+            return `<section class="lg-mx" aria-label="Open sessions" style="--lg-mx-cols:${cols};--lg-mx-rows:${rows}">` +
+                `<div class="lg-mx-head"><h3 class="lg-mx-title">Open sessions (${list.length})</h3>` +
+                `<button type="button" class="lg-link" data-act="close-all">Close all</button></div>` +
+                `<div class="lg-mx-grid">${list.map(s => this.panelHtml(s, opts.details, opts.panels, true)).join('')}</div></section>`;
         },
 
         /** The whole compact body as one string: groups with a caret,
@@ -626,7 +680,7 @@
             const expanded = opts.expanded || {};
             const pins = new Set(opts.pins || []);
             const openSet = new Set(opts.open || []);
-            const tiles = (list) => list.map(s => this._tileWithPanel(s, pins, openSet, opts.details, opts.panels, opts.now)).join('');
+            const tiles = (list) => list.map(s => this._tileWithPanel(s, pins, openSet, opts.details, opts.panels, opts.now, !!opts.panelsAbove)).join('');
             const by = opts.group || 'none';
             const label = (k) => (by === 'harness' ? this.harnessLabel(k) : k);
             if (!groups.length || !groups.some(g => g.sessions.length)) {
@@ -692,7 +746,8 @@
 
         SECTION_CAP: 5,
 
-        MAX_OPEN: 6,
+        // Nine, so a 3x3 matrix of open panels fits.
+        MAX_OPEN: 9,
 
         /** Expanded compact tiles: a new list with `sid` added or removed.
          *  At most MAX_OPEN, like pins: opening one more closes the oldest. */

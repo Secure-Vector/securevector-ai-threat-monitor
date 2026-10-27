@@ -583,6 +583,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     from securevector.app.server.routes import observability as observability_routes
 
     app.include_router(observability_routes.router, prefix="/api")
+    # The same reads under /api/observability, guarded like /api/traces, so
+    # the Live grid loads when the app is opened by its network address.
+    app.include_router(observability_routes.read_router, prefix="/api")
     app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
     # Pre-flight policy checks for the SecureVector MCP tools.
     from securevector.app.server.routes import policy as policy_routes

@@ -433,11 +433,13 @@ test('egress section: status words, tool-rule stops, risky first, capped', () =>
   assert.doesNotMatch(M.sectionsHtml(evil, { gov: { egress: { visible: true, hosts: [{ host: evil, status: evil }] } }, spans: [{ span_kind: 'tool_call', tool_id: evil, args_preview: evil, called_at: at(1) }] }), /<img/);
 });
 
-test('open compact tiles are capped at six: a seventh closes the oldest', () => {
+test('open compact tiles are capped at nine: a tenth closes the oldest', () => {
   const M = load();
+  assert.equal(M.MAX_OPEN, 9);
   let open = [];
-  for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) open = M.toggleOpen(open, id);
-  deq(open, ['b', 'c', 'd', 'e', 'f', 'g']);
+  for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']) open = M.toggleOpen(open, id);
+  deq(open, ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
+  deq(M.ensureOpen(open, 'k'), ['c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']);
   const html = M.sectionsHtml('s', { gov: { tool_calls: { total: 9 }, egress: { visible: true, hosts: [] } }, spans: [] }) +
     M.compactHtml(M.groups([sess('x')], 'none'), { group: 'none', open: ['x'], details: {} });
   // Each control keeps its own action, so focus returns to the same one.

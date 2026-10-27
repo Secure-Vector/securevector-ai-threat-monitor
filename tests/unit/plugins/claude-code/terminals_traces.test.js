@@ -106,11 +106,11 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /styles\.css\?v=499/);
-  assert.match(html, /terminals\.js\?v=129/);
-  assert.match(html, /agent-runs\.js\?v=390/);
-  assert.match(html, /live-grid-model\.js\?v=13/);
-  assert.match(html, /pages\/live-grid\.js\?v=13/);
+  assert.match(html, /styles\.css\?v=500/);
+  assert.match(html, /terminals\.js\?v=130/);
+  assert.match(html, /agent-runs\.js\?v=391/);
+  assert.match(html, /live-grid-model\.js\?v=14/);
+  assert.match(html, /pages\/live-grid\.js\?v=15/);
 });
 
 test('terminals.js coerces run counters with Number() before interpolating', () => {

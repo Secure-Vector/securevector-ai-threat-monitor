@@ -642,6 +642,12 @@ const API = {
             try {
                 r = await this._retryUnconfirmed(() => this.request('/api/jit/ui-token'));
             } catch (e) {
+                // Opened by network address: approvals and session controls
+                // are hidden (RunTrace.controlsLocked), no reload or retry.
+                if (/answer only on this machine/i.test(String(e && e.message))) {
+                    this.terminalsRefused = true;
+                    throw e;
+                }
                 // The page was loaded before the app restarted: reload once.
                 if (/local web UI only/i.test(String(e && e.message))) this._reloadForUiToken();
                 throw e;
@@ -1115,11 +1121,43 @@ const API = {
     // every write.
     _terminalsReady: false,
     _terminalsSessionPromise: null,
+    // True once the terminals API or the UI token route refused this page
+    // (they answer only on this machine, localhost). RunTrace.controlsLocked() reads it to hide
+    // approvals and session controls; reads elsewhere keep working.
+    terminalsRefused: false,
+    // The one short note every Agent Sessions surface shows when the app
+    // is opened by its network address, in place of the raw refusal.
+    TERMINALS_LOCAL_NOTE: 'Agent Sessions work only when the app is opened on this machine (localhost).',
+    // Opened by a network address (not localhost, 127.x or ::1): the same
+    // test as RunTrace.controlsLocked().
+    terminalsRemote() {
+        const loc = (typeof window !== 'undefined' && window.location) || null;
+        let h = String((loc && loc.hostname) || '').trim().toLowerCase();
+        if (!h) return false;
+        if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+        if (h === 'localhost' || h === '::1') return false;
+        const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+        return !(m && m.slice(1).every(o => Number(o) <= 255));
+    },
+    // Remote, or the terminals API already refused this page.
+    terminalsLocked() { return this.terminalsRemote() || !!this.terminalsRefused; },
+    _terminalsLocalError() {
+        const e = new Error(this.TERMINALS_LOCAL_NOTE);
+        e.terminalsLocal = true;
+        return e;
+    },
     async terminalsSession() {
+        // Opened remotely: never ask the terminals API (it answers only on
+        // this machine), so there is no request, retry or raw refusal.
+        if (this.terminalsRemote()) { this.terminalsRefused = true; throw this._terminalsLocalError(); }
         if (this._terminalsReady) return;
         if (!this._terminalsSessionPromise) {
             this._terminalsSessionPromise = this.request('/api/terminals/session').then(() => {
                 this._terminalsReady = true;
+                this.terminalsRefused = false;
+            }, (err) => {
+                if (this._terminalsIsAuthError(err)) this.terminalsRefused = true;
+                throw this._terminalsIsAuthError(err) ? this._terminalsLocalError() : err;
             }).finally(() => {
                 this._terminalsSessionPromise = null;
             });
@@ -1144,7 +1182,12 @@ const API = {
             // set; re-issue the session and retry exactly once.
             this._terminalsReady = false;
             await this.terminalsSession();
-            return this.request(endpoint, options);
+            try {
+                return await this.request(endpoint, options);
+            } catch (again) {
+                if (this._terminalsIsAuthError(again)) this.terminalsRefused = true;
+                throw this._terminalsIsAuthError(again) ? this._terminalsLocalError() : again;
+            }
         }
     },
     async _terminalsRead(endpoint) {
@@ -1158,25 +1201,29 @@ const API = {
         });
     },
     // Observability (6.0): coverage per runtime, running sessions, and one
-    // session's governance summary. The read cookie is scoped to the
-    // terminals prefix, so these routes live under it.
+    // session's governance summary. Read only, under /api/observability with
+    // the same access as the Runs and trace reads, so they also load when
+    // the app is opened by its network address.
     async getObservabilityCoverage() {
-        return this._terminalsRead('/api/terminals/observability/coverage');
+        return this.request('/api/observability/coverage');
     },
     async getObservabilityLive(params = {}) {
         const q = new URLSearchParams();
         if (params.group) q.set('group', params.group);
         if (params.limit) q.set('limit', params.limit);
         const qs = q.toString();
-        return this._terminalsRead(`/api/terminals/observability/live${qs ? '?' + qs : ''}`);
+        const r = await this.request(`/api/observability/live${qs ? '?' + qs : ''}`);
+        // Every live read also refreshes the running count on the Live grid tab.
+        if (r && r.counters && window.ObsTabs && ObsTabs.setRunning) ObsTabs.setRunning(r.counters.running);
+        return r;
     },
     // Suspicious egress in the last 30 minutes, one per (session, host).
     async getEgressAlerts(params = {}) {
         const qs = params.since ? '?since=' + encodeURIComponent(params.since) : '';
-        return this._terminalsRead(`/api/terminals/observability/egress-alerts${qs}`);
+        return this.request(`/api/observability/egress-alerts${qs}`);
     },
     async getSessionGovernance(sessionId) {
-        return this._terminalsRead(`/api/terminals/observability/sessions/${encodeURIComponent(sessionId)}/governance`);
+        return this.request(`/api/observability/sessions/${encodeURIComponent(sessionId)}/governance`);
     },
     async terminalsExecutors() {
         return this._terminalsRead('/api/terminals/executors');
@@ -1281,6 +1328,7 @@ const API = {
         return this._terminalsRead(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`);
     },
     async _terminalsUiWrite(endpoint, body) {
+        if (this.terminalsRemote()) { this.terminalsRefused = true; throw this._terminalsLocalError(); }
         const call = async () => this._terminalsCall(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1', 'X-SV-UI-Token': await this._getJitToken() },

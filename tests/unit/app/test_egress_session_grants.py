@@ -611,11 +611,13 @@ class TestHumanOnlyRoutes:
     ])
     async def test_ui_token_needs_a_same_origin_signal(self, headers, ok):
         cookies = {jit_routes.UI_PAGE_COOKIE: jit_routes._UI_PAGE_SECRET}
-        req = SimpleNamespace(headers=headers, url=SimpleNamespace(port=8741), cookies=cookies)
+        headers = dict(headers, host="127.0.0.1:8741")
+        here = SimpleNamespace(host="127.0.0.1")
+        req = SimpleNamespace(headers=headers, url=SimpleNamespace(port=8741), cookies=cookies, client=here)
         if ok:
             assert (await jit_routes.get_ui_token(req))["token"] == TOKEN
             # The same headers without the page cookie are refused.
-            bare = SimpleNamespace(headers=headers, url=SimpleNamespace(port=8741), cookies={})
+            bare = SimpleNamespace(headers=headers, url=SimpleNamespace(port=8741), cookies={}, client=here)
             with pytest.raises(HTTPException) as exc:
                 await jit_routes.get_ui_token(bare)
             assert exc.value.status_code == 403

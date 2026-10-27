@@ -116,6 +116,9 @@ const TerminalsPage = {
         this._adoptError = null;
         this._drAt = 0;
         this._container = container;
+        // Opened by a network address (or already refused): no terminals
+        // call, no socket and no timers, only a plain note.
+        if (window.API && API.terminalsLocked && API.terminalsLocked()) { this._renderLocalOnly(container); return; }
         container.innerHTML = `
           <div class="terminals-page">
             <section class="terminals-tasks">
@@ -269,9 +272,31 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (gen !== this._gen) return;
         await this._refreshTasks();
         if (gen !== this._gen) return;
+        if (API.terminalsRefused) { this._renderLocalOnly(container); return; }
         this._maybeOpenSettings();
         this._pollTimer = setInterval(() => this._refreshTasks(), 3000);
         this._railTimer = setInterval(() => { this._refreshRail(); this._refreshPaneGov(); this._tickTimes(); }, 4000);
+    },
+
+    /** Opened by a network address: Agent Sessions answer only on this
+     *  machine, so the page explains that instead of showing the refusal. */
+    _localOnlyHtml(host) {
+        const h = this._esc(host || '');
+        return `<div class="terminals-page terminals-local-only" role="status">` +
+            `<h2 class="terminals-local-title">Agent Sessions run on this machine only</h2>` +
+            `<p class="terminals-local-body">This app is opened by its network address${h ? ` (${h})` : ''}. ` +
+            `Agent Sessions, approvals and session controls work only when the app is opened on this machine (localhost). ` +
+            `Remote access to sessions is not enabled.</p>` +
+            `<p class="terminals-local-body">You can still watch runs, governance and costs in ` +
+            `<button type="button" class="terminals-local-link" data-act="open-runs">Observability</button>.</p></div>`;
+    },
+
+    _renderLocalOnly(container) {
+        if (!container) return;
+        this._detach();
+        container.innerHTML = this._localOnlyHtml((window.location && window.location.hostname) || '');
+        const b = container.querySelector('[data-act="open-runs"]');
+        if (b) b.onclick = () => { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs'); };
     },
 
     destroy() {
@@ -1014,6 +1039,15 @@ ${this.CLI_BIN} stop &lt;id&gt;
             this._error = null;
         } catch (e) {
             this._error = e.message;
+            // Refused (this page is not on localhost): stop polling and say so.
+            if (API.terminalsRefused && this._container) {
+                clearInterval(this._pollTimer);
+                clearInterval(this._railTimer);
+                this._pollTimer = null;
+                this._railTimer = null;
+                if (gen === this._gen) this._renderLocalOnly(this._container);
+                return;
+            }
         }
         if (gen !== this._gen) return;
         // The JIT inbox is the source of truth for work that needs a human.

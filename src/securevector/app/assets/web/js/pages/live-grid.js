@@ -105,6 +105,9 @@ const LiveGridPage = {
             const host = t && t.matches && t.matches('details.rt-raw') && t.closest('[data-dsid]');
             if (host) this._raw[host.dataset.dsid] = t.open;
         }, true);
+        if (this._onResize) window.removeEventListener('resize', this._onResize);
+        this._onResize = () => this._sizeMatrix();
+        window.addEventListener('resize', this._onResize);
         await this.refresh();
         this._timer = setInterval(() => this._tick(), this.POLL_MS);
         this._ticker = setInterval(() => this._paintAgo(), 1000);
@@ -114,6 +117,8 @@ const LiveGridPage = {
         if (this._timer) clearInterval(this._timer);
         if (this._ticker) clearInterval(this._ticker);
         this._timer = null; this._ticker = null;
+        if (this._onResize) window.removeEventListener('resize', this._onResize);
+        this._onResize = null;
         this._seq++;
     },
 
@@ -275,6 +280,10 @@ const LiveGridPage = {
         this._panels = this._buildPanels(all);
         let html = '';
         const now = Date.now();
+        // Two or more open panels sit together above the tiles as a matrix
+        // (2 → 2 columns, 3-4 → 2x2, 5-9 → 3x3), in the order they were
+        // opened; one open panel stays under its tile's row.
+        const width = body.clientWidth || 0;
         if (st.mode === 'large') {
             // Pinned focus: the pinned sessions as larger tiles, in pin order,
             // each with the same full-row panel under its row as the grid.
@@ -282,21 +291,29 @@ const LiveGridPage = {
             const c = this.data && this.data.counters;
             const cut = !!(c && all.length < (c.running || 0) + (c.ended || 0));
             const rows = this.pins.map(sid => bySid.get(sid) || { session_id: sid, _gone: cut ? 'outside' : 'ended' });
+            const rest = st.scope === 'all' ? shown.filter(s => !pinSet.has(s.session_id)) : [];
+            const mx = M.matrixList(this._open, rows.concat(rest));
+            html += M.matrixHtml(mx, { width, details: this.details, panels: this._panels || {} });
             html += M.compactHtml([{ key: 'all', sessions: rows }], { group: 'none', focus: true, pins: this.pins, open: this._open,
-                details: this.details, panels: this._panels || {}, now, emptyText: 'No pinned sessions.' });
+                details: this.details, panels: this._panels || {}, now, panelsAbove: mx.length > 0, emptyText: 'No pinned sessions.' });
             if (st.scope === 'all') {
-                const rest = shown.filter(s => !pinSet.has(s.session_id));
-                html += `<h3 class="lg-sub">All running</h3>` + this._compactBlock(rest, all);
+                html += `<h3 class="lg-sub">All running</h3>` + this._compactBlock(rest, all, { above: mx.length > 0 });
             }
         } else {
-            html += this._compactBlock(shown, all);
+            const mx = M.matrixList(this._open, shown);
+            html += this._compactBlock(shown, all, { matrix: M.matrixHtml(mx, { width, details: this.details, panels: this._panels || {} }), above: mx.length > 0 });
         }
         // Rebuild, then put focus back on the same control.
         const a = document.activeElement;
         const keep = a && body.contains(a) && a.dataset && a.dataset.act
             ? ['act', 'sid', 'key', 'gkey', 'req', 'dur'].filter(k => a.dataset[k] != null).map(k => `[data-${k}="${this._css(a.dataset[k])}"]`).join('')
             : null;
+        // Panels in the matrix scroll inside; a rebuild keeps their place.
+        const scrolls = {};
+        body.querySelectorAll('.lg-mx .lg-cx[id]').forEach(el => { if (el.scrollTop) scrolls[el.id] = el.scrollTop; });
         body.innerHTML = html;
+        this._sizeMatrix();
+        Object.keys(scrolls).forEach(id => { const el = document.getElementById(id); if (el && el.closest('.lg-mx')) el.scrollTop = scrolls[id]; });
         body.querySelectorAll('[data-dsid] details.rt-raw').forEach(el => {
             const host = el.closest('[data-dsid]');
             if (host && this._raw[host.dataset.dsid]) el.open = true;
@@ -310,6 +327,28 @@ const LiveGridPage = {
             try { fh.closest('.lg-det').scrollIntoView({ block: 'nearest' }); } catch (_) { /* older engines */ }
         } else if (keep) { const el = body.querySelector(keep); if (el) el.focus({ preventScroll: true }); }
         this._paintAgo();
+    },
+
+    /** The matrix's columns and rows for the width it has now, and how far
+     *  down the page it starts, so its rows fit one screen height. */
+    _sizeMatrix() {
+        const mx = document.querySelector('#lg-body .lg-mx');
+        if (!mx) return;
+        const M = this.M();
+        const n = mx.querySelectorAll('.lg-mx-grid > .lg-cx').length;
+        const cols = M.matrixCols(n, mx.clientWidth || 0);
+        mx.style.setProperty('--lg-mx-cols', String(cols));
+        mx.style.setProperty('--lg-mx-rows', String(M.matrixRows(n, cols)));
+        const grid = mx.querySelector('.lg-mx-grid');
+        if (grid) {
+            // Offset from the top of the scrolled content, not the viewport,
+            // so the panel height holds while the page is scrolled.
+            let sc = grid.parentElement;
+            while (sc && sc !== document.body && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) sc = sc.parentElement;
+            const base = sc && sc !== document.body ? sc.getBoundingClientRect().top - sc.scrollTop : -(window.scrollY || 0);
+            this._mxTop = Math.max(0, Math.min(Math.round(grid.getBoundingClientRect().top - base), 400));
+        }
+        mx.style.setProperty('--lg-mx-top', `${this._mxTop || 200}px`);
     },
 
     /** Panel options per shown tile with details: call row keys and the open
@@ -342,7 +381,7 @@ const LiveGridPage = {
 
     _css(v) { return (window.CSS && CSS.escape) ? CSS.escape(String(v)) : String(v).replace(/["\\]/g, '\\$&'); },
 
-    _compactBlock(list, all) {
+    _compactBlock(list, all, mx = {}) {
         const M = this.M();
         const st = this.st;
         const c = (this.data && this.data.counters) || M.counters(all);
@@ -354,13 +393,13 @@ const LiveGridPage = {
             `<span class="lg-covline">${M.esc(M.coverageLine(c))}</span></div>`;
         const groups = M.groups(list, st.group, this.data && this.data.groups);
         const grid = M.compactHtml(groups, { group: st.group, collapsed: this._collapsed, expanded: this._expanded, pins: this.pins,
-            open: this._open, details: this.details, panels: this._panels || {}, now: Date.now(),
+            open: this._open, details: this.details, panels: this._panels || {}, now: Date.now(), panelsAbove: !!mx.above,
             emptyText: (all || []).length ? 'No running sessions match these filters.' : 'No sessions running right now. Sessions show here while an agent is active.' });
         const gw = { host: 'host', project: 'project', harness: 'harness' }[st.group];
         const foot = `<div class="lg-foot">${gw ? `Grouped by ${gw} · ` : ''}order holds while you watch · ` +
             `<button type="button" class="lg-link" data-act="resort">re-sort</button>` +
             `<span class="lg-foot-r">Click a tile for its recent calls and egress · pin one for Pinned focus</span></div>`;
-        return strip + grid + foot;
+        return strip + (mx.matrix || '') + grid + foot;
     },
 
     _paintAgo() {
@@ -555,10 +594,24 @@ const LiveGridPage = {
             b.textContent = this._paused ? 'Resume' : 'Pause';
             this._paintAgo();
             if (!this._paused) this.refresh({ force: true });
+        } else if (act === 'close-panel' || act === 'close-all') {
+            const first = this._open[0];
+            this._open = act === 'close-all' ? [] : this._open.filter(x => x !== sid);
+            this.paint();
+            // Focus goes back to the closed session's tile (Close all: the
+            // first one opened), not to the page body.
+            const back = act === 'close-all' ? first : sid;
+            const t = back && this._body().querySelector(`[data-act="expand"][data-sid="${this._css(back)}"]`);
+            if (t) t.focus({ preventScroll: true });
         } else if (act === 'expand' || act === 'peek') {
             this._open = this.M().toggleOpen(this._open, sid);
             const opening = this._open.includes(sid);
             this.paint();
+            // A panel opened into the matrix may be above the fold: show it.
+            if (opening && this._body().querySelector('.lg-mx')) {
+                const cx = document.getElementById('lg-cx-' + sid);
+                if (cx) { try { cx.scrollIntoView({ block: 'nearest' }); } catch (_) { /* older engines */ } }
+            }
             if (opening) this._loadOne(sid);
         } else if (act === 'open' || act === 'open-panel' || act === 'open-foot' || act === 'more-calls' || act === 'more-hosts') {
             this.openTrace(sid, null);
@@ -644,6 +697,7 @@ const LiveGridPage = {
         const req = res && res.found.node.req;
         if (!req || !reqId || req.id !== reqId) return;
         if (duration === 'once' && !req.call_fingerprint) return;
+        if (RT.controlsLocked && RT.controlsLocked()) return;
         const st = RT.state(res.ctx.trace.trace_id);
         if (st.busy) return;
         st.busy = true;
@@ -845,6 +899,14 @@ const LiveGridPage = {
 .lg-cx-name { font-weight:600; color:var(--text-primary); }
 .lg-cx-head .lg-link { margin-left:auto; }
 .lg-cx-head .lg-link-2 { margin-left:0; }
+/* Two or more open panels: a matrix above the tiles that fits one screen. */
+.lg-mx { margin:0 0 12px; }
+.lg-mx-head { display:flex; align-items:center; gap:10px; margin:0 0 6px; }
+.lg-mx-title { margin:0; font:600 13px var(--font-body); color:var(--text-primary); }
+.lg-mx-grid { display:grid; grid-template-columns:repeat(var(--lg-mx-cols, 2), minmax(0, 1fr)); gap:10px; }
+.lg-mx .lg-cx { grid-column:auto; min-height:220px; max-height:max(220px, calc((100vh - var(--lg-mx-top, 200px) - 16px) / var(--lg-mx-rows, 1) - 10px)); overflow:auto; }
+.lg-mx .lg-cx-head { position:sticky; top:0; z-index:1; margin:-10px -14px 0; padding:10px 14px 6px; background:var(--bg-card); }
+@media (max-width: 700px) { .lg-mx-grid { grid-template-columns:minmax(0, 1fr); } }
 .lg-link-2 { color:var(--text-secondary); font-weight:500; }
 .lg-tfoot .lg-link-2 { margin-left:6px; }
 .lg-calls li.lg-crow, .lg-calls li.lg-calldet { display:block; min-height:0; }

@@ -424,7 +424,9 @@ const Sidebar = {
             // rail only; the icon rail shows the flyout instead.
             navItem.dataset.tip = isCloudLocked
                 ? 'Requires a SecureVector cloud account: enroll this device to turn this on.'
-                : (item.tooltip || '');
+                : (item.id === 'terminals' && window.API && API.terminalsRemote && API.terminalsRemote())
+                    ? 'Works only when the app is opened on this machine (localhost)'
+                    : (item.tooltip || '');
             if (navItem.dataset.tip && !this.collapsed) navItem.title = navItem.dataset.tip;
 
             // Icon (SVG). The Guardian ML sentinel that used to render here
@@ -1898,6 +1900,9 @@ const Sidebar = {
         // already in flight to finish, not a guaranteed extra refetch.
         if (this._agentTaskViewsLoading) { if (force) this._agentTaskViewsRerun = true; return; }
         if ((this._agentTaskViewsLoaded && !force) || !window.API) return;
+        // Opened by a network address: Agent Sessions answer only on this
+        // machine, so the task list is not asked for at all.
+        if (API.terminalsLocked && API.terminalsLocked()) { this._agentTaskViewsLoaded = true; return; }
         this._agentTaskViewsLoading = true;
         Promise.all([API.terminalsTasks(), API.getJitRequests('pending').catch(() => ({ items: [] }))])
             .then(([result, approvals]) => {

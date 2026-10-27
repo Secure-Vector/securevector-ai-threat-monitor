@@ -3132,7 +3132,7 @@ const AgentRunsPage = {
             else if (act === 'unpick') { e.det[row.key] = false; this._renderRunsKeep(); }
             else if (act === 'approve' || act === 'deny') {
                 const req = found && found.node.req;
-                if (req && req.id === b.dataset.req) this._inlineDecide(tid, act, req, b.dataset.dur || null);
+                if (req && req.id === b.dataset.req && !(RT.controlsLocked && RT.controlsLocked())) this._inlineDecide(tid, act, req, b.dataset.dur || null);
             }
         });
         return el;

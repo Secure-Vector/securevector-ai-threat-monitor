@@ -28,8 +28,29 @@
         },
         DURATIONS: [['once', 'Allow once'], ['15m', '15 min'], ['1h', '1 h'], ['session', 'This session']],
         SEGMENTS: [['all', 'All'], ['tools', 'Tool calls'], ['held', 'Waiting or blocked']],
+        LOCKED_NOTE: 'Approvals and session controls work only when the app is opened on this machine (localhost).',
 
         _state: {},
+
+        /** A loopback host name: localhost, 127.0.0.0/8 or ::1. */
+        isLocalHost(host) {
+            let h = String(host || '').trim().toLowerCase();
+            if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+            if (h === 'localhost' || h === '::1') return true;
+            const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+            return !!m && m.slice(1).every(o => Number(o) <= 255);
+        },
+
+        /** Approvals and session controls are hidden when the page is not
+         *  opened on this machine, or once the terminals API refused it. The
+         *  server enforces both either way; this only keeps dead buttons
+         *  off the page. No location (tests) reads as this machine. */
+        controlsLocked() {
+            const api = (typeof API !== 'undefined' && API) || root.API;
+            if (api && api.terminalsRefused) return true;
+            const host = root.location && root.location.hostname;
+            return !!host && !this.isLocalHost(host);
+        },
 
         esc(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -795,7 +816,7 @@
                   `<button type="button" class="rt-nav" data-act="run" data-run="${e(ctx.prevRun || '')}" aria-label="Previous run in this session"${ctx.prevRun ? '' : ' disabled'}>‹</button>` +
                   `<button type="button" class="rt-nav" data-act="run" data-run="${e(ctx.nextRun || '')}" aria-label="Next run in this session"${ctx.nextRun ? '' : ' disabled'}>›</button>`
                 : '';
-            const stop = ctx.canStop ? '<button type="button" class="rt-stop" data-act="stop">Stop session</button>' : '';
+            const stop = ctx.canStop && !this.controlsLocked() ? '<button type="button" class="rt-stop" data-act="stop">Stop session</button>' : '';
             return `<div class="rt-head">` +
                 `<button type="button" class="rt-back" id="ar-back" data-act="back">← Observability</button>` +
                 `<div class="rt-head-main">` +
@@ -928,7 +949,11 @@
                 req && req.decision_source === 'cloud' && (req.status === 'approved' || req.status === 'denied')
                     ? ['Decided', e(this.cloudDecisionText(req))] : null,
             ]);
-            if (waiting) {
+            if (waiting && this.controlsLocked()) {
+                // Waiting and its expiry still show (badge above); the
+                // decision is made on the machine running the app.
+                html += `<p class="rt-scope rt-locked">${e(this.LOCKED_NOTE)}</p>`;
+            } else if (waiting) {
                 const primaryDeny = this.denyPrimary(req, s);
                 const busy = this.state(ctx.trace.trace_id).busy ? ' disabled' : '';
                 html += `<div class="rt-actions" role="group" aria-label="Decide this held call">` +
@@ -1099,9 +1124,10 @@
                     const what = `${g.tool_id || 'tool'}${g.call_preview ? ' · ' + String(g.call_preview).slice(0, 60) : ''}`;
                     const state = g.state === 'used' ? 'used' : g.state === 'revoked' ? 'revoked' : (d ? d[1] : g.duration) + (g.expires_at ? `, until ${this.clock(g.expires_at)}` : '');
                     return `<li><span class="rt-mono">${e(what)}</span><span class="rt-muted">${e(state)}</span>` +
-                        (g.state === 'active' ? `<button type="button" class="rt-btn sm" data-act="revoke" data-grant="${e(g.id)}">Revoke</button>` : '') + '</li>';
+                        (g.state === 'active' && !this.controlsLocked() ? `<button type="button" class="rt-btn sm" data-act="revoke" data-grant="${e(g.id)}">Revoke</button>` : '') + '</li>';
                 }).join('') + '</ul>';
                 apBody += '<p class="rt-scope">Every approval here applies only to this session.</p>';
+                if (grants.some(g => g.state === 'active') && this.controlsLocked()) apBody += `<p class="rt-scope rt-locked">${e(this.LOCKED_NOTE)}</p>`;
             }
 
             return [
@@ -1486,7 +1512,7 @@
             switch (act) {
                 case 'back': if (ctx.onBack) ctx.onBack(); break;
                 case 'run': if (el.dataset.run && ctx.onOpenRun) ctx.onOpenRun(el.dataset.run); break;
-                case 'stop': if (ctx.onStop) ctx.onStop(); break;
+                case 'stop': if (ctx.onStop && !this.controlsLocked()) ctx.onStop(); break;
                 case 'copy': this._copy(el); break;
                 case 'caret': {
                     const k = el.dataset.key;
@@ -1540,14 +1566,14 @@
                 }
                 case 'approve':
                 case 'deny': {
-                    if (st.busy || !ctx.onDecide) break;
+                    if (st.busy || !ctx.onDecide || this.controlsLocked()) break;
                     const found = this.find(ctx.tree, st.sel);
                     const req = found && found.node.req;
                     if (!req || req.id !== el.dataset.req) break;
                     ctx.onDecide(act, req, el.dataset.dur || null);
                     break;
                 }
-                case 'revoke': if (ctx.onRevoke && !el.disabled) { el.disabled = true; ctx.onRevoke(el.dataset.grant, el); } break;
+                case 'revoke': if (ctx.onRevoke && !el.disabled && !this.controlsLocked()) { el.disabled = true; ctx.onRevoke(el.dataset.grant, el); } break;
                 default: break;
             }
         },

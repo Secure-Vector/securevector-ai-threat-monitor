@@ -383,14 +383,14 @@ def test_lookups_are_capped():
 
 def test_ui_token_route_refuses_a_governed_caller():
     req = SimpleNamespace(
-        headers={"sec-fetch-site": "same-origin", "x-sv-terminal-hook": "tok"},
+        headers={"sec-fetch-site": "same-origin", "host": "127.0.0.1:8741", "x-sv-terminal-hook": "tok"},
         cookies={jit_routes.UI_PAGE_COOKIE: jit_routes._UI_PAGE_SECRET},
-        url=SimpleNamespace(port=8741), client=None,
+        url=SimpleNamespace(port=8741), client=SimpleNamespace(host="127.0.0.1", port=50000),
         app=SimpleNamespace(state=SimpleNamespace(terminal_manager=None)))
     with pytest.raises(HTTPException) as exc:
         asyncio.run(jit_routes.get_ui_token(req))
     assert exc.value.status_code == 403
-    req.headers = {"sec-fetch-site": "same-origin"}
+    req.headers = {"sec-fetch-site": "same-origin", "host": "127.0.0.1:8741"}
     assert asyncio.run(jit_routes.get_ui_token(req)) == {"token": TOKEN}
 
 

@@ -163,6 +163,20 @@ def _attach_confirmations(window: Any) -> None:
         confirmations.attach_shell(show_code=desktop_shell.make_code_display(window, activate))
 
 
+def desktop_url(host: str, port: int) -> str:
+    """The address the desktop window opens. A wildcard bind (0.0.0.0, ::,
+    empty) also listens on loopback, so the window opens 127.0.0.1: the
+    approval routes answer only there. A loopback bind keeps its name. A
+    bind to one specific address does not listen on loopback, so the window
+    keeps that address."""
+    h = str(host or "").strip()
+    if h in ("", "0.0.0.0", "::", "[::]"):
+        return f"http://127.0.0.1:{port}"
+    if ":" in h and not h.startswith("["):
+        h = f"[{h}]"
+    return f"http://{h}:{port}"
+
+
 def run_desktop(host: str, port: int, debug: bool) -> None:
     """Run the application with a native desktop window."""
     import os
@@ -172,7 +186,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
     assets_path = get_assets_path()
     loading_html = assets_path / "web" / "loading.html"
     favicon_path = assets_path / "favicon.ico"
-    app_url = f"http://{host}:{port}"
+    app_url = desktop_url(host, port)
 
     # Restore last window geometry (validated against the current screens).
     geometry = desktop_shell.restore_geometry()

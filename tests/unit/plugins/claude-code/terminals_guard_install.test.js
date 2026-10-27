@@ -227,9 +227,9 @@ test('a launch submits for an installed-but-ungoverned executor (it runs ungover
 
 test('index.html and pin assertions moved to the bumped versions', () => {
   const html = read('index.html');
-  assert.match(html, /api\.js\?v=344/);
-  assert.match(html, /terminals\.js\?v=129/);
-  assert.match(html, /styles\.css\?v=499/);
+  assert.match(html, /api\.js\?v=347/);
+  assert.match(html, /terminals\.js\?v=130/);
+  assert.match(html, /styles\.css\?v=500/);
 });
 
 test('the launch-form recheck reports a failed executors fetch and the ready timer is cancelled on harness change', () => {
