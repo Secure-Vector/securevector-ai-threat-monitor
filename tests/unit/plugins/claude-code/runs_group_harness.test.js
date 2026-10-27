@@ -220,3 +220,14 @@ test('running sessions: summary line count and harness header part', () => {
   assert.match(html, /2 sessions · 2 runs/);
   assert.doesNotMatch(html, /running/);
 });
+
+test('under a harness row the session header leads with the session id, not the harness name', () => {
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /this\.groupMode === 'harness' && first\.session_id\s*\n\s*\? ''\s*\n\s*: `<b>\$\{this\._esc\(first\.runtime_kind \|\| 'unknown'\)\}<\/b>`/);
+});
+
+test('the Group choice is remembered per browser', () => {
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /localStorage\.getItem\('sv-ar-group'\)/);
+  assert.match(src, /localStorage\.setItem\('sv-ar-group', this\.groupMode\)/);
+});

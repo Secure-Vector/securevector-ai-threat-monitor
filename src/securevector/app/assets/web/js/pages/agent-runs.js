@@ -461,6 +461,8 @@ const AgentRunsPage = {
 
     async render(container) {
         container.textContent = '';
+        // The Group choice (Session, Harness, None) is remembered per browser.
+        try { const g = localStorage.getItem('sv-ar-group'); if (g) this.groupMode = RunsList.groupModeFrom({ groupMode: g }); } catch (e) { /* private mode */ }
         // Consume one-shot filters handed off by a Map node click. A plain tab
         // navigation leaves them null → no change (avoids a stale filter sticking
         // around when the user opens Runs directly). Agent node → runtime filter;
@@ -1443,7 +1445,12 @@ const AgentRunsPage = {
             if (k === this.groupMode) o.selected = true;
             gsel.appendChild(o);
         });
-        gsel.addEventListener('change', () => { this.groupMode = RL.groupModeFrom({ groupMode: gsel.value }); this.pageIdx = 0; this.renderRuns(); });
+        gsel.addEventListener('change', () => {
+            this.groupMode = RL.groupModeFrom({ groupMode: gsel.value });
+            try { localStorage.setItem('sv-ar-group', this.groupMode); } catch (e) { /* private mode */ }
+            this.pageIdx = 0;
+            this.renderRuns();
+        });
         grp.appendChild(gsel);
         bar.appendChild(grp);
 
@@ -2440,7 +2447,11 @@ const AgentRunsPage = {
         if (!closed) head.insertAdjacentHTML('beforeend', '<span class="rl-sh-guide" aria-hidden="true"></span>');
         head.insertAdjacentHTML('beforeend',
             `<span class="rl-dot${running ? ' on' : ''}" role="img" aria-label="${running ? 'running' : 'ended'}">${running ? '●' : '○'}</span>` +
-            `<b>${this._esc(first.runtime_kind || 'unknown')}</b>` +
+            // Under a harness row the harness name is already the heading, so
+            // the session leads with its id instead of repeating it.
+            (this.groupMode === 'harness' && first.session_id
+                ? ''
+                : `<b>${this._esc(first.runtime_kind || 'unknown')}</b>`) +
             (RL.project(first) ? `<span class="rl-mono">${this._esc(RL.project(first))}</span>` : ''));
         if (first.session_id) head.appendChild(this._copyBtn(first.session_id, 'Copy session id'));
         head.insertAdjacentHTML('beforeend',
