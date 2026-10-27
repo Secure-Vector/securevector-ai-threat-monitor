@@ -1243,8 +1243,11 @@ const AgentRunsPage = {
             button.rl-sum-i:hover { background:var(--bg-hover,#1b212b); }
             button.rl-sum-i:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:1px; }
             button.rl-sum-i[aria-pressed="true"] { box-shadow:inset 0 0 0 1px currentColor; font-weight:600; }
-            .rl-now { display:inline-block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+            .rl-now { display:inline-flex; align-items:center; min-width:0; max-width:100%; overflow:hidden; white-space:nowrap;
                 font-size:12px; color:var(--text-secondary,#aeb7c2); }
+            /* The activity text gives way first; governance and egress stay visible. */
+            .rl-now > span { flex:none; }
+            .rl-now > .rl-now-act { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
             .rl-now > span + span::before { content:'·'; margin:0 6px; color:var(--text-muted,#7f8a97); }
             .rl-now .rl-now-gov { margin-left:8px; padding:0 6px; border-radius:4px; border:1px solid var(--border-light,#303844); }
             .rl-now .rl-now-gov.rl-red { border-color:color-mix(in srgb, var(--danger,#ef4444) 45%, transparent); }

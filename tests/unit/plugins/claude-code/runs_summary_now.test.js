@@ -222,7 +222,9 @@ test('a running session header carries the now segment; an ended header is uncha
 
 test('the now segment shrinks rather than overflowing the header', () => {
   const src = read('js/pages/agent-runs.js');
-  assert.match(src, /\.rl-now \{ display:inline-block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;/);
+  assert.match(src, /\.rl-now \{ display:inline-flex; align-items:center; min-width:0; max-width:100%; overflow:hidden; white-space:nowrap;/);
+  // The activity text truncates first; governance and egress stay visible.
+  assert.match(src, /\.rl-now > \.rl-now-act \{ flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; \}/);
   assert.match(src, /\.rl-sh\.rl-sh-wait \.rl-now \{ flex-shrink:1; \}/);
   assert.match(src, /if \(running && first\.session_id\) \{/);
 });
