@@ -78,11 +78,12 @@ const AgentRunsPage = {
     // Runs list (6.0): range, list filters, grouping, sort and paging.
     range: '24h',
     filters: null,         // RunsList.emptyFilters() once the page renders
-    groupBySession: true,
+    groupMode: 'session',  // Group: session | harness | none (RunsList.GROUP_MODES)
     sortKey: 'started',
     sortDir: 'desc',
     pageIdx: 0,
     _openSessions: {},     // session key -> true once opened (sessions start collapsed)
+    _openHarness: {},      // harness key -> false once closed (harness rows start open)
     _openRuns: [],         // trace ids open in place, oldest first (RunsList.INLINE_MAX_OPEN)
     _spanFilter: {},       // {trace_id: blocked|error}: a run's spans narrowed by its row badge
     _inline: {},           // trace id -> { seq, sig, trace, requests, grants, loading, error, open, det }
@@ -1285,6 +1286,18 @@ const AgentRunsPage = {
             .rl-morerow { position:relative; display:flex; align-items:center; min-height:34px; padding:4px 14px 4px 54px; font-size:12.5px;
                 border-bottom:1px solid var(--border-default,#232a33); }
             .rl-sh-guide { position:absolute; left:26px; top:calc(50% + 12px); bottom:-1px; border-left:1px solid var(--border-light,#303844); pointer-events:none; }
+            /* Group: Harness. The harness row sits one level above its
+               sessions; sessions, runs and spans move one guide level in,
+               with the harness guide running down beside them. */
+            .rl-hh { font-size:13.5px; }
+            .rl-hbody { position:relative; --rl-namex:156px; }
+            .rl-hbody::before { content:''; position:absolute; left:26px; top:0; bottom:0; border-left:1px solid var(--border-light,#303844); pointer-events:none; z-index:1; }
+            .rl-hbody .rl-sh { padding-left:38px; }
+            .rl-hbody .rl-sh::after { content:''; position:absolute; left:26px; top:50%; width:12px; border-top:1px solid var(--border-light,#303844); pointer-events:none; }
+            .rl-hbody .rl-sh-guide, .rl-hbody .rl-guide, .rl-hbody .rl-conn { left:50px; }
+            .rl-hbody .rl-row.rl-child { padding-left:82px; }
+            .rl-hbody .rl-morerow { padding-left:78px; }
+            .rl-table.rl-byharness .rl-hd { padding-left:82px; }
             .rl-c { min-width:0; }
             .rl-r { text-align:right; font-variant-numeric:tabular-nums; }
             .rl-num { font-variant-numeric:tabular-nums; }
@@ -1419,13 +1432,19 @@ const AgentRunsPage = {
         bar.appendChild(search);
 
         const grp = document.createElement('label');
-        grp.className = 'rl-check';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = !!this.groupBySession;
-        cb.addEventListener('change', () => { this.groupBySession = cb.checked; this.pageIdx = 0; this.renderRuns(); });
-        grp.appendChild(cb);
-        grp.appendChild(document.createTextNode(' Group by session'));
+        grp.className = 'rl-check rl-group';
+        grp.appendChild(document.createTextNode('Group'));
+        const gsel = document.createElement('select');
+        gsel.id = 'rl-group';
+        gsel.className = 'filter-select rl-range';
+        [['session', 'Session'], ['harness', 'Harness'], ['none', 'None']].forEach(([k, label]) => {
+            const o = document.createElement('option');
+            o.value = k; o.textContent = label;
+            if (k === this.groupMode) o.selected = true;
+            gsel.appendChild(o);
+        });
+        gsel.addEventListener('change', () => { this.groupMode = RL.groupModeFrom({ groupMode: gsel.value }); this.pageIdx = 0; this.renderRuns(); });
+        grp.appendChild(gsel);
         bar.appendChild(grp);
 
         const sel = document.createElement('select');
@@ -1497,7 +1516,7 @@ const AgentRunsPage = {
     },
 
     _viewState() {
-        return { filters: this.filters, range: this.range, groupBySession: this.groupBySession, sortKey: this.sortKey, sortDir: this.sortDir };
+        return { filters: this.filters, range: this.range, groupMode: this.groupMode, groupBySession: this.groupMode !== 'none', sortKey: this.sortKey, sortDir: this.sortDir };
     },
 
     _applyView(v) {
@@ -1506,7 +1525,7 @@ const AgentRunsPage = {
         const f = Object.assign(base, s.filters || {});
         Object.keys(base).forEach(k => { if (Array.isArray(base[k]) && !Array.isArray(f[k])) f[k] = []; });
         this.filters = f;
-        this.groupBySession = s.groupBySession !== false;
+        this.groupMode = RunsList.groupModeFrom(s);
         if (s.sortKey) { this.sortKey = s.sortKey; this.sortDir = s.sortDir === 'asc' ? 'asc' : 'desc'; }
         this.pageIdx = 0;
         const range = RunsList.RANGES[s.range] ? s.range : this.range;
@@ -2507,6 +2526,74 @@ const AgentRunsPage = {
         return { head, closed, moreRow };
     },
 
+    /** The harness row (Group: Harness): caret, name, sessions and runs,
+     *  waiting and blocked over all its sessions, coverage. Toggles like a
+     *  session header; starts open. */
+    _harnessHead(h) {
+        const RL = RunsList;
+        const ctx = this._ctx;
+        const whole = h.all || h;
+        const sessions = whole.sessions;
+        const runs = sessions.reduce((a, g) => a.concat(g.runs), []);
+        const closed = RL.harnessClosed(this._openHarness, h.key);
+        const head = document.createElement('div');
+        head.className = 'rl-sh rl-hh' + (closed ? ' closed' : '');
+        head.setAttribute('role', 'group');
+        head.setAttribute('aria-label', `Harness ${h.key}${h.continued ? ' (continued)' : ''}`);
+        const caret = document.createElement('button');
+        caret.type = 'button';
+        caret.className = 'rl-caret-btn';
+        caret.dataset.fk = 'harness:' + h.key;
+        caret.setAttribute('aria-expanded', closed ? 'false' : 'true');
+        caret.setAttribute('aria-label', closed ? `Expand harness ${h.key}` : `Collapse harness ${h.key}`);
+        caret.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        head.appendChild(caret);
+        if (!closed) head.insertAdjacentHTML('beforeend', '<span class="rl-sh-guide" aria-hidden="true"></span>');
+        const nS = sessions.length;
+        const nR = runs.length;
+        const nLive = RL.runningSessions(runs, ctx);
+        head.insertAdjacentHTML('beforeend',
+            `<b>${this._esc(h.key)}</b>` + (h.continued ? '<span class="rl-mute">(continued)</span>' : '') +
+            `<span class="rl-sub">${nS} session${nS === 1 ? '' : 's'}${nLive ? ` · ${nLive} running` : ''} · ${nR} run${nR === 1 ? '' : 's'}</span>`);
+        const waitN = whole.waiting != null ? whole.waiting : runs.reduce((a, r) => a + Number(r.waiting || 0), 0);
+        const blockN = whole.blocked != null ? whole.blocked : runs.reduce((a, r) => a + Number(r.blocked || 0), 0);
+        if (waitN > 0) {
+            const wb = document.createElement('button');
+            wb.type = 'button';
+            wb.className = 'rl-b rl-amb rl-wait';
+            wb.dataset.fk = 'wharness:' + h.key;
+            wb.setAttribute('aria-label', `Review the waiting call in ${h.key}`);
+            wb.title = `${waitN} call${waitN === 1 ? '' : 's'} waiting for approval across ${h.key} sessions. Open the call that expires soonest to decide.`;
+            wb.textContent = `${waitN} waiting for approval`;
+            wb.addEventListener('click', (ev) => { ev.stopPropagation(); this._jumpToWaiting(runs.map(r => r.trace_id)); });
+            head.appendChild(wb);
+            head.classList.add('rl-sh-wait');
+        }
+        if (blockN > 0) head.insertAdjacentHTML('beforeend', `<span class="rl-b rl-red">${blockN} blocked</span>`);
+        const cov = RL.coverageFor(h.key, ctx);
+        if (cov || (ctx && ctx.coverage)) {
+            const badge = document.createElement('span');
+            badge.className = 'rl-cov';
+            badge.textContent = RL.coverageLabel(cov);
+            const paths = (cov && cov.unchecked) || [];
+            badge.title = 'What SecureVector can check for this harness' + (paths.length ? `. Not checked: ${paths.join(', ')}` : '');
+            head.appendChild(badge);
+        }
+        head.style.cursor = 'pointer';
+        head.addEventListener('click', (ev) => {
+            const t = ev.target;
+            if (t && t.closest && t.closest('button, a, input, select, [data-act]')) return;
+            caret.click();
+        });
+        caret.addEventListener('click', () => {
+            const closing = !closed;
+            this._openHarness[h.key] = !closing;
+            if (closing && runs.some(r => r.trace_id === this.selected)) this._showList();
+            else this.renderRuns();
+        });
+        return { head, closed };
+    },
+
     _sortHeader(cols) {
         const hd = document.createElement('div');
         hd.className = 'rl-hd';
@@ -2603,7 +2690,8 @@ const AgentRunsPage = {
         this._renderSummary(shown);
         list.textContent = '';
         const review = this._reviewMode();
-        const flat = review || !this.groupBySession;
+        const flat = review || this.groupMode === 'none';
+        const byHarness = !flat && this.groupMode === 'harness';
         const rangeLabel = (RL.RANGES[this.range] || RL.RANGES['24h']).label.toLowerCase();
         if (!shown.length) {
             const msg = document.createElement('div');
@@ -2619,16 +2707,19 @@ const AgentRunsPage = {
         }
         const sorted = review ? RL.reviewOrder(shown, ctx) : RL.sortRuns(shown, this.sortKey, this.sortDir, ctx);
         // Grouped: sessions with a waiting approval lead, on page 1.
-        const ordered = flat ? sorted : RL.waitingFirst(sorted);
+        // By harness: each harness's sessions contiguous, before paging.
+        const ordered = flat ? sorted : byHarness ? RL.harnessOrder(RL.waitingFirst(sorted)) : RL.waitingFirst(sorted);
         // Grouped: page by session, so no session is split across pages.
         // Flat (and Needs review): page by run.
-        const info = flat ? RL.page(ordered, this.pageIdx, RL.PAGE_SIZE) : RL.pageSessions(ordered, this.pageIdx, RL.PAGE_SIZE);
+        const info = flat ? RL.page(ordered, this.pageIdx, RL.PAGE_SIZE)
+            : byHarness ? RL.pageHarness(ordered, this.pageIdx, RL.PAGE_SIZE) : RL.pageSessions(ordered, this.pageIdx, RL.PAGE_SIZE);
         this.pageIdx = info.page;
         const sortName = { started: 'newest first', duration: 'by duration', tokens: 'by tokens', cost: 'by cost', calls: 'by tool calls', status: 'by status', session: 'by session', host: 'by host' }[this.sortKey] || 'newest first';
         const sortText = this.sortKey === 'started' && this.sortDir === 'asc' ? 'oldest first' : sortName;
         this._renderStatusLine(review ? 'Waiting first, oldest first, then blocked'
-            : `Runs, ${flat ? '' : 'waiting first, then '}${sortText}${flat ? '' : ', grouped by session'}`);
+            : `Runs, ${flat ? '' : 'waiting first, then '}${sortText}${flat ? '' : byHarness ? ', grouped by harness' : ', grouped by session'}`);
         list.classList.toggle('rl-flatlist', flat);
+        list.classList.toggle('rl-byharness', byHarness);
         if (flat) {
             list.appendChild(this._sortHeader([['started', 'Started'], [null, 'Run'], ['session', 'Session'], ['host', 'Host · user'],
                 ['status', review ? 'Decision' : 'Status · decision'], ['calls', RL_CALLS_HEAD, true, 'tool calls: allowed, waiting, blocked'],
@@ -2637,27 +2728,44 @@ const AgentRunsPage = {
         } else {
             list.appendChild(this._sortHeader([['started', 'Started'], [null, 'Run'], ['status', 'Status · decision'],
                 ['calls', RL_CALLS_HEAD, true, 'tool calls: allowed, waiting, blocked'], ['duration', 'Duration', true], ['tokens', 'Tokens', true], ['cost', 'Cost', true]]));
-            info.groups.forEach(g => {
+            const addSession = (into, g) => {
                 // The open run always shows, even when it is an earlier one.
                 const { rows, hidden } = RL.sessionRows(g, !!this._expandedSessions[g.key], this.selected);
                 const { head, closed, moreRow } = this._sessionHead(g, hidden);
-                list.appendChild(head);
+                into.appendChild(head);
                 if (closed) return;
                 rows.forEach((r, i) => {
                     const lastRow = !moreRow && i === rows.length - 1;
-                    list.appendChild(this._runRow(r, false, true, lastRow));
+                    into.appendChild(this._runRow(r, false, true, lastRow));
                     // Spans under a run that is not the session's last keep
                     // the session guide running beside them.
-                    this._inlineAppend(list, r, lastRow ? 'end' : 'mid');
+                    this._inlineAppend(into, r, lastRow ? 'end' : 'mid');
                 });
-                if (moreRow) list.appendChild(moreRow);
-            });
+                if (moreRow) into.appendChild(moreRow);
+            };
+            if (byHarness) {
+                // A harness row, its sessions one guide level in. A harness
+                // that runs over a page break repeats its row, "(continued)".
+                info.harnesses.forEach(h => {
+                    const { head, closed } = this._harnessHead(h);
+                    list.appendChild(head);
+                    if (closed) return;
+                    const body = document.createElement('div');
+                    body.className = 'rl-hbody';
+                    h.sessions.forEach(g => addSession(body, g));
+                    list.appendChild(body);
+                });
+            } else {
+                info.groups.forEach(g => addSession(list, g));
+            }
         }
         if (review) {
             const sessions = new Set(shown.map(r => r.session_id || r.trace_id)).size;
             this._renderPager(info, `${shown.length} run${shown.length === 1 ? '' : 's'} in ${sessions} session${sessions === 1 ? '' : 's'} need${shown.length === 1 ? 's' : ''} review`);
         } else if (flat) {
             this._renderPager(info, `Runs ${info.from}–${info.to} of ${info.total.toLocaleString()} in the ${rangeLabel}`);
+        } else if (byHarness) {
+            this._renderPager(info, `Harnesses ${info.hFrom}–${info.hTo} · sessions ${info.from}–${info.to} of ${info.total.toLocaleString()} · ${info.totalRuns.toLocaleString()} run${info.totalRuns === 1 ? '' : 's'} in the ${rangeLabel}`);
         } else {
             this._renderPager(info, `Sessions ${info.from}–${info.to} of ${info.total.toLocaleString()} · ${info.totalRuns.toLocaleString()} run${info.totalRuns === 1 ? '' : 's'} in the ${rangeLabel}`);
         }
@@ -3159,10 +3267,11 @@ const AgentRunsPage = {
         // The run must be on the list: on its page, its session open and
         // the run shown even when it is an earlier one.
         const review = this._reviewMode();
-        const flat = review || !this.groupBySession;
+        const flat = review || this.groupMode === 'none';
+        const byHarness = !flat && this.groupMode === 'harness';
         const shown = this._filteredRuns();
         const sorted = review ? RL.reviewOrder(shown, this._ctx) : RL.sortRuns(shown, this.sortKey, this.sortDir, this._ctx);
-        const ordered = flat ? sorted : RL.waitingFirst(sorted);
+        const ordered = flat ? sorted : byHarness ? RL.harnessOrder(RL.waitingFirst(sorted)) : RL.waitingFirst(sorted);
         const page = RL.pageOfRun(ordered, traceId, flat, RL.PAGE_SIZE);
         if (page < 0) return toDetails();
         this.pageIdx = page;
@@ -3170,6 +3279,7 @@ const AgentRunsPage = {
         if (!flat) {
             this._openSessions[key] = true;
             const g = RL.groupBySession(ordered).find(x => x.key === key);
+            if (byHarness) this._openHarness[RL.harnessKey(g ? g.runs[0] : r)] = true;
             if (g && !RL.sessionRows(g, false, this.selected).rows.includes(r)) this._expandedSessions[key] = true;
         }
         if (this._inDetail()) this._showList();

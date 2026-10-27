@@ -361,6 +361,90 @@ const RunsList = {
         return info;
     },
 
+    // ------------------------------------------------- group by harness
+    // Group: Session | Harness | None. Harness puts a row per harness
+    // (runtime_kind) above its sessions; paging stays by session.
+
+    GROUP_MODES: ['session', 'harness', 'none'],
+
+    /** The grouping a saved state asks for. Older states carry only the
+     *  "Group by session" boolean: true (or absent) is Session, false None. */
+    groupModeFrom(state) {
+        const s = state || {};
+        if (this.GROUP_MODES.includes(s.groupMode)) return s.groupMode;
+        return s.groupBySession === false ? 'none' : 'session';
+    },
+
+    /** Distinct sessions with a running run among `runs`. */
+    runningSessions(runs, ctx) {
+        return new Set((runs || []).filter(r => this.isRunning(r, ctx)).map(r => this._sessionKey(r))).size;
+    },
+
+    harnessKey(r) { return (r && r.runtime_kind) || 'unknown'; },
+
+    /** Session groups (in list order) under their harness. A harness with a
+     *  waiting session leads, then list order (the place of its first
+     *  session, so the soonest-expiring waiting harness and the person's
+     *  sort win); its sessions keep the order they came in. */
+    groupByHarness(sessionGroups) {
+        const out = [];
+        const at = new Map();
+        (sessionGroups || []).forEach((g, i) => {
+            const k = this.harnessKey(g.runs[0]);
+            if (!at.has(k)) { const h = { key: k, sessions: [], runs: 0, waiting: 0, blocked: 0, first: i }; at.set(k, h); out.push(h); }
+            const h = at.get(k);
+            h.sessions.push(g);
+            h.runs += g.runs.length;
+            g.runs.forEach(r => {
+                h.waiting += Number(r.waiting || 0);
+                h.blocked += Number(r.blocked || 0);
+            });
+        });
+        return out.sort((a, b) => ((b.waiting > 0) - (a.waiting > 0)) || (a.first - b.first));
+    },
+
+    /** Runs reordered so each harness's sessions are contiguous, in
+     *  groupByHarness order; session paging then works unchanged. */
+    harnessOrder(orderedRuns) {
+        return this.groupByHarness(this.groupBySession(orderedRuns || []))
+            .reduce((a, h) => a.concat(...h.sessions.map(g => g.runs)), []);
+    },
+
+    /** Harness paging: by session over harnessOrder(orderedRuns). Adds
+     *  `harnesses` for the page: { key, sessions (on this page), all (the
+     *  whole harness), continued (its earlier sessions are on an earlier
+     *  page) }, and hFrom / hTo / hTotal for the pager. */
+    pageHarness(orderedRuns, pageIdx, size) {
+        // Idempotent: harnessOrder of an already harness-ordered list is the
+        // same list, so callers may pass either order.
+        const ordered = this.harnessOrder(orderedRuns);
+        const info = this.pageSessions(ordered, pageIdx, size);
+        const all = this.groupByHarness(this.groupBySession(ordered));
+        const idx = new Map(all.map((h, i) => [h.key, i]));
+        const page = [];
+        info.groups.forEach(g => {
+            const k = this.harnessKey(g.runs[0]);
+            let h = page[page.length - 1];
+            if (!h || h.key !== k) {
+                const whole = all[idx.get(k)];
+                h = { key: k, sessions: [], all: whole, continued: whole.sessions[0].key !== g.key };
+                page.push(h);
+            }
+            h.sessions.push(g);
+        });
+        info.harnesses = page;
+        info.hTotal = all.length;
+        info.hFrom = page.length ? idx.get(page[0].key) + 1 : 0;
+        info.hTo = page.length ? idx.get(page[page.length - 1].key) + 1 : 0;
+        info.ordered = ordered;
+        return info;
+    },
+
+    /** Harness rows start open; a harness the person closed stays closed. */
+    harnessClosed(openHarness, key) {
+        return !!openHarness && openHarness[key] === false;
+    },
+
     /** The rows a session shows: all when expanded, else its newest
      *  SESSION_PREVIEW plus the open run. `hidden` is exact: the session's
      *  matching runs minus the rows shown. */
@@ -723,6 +807,8 @@ const RunsList = {
         const dec = (filters && filters.decision) || [];
         const waiting = sum('waiting'), blocked = sum('blocked'), tokens = sum('tokens');
         const items = [{ key: 'runs', text: `${list.length.toLocaleString()} run${list.length === 1 ? '' : 's'}` }];
+        const live = this.runningSessions(list, ctx);
+        items.push({ key: 'running', n: live, text: `${live} session${live === 1 ? '' : 's'} running` });
         items.push({ key: 'waiting', n: waiting, text: `${waiting} waiting for approval`, tone: waiting ? 'amber' : '',
             filter: 'waiting', pressed: dec.includes('waiting') });
         items.push({ key: 'refused', n: blocked, text: `${blocked} call${blocked === 1 ? '' : 's'} refused`, tone: blocked ? 'red' : '',

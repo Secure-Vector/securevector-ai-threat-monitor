@@ -43,10 +43,10 @@ test('summary line: runs, waiting, refused, then median; cost omitted when not r
   ];
   const ctx = RL.buildCtx(shown, { now: NOW });
   const items = RL.summaryItems(shown, ctx, '24h', RL.emptyFilters(), fmtDur);
-  assert.deepEqual(texts(items), ['3 runs', '1 waiting for approval', '2 calls refused', 'median run 4m']);
-  assert.equal(items[1].tone, 'amber');
-  assert.equal(items[2].tone, 'red');
-  assert.equal(items[2].title, 'tool policy + egress · listed runs · last 24h');
+  assert.deepEqual(texts(items), ['3 runs', '0 sessions running', '1 waiting for approval', '2 calls refused', 'median run 4m']);
+  assert.equal(items[2].tone, 'amber');
+  assert.equal(items[3].tone, 'red');
+  assert.equal(items[3].title, 'tool policy + egress · listed runs · last 24h');
   assert.ok(!texts(items).some(t => /Not recorded|\$/.test(t)), 'no cost item when cost was not recorded');
 });
 
@@ -69,7 +69,7 @@ test('summary line: cost and tokens show only when cost was recorded; median not
   // one finished run: no median; zero counts stay plain and neutral
   const one = [shown[0]];
   const t1 = texts(RL.summaryItems(one, RL.buildCtx(one, { now: NOW }), '1h', RL.emptyFilters(), fmtDur));
-  assert.deepEqual(t1, ['1 run', '0 waiting for approval', '0 calls refused', '$0.50 · 12k tokens']);
+  assert.deepEqual(t1, ['1 run', '0 sessions running', '0 waiting for approval', '0 calls refused', '$0.50 · 12k tokens']);
 });
 
 function pageHarness() {
