@@ -159,10 +159,13 @@ test('under 800px: Duration, Tokens and Cost give way and the table drops its fl
   assert.match(b, /\.rl-hd \.rl-c \{ white-space:normal; \}/);
 });
 
-test('under 800px the session header wraps and the now segment takes its own line', () => {
-  const b = block(cssOf(), '@container (max-width:800px)');
+test('the now segment always takes its own line, indented to the session dot', () => {
+  const css = cssOf();
+  assert.match(css, /\.rl-sh \.rl-now, \.rl-sh\.rl-sh-wait \.rl-now \{ order:1; flex:1 1 100%; max-width:100%; padding-left:37px;/);
+  // One guide level deeper under a harness row.
+  assert.match(css, /\.rl-hbody \.rl-sh \.rl-now, \.rl-hbody \.rl-sh\.rl-sh-wait \.rl-now \{ padding-left:32px; \}/);
+  const b = block(css, '@container (max-width:800px)');
   assert.match(b, /\.rl-sh, \.rl-sh\.rl-sh-wait \{ flex-wrap:wrap; \}/);
-  assert.match(b, /\.rl-sh \.rl-now, \.rl-sh\.rl-sh-wait \.rl-now \{ order:1; flex:1 1 100%; max-width:100%; padding-left:75px;/);
 });
 
 test('under 520px the grouped list drops Started; the flat list scrolls in its own box', () => {

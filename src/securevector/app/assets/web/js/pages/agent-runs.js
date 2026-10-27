@@ -1343,6 +1343,10 @@ const AgentRunsPage = {
             .rl-sh.rl-sh-wait .rl-cov { flex-shrink:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
             .rl-sh.rl-sh-wait .rl-sh-right { flex-shrink:0; white-space:nowrap; }
             .rl-sh.rl-sh-wait .rl-now { flex-shrink:1; }
+            /* The latest call sits on its own line under the session, indented
+               to the session's dot, so it reads as part of that session. */
+            .rl-sh .rl-now, .rl-sh.rl-sh-wait .rl-now { order:1; flex:1 1 100%; max-width:100%; padding-left:37px; box-sizing:border-box; }
+            .rl-hbody .rl-sh .rl-now, .rl-hbody .rl-sh.rl-sh-wait .rl-now { padding-left:32px; }
             /* Narrow list (the list box, not the window, so a side pane
                counts too): Duration, Tokens and Cost give way, the table
                fits its box, and a session header wraps with the "now"
@@ -1358,7 +1362,6 @@ const AgentRunsPage = {
                 .rl-hd .rl-c { white-space:normal; }
                 .rl-sh, .rl-sh.rl-sh-wait { flex-wrap:wrap; }
                 .rl-sh.rl-sh-wait > * { flex-shrink:1; min-width:0; }
-                .rl-sh .rl-now, .rl-sh.rl-sh-wait .rl-now { order:1; flex:1 1 100%; max-width:100%; padding-left:75px; box-sizing:border-box; }
                 .rl-sh .rl-sh-right { margin-left:auto; flex-wrap:wrap; }
             }
             @container (max-width:520px) {
