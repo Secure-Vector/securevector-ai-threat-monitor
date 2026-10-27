@@ -197,7 +197,7 @@ function headHarness(liveRows) {
 }
 
 test('a running session header carries the now segment; an ended header is unchanged', () => {
-  const runRunning = { trace_id: 't1', session_id: 's1', runtime_kind: 'claude-code', started_at: at(3), ended_at: null, is_live: true, status: 'running' };
+  const runRunning = { trace_id: 't1', session_id: 's1', runtime_kind: 'claude-code', started_at: at(3), ended_at: null, is_live: true, status: 'running', blocked: 1 };
   const { P, RL } = headHarness([live({ blocked: 1, last_call: { function_name: 'Bash', args_preview: '{"command":"echo <b>hi</b>"}', at: iso(12) } })]);
   P.runs = [runRunning];
   P._ctx = RL.buildCtx(P.runs, { now: NOW, live: P._liveData });
@@ -206,7 +206,7 @@ test('a running session header carries the now segment; an ended header is uncha
   if (running) {
     assert.match(head.html, /<span class="rl-now" title="[^"]*">/);
     assert.match(head.html, /<span class="rl-now-act">Bash · echo &lt;b&gt;hi&lt;\/b&gt; · 12s ago<\/span>/);
-    assert.match(head.html, /<span class="rl-now-gov rl-red">Blocked 1<\/span>/);
+    assert.match(head.html, /<span class="rl-now-gov rl-red" title="1 blocked call in this session, last 24h">Blocked 1<\/span>/);
     assert.match(head.html, /<span class="rl-now-eg">Egress none observed<\/span>/);
   } else {
     assert.fail('the fixture run should read as running from the live row');

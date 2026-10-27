@@ -1325,6 +1325,31 @@ const AgentRunsPage = {
             .rl-sh.rl-sh-wait .rl-cov { flex-shrink:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
             .rl-sh.rl-sh-wait .rl-sh-right { flex-shrink:0; white-space:nowrap; }
             .rl-sh.rl-sh-wait .rl-now { flex-shrink:1; }
+            /* Narrow list (the list box, not the window, so a side pane
+               counts too): Duration, Tokens and Cost give way, the table
+               fits its box, and a session header wraps with the "now"
+               segment on a line of its own under the harness name. Below
+               520px Started gives way too; the flat list keeps a floor and
+               scrolls inside its own box, never the page. */
+            .rl-tablewrap { container-type:inline-size; max-width:100%; }
+            @container (max-width:800px) {
+                .ar-runlist.rl-table, .ar-runlist.rl-table.rl-flatlist { min-width:0; }
+                .rl-table { --rl-cols:56px minmax(0,1.2fr) minmax(0,1fr) 140px; }
+                .rl-table.rl-flatlist { --rl-cols:56px minmax(0,1fr) minmax(0,.8fr) minmax(0,.6fr) minmax(0,1fr) 140px; }
+                .rl-hd > .rl-c:nth-last-child(-n+3), .rl-row > .rl-c:nth-last-child(-n+3) { display:none; }
+                .rl-hd .rl-c { white-space:normal; }
+                .rl-sh, .rl-sh.rl-sh-wait { flex-wrap:wrap; }
+                .rl-sh.rl-sh-wait > * { flex-shrink:1; min-width:0; }
+                .rl-sh .rl-now, .rl-sh.rl-sh-wait .rl-now { order:1; flex:1 1 100%; max-width:100%; padding-left:75px; box-sizing:border-box; }
+                .rl-sh .rl-sh-right { margin-left:auto; flex-wrap:wrap; }
+            }
+            @container (max-width:520px) {
+                .rl-table:not(.rl-flatlist) { --rl-cols:minmax(0,1fr) minmax(0,1.1fr) 96px; }
+                .rl-stcell .rl-b { white-space:normal; }
+                .rl-table:not(.rl-flatlist) .rl-hd > :nth-child(1 of .rl-c),
+                .rl-table:not(.rl-flatlist) .rl-row > :nth-child(1 of .rl-c) { display:none; }
+                .ar-runlist.rl-table.rl-flatlist { min-width:600px; }
+            }
             .rl-pager { display:flex; align-items:center; gap:8px; justify-content:flex-start; font-size:12.5px; }
             .rl-pager .rl-sub { margin-right:4px; }
             .ar-layout.runs-v2 .ar-listview { padding-bottom:80px; }
@@ -2200,13 +2225,18 @@ const AgentRunsPage = {
     /** The "now" segment of a running session's header: latest activity,
      *  governance badge, egress in the Live grid's words. '' without a
      *  live row. */
-    _sessionNowHtml(sid) {
+    _sessionNowHtml(sid, runs) {
         const live = ((this._liveData && this._liveData.sessions) || []).find(s => s && s.session_id === sid);
-        const n = RunsList.sessionNow(live, (this._ctx && this._ctx.now) || Date.now(), window.LiveGridModel, window.RunTrace);
+        // Blocked counts the session's listed runs in the range, as the
+        // summary line does, never the live row's all-time total.
+        const scope = Array.isArray(runs)
+            ? { blocked: runs.reduce((a, r) => a + Number(r.blocked || 0), 0), rangeKey: this.range,
+                filtered: !!(this.filters && Array.isArray(this.filters.decision) && this.filters.decision.length) } : null;
+        const n = RunsList.sessionNow(live, (this._ctx && this._ctx.now) || Date.now(), window.LiveGridModel, window.RunTrace, scope);
         if (!n) return '';
         const parts = [];
         if (n.activity) parts.push(`<span class="rl-now-act">${this._esc(n.activity)}</span>`);
-        if (n.gov) parts.push(`<span class="rl-now-gov${n.gov.key === 'blocked' ? ' rl-red' : ''}">${this._esc(n.gov.text)}</span>`);
+        if (n.gov) parts.push(`<span class="rl-now-gov${n.gov.key === 'blocked' ? ' rl-red' : ''}"${n.gov.title ? ` title="${this._esc(n.gov.title)}"` : ''}>${this._esc(n.gov.text)}</span>`);
         if (n.egress) parts.push(`<span class="rl-now-eg${n.egress.key === 'blocked' ? ' rl-red-t' : ''}">${this._esc(n.egress.text)}</span>`);
         if (!parts.length) return '';
         const label = [n.activity, n.gov && n.gov.text, n.egress && n.egress.text].filter(Boolean).join(', ');
@@ -2418,7 +2448,7 @@ const AgentRunsPage = {
         }
         // A running session says what it is doing now, from the live row.
         if (running && first.session_id) {
-            const nowHtml = this._sessionNowHtml(first.session_id);
+            const nowHtml = this._sessionNowHtml(first.session_id, sessRuns);
             if (nowHtml) head.insertAdjacentHTML('beforeend', nowHtml);
         }
         const right = document.createElement('span');

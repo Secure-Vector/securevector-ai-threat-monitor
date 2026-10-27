@@ -390,15 +390,46 @@
                 : (s && typeof s.egress_visible === 'boolean' ? s.egress_visible : null);
             if (visible === false) return { key: 'off', text: 'Egress not monitored' };
             if (visible === null) return { key: 'missing', text: 'Not synced yet' };
+            // A flagged destination leads, in red, whatever egress came after.
+            const al = s && s.alert && s.alert.host ? String(s.alert.host) : '';
+            if (al) return { key: 'blocked', text: al, host: al };
             const le = s && s.last_egress;
-            if (le && le.host) return { key: le.action === 'block' ? 'blocked' : 'host', text: String(le.host), host: String(le.host) };
+            if (le && le.host) return { key: this.egressRed(s, le.host, le.action === 'block') ? 'blocked' : 'host', text: String(le.host), host: String(le.host) };
             const hosts = (eg && Array.isArray(eg.hosts)) ? eg.hosts.filter(h => h && h.host) : [];
             if (hosts.length) {
                 const h = hosts.find(x => x.status === 'blocked' || x.status === 'waiting') || hosts[0];
-                return { key: h.status === 'blocked' ? 'blocked' : 'host', text: String(h.host), host: String(h.host) };
+                return { key: this.egressRed(s, h.host, h.status === 'blocked') ? 'blocked' : 'host', text: String(h.host), host: String(h.host) };
             }
             if (!eg && s && s.last_egress === undefined) return { key: 'missing', text: 'Not synced yet' };
             return { key: 'none', text: 'No egress observed' };
+        },
+
+        /** A host as compared: trimmed, lower case, brackets and port
+         *  dropped, no trailing dot. */
+        normHost(host) {
+            let h = String(host || '').trim().toLowerCase();
+            if (h.startsWith('[')) h = h.slice(1, h.indexOf(']') > 0 ? h.indexOf(']') : undefined);
+            else if (/^[^:]+:\d+$/.test(h)) h = h.replace(/:\d+$/, '');
+            return h.replace(/\.+$/, '');
+        },
+
+        /** Loopback: exactly localhost, 127.0.0.0/8 or ::1. */
+        isLoopback(host) {
+            const h = this.normHost(host);
+            if (h === 'localhost' || h === '::1') return true;
+            const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+            return !!m && m.slice(1).every(o => Number(o) <= 255);
+        },
+
+        /** Egress is red only when that destination was blocked or the
+         *  suspicious-egress rules flagged it. Loopback is the machine
+         *  itself: neutral, its blocks count under Blocked. */
+        egressRed(s, host, blocked) {
+            const h = this.normHost(host);
+            const al = s && s.alert && s.alert.host ? this.normHost(s.alert.host) : '';
+            if (al && al === h) return true;
+            if (this.isLoopback(h)) return false;
+            return !!blocked;
         },
 
         /** The latest governance result in plain words. */

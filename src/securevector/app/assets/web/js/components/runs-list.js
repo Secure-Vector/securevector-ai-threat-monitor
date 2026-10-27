@@ -757,8 +757,11 @@ const RunsList = {
      *  activity (tool, short target, age) or "Quiet 7m"; a governance badge
      *  (Blocked N, or Governed; none while waiting, the waiting button says
      *  it); egress in the Live grid's words. LGM is LiveGridModel, RT is
-     *  RunTrace. Null without a live row. */
-    sessionNow(live, now, LGM, RT) {
+     *  RunTrace. Null without a live row. `scope` ({ blocked, rangeKey })
+     *  counts Blocked over the session's runs in the selected range, the
+     *  same runs the summary line counts; without it the live row's own
+     *  all-time count is used. */
+    sessionNow(live, now, LGM, RT, scope) {
         if (!live || !LGM) return null;
         const quiet = Number(live.quiet_seconds);
         let activity = '';
@@ -775,10 +778,12 @@ const RunsList = {
                 : (isFinite(quiet) && live.quiet_seconds != null ? `${LGM.dur(quiet)} ago` : '');
             activity = [g.tool, target, age].filter(Boolean).join(' · ');
         }
-        const blocked = Number(live.blocked || 0);
+        const scoped = !!(scope && scope.blocked != null);
+        const blocked = Number((scoped ? scope.blocked : live.blocked) || 0);
         const gov = blocked > 0 ? { key: 'blocked', text: `Blocked ${blocked}` }
             : Number(live.waiting || 0) > 0 ? null
                 : { key: 'governed', text: 'Governed' };
+        if (gov && scoped) gov.title = `${blocked} blocked call${blocked === 1 ? '' : 's'} in this session, ${this.windowShort(scope.rangeKey)}${scope.filtered ? ' with the current filters' : ''}`;
         const es = LGM.egressState(live, null);
         // Always led by "Egress", in the Live grid's states.
         const egText = es.host ? `Egress ${es.text}`
