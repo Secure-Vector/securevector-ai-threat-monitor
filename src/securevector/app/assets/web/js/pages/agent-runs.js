@@ -78,7 +78,7 @@ const AgentRunsPage = {
     // Runs list (6.0): range, list filters, grouping, sort and paging.
     range: '24h',
     filters: null,         // RunsList.emptyFilters() once the page renders
-    groupMode: 'session',  // Group: session | harness | none (RunsList.GROUP_MODES)
+    groupMode: 'harness',  // Group: harness (default) | session | none (RunsList.GROUP_MODES)
     sortKey: 'started',
     sortDir: 'desc',
     pageIdx: 0,
@@ -1451,7 +1451,7 @@ const AgentRunsPage = {
         const gsel = document.createElement('select');
         gsel.id = 'rl-group';
         gsel.className = 'filter-select rl-range';
-        [['session', 'Session'], ['harness', 'Harness'], ['none', 'None']].forEach(([k, label]) => {
+        [['harness', 'Harness'], ['session', 'Session'], ['none', 'None']].forEach(([k, label]) => {
             const o = document.createElement('option');
             o.value = k; o.textContent = label;
             if (k === this.groupMode) o.selected = true;

@@ -86,26 +86,27 @@ test('a run without runtime_kind groups under "unknown"', () => {
   assert.equal(hs[0].key, 'unknown');
 });
 
-test('group preference: new select values, old boolean maps to Session or None', () => {
+test('group preference: Harness by default; old boolean false maps to None', () => {
   const RL = loadRL();
-  assert.equal(RL.groupModeFrom({}), 'session');
-  assert.equal(RL.groupModeFrom(null), 'session');
-  assert.equal(RL.groupModeFrom({ groupBySession: true }), 'session');
+  assert.equal(RL.groupModeFrom({}), 'harness');
+  assert.equal(RL.groupModeFrom(null), 'harness');
+  assert.equal(RL.groupModeFrom({ groupBySession: true }), 'harness');
+  assert.equal(RL.groupModeFrom({ groupMode: 'session' }), 'session');
   assert.equal(RL.groupModeFrom({ groupBySession: false }), 'none');
   assert.equal(RL.groupModeFrom({ groupMode: 'harness', groupBySession: true }), 'harness');
   assert.equal(RL.groupModeFrom({ groupMode: 'bogus', groupBySession: false }), 'none');
   const { P } = loadPage();
-  assert.equal(P.groupMode, 'session', 'default stays Session');
+  assert.equal(P.groupMode, 'harness', 'Harness is the default');
   P.groupMode = 'harness';
   const v = P._viewState();
   assert.equal(v.groupMode, 'harness');
   assert.equal(v.groupBySession, true, 'the old key stays readable');
 });
 
-test('toolbar: a Group select (Session, Harness, None) replaces the checkbox', () => {
+test('toolbar: a Group select (Harness, Session, None) replaces the checkbox', () => {
   const src = read('js/pages/agent-runs.js');
   assert.doesNotMatch(src, /Group by session/);
-  assert.match(src, /\['session', 'Session'\], \['harness', 'Harness'\], \['none', 'None'\]/);
+  assert.match(src, /\['harness', 'Harness'\], \['session', 'Session'\], \['none', 'None'\]/);
   assert.match(src, /gsel\.id = 'rl-group'/);
 });
 

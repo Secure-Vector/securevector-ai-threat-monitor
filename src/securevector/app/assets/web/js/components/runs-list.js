@@ -367,12 +367,14 @@ const RunsList = {
 
     GROUP_MODES: ['session', 'harness', 'none'],
 
-    /** The grouping a saved state asks for. Older states carry only the
-     *  "Group by session" boolean: true (or absent) is Session, false None. */
+    /** The grouping a saved state asks for. Harness is the default (owner,
+     *  6.1): every harness once, its sessions under it. Older states carry
+     *  only the "Group by session" boolean: false means None, anything
+     *  else the default. */
     groupModeFrom(state) {
         const s = state || {};
         if (this.GROUP_MODES.includes(s.groupMode)) return s.groupMode;
-        return s.groupBySession === false ? 'none' : 'session';
+        return s.groupBySession === false ? 'none' : 'harness';
     },
 
     /** Distinct sessions with a running run among `runs`. */
