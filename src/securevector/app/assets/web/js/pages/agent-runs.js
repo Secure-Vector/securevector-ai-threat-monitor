@@ -1406,9 +1406,15 @@ const AgentRunsPage = {
             .rl-tg.rl-tg-down { top:calc(50% + 12px); }
             .rl-tc { position:absolute; left:calc(var(--rl-namex) + var(--rl-x)); top:50%; width:10px; border-top:1px solid var(--border-light); pointer-events:none; }
             .rl-row .rl-rcaret { margin-right:0; }
-            .rl-det { font:inherit; font-size:12px; flex:0 0 auto; margin-left:auto; min-height:24px; padding:1px 9px; border-radius:6px; cursor:pointer;
-                border:1px solid var(--border-default); background:var(--bg-card); color:var(--text-secondary); }
-            .rl-det:hover { color:var(--text-primary); border-color:var(--accent-primary); }
+            /* Details is the one way off this table, so it reads as a real
+               button: accent outline and an arrow, filled on hover. */
+            .rl-det { font:inherit; font-size:12px; font-weight:600; flex:0 0 auto; margin-left:auto; min-height:26px; padding:2px 10px; border-radius:6px; cursor:pointer;
+                display:inline-flex; align-items:center; gap:5px;
+                border:1px solid color-mix(in srgb, var(--accent-primary,#5eadb8) 55%, transparent);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 10%, transparent); color:var(--accent-primary,#5eadb8); }
+            .rl-det::after { content:'\u2192'; font-size:13px; line-height:1; }
+            .rl-det.rl-only::after { content:'\u2315'; }
+            .rl-det:hover { background:var(--accent-primary,#5eadb8); border-color:var(--accent-primary,#5eadb8); color:var(--bg-primary,#0b0f14); }
             .rl-det:focus-visible, .rl-spanrow:focus-visible { outline:2px solid var(--accent-primary); outline-offset:-2px; }
             .rl-spanrow { font-size:12.5px; padding-top:6px; padding-bottom:6px; }
             .rl-spanrow .rl-name { padding-left:var(--rl-ind); }
@@ -2413,7 +2419,7 @@ const AgentRunsPage = {
             `<span class="rl-c rl-mono rl-sub">${this._esc(this._clock(started))}</span>`,
             `<span class="rl-c rl-name">${caret}<span class="ar-run-rt">${this._esc(name)}</span>` +
                 (health ? `<span class="ar-row-health">${TraceSteps.badgesHtml(r.health)}</span>` : '') +
-                `<button type="button" class="rl-det" data-act="details" data-fk="det:${this._esc(r.trace_id)}" aria-label="Details: open the full trace of ${this._esc(name)}">Details</button></span>`,
+                `<button type="button" class="rl-det" data-act="details" data-fk="det:${this._esc(r.trace_id)}" aria-label="Details: open the full trace of ${this._esc(name)}">Open details</button></span>`,
         ];
         if (flat) {
             cells.push(`<span class="rl-c rl-ell rl-sub">${this._esc(this._sessionText(r))}</span>`);
@@ -2544,7 +2550,9 @@ const AgentRunsPage = {
         if (first.session_id) {
             const only = document.createElement('button');
             only.type = 'button';
-            only.className = 'rl-link';
+            // Same button look as a run's "Open details": it is the way to
+            // narrow the whole page to this one session.
+            only.className = 'rl-det rl-only';
             only.textContent = 'Only this session';
             only.addEventListener('click', () => {
                 this.filters.search = `session:${first.session_id}`;

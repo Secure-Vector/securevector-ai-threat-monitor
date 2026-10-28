@@ -112,7 +112,7 @@ test('totals sum model, tool and waiting time and count calls', () => {
 test('cache-busting versions moved', () => {
   const html = read('index.html');
   assert.match(html, /run-trace\.js\?v=14"/);
-  assert.match(html, /agent-runs\.js\?v=402"/);
+  assert.match(html, /agent-runs\.js\?v=403"/);
 });
 
 test('a span that starts before the run start is clipped, not shifted', () => {

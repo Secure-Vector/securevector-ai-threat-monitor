@@ -141,7 +141,7 @@ test('page wiring: the row opens in place, Details opens the full trace, spans l
 test('cache-busting: runs-list.js and agent-runs.js versions moved', () => {
   const html = read('index.html');
   assert.match(html, /runs-list\.js\?v=8"/);
-  assert.match(html, /agent-runs\.js\?v=402"/);
+  assert.match(html, /agent-runs\.js\?v=403"/);
 });
 
 test('a failed fetch retries on the next live tick; a fetch in flight never doubles', () => {
