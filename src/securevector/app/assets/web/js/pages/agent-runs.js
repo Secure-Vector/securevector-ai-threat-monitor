@@ -2827,7 +2827,7 @@ const AgentRunsPage = {
             this._trace = RunTrace.mergePage(this._trace, pg, 'older');
         }
         const span = ((this._trace && this._trace.spans) || []).find(s => s.sk === hit.sk) || { span_id: hit.span_id, row_hash: hit.row_hash };
-        if (window.RunTrace) RunTrace.state(r.trace_id).sel = RunTrace.spanKey(span, 0);
+        if (window.RunTrace) Object.assign(RunTrace.state(r.trace_id), { sel: RunTrace.spanKey(span, 0), reveal: true });
         this.runSearch = q;
         if (this._trace) this.renderWaterfall(this._trace);
         return true;
@@ -3554,7 +3554,7 @@ const AgentRunsPage = {
             onBack: () => this._showList(),
             onOpenRun: (id) => this.selectRun(id, { refresh: true }),
             onGoto: (id, spanId) => {
-                if (spanId && RT) { RT.state(id).sel = 's:' + spanId; }
+                if (spanId && RT) { Object.assign(RT.state(id), { sel: 's:' + spanId, reveal: true }); }
                 this.selectRun(id, { refresh: true });
             },
             onPause: (btn) => this._livePauseToggle(btn),
@@ -4979,6 +4979,7 @@ const AgentRunsPage = {
      * leaving the page left it polling and, if a replay was mid-flight,
      * still stepping through spans in the background. */
     destroy() {
+        if (window.RunTrace && RunTrace.dropDetails) RunTrace.dropDetails();
         if (this._agoTimer) { clearInterval(this._agoTimer); this._agoTimer = null; }
         if (this._searchTimer) { clearTimeout(this._searchTimer); this._searchTimer = null; }
         if (this._live && this._live.timer) {

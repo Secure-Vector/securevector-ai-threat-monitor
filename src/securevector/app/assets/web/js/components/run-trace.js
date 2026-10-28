@@ -4,8 +4,8 @@
  * A Run is one trace inside a Session; a Span is one model turn or tool
  * call. The view has a header (back, run, session, coverage, run stepping,
  * stop), the session governance strip, the span tree with a waterfall, and
- * a right panel: the selected span's detail, or the session governance
- * summary when nothing is selected.
+ * a right panel with the session governance summary. The selected span's
+ * detail opens as a row under that span in the table.
  *
  * Approvals happen here and nowhere else: Allow and Deny exist only in the
  * span panel, next to the one held call they apply to, its rule, data,
@@ -31,6 +31,7 @@
         LOCKED_NOTE: 'Approvals and session controls work only when the app is opened on this machine (localhost).',
 
         _state: {},
+        _details: {},   // trace id -> the open span details row element (kept across refresh)
 
         /** A loopback host name: localhost, 127.0.0.0/8 or ::1. */
         isLocalHost(host) {
@@ -877,13 +878,17 @@
         treeHtml(ctx, st) {
             const e = (s) => this.esc(s);
             const rows = this.rows(ctx.tree, st);
+            // The selected span's details open under its row; a span the
+            // rows do not show (filtered out or folded) opens on top.
+            const shown = st.sel && rows.some(r => r.key === st.sel);
+            const lone = st.sel && !shown ? this.detailRowHtml(ctx, st) : '';
             const ax = this.axis(ctx.tree, { now: ctx.now, started_at: (ctx.trace || {}).started_at, ended_at: (ctx.trace || {}).ended_at });
             const head = `<div class="rt-tr rt-thead" aria-hidden="true"><span>Span</span><span class="num">Duration</span><span class="num">Tokens</span><span class="num">Cost</span>` +
                 `<span class="rt-axis">${ax.ticks.map(t => `<i style="left:${t.frac * 100}%">${e(t.label)}</i>`).join('')}</span></div>`;
             if (rows.length <= 1 && (st.filter !== 'all' || st.search)) {
-                return head + rows.map(r => this._rowHtml(r, ctx, st, ax)).join('') + '<div class="rt-empty">No spans match.</div>';
+                return head + lone + rows.map(r => this._rowHtml(r, ctx, st, ax)).join('') + '<div class="rt-empty">No spans match.</div>';
             }
-            return head + rows.map(r => this._rowHtml(r, ctx, st, ax)).join('') + this.olderHtml(ctx.trace);
+            return head + lone + rows.map(r => this._rowHtml(r, ctx, st, ax)).join('') + this.olderHtml(ctx.trace);
         },
 
         _rowHtml(r, ctx, st, ax) {
@@ -898,17 +903,32 @@
             const b = this.bar(n, ax, ctx.now);
             const guides = r.guides.map(on => `<i class="rt-g${on ? ' on' : ''}" aria-hidden="true"></i>`).join('') +
                 (r.depth > 0 ? `<i class="rt-c${r.last ? ' last' : ''}" aria-hidden="true"></i>` : '');
-            const caret = r.hasKids || r.hidden
+            const treeCaret = r.hasKids || r.hidden
                 ? `<button type="button" class="rt-caret" data-act="caret" data-key="${e(n.key)}" aria-expanded="${r.expanded ? 'true' : 'false'}" aria-label="${r.expanded ? 'Collapse' : 'Expand'} ${e(this.spanName(n))}">${this.CARET_SVG}</button>`
-                : '<span class="rt-caret-sp" aria-hidden="true"></span>';
+                : null;
             const sel = st.sel === n.key;
             const tone = d ? (d.key === 'waiting' ? 'warn' : (d.key === 'blocked' || d.key === 'repeat') ? 'bad' : '') : '';
+            // A row with nothing to unfold gets a chevron in the caret slot
+            // that opens and closes its details row (the span button stays
+            // the keyboard stop).
+            const caret = treeCaret || `<button type="button" class="rt-caret rt-dcaret" data-act="pick" data-key="${e(n.key)}" tabindex="-1" aria-expanded="${sel ? 'true' : 'false'}" aria-label="${sel ? 'Hide' : 'Show'} details of ${e(this.spanName(n))}">${this.CARET_SVG}</button>`;
             return `<div class="rt-tr rt-row${sel ? ' sel' : ''}${tone ? ' ' + tone : ''}${r.match ? '' : ' ctx'}" data-key="${e(n.key)}">` +
-                `<span class="rt-name">${guides}${caret}<button type="button" class="rt-pick" data-act="pick" data-key="${e(n.key)}"${sel ? ' aria-current="true"' : ''}>` +
+                `<span class="rt-name">${guides}${caret}<button type="button" class="rt-pick" data-act="pick" data-key="${e(n.key)}" aria-expanded="${sel ? 'true' : 'false'}"${sel ? ' aria-current="true" aria-controls="rt-detail"' : ''}>` +
                 `<span class="rt-chip">${n.kind}</span><span class="rt-nm" title="${e(this.spanName(n))}">${e(this.spanName(n))}</span></button>` +
                 (d ? this.badge(d) : '') + (r.hidden ? `<span class="rt-muted rt-hid">${r.hidden} hidden</span>` : '') + `</span>` +
                 `<span class="num">${e(this.fmtDur(durMs))}</span><span class="num">${e(this.fmtTok(tok))}</span><span class="num">${cost != null ? e(this.fmtUsd(cost)) : ''}</span>` +
-                `<span class="rt-wf">${b ? `<i class="rt-bar ${n.kind}${tone ? ' ' + tone : ''}" style="left:${b.left.toFixed(2)}%;width:${b.width.toFixed(2)}%"></i>` : ''}</span></div>`;
+                `<span class="rt-wf">${b ? `<i class="rt-bar ${n.kind}${tone ? ' ' + tone : ''}" style="left:${b.left.toFixed(2)}%;width:${b.width.toFixed(2)}%"></i>` : ''}</span></div>` +
+                (sel ? this.detailRowHtml(ctx, st) : '');
+        },
+
+        /** The selected span's details as a full-width row under its span
+         *  row (the Runs table's inline pattern). Empty with no selection. */
+        detailRowHtml(ctx, st) {
+            const found = st && st.sel ? this.find(ctx.tree, st.sel) : null;
+            if (!found) return '';
+            const e = (s) => this.esc(s);
+            return `<div class="rt-detail" id="rt-detail" role="region" aria-label="${e(this.spanName(found.node))}" data-detail="${e(found.node.key)}">` +
+                `<div class="rt-detail-card">${this.spanPanelHtml(ctx, found)}${this.hydratingHtml(found.node.span)}</div></div>`;
         },
 
         _dl(rows) {
@@ -927,7 +947,7 @@
             const s = n.span || {};
             const d = this.decision(n);
             const req = n.req;
-            const close = '<button type="button" class="rt-x" data-act="unpick" aria-label="Close span detail, show session governance">×</button>';
+            const close = '<button type="button" class="rt-x" data-act="unpick" aria-label="Close span detail">×</button>';
             if (n.kind === 'run') {
                 return `<div class="rt-ph"><h3>${e(n.title)}</h3>${close}</div>` + this._dl([
                     ['Spans', String(this.spanTotal(ctx.trace))],
@@ -1017,7 +1037,7 @@
          *  summary in the header; what the person opens is remembered. */
         govPanelHtml(ctx, gov) {
             const e = (s) => this.esc(s);
-            let html = '<div class="rt-ph"><h3>Session governance</h3><span class="rt-muted">select a span for its details</span></div>';
+            let html = '<div class="rt-ph"><h3>Session governance</h3><span class="rt-muted">Click a span to see its details under it</span></div>';
             if (gov === null || gov === undefined) return html + '<p class="rt-muted">Loading…</p>';
             if (gov === false) return html + '<p class="rt-muted">No governance summary for this session.</p>';
             return html + '<div class="rt-secs">' + this.govSections(ctx || {}, gov).map(sec => {
@@ -1446,12 +1466,17 @@
                 const alt = /^s:/.test(st.sel) ? 'h:' + st.sel.slice(2) : null;
                 st.sel = alt && this.find(ctx.tree, alt) ? alt : null;
             }
+            // A selection made from elsewhere (deep link, governance link,
+            // Review) unfolds its parents so the details row has a row.
+            if (st.reveal && st.sel) this._openPath(ctx, st, st.sel);
             box._rt = ctx;
             box.innerHTML = this.headerHtml(ctx) +
                 `<div class="rt-strip" data-part="strip">${this.stripHtml(ctx.gov, st.filter)}</div>` +
                 `<div class="rt-body"><section class="rt-main" aria-label="Spans">${this.toolbarHtml(st, this.spanTotal(ctx.trace))}` +
                 `<div class="rt-tree" data-part="tree" role="list">${this.treeHtml(ctx, st)}</div></section>` +
-                `<aside class="rt-panel" data-part="panel" aria-label="Span detail" aria-live="polite">${this._panel(ctx, st)}</aside></div>`;
+                `<aside class="rt-panel" data-part="panel" aria-label="Session governance">${this._panel(ctx, st)}</aside></div>`;
+            this._keepDetail(box, ctx);
+            this._reveal(box, st);
             this._ensureFull(box);
             if (!box._rtWired) {
                 box._rtWired = true;
@@ -1460,7 +1485,14 @@
                 if (root.document && root.document.addEventListener) {
                     root.document.addEventListener('click', (ev) => { if (!box.contains(ev.target)) shut(); });
                 }
-                box.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && ev.target.closest && ev.target.closest('.rt-export')) { shut(); const b = box.querySelector('.rt-export .sv-export-btn'); if (b) b.focus(); } });
+                box.addEventListener('keydown', (ev) => {
+                    if (ev.key !== 'Escape') return;
+                    if (ev.target.closest && ev.target.closest('.rt-export')) { shut(); const b = box.querySelector('.rt-export .sv-export-btn'); if (b) b.focus(); return; }
+                    // Escape closes the open span details, back on its row.
+                    const c = box._rt;
+                    if (ev.target.matches && ev.target.matches('input, textarea, select, [contenteditable], [contenteditable] *')) return;
+                    if (c && this.state(c.trace.trace_id).sel) { ev.preventDefault(); this.deselect(box); }
+                });
                 box.addEventListener('input', (ev) => {
                     const t = ev.target;
                     if (!t || t.dataset.act !== 'search') return;
@@ -1471,9 +1503,93 @@
             }
         },
 
-        _panel(ctx, st) {
-            const found = st.sel ? this.find(ctx.tree, st.sel) : null;
-            return found ? this.spanPanelHtml(ctx, found) + this.hydratingHtml(found.node.span) : this.govPanelHtml(ctx, ctx.gov);
+        /** The side panel: always the session governance. A span's details
+         *  open under its row (detailRowHtml). */
+        _panel(ctx) {
+            return this.govPanelHtml(ctx, ctx.gov);
+        },
+
+        /** Live refresh and repaint rebuild the tree: put the open details
+         *  row element back in place and replace its content only when its
+         *  html changed, so it does not flicker and an opened "Raw
+         *  arguments" stays open. */
+        _keepDetail(box, ctx) {
+            const id = String(ctx.trace.trace_id || '');
+            const fresh = box.querySelector('.rt-detail');
+            const old = this._details[id];
+            // Only the open trace's row is kept.
+            Object.keys(this._details).forEach(k => { if (k !== id) delete this._details[k]; });
+            if (fresh && old && old !== fresh && old.dataset && old.dataset.detail === fresh.dataset.detail) {
+                const html = fresh.innerHTML;
+                if (old._rtHtml !== html) this._swapDetail(old, html);
+                fresh.replaceWith(old);
+                return;
+            }
+            if (fresh) { fresh._rtHtml = fresh.innerHTML; this._details[id] = fresh; }
+            else delete this._details[id];
+        },
+
+        /** Replace the details row content; the control that had focus
+         *  (Allow, Deny, copy) gets it back after the swap. */
+        _swapDetail(el, html) {
+            const doc = root.document;
+            const a = doc && doc.activeElement;
+            const had = a && el.contains && el.contains(a) && a.dataset ? { act: a.dataset.act, req: a.dataset.req, dur: a.dataset.dur } : null;
+            el.innerHTML = html;
+            el._rtHtml = html;
+            if (!had || !had.act) return;
+            let sel = `[data-act="${this._cssEsc(had.act)}"]`;
+            if (had.req) sel += `[data-req="${this._cssEsc(had.req)}"]`;
+            if (had.dur) sel += `[data-dur="${this._cssEsc(had.dur)}"]`;
+            const b = el.querySelector && el.querySelector(sel);
+            if (b && b.focus) b.focus();
+        },
+
+        /** Forget the kept details rows (page leave). */
+        dropDetails() { this._details = {}; },
+
+        /** One-shot after a selection made from elsewhere (a governance
+         *  link, a deep link, Review): bring the span row and its details
+         *  into view. */
+        _reveal(box, st) {
+            if (!st.reveal || !st.sel) { st.reveal = false; return; }
+            st.reveal = false;
+            const go = () => {
+                const row = box.querySelector(`.rt-row[data-key="${this._cssEsc(st.sel)}"]`) || box.querySelector('.rt-detail');
+                if (row && row.scrollIntoView) row.scrollIntoView({ block: 'center' });
+            };
+            if (root.requestAnimationFrame) root.requestAnimationFrame(go); else go();
+        },
+
+        /** Unfold the ancestors of `key` so its row (and details) show. */
+        _openPath(ctx, st, key) {
+            const par = {};
+            this.walk(ctx.tree, (n, p) => { if (p) par[n.key] = p; });
+            for (let p = par[key]; p; p = par[p.key]) if (st.collapsed[p.key]) st.collapsed[p.key] = false;
+        },
+
+        /** Select a span from outside the table: its details open under its
+         *  row, which scrolls into view. */
+        reveal(box, key) {
+            const ctx = box && box._rt;
+            if (!ctx) return;
+            const st = this.state(ctx.trace.trace_id);
+            st.sel = key;
+            st.reveal = true;
+            this._openPath(ctx, st, key);
+            this.paint(box);
+        },
+
+        /** Close the span details and put focus back on its row. */
+        deselect(box, cls = '.rt-pick') {
+            const ctx = box && box._rt;
+            if (!ctx) return;
+            const st = this.state(ctx.trace.trace_id);
+            const key = st.sel;
+            st.sel = null;
+            this.paint(box);
+            const b = key ? box.querySelector(`${cls}[data-key="${this._cssEsc(key)}"]`) : null;
+            if (b && b.focus) b.focus();
         },
 
         /** The selected span is slim: fetch its full detail, then repaint
@@ -1488,8 +1604,12 @@
             if (!span || !span._cut) return;
             this.hydrate(ctx.trace.trace_id, span).then(changed => {
                 if (!changed || box._rt !== ctx || this.state(ctx.trace.trace_id).sel !== key) return;
-                const panel = box.querySelector('[data-part="panel"]');
-                if (panel) panel.innerHTML = this._panel(ctx, this.state(ctx.trace.trace_id));
+                const det = box.querySelector('.rt-detail');
+                if (!det) return;
+                const tmp = root.document.createElement('div');
+                tmp.innerHTML = this.detailRowHtml(ctx, this.state(ctx.trace.trace_id));
+                const fresh = tmp.firstElementChild;
+                if (fresh && det._rtHtml !== fresh.innerHTML) this._swapDetail(det, fresh.innerHTML);
             });
         },
 
@@ -1504,6 +1624,8 @@
             if (strip) strip.innerHTML = this.stripHtml(ctx.gov, st.filter);
             if (tree) tree.innerHTML = this.treeHtml(ctx, st);
             if (panel) panel.innerHTML = this._panel(ctx, st);
+            this._keepDetail(box, ctx);
+            this._reveal(box, st);
             this._ensureFull(box);
             box.querySelectorAll('.rt-seg [data-filter]').forEach(b => b.setAttribute('aria-pressed', b.dataset.filter === st.filter ? 'true' : 'false'));
         },
@@ -1522,10 +1644,7 @@
         },
 
         select(box, key) {
-            const ctx = box && box._rt;
-            if (!ctx) return;
-            this.state(ctx.trace.trace_id).sel = key;
-            this.paint(box);
+            this.reveal(box, key);
         },
 
         _onClick(box, ev) {
@@ -1557,8 +1676,18 @@
                     if (again) again.focus();
                     break;
                 }
-                case 'pick': st.sel = el.dataset.key; this.paint(box); break;
-                case 'unpick': st.sel = null; this.paint(box); break;
+                case 'pick': {
+                    // A second click on the open span closes its details.
+                    const k = el.dataset.key;
+                    const cls = el.classList && el.classList.contains('rt-dcaret') ? '.rt-dcaret' : '.rt-pick';
+                    if (st.sel === k) { this.deselect(box, cls); break; }
+                    st.sel = k;
+                    this.paint(box);
+                    const again = box.querySelector(`${cls}[data-key="${this._cssEsc(k)}"]`);
+                    if (again && again.focus) again.focus();
+                    break;
+                }
+                case 'unpick': this.deselect(box); break;
                 case 'seg':
                 case 'tile': {
                     const f = el.dataset.filter || 'all';
@@ -1596,7 +1725,7 @@
                     if (tid && tid !== ctx.trace.trace_id) { if (ctx.onGoto) ctx.onGoto(tid, sid); break; }
                     let key = null;
                     this.walk(ctx.tree, n => { const s = n.span || {}; if (!key && sid && (s.span_id === sid || s.row_hash === sid)) key = n.key; });
-                    if (key) { st.sel = key; st.filter = 'all'; st.search = ''; this.paint(box); }
+                    if (key) { st.filter = 'all'; st.search = ''; this.reveal(box, key); }
                     break;
                 }
                 case 'approve':
@@ -1724,6 +1853,8 @@
 .rt-ph h3 { margin:0; font-size:15px; font-weight:650; flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
 .rt-ph > .rt-muted { flex:1 0 100%; font-size:12px; }
 .rt-ph .rt-badge { margin-left:0; }
+.rt-detail { padding:8px 14px 12px 22px; border-bottom:1px solid var(--border-default); background:var(--bg-card); }
+.rt-detail-card { max-width:880px; padding:10px 14px; border:1px solid var(--border-default); border-radius:8px; background:var(--bg-secondary); font-size:13px; }
 .rt-x { font:inherit; font-size:16px; background:none; border:0; color:var(--text-muted); cursor:pointer; padding:0 4px; }
 .rt-cmd { position:relative; margin:0 0 12px; padding:8px 34px 8px 10px; border:1px solid var(--border-default); border-radius:6px; background:var(--bg-primary);
   font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }

@@ -219,21 +219,22 @@ test('approval scope: Allow once only with a fingerprint; the text names the ses
   assert.doesNotMatch(html2, /data-dur="once"/);
 });
 
-test('panel switching: no selection shows session governance, a selection shows the span', () => {
+test('side panel is session governance; a selection opens its details under its row', () => {
   const RT = load();
   const t = trace();
   const ctx = { trace: t, tree: RT.buildTree(t, { requests: [pending()] }), gov: gov(), runIndexOf: () => 4 };
   const st = RT.state('tr-1');
   let html = RT._panel(ctx, st);
   assert.match(html, /Session governance/);
-  assert.match(html, /select a span for its details/);
+  assert.match(html, /Click a span to see its details under it/);
   assert.match(html, /data-act="goto" data-trace="tr-1" data-span="c4"/);
   assert.match(html, /Run 4 · repeat attempt/);
   assert.match(html, /data-act="revoke" data-grant="gr-2"/);
   assert.match(html, /MCP server docs · network from child processes/);
   assert.doesNotMatch(html, /data-act="approve"/);
   st.sel = 's:c3';
-  html = RT._panel(ctx, st);
+  assert.match(RT._panel(ctx, st), /Session governance/);
+  html = RT.treeHtml(ctx, st);
   assert.match(html, /data-act="approve"/);
   assert.match(html, /data-act="unpick"/);
 });
@@ -409,7 +410,7 @@ test('trace tree caret: 24px button, 14px chevron that turns, 24px levels with t
   assert.match(src, /\.rt-caret\[aria-expanded="true"\] svg \{ transform:rotate\(90deg\); \}/);
   assert.match(src, /\.rt-g, \.rt-c \{ position:relative; flex:0 0 24px;/);
   assert.match(src, /\.rt-c::before \{ content:''; position:absolute; left:12px;/);
-  assert.match(read('index.html'), /run-trace\.js\?v=15/);
+  assert.match(read('index.html'), /run-trace\.js\?v=16/);
 });
 
 // ------------------------------------------------ run export + governance sections
