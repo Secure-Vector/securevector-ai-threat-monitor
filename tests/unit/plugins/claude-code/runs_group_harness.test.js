@@ -231,3 +231,9 @@ test('the Group choice is remembered per browser', () => {
   assert.match(src, /localStorage\.getItem\('sv-ar-group'\)/);
   assert.match(src, /localStorage\.setItem\('sv-ar-group', this\.groupMode\)/);
 });
+
+test('the session id chip uses the theme accent so it reads as copyable', () => {
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /\.rl-copy \{[^}]*color:var\(--accent-primary,#5eadb8\); \}/);
+  assert.match(src, /\.rl-copy:hover \{ background:color-mix\(in srgb, var\(--accent-primary,#5eadb8\) 22%, transparent\); \}/);
+});

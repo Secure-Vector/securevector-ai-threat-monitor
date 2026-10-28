@@ -1333,8 +1333,12 @@ const AgentRunsPage = {
             .rl-caret-btn:hover { background:var(--bg-hover,#1b212b); color:var(--text-primary,#eef2f7); }
             .rl-caret-btn svg { transition:transform .12s ease; }
             .rl-caret-btn[aria-expanded="true"] svg { transform:rotate(90deg); }
+            /* The session id is the one accent-coloured chip in the row, so it
+               stands out as the thing to copy; the accent token follows the theme. */
             .rl-copy { font:inherit; font-size:12px; min-height:24px; padding:1px 7px; border-radius:6px; cursor:pointer;
-                border:1px solid var(--border-default,#232a33); background:var(--bg-card,#12171e); color:var(--text-secondary,#aeb7c2); }
+                border:1px solid color-mix(in srgb, var(--accent-primary,#5eadb8) 45%, transparent);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 12%, transparent); color:var(--accent-primary,#5eadb8); }
+            .rl-copy:hover { background:color-mix(in srgb, var(--accent-primary,#5eadb8) 22%, transparent); }
             .rl-cov { font-size:11px; padding:1px 7px; border-radius:10px; white-space:nowrap;
                 border:1px solid var(--border-light,#303844); color:var(--text-secondary,#aeb7c2); }
             .rl-sh-right { margin-left:auto; display:flex; gap:14px; }
