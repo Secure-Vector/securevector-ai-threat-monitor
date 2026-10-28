@@ -602,10 +602,10 @@
             return { left, width };
         },
 
-        // ------------------------------------------------ run timeline bar
-        // The bar over an open run in the runs list: model turns on one
-        // lane, tool calls on the lane under it, placed on the run's own
-        // start to end (now while it runs). Colour is security state only:
+        // ------------------------------------------------ run row timeline
+        // Each open run's span rows in the runs list draw a waterfall in
+        // their Duration cell, placed on the run's own start to end (now
+        // while it runs). Colour is security state only:
         // model time is the accent, tool time neutral, blocked red,
         // waiting amber.
 
@@ -628,6 +628,7 @@
             if (hi == null || hi < lo) hi = lo;
             const span = Math.max(1000, hi - lo);
             const lanes = [[], []];
+            const byKey = {};
             const totals = { model: 0, tool: 0, waiting: null, calls: 0 };
             times.forEach(({ n, t }) => {
                 const d = this.decision(n);
@@ -643,7 +644,10 @@
                 const word = d ? d.label : n.kind === 'llm' ? 'model turn'
                     : s.action === 'log_only' ? 'recorded' : 'allowed';
                 const label = `${this.spanName(n)} · +${this.fmtDur(Math.max(0, t.start - lo))} · ${this.fmtDur(t.dur)} · ${word}`;
-                (n.kind === 'llm' ? lanes[0] : lanes[1]).push({ key: n.key, kind, left, width, label, decision: d ? d.key : null });
+                const seg = { key: n.key, kind, left, width, label, decision: d ? d.key : null,
+                    offset: `+${this.fmtDur(Math.max(0, t.start - lo))}`, dur: this.fmtDur(t.dur) };
+                (n.kind === 'llm' ? lanes[0] : lanes[1]).push(seg);
+                byKey[n.key] = seg;
             });
             nodes.forEach(n => {
                 const s = n.span || {};
@@ -660,7 +664,7 @@
             });
             // A paged run (buildTree set totals) sums only the loaded spans.
             totals.loaded = !!(spans && !Array.isArray(spans) && spans.totals);
-            return { axis: { start: lo, end: lo + span }, lanes, totals };
+            return { axis: { start: lo, end: lo + span }, lanes, byKey, totals };
         },
 
         /** "Model 2m 10s · Tools 48s · Waiting 12s · 14 calls"; Waiting
@@ -674,27 +678,20 @@
             return parts.join(' · ');
         },
 
-        TIMELINE_LEGEND: [['model', 'Model time'], ['tool', 'Tool calls'], ['blocked', 'Blocked'], ['waiting', 'Waiting']],
-
-        /** The bar's markup: two lanes of segment buttons (data-key, an
-         *  escaped title and aria-label), the legend and the totals line.
-         *  Segments keep a 2px minimum width so short calls stay visible.
-         *  Roving tabindex: one tab stop per bar, on `stop` (a span key)
-         *  when it is drawn, else the first segment. */
-        timelineHtml(tl, traceId, stop) {
+        /** A span row's Duration cell is its timeline: a track with the
+         *  span's segment at its place on the run axis (2px minimum, so a
+         *  short call stays visible) and the duration as a small label right
+         *  above the segment, centred on it and clamped inside the cell (a
+         *  fixed 48px label box). No segment (no timing): the text alone.
+         *  Not a control: the row opens on click. */
+        timelineCellHtml(seg, text) {
             const e = (x) => this.esc(x);
-            const all = [].concat(...(tl.lanes || []));
-            const tab = all.some(g => g.key === stop) ? stop : (all[0] && all[0].key);
-            const LANE = ['Model turns', 'Tool calls'];
-            const lanes = (tl.lanes || []).map((segs, i) => `<div class="rl-tllane" role="group" aria-label="${LANE[i] || 'Spans'}">` +
-                segs.map(g => `<button type="button" class="rl-tlseg rl-tl-${e(g.kind)}" tabindex="${g.key === tab ? 0 : -1}" data-tlkey="${e(g.key)}" data-fk="tl:${e(traceId)}:${e(g.key)}" ` +
-                    `style="left:min(${g.left.toFixed(3)}%, calc(100% - 2px));width:max(2px, ${g.width.toFixed(3)}%)" ` +
-                    `title="${e(g.label)}" aria-label="${e(g.label)}"></button>`).join('') + '</div>').join('');
-            const legend = `<span class="rl-tlleg" aria-hidden="true">` +
-                this.TIMELINE_LEGEND.map(([k, t]) => `<span class="rl-tlkey"><i class="rl-tl-${k}"></i>${t}</span>`).join('') + '</span>' +
-                `<span class="rl-vh">Legend: ${this.TIMELINE_LEGEND.map(x => x[1]).join(', ')}</span>`;
-            return `<div class="rl-tlwrap"><div class="rl-tlbar" role="group" aria-label="Run timeline">${lanes}</div>${legend}</div>` +
-                `<div class="rl-tltot">${e(this.timelineTotalsText(tl.totals))}</div>`;
+            if (!seg) return `<span class="rl-wfd rl-wfd-only">${e(text)}</span>`;
+            const mid = Math.max(0, Math.min(100, seg.left + seg.width / 2)).toFixed(3);
+            return `<span class="rl-wfl"><span class="rl-wfd" style="left:clamp(0px, calc(${mid}% - 24px), calc(100% - 48px))">${e(text)}</span></span>` +
+                `<span class="rl-wft"><i class="rl-wfs rl-tl-${e(seg.kind)}" role="img" ` +
+                `style="left:min(${seg.left.toFixed(3)}%, calc(100% - 2px));width:max(2px, ${seg.width.toFixed(3)}%)" ` +
+                `title="${e(seg.label)}" aria-label="${e(`Starts ${seg.offset} into the run, takes ${seg.dur}`)}"></i></span>`;
         },
 
         nodeTokens(n) {

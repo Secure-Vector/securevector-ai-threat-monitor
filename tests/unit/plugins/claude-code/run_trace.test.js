@@ -409,7 +409,7 @@ test('trace tree caret: 24px button, 14px chevron that turns, 24px levels with t
   assert.match(src, /\.rt-caret\[aria-expanded="true"\] svg \{ transform:rotate\(90deg\); \}/);
   assert.match(src, /\.rt-g, \.rt-c \{ position:relative; flex:0 0 24px;/);
   assert.match(src, /\.rt-c::before \{ content:''; position:absolute; left:12px;/);
-  assert.match(read('index.html'), /run-trace\.js\?v=11/);
+  assert.match(read('index.html'), /run-trace\.js\?v=13/);
 });
 
 // ------------------------------------------------ run export + governance sections

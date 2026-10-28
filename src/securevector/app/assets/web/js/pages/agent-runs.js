@@ -231,7 +231,6 @@ const AgentRunsPage = {
         }
         // Open runs in place: fetch again only those whose spans moved.
         this._inlineRefresh();
-        this._timelineTick();
         // Tab-return digest: while hidden the ticks (and snapshot saves) stop,
         // so a long-hidden tab comes back to a stale snapshot — same "away"
         // semantics as a fresh page load. Diff first, then refresh the snapshot.
@@ -1359,6 +1358,12 @@ const AgentRunsPage = {
                520px Started gives way too; the flat list keeps a floor and
                scrolls inside its own box, never the page. */
             .rl-tablewrap { container-type:inline-size; max-width:100%; }
+            /* Wide list: Duration widens so each span row's waterfall reads;
+               Tokens and Cost keep their widths. */
+            @container (min-width:1100px) {
+                .rl-table { --rl-cols:62px minmax(0,1.4fr) minmax(0,1.5fr) 150px 180px 62px 62px; }
+                .rl-table.rl-flatlist { --rl-cols:56px minmax(0,1fr) minmax(0,1.1fr) minmax(0,.7fr) minmax(0,1.5fr) 150px 180px 56px 60px; min-width:1160px; }
+            }
             @container (max-width:800px) {
                 .ar-runlist.rl-table, .ar-runlist.rl-table.rl-flatlist { min-width:0; }
                 .rl-table { --rl-cols:56px minmax(0,1.2fr) minmax(0,1fr) 140px; }
@@ -1407,26 +1412,20 @@ const AgentRunsPage = {
             .rl-spandet { position:relative; padding:4px 14px 12px calc(var(--rl-namex) + var(--rl-ind) + 24px);
                 border-bottom:1px solid var(--border-default); font-size:13px; color:var(--text-primary); }
             .rl-spanpanel { max-width:880px; padding:10px 14px; border:1px solid var(--border-default); border-radius:8px; background:var(--bg-secondary); }
-            /* Run timeline bar: model time = the accent, tool time neutral,
-               blocked red, waiting amber (colour is security state only). */
-            .rl-tlrow { position:relative; padding:8px 14px 8px calc(var(--rl-namex) + 24px); border-bottom:1px solid var(--border-default); }
-            .rl-tlwrap { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-            .rl-tlbar { position:relative; flex:1 1 320px; min-width:0; height:28px; display:flex; flex-direction:column; gap:2px; padding:2px 0;
-                border:1px solid var(--border-default); border-radius:6px; background:var(--bg-secondary); box-sizing:border-box; }
-            .rl-tllane { position:relative; flex:1 1 0; margin:0 4px; }
-            .rl-tlseg { position:absolute; top:0; bottom:0; min-width:2px; padding:0; margin:0; border:0; border-radius:2px; cursor:pointer; }
-            .rl-tlseg:hover { filter:brightness(1.2); }
-            .rl-tlseg:focus-visible { outline:2px solid var(--accent-primary); outline-offset:1px; z-index:1; }
+            /* Span row waterfall in the Duration cell: model time = the
+               accent, tool time neutral, blocked red, waiting amber (colour
+               is security state only). The text sits over the track. */
+            .rl-wfc { display:flex; flex-direction:column; align-items:stretch; justify-content:center; gap:2px; min-width:0; }
+            .rl-wfl { position:relative; display:block; height:13px; }
+            .rl-wfd { position:absolute; top:0; width:48px; text-align:center; font-size:10.5px; line-height:13px; white-space:nowrap; color:var(--text-muted); }
+            .rl-wfd.rl-wfd-only { position:static; width:auto; text-align:right; font-size:11.5px; }
+            .rl-wft { position:relative; display:block; height:6px; border-radius:3px; background:var(--bg-secondary); box-shadow:inset 0 0 0 1px var(--border-default); }
+            .rl-wfs { position:absolute; top:0; height:6px; min-width:2px; border-radius:3px; }
             .rl-tl-model { background:var(--accent-primary); }
             .rl-tl-tool { background:var(--text-muted); }
             .rl-tl-blocked { background:var(--danger, #ef4444); }
             .rl-tl-waiting { background:var(--warning, #f59e0b); }
-            .rl-tlleg { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--text-muted); }
-            .rl-tlkey { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
-            .rl-tlkey i { display:inline-block; width:10px; height:6px; border-radius:2px; }
-            .rl-tltot { margin-top:4px; font-size:11.5px; color:var(--text-muted); }
-            .rl-vh { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
-            @media (max-width: 760px) { .rl-tlrow { padding-left:24px; } .rl-tlbar { flex-basis:100%; } }
+            .rl-tltotrow .rl-tltot { grid-column:2 / -1; font-size:11.5px; color:var(--text-muted); }
             .live-grid-placeholder { margin:0; }
         `;
         document.head.appendChild(st);
@@ -3057,8 +3056,8 @@ const AgentRunsPage = {
             const total = fd && fd.trace.page ? fd.trace.page.matches : null;
             if (total != null) filtered = Object.assign({}, filtered, { matches: total });
         }
-        // The run's timeline bar, over its spans (loaded pages so far).
-        if (e.trace) list.appendChild(this._timelineRow(r, e, base, sess));
+        // Model, tool and waiting time of the spans loaded so far.
+        if (e.trace) list.appendChild(this._timelineTotalsRow(r, e, base, sess));
         if (fkind) list.appendChild(this._spanFilterNote(r, fkind, filtered, base, sess));
         if (!e.trace) {
             const m = document.createElement('div');
@@ -3073,6 +3072,8 @@ const AgentRunsPage = {
         const tree = filtered ? filtered.tree : this._inlineTree(r, e);
         if (!e.caps) e.caps = {};
         const rows = RL.inlineRows(tree, filtered ? filtered.open : e.open, e.caps);
+        // Each span row's Duration cell places the span on the run axis.
+        e.tl = this._inlineTimeline(r, tree);
         if (!rows.length) {
             const m = document.createElement('div');
             m.className = 'rl-row rl-spanrow rl-spanmsg' + (sess ? ' rl-child' : '');
@@ -3096,87 +3097,23 @@ const AgentRunsPage = {
         if (left > 0 && !(last && last.more && last.depth === 1)) list.appendChild(this._inlineOlderRow(r, e, left, base, sess, filtered, fd));
     },
 
-    /** The timeline bar row under an open run: model turns on the first
-     *  lane, tool calls on the second, on the run's start to end (now while
-     *  it runs). A segment click opens that span's details in place. */
-    _timelineRow(r, e, base, sess) {
-        const el = document.createElement('div');
-        el.className = 'rl-tlrow' + (sess ? ' rl-child' : '');
-        el.dataset.tl = r.trace_id;
-        el._tlHtml = this._timelineHtml(r, e);
-        el.innerHTML = base + `<div class="rl-tlbox">${el._tlHtml}</div>`;
-        // Delegated on the row, so a live redraw of the box keeps it.
-        el.addEventListener('click', (ev) => {
-            const b = ev.target && ev.target.closest ? ev.target.closest('[data-tlkey]') : null;
-            if (!b) return;
-            ev.stopPropagation();
-            this._timelineSelect(r.trace_id, b.dataset.tlkey);
-        });
-        // Roving focus: Left/Right/Home/End move between segments (Enter
-        // and Space are the button's own click).
-        el.addEventListener('keydown', (ev) => {
-            const b = ev.target && ev.target.closest ? ev.target.closest('[data-tlkey]') : null;
-            if (!b || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
-            const segs = [...el.querySelectorAll('[data-tlkey]')];
-            const i = segs.indexOf(b);
-            const j = ev.key === 'Home' ? 0 : ev.key === 'End' ? segs.length - 1
-                : Math.max(0, Math.min(segs.length - 1, i + (ev.key === 'ArrowRight' ? 1 : -1)));
-            ev.preventDefault();
-            segs.forEach((s, k) => { s.tabIndex = k === j ? 0 : -1; });
-            el._tlStop = segs[j].dataset.tlkey;
-            segs[j].focus();
-        });
-        return el;
-    },
-
-    _timelineHtml(r, e, stop) {
-        const RT = RunTrace;
+    /** Timeline geometry for an open run's span rows (`tree`: the tree
+     *  on screen) on the run's start to end, now while it runs. */
+    _inlineTimeline(r, tree) {
         const now = Date.now();
         const run = Object.assign({}, r, { running: RunsList.isRunning(r, this._ctx ? Object.assign({}, this._ctx, { now }) : null) });
-        return RT.timelineHtml(RT.timelineSegments(run, this._inlineTree(r, e), now), r.trace_id, stop);
+        return RunTrace.timelineSegments(run, tree, now);
     },
 
-    /** Live tick: redraw only each open run's bar box (no list rebuild). */
-    _timelineTick() {
-        document.querySelectorAll('.rl-tlrow').forEach(row => {
-            const id = row.dataset.tl;
-            const e = this._inline[id];
-            const r = (this.runs || []).find(x => x.trace_id === id);
-            const box = row.querySelector('.rl-tlbox');
-            if (!e || !e.trace || !r || !box) return;
-            // Compared with the last markup written, not box.innerHTML (the
-            // browser re-serialises entities), so an unchanged bar stays put.
-            const html = this._timelineHtml(r, e, row._tlStop);
-            if (row._tlHtml === html) return;
-            const act = document.activeElement;
-            const focusKey = act && box.contains(act) && act.dataset ? act.dataset.fk : null;
-            row._tlHtml = html;
-            box.innerHTML = html;
-            if (focusKey) {
-                const b = [...box.querySelectorAll('[data-fk]')].find(x => x.dataset.fk === focusKey);
-                if (b) b.focus({ preventScroll: true });
-            }
-        });
-    },
-
-    /** Open a span's details from its timeline segment, the same way the
-     *  waiting jump does: its turn opens, caps rise, details show, scroll. */
-    _timelineSelect(traceId, key) {
-        const e = this._inline[traceId];
-        const r = (this.runs || []).find(x => x.trace_id === traceId);
-        if (!e || !e.trace || !r) return;
-        const tree = this._inlineTree(r, e);
-        const hit = RunTrace.find(tree, key);
-        if (!hit) return;
-        // A badge filter could hide the span: back to every span.
-        if (this._spanFilter && this._spanFilter[traceId]) delete this._spanFilter[traceId];
-        const path = { key, open: hit.parent && hit.parent.kind !== 'run' ? [hit.parent.key] : [] };
-        path.open.forEach(k => { e.open[k] = true; });
-        RunsList.inlineReveal(tree, path, e.caps || (e.caps = {}));
-        e.det[key] = true;
-        this._jumpSeq = (this._jumpSeq || 0) + 1;
-        this._renderRunsKeep();
-        this._revealWait(traceId, key);
+    /** "Model 1m 33s · Tools 1m 04s · Waiting 12s · 15 calls" under an
+     *  open run, from the spans loaded so far ("calls loaded" when paged). */
+    _timelineTotalsRow(r, e, base, sess) {
+        const m = document.createElement('div');
+        m.className = 'rl-row rl-spanrow rl-spanmsg rl-tltotrow' + (sess ? ' rl-child' : '');
+        const text = RunTrace.timelineTotalsText(this._inlineTimeline(r, this._inlineTree(r, e)).totals);
+        m.innerHTML = base + this._inlineLines({ depth: 1, guides: [], last: false, expanded: false }, true) +
+            `<span class="rl-c"></span><span class="rl-c rl-name rl-tltot" style="--rl-ind:20px">${this._esc(text)}</span>`;
+        return m;
     },
 
     /** "Show 200 more · N older" under an open run whose older spans are
@@ -3289,7 +3226,8 @@ const AgentRunsPage = {
         if (flat) cells.push('<span class="rl-c"></span>', '<span class="rl-c"></span>');
         cells.push(`<span class="rl-c rl-stcell">${dec}</span>`);
         cells.push(`<span class="rl-c rl-r rl-sub">${n.kind === 'llm' ? String((n.children || []).length) : ''}</span>`);
-        cells.push(`<span class="rl-c rl-r rl-sub">${this._esc(RT.fmtDur(dur))}</span>`);
+        const seg = e.tl && e.tl.byKey ? e.tl.byKey[row.key] : null;
+        cells.push(`<span class="rl-c rl-r rl-sub rl-wfc">${RT.timelineCellHtml(seg, RT.fmtDur(dur))}</span>`);
         cells.push(`<span class="rl-c rl-r">${this._esc(RT.fmtTok(tok))}</span>`);
         cells.push(`<span class="rl-c rl-r">${cost != null ? this._esc(RT.fmtUsd(cost)) : ''}</span>`);
         el.innerHTML = base + this._inlineLines(row, false) + cells.join('');
