@@ -1358,11 +1358,21 @@ const AgentRunsPage = {
                520px Started gives way too; the flat list keeps a floor and
                scrolls inside its own box, never the page. */
             .rl-tablewrap { container-type:inline-size; max-width:100%; }
-            /* Wide list: Duration widens so each span row's waterfall reads;
-               Tokens and Cost keep their widths. */
+            /* Wide list: Duration widens so each span row's bar reads
+               (130px from 1100px, 180px from 1300px); Tool calls and the
+               decision column give the room so the Run name keeps its width.
+               Tokens and Cost keep theirs. */
             @container (min-width:1100px) {
+                .rl-table { --rl-cols:62px minmax(0,1.4fr) minmax(0,1.3fr) 120px 130px 62px 62px; }
+                .rl-table.rl-flatlist { --rl-cols:56px minmax(0,1fr) minmax(0,1.1fr) minmax(0,.7fr) minmax(0,1.3fr) 120px 130px 56px 60px; min-width:1080px; }
+            }
+            @container (min-width:1300px) {
                 .rl-table { --rl-cols:62px minmax(0,1.4fr) minmax(0,1.5fr) 150px 180px 62px 62px; }
                 .rl-table.rl-flatlist { --rl-cols:56px minmax(0,1fr) minmax(0,1.1fr) minmax(0,.7fr) minmax(0,1.5fr) 150px 180px 56px 60px; min-width:1160px; }
+            }
+            /* A narrow Duration cell keeps the value outside the bar. */
+            @container (max-width:1099px) {
+                .rl-wfa.rl-wfin .rl-wfd { left:calc(var(--bw) + 4px); right:auto; padding:0; background:none; color:var(--text-muted); font-weight:400; }
             }
             @container (max-width:800px) {
                 .ar-runlist.rl-table, .ar-runlist.rl-table.rl-flatlist { min-width:0; }
@@ -1415,12 +1425,14 @@ const AgentRunsPage = {
             /* Span row waterfall in the Duration cell: model time = the
                accent, tool time neutral, blocked red, waiting amber (colour
                is security state only). The text sits over the track. */
-            .rl-wfc { display:flex; flex-direction:column; align-items:stretch; justify-content:center; gap:2px; min-width:0; }
-            .rl-wfl { position:relative; display:block; height:13px; }
-            .rl-wfd { position:absolute; top:0; width:48px; text-align:center; font-size:10.5px; line-height:13px; white-space:nowrap; color:var(--text-muted); }
-            .rl-wfd.rl-wfd-only { position:static; width:auto; text-align:right; font-size:11.5px; }
-            .rl-wft { position:relative; display:block; height:6px; border-radius:3px; background:var(--bg-secondary); box-shadow:inset 0 0 0 1px var(--border-default); }
-            .rl-wfs { position:absolute; top:0; height:6px; min-width:2px; border-radius:3px; }
+            .rl-wfc { display:block; min-width:0; text-align:left; }
+            .rl-wfa { position:relative; display:block; height:14px; --bw:max(3px, calc((100% - 46px) * var(--w))); }
+            .rl-wfa::before { content:''; position:absolute; left:0; top:3px; width:calc(100% - 46px); height:8px; border-radius:4px;
+                background:color-mix(in srgb, var(--text-muted) 10%, transparent); }
+            .rl-wfs { position:absolute; left:0; top:3px; width:var(--bw); height:8px; border-radius:4px; }
+            .rl-wfd { position:absolute; top:0; left:calc(var(--bw) + 4px); font-size:11px; line-height:14px; white-space:nowrap; color:var(--text-muted); pointer-events:none; }
+            .rl-wfin .rl-wfd { left:auto; right:calc(100% - var(--bw)); padding:0 5px; border-radius:4px; color:var(--bg-primary); font-weight:600; }
+            .rl-wfd.rl-wfd-only { position:static; display:block; text-align:right; }
             .rl-tl-model { background:var(--accent-primary); }
             .rl-tl-tool { background:var(--text-muted); }
             .rl-tl-blocked { background:var(--danger, #ef4444); }
@@ -3072,8 +3084,11 @@ const AgentRunsPage = {
         const tree = filtered ? filtered.tree : this._inlineTree(r, e);
         if (!e.caps) e.caps = {};
         const rows = RL.inlineRows(tree, filtered ? filtered.open : e.open, e.caps);
-        // Each span row's Duration cell places the span on the run axis.
-        e.tl = this._inlineTimeline(r, tree);
+        // Each span row's Duration bar is scaled to the run's longest
+        // loaded span; under a filter, spans only the narrowed list holds
+        // fall back to that list's own scale.
+        e.tl = this._inlineTimeline(r, this._inlineTree(r, e));
+        e.tlf = filtered ? this._inlineTimeline(r, tree) : null;
         if (!rows.length) {
             const m = document.createElement('div');
             m.className = 'rl-row rl-spanrow rl-spanmsg' + (sess ? ' rl-child' : '');
@@ -3226,7 +3241,7 @@ const AgentRunsPage = {
         if (flat) cells.push('<span class="rl-c"></span>', '<span class="rl-c"></span>');
         cells.push(`<span class="rl-c rl-stcell">${dec}</span>`);
         cells.push(`<span class="rl-c rl-r rl-sub">${n.kind === 'llm' ? String((n.children || []).length) : ''}</span>`);
-        const seg = e.tl && e.tl.byKey ? e.tl.byKey[row.key] : null;
+        const seg = (e.tl && e.tl.byKey && e.tl.byKey[row.key]) || (e.tlf && e.tlf.byKey && e.tlf.byKey[row.key]) || null;
         cells.push(`<span class="rl-c rl-r rl-sub rl-wfc">${RT.timelineCellHtml(seg, RT.fmtDur(dur))}</span>`);
         cells.push(`<span class="rl-c rl-r">${this._esc(RT.fmtTok(tok))}</span>`);
         cells.push(`<span class="rl-c rl-r">${cost != null ? this._esc(RT.fmtUsd(cost)) : ''}</span>`);

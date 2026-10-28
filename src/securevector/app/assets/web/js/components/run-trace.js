@@ -620,6 +620,15 @@
             const take = (n) => { if (n && n.kind !== 'run') nodes.push(n); (n && n.children || []).forEach(take); };
             if (Array.isArray(spans)) spans.forEach(take); else if (spans) take(spans);
             const times = nodes.map(n => ({ n, t: this.timing(n, now) })).filter(x => x.t.start != null);
+            // Timed: a recorded duration, or a held call (its waiting time).
+            // Most hook-recorded tool calls have no end time: no bar for them.
+            const timed = (n) => {
+                const s = n.span || {};
+                const d = this.decision(n);
+                return (d && d.key === 'waiting') || (s.duration_ms != null && Number.isFinite(Number(s.duration_ms)) && Number(s.duration_ms) >= 0);
+            };
+            let maxDur = 0;
+            times.forEach(({ n, t }) => { if (timed(n) && t.dur > maxDur) maxDur = t.dur; });
             let lo = this.ms(r.started_at);
             let hi = r.running ? now : this.ms(r.ended_at);
             if (lo == null) times.forEach(x => { if (lo == null || x.t.start < lo) lo = x.t.start; });
@@ -629,8 +638,9 @@
             const span = Math.max(1000, hi - lo);
             const lanes = [[], []];
             const byKey = {};
-            const totals = { model: 0, tool: 0, waiting: null, calls: 0 };
+            const totals = { model: 0, tool: 0, waiting: null, calls: 0, toolTimed: false };
             times.forEach(({ n, t }) => {
+                if (!timed(n)) return;
                 const d = this.decision(n);
                 const s = n.span || {};
                 const kind = n.kind === 'llm' ? 'model'
@@ -644,7 +654,10 @@
                 const word = d ? d.label : n.kind === 'llm' ? 'model turn'
                     : s.action === 'log_only' ? 'recorded' : 'allowed';
                 const label = `${this.spanName(n)} · +${this.fmtDur(Math.max(0, t.start - lo))} · ${this.fmtDur(t.dur)} · ${word}`;
-                const seg = { key: n.key, kind, left, width, label, decision: d ? d.key : null,
+                // Bar length: this span's duration against the longest loaded
+                // span of the run (a bar chart, not a position on the run).
+                const rel = maxDur > 0 ? Math.max(0, Math.min(1, t.dur / maxDur)) : 0;
+                const seg = { key: n.key, kind, left, width, label, decision: d ? d.key : null, rel, inside: rel > 0.7,
                     offset: `+${this.fmtDur(Math.max(0, t.start - lo))}`, dur: this.fmtDur(t.dur) };
                 (n.kind === 'llm' ? lanes[0] : lanes[1]).push(seg);
                 byKey[n.key] = seg;
@@ -660,6 +673,7 @@
                     if (a != null && b != null && b >= a) totals.waiting = (totals.waiting || 0) + (b - a);
                     if (r2.status === 'pending') return;
                 }
+                if (s.duration_ms != null && Number.isFinite(Number(s.duration_ms))) totals.toolTimed = true;
                 totals.tool += Math.max(0, Number(s.duration_ms) || 0);
             });
             // A paged run (buildTree set totals) sums only the loaded spans.
@@ -668,30 +682,30 @@
         },
 
         /** "Model 2m 10s · Tools 48s · Waiting 12s · 14 calls"; Waiting
-         *  only when the data has hold times. */
+         *  only when the data has hold times; "Tools not timed" when no
+         *  tool call has a recorded duration. */
         timelineTotalsText(totals) {
             const t = totals || {};
-            const parts = [`Model ${this.fmtDur(t.model || 0)}`, `Tools ${this.fmtDur(t.tool || 0)}`];
+            const parts = [`Model ${this.fmtDur(t.model || 0)}`, t.toolTimed === false ? 'Tools not timed' : `Tools ${this.fmtDur(t.tool || 0)}`];
             if (t.waiting != null) parts.push(`Waiting ${this.fmtDur(t.waiting)}`);
             const c = Number(t.calls) || 0;
             parts.push(`${c} call${c === 1 ? '' : 's'}${t.loaded ? ' loaded' : ''}`);
             return parts.join(' · ');
         },
 
-        /** A span row's Duration cell is its timeline: a track with the
-         *  span's segment at its place on the run axis (2px minimum, so a
-         *  short call stays visible) and the duration as a small label right
-         *  above the segment, centred on it and clamped inside the cell (a
-         *  fixed 48px label box). No segment (no timing): the text alone.
-         *  Not a control: the row opens on click. */
+        /** A span row's Duration cell: a left-aligned bar whose length is
+         *  the span's duration against the run's longest loaded span (3px
+         *  minimum) on a faint track, the value to the right of the bar end,
+         *  or inside its right end when the bar is past 70% of the area (a
+         *  tag in the bar's colour, as the 8px bar is shorter than text).
+         *  No timing: a dash, no bar. Not a control: the row opens on click. */
         timelineCellHtml(seg, text) {
             const e = (x) => this.esc(x);
-            if (!seg) return `<span class="rl-wfd rl-wfd-only">${e(text)}</span>`;
-            const mid = Math.max(0, Math.min(100, seg.left + seg.width / 2)).toFixed(3);
-            return `<span class="rl-wfl"><span class="rl-wfd" style="left:clamp(0px, calc(${mid}% - 24px), calc(100% - 48px))">${e(text)}</span></span>` +
-                `<span class="rl-wft"><i class="rl-wfs rl-tl-${e(seg.kind)}" role="img" ` +
-                `style="left:min(${seg.left.toFixed(3)}%, calc(100% - 2px));width:max(2px, ${seg.width.toFixed(3)}%)" ` +
-                `title="${e(seg.label)}" aria-label="${e(`Starts ${seg.offset} into the run, takes ${seg.dur}`)}"></i></span>`;
+            if (!seg) return '<span class="rl-wfd rl-wfd-only">\u2014</span>';
+            return `<span class="rl-wfa${seg.inside ? ' rl-wfin' : ''}" style="--w:${seg.rel.toFixed(4)}">` +
+                `<i class="rl-wfs rl-tl-${e(seg.kind)}" role="img" title="${e(seg.label)}" ` +
+                `aria-label="${e(`Starts ${seg.offset} into the run, takes ${seg.dur}`)}"></i>` +
+                `<span class="rl-wfd${seg.inside ? ` rl-tl-${e(seg.kind)}` : ''}" aria-hidden="true">${e(text || seg.dur)}</span></span>`;
         },
 
         nodeTokens(n) {

@@ -1,5 +1,6 @@
-/** Observability > Runs: each open run's span rows draw a waterfall in
- *  their Duration cell. The pure geometry and markup in
+/** Observability > Runs: each open run's span rows draw a bar in their
+ *  Duration cell, its length the span's duration against the run's longest
+ *  loaded span. The pure geometry and markup in
  *  js/components/run-trace.js (timelineSegments, timelineTotalsText,
  *  timelineCellHtml) and the wiring in js/pages/agent-runs.js. */
 'use strict';
@@ -74,14 +75,6 @@ test('blocked is red kind, a pending hold is waiting and runs to now', () => {
   assert.match(t2.label, /^Bash · \+20s · 0\.0s · blocked$/);
 });
 
-test('a tiny call keeps a 2px minimum in markup and never runs off the end', () => {
-  const RT = load();
-  const tl = RT.timelineSegments(run100, tree(), T0 + 100000);
-  const html = RT.timelineCellHtml(tl.byKey.t2, '0.0s');
-  assert.match(html, /width:max\(2px, 0\.001%\)/);
-  assert.match(html, /left:min\(20\.000%, calc\(100% - 2px\)\)/);
-});
-
 test('a running run spans to now; the axis is the run row, not the loaded spans', () => {
   const RT = load();
   const now = T0 + 200000;
@@ -118,8 +111,8 @@ test('totals sum model, tool and waiting time and count calls', () => {
 
 test('cache-busting versions moved', () => {
   const html = read('index.html');
-  assert.match(html, /run-trace\.js\?v=13"/);
-  assert.match(html, /agent-runs\.js\?v=401"/);
+  assert.match(html, /run-trace\.js\?v=14"/);
+  assert.match(html, /agent-runs\.js\?v=402"/);
 });
 
 test('a span that starts before the run start is clipped, not shifted', () => {
@@ -140,50 +133,82 @@ test('a paged run labels its totals as loaded', () => {
   assert.equal(RT.timelineSegments(run100, tree(), T0 + 100000).totals.loaded, false);
 });
 
-test('the Duration cell: text over a track with one segment, escaped, labelled', () => {
+test('bar length is the duration against the longest loaded span, not the offset', () => {
+  const RT = load();
+  const tl = RT.timelineSegments(run100, tree(), T0 + 100000);
+  // Longest: t3 waiting 30s.
+  assert.equal(tl.byKey.t3.rel, 1);
+  assert.equal(tl.byKey.g2.rel, 20000 / 30000);
+  assert.equal(tl.byKey.g1.rel, 10000 / 30000);
+  assert.equal(tl.byKey.t1.rel, 5000 / 30000);
+  // A 3-second turn in a 10-hour run still reads: it is the longest span.
+  const long = RT.timelineSegments({ started_at: at(0), ended_at: at(36000) }, [llm('late', 35990, 3000), tool('x', 35995, 1000)], T0 + 40000000);
+  assert.equal(long.byKey.late.rel, 1);
+  assert.equal(long.byKey.x.rel, 1 / 3);
+});
+
+test('the cell: left-aligned bar, 3px minimum, label right of the end or inside past 70%', () => {
+  const RT = load();
+  const tl = RT.timelineSegments(run100, tree(), T0 + 100000);
+  const short = RT.timelineCellHtml(tl.byKey.t1, '5.0s');
+  assert.match(short, /^<span class="rl-wfa" style="--w:0\.1667"><i class="rl-wfs rl-tl-tool" role="img" /);
+  assert.match(short, /<span class="rl-wfd" aria-hidden="true">5\.0s<\/span><\/span>$/);
+  assert.ok(!/left:|<button|tabindex/.test(short), 'no offset positioning, not a control');
+  assert.equal(tl.byKey.t1.inside, false);
+  assert.equal(tl.byKey.g2.inside, false); // 66.7%
+  const big = RT.timelineCellHtml(tl.byKey.t3, '30s');
+  assert.equal(tl.byKey.t3.inside, true);
+  assert.match(big, /^<span class="rl-wfa rl-wfin" style="--w:1\.0000"><i class="rl-wfs rl-tl-waiting"/);
+  // Inside: a tag in the bar's colour at its right end.
+  assert.match(big, /<span class="rl-wfd rl-tl-waiting" aria-hidden="true">30s<\/span><\/span>$/);
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /\.rl-wfa \{[^}]*--bw:max\(3px, calc\(\(100% - 46px\) \* var\(--w\)\)\); \}/);
+  assert.match(src, /\.rl-wfs \{[^}]*width:var\(--bw\); height:8px; border-radius:4px; \}/);
+  assert.match(src, /\.rl-wfd \{[^}]*left:calc\(var\(--bw\) \+ 4px\); font-size:11px;[^}]*color:var\(--text-muted\)/);
+  assert.match(src, /\.rl-wfin \.rl-wfd \{ left:auto; right:calc\(100% - var\(--bw\)\); padding:0 5px; border-radius:4px; color:var\(--bg-primary\)/);
+  assert.match(src, /\.rl-wfa::before \{[^}]*width:calc\(100% - 46px\); height:8px;[^}]*color-mix\(in srgb, var\(--text-muted\) 10%, transparent\)/);
+  // A narrow cell keeps the label outside.
+  assert.match(src, /@container \(max-width:1099px\) \{\s*\.rl-wfa\.rl-wfin \.rl-wfd \{ left:calc\(var\(--bw\) \+ 4px\); right:auto; padding:0; background:none;/);
+});
+
+test('title and aria-label keep offset and duration, escaped', () => {
   const RT = load();
   const evil = [tool('<k">', 20, 1000, { span: { tool_id: '<img src=x onerror=alert(1)>' } })];
-  const seg = RT.timelineSegments(run100, evil, T0 + 100000).byKey['<k">'];
-  const html = RT.timelineCellHtml(seg, '1.0s');
+  const html = RT.timelineCellHtml(RT.timelineSegments(run100, evil, T0 + 100000).byKey['<k">'], '1.0s');
   assert.ok(!html.includes('<img'));
-  // Label above the segment, centred on it (20% + 0.5%), clamped inside the cell.
-  assert.match(html, /^<span class="rl-wfl"><span class="rl-wfd" style="left:clamp\(0px, calc\(20\.500% - 24px\), calc\(100% - 48px\)\)">1\.0s<\/span><\/span><span class="rl-wft"><i class="rl-wfs rl-tl-tool" role="img" /);
   assert.match(html, /title="&lt;img src=x onerror=alert\(1\)&gt; · \+20s · 1\.0s · allowed"/);
   assert.match(html, /aria-label="Starts \+20s into the run, takes 1\.0s"/);
-  assert.ok(!/<button|tabindex/.test(html), 'the cell is not a control');
 });
 
-test('a span with no timing shows the text only, no track', () => {
+test('a span with no recorded duration: a dash, no bar; totals say tools not timed', () => {
   const RT = load();
-  const t = { key: 'run', kind: 'run', children: [{ key: 'x', kind: 'tool', span: { tool_id: 'Bash' }, children: [] }] };
+  const t = { key: 'run', kind: 'run', children: [llm('g', 0, 4000, [
+    { key: 'x', kind: 'tool', span: { tool_id: 'Bash', called_at: at(1) }, children: [] }])] };
   const tl = RT.timelineSegments(run100, t, T0 + 100000);
   assert.equal(tl.byKey.x, undefined);
-  assert.equal(RT.timelineCellHtml(tl.byKey.x, '2.0s'), '<span class="rl-wfd rl-wfd-only">2.0s</span>');
+  assert.equal(RT.timelineCellHtml(tl.byKey.x, ''), '<span class="rl-wfd rl-wfd-only">\u2014</span>');
+  assert.equal(tl.byKey.g.rel, 1);
+  assert.equal(RT.timelineTotalsText(tl.totals), 'Model 4.0s · Tools not timed · 1 call');
+  // One timed tool call is enough for a Tools figure.
+  assert.match(RT.timelineTotalsText(RT.timelineSegments(run100, tree(), T0 + 100000).totals), /· Tools 5\.0s ·/);
 });
 
-test('page wiring: every span row draws its segment, totals line under the run, no top bar', () => {
+test('page wiring: each span row gets its bar from the run-wide scale, totals under the run', () => {
   const src = read('js/pages/agent-runs.js');
   assert.match(src, /if \(e\.trace\) list\.appendChild\(this\._timelineTotalsRow\(r, e, base, sess\)\);/);
-  assert.match(src, /e\.tl = this\._inlineTimeline\(r, tree\);/);
-  assert.match(src, /const seg = e\.tl && e\.tl\.byKey \? e\.tl\.byKey\[row\.key\] : null;/);
+  assert.match(src, /e\.tl = this\._inlineTimeline\(r, this\._inlineTree\(r, e\)\);/);
+  assert.match(src, /e\.tlf = filtered \? this\._inlineTimeline\(r, tree\) : null;/);
   assert.match(src, /<span class="rl-c rl-r rl-sub rl-wfc">\$\{RT\.timelineCellHtml\(seg, RT\.fmtDur\(dur\)\)\}<\/span>/);
-  assert.match(src, /RunTrace\.timelineTotalsText\(this\._inlineTimeline\(r, this\._inlineTree\(r, e\)\)\.totals\)/);
-  for (const gone of ['_timelineRow', '_timelineTick', '_timelineSelect', 'rl-tlbar', 'rl-tlleg', 'rl-tlseg']) assert.ok(!src.includes(gone), gone);
-  assert.ok(!read('js/components/run-trace.js').includes('timelineHtml('));
-  // Colour discipline: model = the one accent, tools neutral, state colours.
+  for (const gone of ['_timelineRow', '_timelineTick', 'rl-tlbar', 'rl-wft', 'rl-wfl']) assert.ok(!src.includes(gone), gone);
   assert.match(src, /\.rl-tl-model \{ background:var\(--accent-primary\); \}/);
   assert.match(src, /\.rl-tl-tool \{ background:var\(--text-muted\); \}/);
   assert.match(src, /\.rl-tl-blocked \{ background:var\(--danger/);
   assert.match(src, /\.rl-tl-waiting \{ background:var\(--warning/);
-  assert.match(src, /\.rl-wfs \{[^}]*height:6px; min-width:2px/);
-  assert.match(src, /\.rl-wft \{[^}]*height:6px; border-radius:3px/);
-  assert.match(src, /\.rl-wfd \{[^}]*width:48px; text-align:center; font-size:10\.5px[^}]*color:var\(--text-muted\)/);
-  assert.match(src, /\.rl-wfc \{[^}]*gap:2px/);
 });
 
-test('a wide list gives Duration 180px for the waterfall; narrower keeps the old width', () => {
+test('Duration widens with the list: 130px from 1100px, 180px from 1300px, Run keeps its share', () => {
   const src = read('js/pages/agent-runs.js');
-  assert.match(src, /@container \(min-width:1100px\) \{\s*\.rl-table \{ --rl-cols:62px minmax\(0,1\.4fr\) minmax\(0,1\.5fr\) 150px 180px 62px 62px; \}/);
-  assert.match(src, /\.rl-table\.rl-flatlist \{ --rl-cols:[^}]* 150px 180px 56px 60px; min-width:1160px; \}/);
   assert.match(src, /\.rl-table \{ --rl-cols:62px minmax\(0,1\.4fr\) minmax\(0,1\.5fr\) 150px 74px 62px 62px; \}/);
+  assert.match(src, /@container \(min-width:1100px\) \{\s*\.rl-table \{ --rl-cols:62px minmax\(0,1\.4fr\) minmax\(0,1\.3fr\) 120px 130px 62px 62px; \}/);
+  assert.match(src, /@container \(min-width:1300px\) \{\s*\.rl-table \{ --rl-cols:62px minmax\(0,1\.4fr\) minmax\(0,1\.5fr\) 150px 180px 62px 62px; \}/);
 });
