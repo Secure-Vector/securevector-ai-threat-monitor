@@ -108,7 +108,7 @@ test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
   assert.match(html, /styles\.css\?v=501/);
   assert.match(html, /terminals\.js\?v=131/);
-  assert.match(html, /agent-runs\.js\?v=397/);
+  assert.match(html, /agent-runs\.js\?v=398/);
   assert.match(html, /live-grid-model\.js\?v=14/);
   assert.match(html, /pages\/live-grid\.js\?v=15/);
 });
