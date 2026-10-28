@@ -1397,7 +1397,6 @@ const AgentRunsPage = {
                 border:1px solid color-mix(in srgb, var(--accent-primary,#5eadb8) 55%, transparent);
                 background:color-mix(in srgb, var(--accent-primary,#5eadb8) 10%, transparent); color:var(--accent-primary,#5eadb8); }
             .rl-det::after { content:'\u2192'; font-size:13px; line-height:1; }
-            .rl-det.rl-only::after { content:'\u2315'; }
             .rl-det:hover { background:var(--accent-primary,#5eadb8); border-color:var(--accent-primary,#5eadb8); color:var(--bg-primary,#0b0f14); }
             .rl-det:focus-visible, .rl-spanrow:focus-visible { outline:2px solid var(--accent-primary); outline-offset:-2px; }
             .rl-spanrow { font-size:12.5px; padding-top:6px; padding-bottom:6px; }
@@ -2516,24 +2515,21 @@ const AgentRunsPage = {
             moreRow.appendChild(more);
         }
         if (first.session_id) {
-            const only = document.createElement('button');
-            only.type = 'button';
-            // Same button look as a run's "Open details": it is the way to
-            // narrow the whole page to this one session.
-            only.className = 'rl-det rl-only';
-            only.textContent = 'Only this session';
-            only.addEventListener('click', () => {
-                this.filters.search = `session:${first.session_id}`;
-                const s = document.getElementById('rl-search');
-                if (s) s.value = this.filters.search;
-                this.pageIdx = 0;
-                this.renderRuns();
-            });
-            right.appendChild(only);
+            // Open details: the session's latest run, whose details page
+            // carries the session governance sections. Typing
+            // "session:<id>" in search still narrows the list to one session.
+            const det = document.createElement('button');
+            det.type = 'button';
+            det.className = 'rl-det';
+            det.dataset.fk = 'sdet:' + g.key;
+            det.textContent = 'Open details';
+            det.setAttribute('aria-label', `Open details of the latest run in session ${first.session_id}`);
+            det.addEventListener('click', (ev) => { ev.stopPropagation(); this.selectRun(first.trace_id); });
+            right.appendChild(det);
         }
         head.appendChild(right);
         // Clicking anywhere on the header row toggles it too (owner, 6.1);
-        // its own buttons (copy, waiting badge, Only this session) keep
+        // its own buttons (copy, waiting badge, Open details) keep
         // their actions.
         head.style.cursor = 'pointer';
         head.addEventListener('click', (ev) => {
