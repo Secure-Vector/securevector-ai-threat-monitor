@@ -72,6 +72,7 @@ PLUGIN_FILES = [
     ".cursor-plugin/plugin.json",
     "hooks/hooks.json",
     "hooks/session-start.js",
+    "hooks/session-end.js",
     "hooks/before-shell.js",
     "hooks/before-mcp.js",
     "hooks/after-shell.js",

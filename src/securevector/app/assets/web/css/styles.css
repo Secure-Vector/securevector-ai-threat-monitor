@@ -8782,9 +8782,13 @@ button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
 .terminals-launch input, .terminals-launch select { font: inherit; padding: 5px 6px; }
 .terminals-launch-actions { display: flex; gap: 6px; white-space: nowrap; }
 .terminals-launch-error, .terminals-error { color: var(--danger, #ef4444); font-size: 12px; }
+/* The note is a plain card, not the full-height sessions grid. */
+.terminals-page.terminals-local-only { display: block; height: auto; min-height: 0; }
 .terminals-local-only { max-width: 640px; margin: 48px auto; padding: 20px 24px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-card); color: var(--text-primary); }
 .terminals-local-title { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
 .terminals-local-body { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.terminals-local-steps { margin: 0 0 10px 18px; padding: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.terminals-local-steps li { margin: 0 0 4px; }
 .terminals-local-link { border: 0; padding: 0; background: transparent; color: var(--accent-primary); font: inherit; cursor: pointer; text-decoration: underline; }
 .terminals-task-list { display: flex; gap: 10px; overflow-x: auto; padding: 1px 2px 5px; scrollbar-color: rgba(98, 133, 151, .65) transparent; }
 .terminals-group { display: flex; gap: 8px; }

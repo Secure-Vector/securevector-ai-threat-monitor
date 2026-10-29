@@ -36,6 +36,7 @@ EXPECTED_FILES = set(mod.PLUGIN_FILES)
 
 EXPECTED_EVENTS = {
     "sessionStart",
+    "sessionEnd",
     "beforeShellExecution",
     "beforeMCPExecution",
     "afterShellExecution",
@@ -105,7 +106,7 @@ def test_install_creates_local_plugin_with_bundled_hooks(client, cursor_home):
     assert (plugin_dir / ".cursor-plugin" / "plugin.json").is_file()
     assert (plugin_dir / "hooks" / "before-shell.js").is_file()
 
-    # The bundled hooks.json has all nine events, the placeholder resolved to
+    # The bundled hooks.json has all ten events, the placeholder resolved to
     # the absolute plugin dir (no template residue).
     bundled = json.loads((plugin_dir / "hooks" / "hooks.json").read_text())
     assert bundled["version"] == 1

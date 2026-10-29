@@ -20,13 +20,15 @@
         VIEWS_KEY: 'sv-live-grid-views',
         MAX_LARGE: 6,
         GROUP_PREVIEW: 12,
-        QUIET_S: 300,
+        // Quiet after two minutes without a call (QUIET_AFTER_S on the server).
+        // A quiet session still runs: a model can think for minutes.
+        QUIET_S: 120,
 
         TOGGLES: [
             ['waiting', 'Waiting for approval'],
             ['blocked', 'With blocked calls'],
             ['score70', 'Score 70+'],
-            ['quiet', 'Quiet over 5m'],
+            ['quiet', 'Quiet over 2m'],
             ['cost', 'Cost, running'],
         ],
 
@@ -143,6 +145,28 @@
 
         // ----------------------------------------------------------- state
 
+        /** The one running rule, shared by the Live grid and the Runs page
+         *  (RunsList.isRunning): a live row the server has not marked ended.
+         *  The server ends a session at its end marker, or after ten
+         *  minutes with no call when no marker arrives. */
+        sessionRunning(s) { return !!s && !s.ended; },
+
+        /** Running, and no call for QUIET_S or more. */
+        isQuiet(s) {
+            return this.sessionRunning(s) && s.quiet_seconds != null && Number(s.quiet_seconds) >= this.QUIET_S;
+        },
+
+        /** The Live grid strip: "N running · M quiet · K ended". Quiet
+         *  sessions are part of the running count. */
+        stripParts(c) {
+            const n = (k) => Number((c && c[k]) || 0);
+            return { running: `${n('running')} running`, quiet: `${n('quiet')} quiet`, ended: `${n('ended')} ended` };
+        },
+        stripText(c) {
+            const p = this.stripParts(c);
+            return [p.running, p.quiet, p.ended].join(' · ');
+        },
+
         /** ended | waiting | blocked | quiet | running. An ended session
          *  (not running, last activity within 30 minutes) keeps its tile,
          *  dimmed, until the server drops it. */
@@ -152,7 +176,7 @@
             if ((s.waiting || 0) > 0) return 'waiting';
             if (s.ended) return 'ended';
             if ((s.blocked || 0) > 0) return 'blocked';
-            if ((Number(s.quiet_seconds) || 0) > this.QUIET_S) return 'quiet';
+            if (this.isQuiet(s)) return 'quiet';
             return 'running';
         },
 
@@ -201,8 +225,8 @@
 
         // ------------------------------------------------------ sort/filter
 
-        /** Triage order: waiting (oldest expiry first), blocked, score, then
-         *  the most recent activity. */
+        /** Order: running before ended; waiting first (oldest expiry first);
+         *  then the newest session on top, by last activity, then start. */
         compare(a, b) {
             const ea0 = a.ended ? 1 : 0, eb0 = b.ended ? 1 : 0;
             if (ea0 !== eb0) return ea0 - eb0;
@@ -212,20 +236,21 @@
                 const ea = this.ms(a.oldest_waiting_expires_at) || 0, eb = this.ms(b.oldest_waiting_expires_at) || 0;
                 if (ea !== eb) return ea - eb;
             }
-            const ba = (a.blocked || 0) > 0 ? 0 : 1, bb = (b.blocked || 0) > 0 ? 0 : 1;
-            if (ba !== bb) return ba - bb;
-            const sa = typeof a.score === 'number' ? a.score : -1, sb = typeof b.score === 'number' ? b.score : -1;
-            if (sa !== sb) return sb - sa;
             const qa = a.quiet_seconds == null ? Infinity : Number(a.quiet_seconds);
             const qb = b.quiet_seconds == null ? Infinity : Number(b.quiet_seconds);
             if (qa !== qb) return qa - qb;
+            const la = this.ms(a.last_activity_at) || 0, lb = this.ms(b.last_activity_at) || 0;
+            if (la !== lb) return lb - la;
+            const sa = this.ms(a.started_at) || 0, sb = this.ms(b.started_at) || 0;
+            if (sa !== sb) return sb - sa;
             return String(a.session_id).localeCompare(String(b.session_id));
         },
 
         sort(list) { return (list || []).slice().sort((a, b) => this.compare(a, b)); },
 
         /** Hold the order while watching: known sessions keep their place,
-         *  gone ones drop, new ones join at the end in triage order. A kept
+         *  gone ones drop; new running ones join at the top, after the
+         *  waiting block, newest first; new ended ones join at the end. A kept
          *  session that starts waiting (not in `prevWaiting`) moves into the
          *  waiting block at its sorted place, so a new approval never hides
          *  at the bottom. `resort` re-applies the full sort. Returns the new
@@ -249,8 +274,12 @@
                 rest.splice(i, 0, id);
             });
             const known = new Set(kept);
-            const fresh = this.sort(list.filter(s => !known.has(s.session_id))).map(s => s.session_id);
-            return rest.concat(fresh);
+            const fresh = this.sort(list.filter(s => !known.has(s.session_id)));
+            const top = fresh.filter(s => !s.ended).map(s => s.session_id);
+            const tail = fresh.filter(s => s.ended).map(s => s.session_id);
+            let at = 0;
+            while (at < rest.length && isW(rest[at])) at++;
+            return rest.slice(0, at).concat(top, rest.slice(at), tail);
         },
 
         waitingIds(sessions) {
@@ -307,11 +336,11 @@
         matchToggle(s, key) {
             // Attention chips count running sessions only; ended tiles show
             // under no chip but stay in the full grid.
-            if (key === 'running') return !s.ended;
+            if (key === 'running') return this.sessionRunning(s);
             if (key === 'waiting') return !s.ended && (s.waiting || 0) > 0;
             if (key === 'blocked') return !s.ended && (s.blocked || 0) > 0;
             if (key === 'score70') return typeof s.score === 'number' && s.score >= 70;
-            if (key === 'quiet') return !s.ended && (Number(s.quiet_seconds) || 0) > this.QUIET_S;
+            if (key === 'quiet') return this.isQuiet(s);
             if (key === 'cost') return s.cost_usd != null;
             return true;
         },
@@ -334,14 +363,15 @@
          *  rebuilds them from a list when it does not). */
         counters(sessions) {
             const every = sessions || [];
-            const all = every.filter(s => !s.ended);
+            const all = every.filter(s => this.sessionRunning(s));
             const known = all.filter(s => s.cost_usd != null);
             return {
                 running: all.length,
                 waiting: all.reduce((a, s) => a + (s.waiting || 0), 0),
                 blocked_sessions: all.filter(s => (s.blocked || 0) > 0).length,
                 score_70_plus: all.filter(s => typeof s.score === 'number' && s.score >= 70).length,
-                quiet_over_5m: all.filter(s => (Number(s.quiet_seconds) || 0) > this.QUIET_S).length,
+                quiet: all.filter(s => this.isQuiet(s)).length,
+                quiet_over_5m: all.filter(s => this.isQuiet(s)).length,
                 cost_usd: known.length ? Math.round(known.reduce((a, s) => a + Number(s.cost_usd || 0), 0) * 1e6) / 1e6 : null,
                 cost_known_sessions: known.length,
                 tokens: all.reduce((a, s) => a + (Number(s.tokens) || 0), 0),
@@ -596,7 +626,7 @@
                 `<span class="lg-c-main"><span class="lg-c-head"><span class="lg-c-h">${e(harness)}</span>` +
                 `<span class="lg-c-name">${e(s.project || '')}${s.project ? ' ' : ''}<span class="lg-c-id">${e(shortId)}</span></span></span>` +
                 alertLine + actLine + govLine + egLine + `</span></button>` +
-                `<div class="lg-c-foot">${ago}${cov ? `<span class="lg-c-cov">${e(cov)}</span>` : ''}` +
+                `<div class="lg-c-foot">${!s._gone && st === 'quiet' ? `<span class="lg-c-quiet">Quiet ${e(this.dur(s.quiet_seconds))}</span>` : ''}${ago}${cov ? `<span class="lg-c-cov">${e(cov)}</span>` : ''}` +
                 (wait ? `<button type="button" class="lg-rv" data-act="review" data-sid="${sid}" data-key="btn">Review</button>` : '') + `</div>` +
                 `<button type="button" class="lg-pin" data-act="pin" data-sid="${sid}" aria-pressed="${pinned ? 'true' : 'false'}" aria-label="${pinned ? 'Unpin' : 'Pin'} session ${e(shortId)}" title="${pinned ? 'Unpin' : 'Pin for Pinned focus'}">◆</button>` + exp + `</div>`;
         },
@@ -634,7 +664,7 @@
         MATRIX_ONE_COL_BELOW: 700,
 
         /** Columns for N open panels: none below 2 (the panel stays under
-         *  its tile), else ceil(sqrt(N)) (2 → 2, 3-4 → 2x2, 5-9 → 3),
+         *  its tile), else ceil(sqrt(N)) (2 → 2, 3-4 → 2x2, 5-9 → 3, 10-12 → 4),
          *  fewer when `width` cannot hold MATRIX_MIN_W per column, one
          *  under 700px. */
         matrixCols(n, width) {
@@ -650,13 +680,13 @@
 
         matrixRows(n, cols) { return cols > 0 ? Math.ceil(n / cols) : 0; },
 
-        /** The open sessions to draw in the matrix, in the order they were
-         *  opened (`open` keeps that order). Only sessions in `candidates`
-         *  (the tiles on the page) count. Empty below two. */
+        /** The open sessions to draw in the matrix, in the order of the
+         *  tiles on the page (`candidates`), so the newest running session
+         *  leads. Only sessions in `candidates` count. Empty below two. */
         matrixList(open, candidates) {
-            const by = new Map((candidates || []).map(s => [s.session_id, s]));
+            const want = new Set(open || []);
             const list = [];
-            (open || []).forEach(id => { const s = by.get(id); if (s && !list.includes(s)) list.push(s); });
+            (candidates || []).forEach(s => { if (s && want.has(s.session_id) && !list.includes(s)) list.push(s); });
             return list.length >= 2 ? list : [];
         },
 
@@ -669,7 +699,9 @@
             return `<section class="lg-mx" aria-label="Open sessions" style="--lg-mx-cols:${cols};--lg-mx-rows:${rows}">` +
                 `<div class="lg-mx-head"><h3 class="lg-mx-title">Open sessions (${list.length})</h3>` +
                 `<button type="button" class="lg-link" data-act="close-all">Close all</button></div>` +
-                `<div class="lg-mx-grid">${list.map(s => this.panelHtml(s, opts.details, opts.panels, true)).join('')}</div></section>`;
+                `<div class="lg-mx-grid">${list.map(s => this.panelHtml(s, opts.details, opts.panels, true)).join('')}</div>` +
+                (opts.more > 0 ? `<p class="lg-mx-more">${this.esc(opts.more)} more session${opts.more === 1 ? '' : 's'} below</p>` : '') +
+                `</section>`;
         },
 
         /** The whole compact body as one string: groups with a caret,
@@ -746,8 +778,70 @@
 
         SECTION_CAP: 5,
 
-        // Nine, so a 3x3 matrix of open panels fits.
-        MAX_OPEN: 9,
+        // Twelve, so a 4x3 matrix of open panels fits.
+        MAX_OPEN: 12,
+
+        /** Panels opened for the person: every running session on first
+         *  paint, newest first, at most MAX_OPEN; then each new running
+         *  session as it appears, unless its panel was closed this visit
+         *  (`closed`) or Close all was used (`off`). Ended sessions never
+         *  open on their own. `sessions` come in display order; `seen` is
+         *  null on first paint. Returns { open, seen, more }: `open` keeps
+         *  opening order (newest last, so the cap drops the oldest), `more`
+         *  is the running sessions left closed by the cap on first paint. */
+        autoOpen(open, sessions, seen, closed, off) {
+            const list = sessions || [];
+            const shut = new Set(closed || []);
+            const running = list.filter(s => this.sessionRunning(s));
+            const ids = list.map(s => s.session_id);
+            if (seen == null) {
+                const pick = off ? [] : this.sort(running).map(s => s.session_id).filter(id => !shut.has(id));
+                const want = pick.slice(0, this.MAX_OPEN).reverse();
+                let next = (open || []).slice();
+                want.forEach(id => { if (!next.includes(id)) next.push(id); });
+                next = next.slice(-this.MAX_OPEN);
+                return { open: next, seen: ids, more: Math.max(0, running.length - this.MAX_OPEN) };
+            }
+            const was = new Set(seen);
+            let next = (open || []).slice();
+            if (!off) {
+                this.sort(running.filter(s => !was.has(s.session_id) && !shut.has(s.session_id))).reverse()
+                    .forEach(s => { if (!next.includes(s.session_id)) next.push(s.session_id); });
+                next = next.slice(-this.MAX_OPEN);
+            }
+            return { open: next, seen: Array.from(new Set(seen.concat(ids))), more: null };
+        },
+
+        // Panels loading for the first time, per poll: twelve open panels
+        // load four at a time instead of all at once.
+        FIRST_LOADS: 4,
+
+        /** What a panel's details depend on: activity, waiting, blocked and
+         *  ended. Unchanged means its governance and trace are unchanged. */
+        detailStamp(s) {
+            return s ? JSON.stringify([s.last_activity_at || null, s.waiting || 0, s.blocked || 0, !!s.ended]) : '';
+        },
+
+        /** Which open panels a poll fetches: a panel with details whose
+         *  stamp has not moved is kept as it is; a panel whose session moved
+         *  is fetched; panels with no details yet load FIRST_LOADS per poll.
+         *  Returns { fetch, keep, stamps } (stamps for every id now). */
+        detailPlan(ids, sessions, stamps, details, firstLoads) {
+            const by = new Map((sessions || []).map(s => [s.session_id, s]));
+            const cap = firstLoads == null ? this.FIRST_LOADS : firstLoads;
+            const fetch = [], keep = [], now = {};
+            let fresh = 0;
+            (ids || []).forEach(id => {
+                const st = this.detailStamp(by.get(id));
+                now[id] = st;
+                if (!(details && details[id])) {
+                    if (fresh < cap) { fetch.push(id); fresh++; }
+                    return;
+                }
+                if (stamps && stamps[id] === st) keep.push(id); else fetch.push(id);
+            });
+            return { fetch, keep, stamps: now };
+        },
 
         /** Expanded compact tiles: a new list with `sid` added or removed.
          *  At most MAX_OPEN, like pins: opening one more closes the oldest. */
@@ -1041,7 +1135,7 @@
             const covLevel = live.coverage_level || (cov && cov.level);
             const covLabel = live.coverage || (cov && cov.label) || this.coverageWord(covLevel);
             const st = s ? this.state(s) : 'ended';
-            const quiet = s && (Number(s.quiet_seconds) || 0) > this.QUIET_S;
+            const quiet = s && this.isQuiet(s);
             const startedMs = this.ms(live.started_at || (gov && gov.started_at));
             // Missing from a list cut at the limit is not "not running".
             const stateText = !s ? (opts.cutAt ? `outside the first ${opts.cutAt}` : 'not running') : quiet ? `quiet ${this.dur(s.quiet_seconds)}`

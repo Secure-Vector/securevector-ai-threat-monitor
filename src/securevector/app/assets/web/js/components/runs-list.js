@@ -109,13 +109,26 @@ const RunsList = {
             const at = this.ms(p.requested_at);
             if (tid && at && (!waitingSince[tid] || at < waitingSince[tid])) waitingSince[tid] = at;
         });
-        return { now, runIndex, runTotal, newest, live, scores, waitingSince, coverage: opts.coverage || null };
+        // With live data in hand, the Live grid's running rule decides
+        // (LiveGridModel.sessionRunning), so the Runs summary, the tab badge
+        // and the Live grid strip agree.
+        const LGM = opts.LGM || (typeof window !== 'undefined' && window.LiveGridModel) || null;
+        const liveRule = opts.live && Array.isArray(opts.live.sessions) && LGM && LGM.sessionRunning
+            ? (s) => LGM.sessionRunning(s) : null;
+        return { now, runIndex, runTotal, newest, live, scores, waitingSince, coverage: opts.coverage || null, liveRule };
     },
 
     _sessionKey(r) { return r.session_id || ('trace:' + r.trace_id); },
     isNewest(r, ctx) { return !!ctx && ctx.newest[this._sessionKey(r)] === r.trace_id; },
 
     isRunning(r, ctx) {
+        // A session's newest run runs while its live row does; an ended
+        // session (end marker, or ten quiet minutes) stops at once. A
+        // session missing from the live list (cut at its limit) falls back
+        // to the rule below.
+        if (ctx && ctx.liveRule && r.session_id && ctx.live[r.session_id]) {
+            return !!(ctx.liveRule(ctx.live[r.session_id]) && this.isNewest(r, ctx));
+        }
         const now = (ctx && ctx.now) || Date.now();
         if (r.ended_at && now - this.ms(r.ended_at) < this.LIVE_MS) return true;
         return !!(ctx && r.session_id && ctx.live[r.session_id] && this.isNewest(r, ctx));
@@ -853,7 +866,7 @@ const RunsList = {
         if (!live || !LGM) return null;
         const quiet = Number(live.quiet_seconds);
         let activity = '';
-        if (isFinite(quiet) && live.quiet_seconds != null && quiet > (LGM.QUIET_S || 300)) {
+        if (LGM.isQuiet ? LGM.isQuiet(live) : (isFinite(quiet) && live.quiet_seconds != null && quiet >= (LGM.QUIET_S || 120))) {
             activity = `Quiet ${LGM.dur(quiet)}`;
         } else {
             const g = LGM.glance ? LGM.glance(live) : { tool: '', target: '' };

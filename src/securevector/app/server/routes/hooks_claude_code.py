@@ -64,6 +64,7 @@ PLUGIN_FILES = [
     # session-open audit row. Replaced the temporary Stop diagnostic probe
     # (removed in v4.6.0 for marketplace readiness, #147).
     "hooks/session-start.js",
+    "hooks/session-end.js",
     # Optional statusline emitter — users wire this into their Claude
     # Code `statusLine` (or shell out from an existing statusline
     # script) to surface live SecureVector findings next to model /

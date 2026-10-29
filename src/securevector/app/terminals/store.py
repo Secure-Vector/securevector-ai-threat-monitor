@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from securevector.app.database.connection import DatabaseConnection
@@ -16,7 +16,39 @@ RUNNING = ("starting", "working", "blocked", "idle")
 # Lifecycle sentinels the Guard plugins emit around a harness session. They
 # are not tool calls; the linked-task liveness rules read them as boundaries
 # and the Tool calls list hides them.
-SESSION_BOUNDARY = ("__session_start__", "__session_end__")
+# Lifecycle markers, never calls. `__turn_end__` marks the end of one turn
+# (a harness Stop hook); only `__session_end__` ends a session.
+SESSION_BOUNDARY = ("__session_start__", "__session_end__", "__turn_end__")
+# A tool call's PostToolUse row can land a moment after the harness's
+# session-end row. Only a row later than this past the end reopens a session.
+REOPEN_GRACE_S = 5.0
+
+
+def _marker_ts(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    s = str(value).strip()
+    try:
+        dt = datetime.fromisoformat(s[:-1] + "+00:00" if s.endswith("Z") else s)
+    except ValueError:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+
+def ended_by_marker(last_end: Any, last_activity: Any, last_start: Any = None,
+                    grace_s: float = REOPEN_GRACE_S) -> bool:
+    """One rule for the board and the Live grid: a session with a
+    `__session_end__` row has ended, unless a `__session_start__` came after
+    it (a resumed session) or real activity came more than `grace_s` after
+    it. Turn markers are never activity."""
+    end = _marker_ts(last_end)
+    if end is None:
+        return False
+    start = _marker_ts(last_start)
+    if start is not None and start > end:
+        return False
+    act = _marker_ts(last_activity)
+    return not (act is not None and act > end + timedelta(seconds=grace_s))
 
 # The harnesses whose Guard reports a runtime_kind that maps one to one onto
 # an Agent Tasks executor id. Anything else the audit trail carries (an SDK,
@@ -293,8 +325,8 @@ class TerminalStore:
         """Newest audit timestamps per session, one query for the whole board.
 
         Returns `last_any` (newest row of any kind), `last_call` (newest row
-        that is not a lifecycle sentinel) and `last_end` (newest
-        __session_end__). A per-task query would scale with the number of
+        that is not a lifecycle sentinel), `last_end` (newest
+        __session_end__) and `last_start` (newest __session_start__). A per-task query would scale with the number of
         linked tasks on a list that is re-read every few seconds.
         """
         out: dict[str, dict[str, Any]] = {}
@@ -309,7 +341,8 @@ class TerminalStore:
             rows = await self.db.fetch_all(
                 "SELECT session_id, MAX(called_at) AS last_any, "
                 f"MAX(CASE WHEN function_name NOT IN ({boundary}) THEN called_at END) AS last_call, "
-                "MAX(CASE WHEN function_name = '__session_end__' THEN called_at END) AS last_end "
+                "MAX(CASE WHEN function_name = '__session_end__' THEN called_at END) AS last_end, "
+                "MAX(CASE WHEN function_name = '__session_start__' THEN called_at END) AS last_start "
                 f"FROM tool_call_audit WHERE session_id IN ({placeholders}) GROUP BY session_id",
                 (*SESSION_BOUNDARY, *batch),
             )
@@ -318,6 +351,7 @@ class TerminalStore:
                     "last_any": r["last_any"],
                     "last_call": r["last_call"],
                     "last_end": r["last_end"],
+                    "last_start": r["last_start"],
                 }
         return out
 

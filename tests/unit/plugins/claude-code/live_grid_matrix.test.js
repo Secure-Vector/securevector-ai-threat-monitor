@@ -42,12 +42,13 @@ test('matrix columns drop on narrow widths: 360px per panel, one under 700px', (
   assert.equal(M.matrixCols(1, 1400), 0);
 });
 
-test('one open panel stays under its tile; two or more move into the matrix in open order', () => {
+test('one open panel stays under its tile; two or more move into the matrix in tile order', () => {
   const M = load();
   const list = ['a', 'b', 'c', 'd'].map(sess);
   assert.equal(M.matrixList(['b'], list).length, 0);
   const mx = M.matrixList(['c', 'a', 'gone'], list);
-  assert.equal(mx.map(s => s.session_id).join(','), 'c,a');
+  // Tile order (newest first on the page), not the order they were opened.
+  assert.equal(mx.map(s => s.session_id).join(','), 'a,c');
   const grid = M.compactHtml(M.groups(list, 'none'), { group: 'none', open: ['c', 'a'], details: {}, panelsAbove: true });
   assert.equal((grid.match(/class="lg-cx"/g) || []).length, 0);
   // Open tiles keep their outline and chevron.
@@ -55,7 +56,7 @@ test('one open panel stays under its tile; two or more move into the matrix in o
   assert.match(grid, /data-act="expand" data-sid="a" aria-expanded="true" aria-controls="lg-cx-a"/);
   const top = M.matrixHtml(mx, { details: {} });
   assert.equal((top.match(/class="lg-cx"/g) || []).length, 2);
-  assert.ok(top.indexOf('id="lg-cx-c"') < top.indexOf('id="lg-cx-a"'));
+  assert.ok(top.indexOf('id="lg-cx-a"') < top.indexOf('id="lg-cx-c"'));
   assert.match(top, /Open sessions \(2\)/);
   assert.match(top, /data-act="close-all">Close all</);
   assert.match(top, /data-act="close-panel" data-sid="c"/);

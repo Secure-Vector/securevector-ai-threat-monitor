@@ -441,10 +441,150 @@ def test_live_lists_running_sessions_in_triage_order(obs):
     c = body["counters"]
     assert c["running"] == 8 and c["waiting"] == 2 and c["blocked_sessions"] == 1
     assert c["score_70_plus"] == 1
-    assert c["quiet_over_5m"] == 2
+    # Quiet from two minutes: w-old (200 s), quiet (420 s) and idle-task.
+    assert c["quiet"] == 3 and c["quiet_over_5m"] == 3
     assert c["cost_usd"] == 1.5 and c["tokens"] == 2000
     assert c["coverage_not_enforced"] == 1 and c["coverage_partial"] == 7
     assert "groups" not in body
+
+
+def _live(client):
+    body = client.get(f"{BASE}/live", headers=AUTH).json()
+    return body, {x["session_id"]: x for x in body["sessions"]}
+
+
+def test_an_end_marker_ends_the_session_at_once(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("run1", ago=40)
+    s.call("run1", "log_only", ago=30, tool="__session_end__")
+    s.call("live1", ago=40)
+    s.done()
+    body, by = _live(client)
+    assert by["run1"]["ended"] is True
+    assert by["run1"]["ended_at"] == observability.iso(_ts(30))
+    assert by["live1"]["ended"] is False
+    c = body["counters"]
+    assert c["running"] == 1 and c["ended"] == 1
+    assert c["running"] == sum(1 for x in body["sessions"] if not x["ended"])
+
+
+def test_activity_after_the_end_marker_reopens_the_session(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("res", ago=90)
+    s.call("res", "log_only", ago=60, tool="__session_end__")
+    s.call("res", ago=20)
+    s.call("res2", ago=90)
+    s.call("res2", "log_only", ago=60, tool="__session_end__")
+    s.call("res2", "log_only", ago=10, tool="__session_start__")
+    s.cost("res3", 0.1, 10, ago=90)
+    s.call("res3", "log_only", ago=60, tool="__session_end__")
+    s.cost("res3", 0.1, 10, ago=5)
+    s.done()
+    body, by = _live(client)
+    assert all(by[x]["ended"] is False for x in ("res", "res2", "res3"))
+    assert body["counters"]["running"] == 3 and body["counters"]["ended"] == 0
+
+
+def test_a_turn_marker_never_ends_the_session(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("turns", ago=40)
+    s.call("turns", "log_only", ago=30, tool="__turn_end__")
+    s.call("both", ago=60)
+    s.call("both", "log_only", ago=50, tool="__session_end__")
+    s.call("both", "log_only", ago=10, tool="__turn_end__")    # not activity: still ended
+    s.done()
+    body, by = _live(client)
+    assert by["turns"]["ended"] is False
+    # A turn marker is a boundary, never a call.
+    assert by["turns"]["tool_calls"]["total"] == 1 and by["turns"]["tool_calls"]["logged"] == 0
+    assert by["turns"]["last_call"]["tool_id"] == "Bash"
+    assert by["both"]["ended"] is True
+    assert body["counters"]["running"] == 1 and body["counters"]["ended"] == 1
+
+
+def test_a_row_landing_just_after_the_end_marker_does_not_reopen(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("late", ago=40)
+    s.call("late", "log_only", ago=30, tool="__session_end__")
+    s.call("late", ago=28)                  # PostToolUse landing after SessionEnd
+    s.call("back", "log_only", ago=30, tool="__session_end__")
+    s.call("back", ago=20)                  # 10 s later: a resumed session
+    s.done()
+    body, by = _live(client)
+    assert by["late"]["ended"] is True and by["late"]["ended_at"] == observability.iso(_ts(30))
+    assert by["back"]["ended"] is False
+
+
+def test_a_running_terminal_task_stays_live_with_an_end_marker(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.task("t-held", "held", ws, status="idle")
+    s.call("held", ago=40)
+    s.call("held", "log_only", ago=30, tool="__session_end__")
+    s.done()
+    body, by = _live(client)
+    assert by["held"]["ended"] is False
+    assert body["counters"]["running"] == 1
+
+
+def test_turn_markers_are_not_activity_for_quiet_or_the_ten_minute_rule(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("thinking", ago=200)
+    s.call("thinking", "log_only", ago=5, tool="__turn_end__")
+    s.call("stale", ago=700)
+    s.call("stale", "log_only", ago=10, tool="__turn_end__")
+    s.done()
+    body, by = _live(client)
+    assert by["thinking"]["quiet_seconds"] >= 200 and by["thinking"]["ended"] is False
+    assert by["stale"]["ended"] is True
+    assert body["counters"]["quiet"] == 1
+
+
+def test_a_call_waiting_for_approval_keeps_an_ended_session_live(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("wt", ago=40)
+    s.call("wt", "log_only", ago=30, tool="__session_end__")
+    s.request("wt", ago=35, source="rung")
+    s.done()
+    body, by = _live(client)
+    assert by["wt"]["ended"] is False and by["wt"]["waiting"] == 1
+    assert body["counters"]["running"] == 1 and body["counters"]["waiting"] == 1
+
+
+def test_counters_and_rollups_agree_on_ended_sessions(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.call("a", ago=10)
+    s.call("b", ago=50)
+    s.call("b", "log_only", ago=45, tool="__session_end__")
+    s.call("c", ago=700)                    # no marker: ended by the ten-minute rule
+    s.done()
+    body, by = _live(client)
+    assert [k for k in ("a", "b", "c") if by[k]["ended"]] == ["b", "c"]
+    assert by["c"]["ended_at"] == by["c"]["last_activity_at"]
+    assert body["counters"]["running"] == 1 and body["counters"]["ended"] == 2
+    roll = client.get(f"{BASE}/live?group=harness", headers=AUTH).json()["groups"][0]["rollup"]
+    assert roll["running"] == 1 and roll["ended"] == 2
+
+
+def test_quiet_starts_at_two_minutes_and_stays_running(obs):
+    client, ws, db = obs
+    assert observability.QUIET_AFTER_S == 120
+    s = Seed(db.db_path)
+    s.call("q", ago=130)
+    s.call("busy", ago=60)
+    s.done()
+    body, by = _live(client)
+    assert by["q"]["quiet_seconds"] >= 120 and by["q"]["ended"] is False
+    assert by["busy"]["quiet_seconds"] < 120
+    c = body["counters"]
+    assert c["running"] == 2 and c["quiet"] == 1
 
 
 def test_live_rows_carry_the_latest_call_and_egress_host(obs):

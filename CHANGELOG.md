@@ -51,11 +51,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenClaw Guard works with OpenClaw 2026.10: the tool audit and the tool output scan run on `after_tool_call`, one audit row per tool call. `securevector-app --install-plugin openclaw` sets `hooks.allowConversationAccess` for the Guard's entry so cost tracking keeps working; see docs/OPENCLAW.md.
 - Database schema 64.
 - Reliability and security improvements.
+- The Live grid opens every running session's panel, newest first.
+- Guard plugins Claude Code 5.4.2, Codex 5.4.1 and Cursor 5.4.1 send a session end marker from the harness's session-end hook. The Codex and Cursor stop hooks, which fire every turn, now send a turn marker that does not end the session.
+- Codex asks you to trust the SecureVector Guard hooks again after the Codex plugin updates, because its hook set changed.
 
 ### Fixed
 
+- Sessions that send an end marker leave the Live grid and the running count at once; quiet shows after two minutes without a call.
 - Cost & Tokens prices Amazon Bedrock calls reported by plugins (for example Hermes and OpenClaw), including model ids with a region prefix, instead of showing $0.
 - The Live grid and session governance load when the app is opened by its network address; session controls still need localhost.
+- The Live grid tab says what its two counts are: sessions running and approvals waiting.
+- A held call filed by a harness hook carries its run's trace id, so it shows inside its run locally and in Fleet.
+- Cloud Connect accepts personal keys that start with `sk_` or `sk-` as well as `svpk_`.
 - Approvals and session controls answer only on this machine.
 
 ## [6.0.1] - 2026-10-08

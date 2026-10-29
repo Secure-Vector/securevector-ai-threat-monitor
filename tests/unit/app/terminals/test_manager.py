@@ -736,6 +736,27 @@ async def test_refresh_linked_ends_the_task_on_a_reported_session_end(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_a_call_row_landing_just_after_session_end_keeps_it_done(tmp_path):
+    m, _ws = await _manager(tmp_path)
+    task = await m.link_session("codex", "sess-late1234", workspace="/repo", title=None)
+    sid = task["session_id"]
+    await _audit(m, session_id=sid, function_name="__session_end__", called_at=_stamp(3))
+    await _audit(m, session_id=sid, function_name="Bash", called_at=_stamp(2.98))  # ~1 s later
+    (row,) = await m.refresh_linked([dict(await m.store.get_task(task["id"]))])
+    assert row["status"] == "done"
+
+
+def test_ended_by_marker_rule():
+    from securevector.app.terminals.store import ended_by_marker
+    end = "2026-10-28 10:00:00"
+    assert ended_by_marker(end, "2026-10-28 09:59:00") is True
+    assert ended_by_marker(end, "2026-10-28 10:00:04") is True
+    assert ended_by_marker(end, "2026-10-28 10:00:06") is False
+    assert ended_by_marker(end, None, "2026-10-28 10:00:01") is False
+    assert ended_by_marker(None, "2026-10-28 09:00:00") is False
+
+
+@pytest.mark.asyncio
 async def test_a_linked_session_with_no_guard_waits_then_idles_but_never_ends(tmp_path):
     m, _ws = await _manager(tmp_path)
     task = await m.link_session("codex", "sess-abc12345", workspace="/repo", title=None)

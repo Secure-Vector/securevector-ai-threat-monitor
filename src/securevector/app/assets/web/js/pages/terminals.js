@@ -297,7 +297,14 @@ ${this.CLI_BIN} stop &lt;id&gt;
             (remoteOn
                 ? `Remote access is on: sign in with the access token to approve, deny and stop sessions from here.</p>` +
                   `<p class="terminals-local-body"><button type="button" class="btn btn-sm remote-sign-in" data-act="remote-sign-in">Sign in for remote access</button></p>`
-                : `Remote access to sessions is not enabled.</p>`) +
+                : `Remote access to sessions is not enabled.</p>` +
+                  `<p class="terminals-local-body">To approve, deny, revoke and stop sessions from here:</p>` +
+                  `<ol class="terminals-local-steps">` +
+                  `<li>On the machine running the app, open <button type="button" class="terminals-local-link" data-act="open-remote-settings">Settings, Remote access</button> and turn it on. It needs an https address through a reverse proxy; the steps are shown there.</li>` +
+                  `<li>Copy the access token it shows once.</li>` +
+                  `<li>Open this address again and choose Sign in for remote access.</li>` +
+                  `</ol>` +
+                  `<p class="terminals-local-body">Launching, linking and typing into sessions stay on the machine itself in this release.</p>`) +
             `<p class="terminals-local-body">You can still watch runs, governance and costs in ` +
             `<button type="button" class="terminals-local-link" data-act="open-runs">Observability</button>.</p></div>`;
     },
@@ -310,6 +317,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (b) b.onclick = () => { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs'); };
         const s = container.querySelector('[data-act="remote-sign-in"]');
         if (s) s.onclick = () => RemoteAccess.promptSignIn();
+        const r = container.querySelector('[data-act="open-remote-settings"]');
+        if (r) r.onclick = () => { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('settings'); };
     },
 
     // --- Remote access mode: the session list and Stop --------------------

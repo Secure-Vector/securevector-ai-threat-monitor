@@ -70,6 +70,7 @@ PLUGIN_FILES = [
     "hooks/post-tool-use.js",
     "hooks/user-prompt-submit.js",
     "hooks/session-start.js",
+    "hooks/session-end.js",
     "hooks/stop.js",
     "lib/normalize.js",
     "lib/client.js",

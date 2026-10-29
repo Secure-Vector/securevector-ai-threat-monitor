@@ -87,3 +87,9 @@ test('localhost page path is unchanged: it builds the board, not the note', asyn
   assert.match(side, /if \(API\.terminalsLocked && API\.terminalsLocked\(\)\) \{ this\._agentTaskViewsLoaded = true; return; \}/);
   assert.match(side, /Works only when the app is opened on this machine \(localhost\)/);
 });
+
+test('the local-only note links to Settings, Remote access when the mode is off', () => {
+  const src = read('js/pages/terminals.js');
+  assert.match(src, /data-act="open-remote-settings">Settings, Remote access<\/button>/);
+  assert.match(src, /\[data-act="open-remote-settings"\]'\);\s*\n\s*if \(r\) r\.onclick = \(\) => \{ if \(window\.Sidebar && Sidebar\.navigate\) Sidebar\.navigate\('settings'\); \};/);
+});

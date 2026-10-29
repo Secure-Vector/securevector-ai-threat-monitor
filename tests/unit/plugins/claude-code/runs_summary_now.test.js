@@ -153,10 +153,11 @@ test('a running session says what it is doing now: tool, target, age; Governed; 
   assert.equal(RL.sessionNow(null, NOW, LGM, RT), null);
 });
 
-test('quiet past 5 minutes reads "Quiet 7m"; blocked shows Blocked N; waiting leaves the badge to the waiting button', () => {
+test('quiet from 2 minutes reads "Quiet 2m"; blocked shows Blocked N; waiting leaves the badge to the waiting button', () => {
   const { RL, LGM, RT } = loadAll();
   assert.equal(RL.sessionNow(live({ quiet_seconds: 420 }), NOW, LGM, RT).activity, 'Quiet 7m');
-  assert.equal(RL.sessionNow(live({ quiet_seconds: 300 }), NOW, LGM, RT).activity, 'Bash · npm test · 12s ago');
+  assert.equal(RL.sessionNow(live({ quiet_seconds: 120 }), NOW, LGM, RT).activity, 'Quiet 2m');
+  assert.equal(RL.sessionNow(live({ quiet_seconds: 119 }), NOW, LGM, RT).activity, 'Bash · npm test · 12s ago');
   assert.deepEqual({ ...RL.sessionNow(live({ blocked: 2 }), NOW, LGM, RT).gov }, { key: 'blocked', text: 'Blocked 2' });
   assert.equal(RL.sessionNow(live({ waiting: 1 }), NOW, LGM, RT).gov, null);
   // a long target is cut to 48 characters

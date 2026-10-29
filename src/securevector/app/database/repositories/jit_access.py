@@ -90,6 +90,12 @@ class JitAccessRepository:
         Returns the created row, the existing pending duplicate (idempotent
         per tool+runtime+session), or None when the pending queue is full.
         """
+        if not trace_id and session_id:
+            # Hooks file a hold with the runtime session id only. Derive the
+            # same per-run trace id the audit rows get, so the hold sits in
+            # its run locally and in Fleet (which joins approvals by trace).
+            from securevector.app.utils.trace_id import derive_trace_id
+            trace_id = derive_trace_id(runtime_kind, session_id)
         dup = await self.db.fetch_one(
             "SELECT * FROM jit_access_requests WHERE status = 'pending' "
             "AND tool_id = ? AND COALESCE(runtime_kind,'') = COALESCE(?,'') "

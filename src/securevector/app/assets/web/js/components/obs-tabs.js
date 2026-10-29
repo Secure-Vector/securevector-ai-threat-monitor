@@ -512,12 +512,14 @@ const ObsTabs = {
                 const run = document.createElement('span');
                 run.className = 'nav-count nav-count-quiet';
                 run.dataset.liveRunning = '1';
+                run.dataset.obsLabel = 'running';
                 run.hidden = true;
                 b.appendChild(run);
                 // Same amber count as the rail row, filled by the sidebar poll.
                 const wait = document.createElement('span');
                 wait.className = 'nav-count nav-count-warn';
                 wait.dataset.liveWaiting = '1';
+                wait.dataset.obsLabel = 'waiting';
                 wait.hidden = true;
                 b.appendChild(wait);
             }
@@ -584,7 +586,8 @@ const ObsTabs = {
         if (n == null) return;
         document.querySelectorAll('[data-live-running]').forEach(el => {
             const meaning = n === 1 ? '1 session running now' : `${n} sessions running now`;
-            el.textContent = String(n);
+            // The tab chip says what it counts; the rail chip is a bare number.
+            el.textContent = el.dataset.obsLabel ? `${n} ${el.dataset.obsLabel}` : String(n);
             el.title = meaning;
             el.setAttribute('aria-label', meaning);
             el.hidden = false;

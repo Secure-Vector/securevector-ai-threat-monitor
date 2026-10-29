@@ -42,6 +42,7 @@ from securevector.app.terminals.store import (
     _plausible_cwd,
     age_seconds,
     cwd_from_preview,
+    ended_by_marker,
 )
 from securevector.app.utils.redaction import redact_secrets
 
@@ -1121,7 +1122,7 @@ class TerminalManager:
                 "last_activity_at": task.get("last_activity_at"),
                 "ended_at": None,
             }
-        ended_by_session = bool(last_end) and (not last_call or str(last_end) >= str(last_call))
+        ended_by_session = ended_by_marker(last_end, last_call, (seen or {}).get("last_start"))
         age = age_seconds(last_any)
         if age is None:
             age = 0.0

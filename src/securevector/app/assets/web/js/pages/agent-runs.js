@@ -198,7 +198,8 @@ const AgentRunsPage = {
             // The minute, so "waiting 2m" and "quiet 6m" move on their own.
             Math.floor(Date.now() / 60000),
             ((this._pending && this._pending.items) || []).map(p => p.id),
-            ((this._liveData && this._liveData.sessions) || []).map(x => [x.session_id, x.score, Number(x.quiet_seconds) >= 300]),
+            ((this._liveData && this._liveData.sessions) || []).map(x => [x.session_id, x.score, !!x.ended,
+                !!(window.LiveGridModel && LiveGridModel.isQuiet(x))]),
         ]);
         const before = extrasKey();
         const [data] = await Promise.all([API.getTraces({ window_days: this.windowDays }), this._loadListExtras(false)]);
@@ -2318,7 +2319,7 @@ const AgentRunsPage = {
         const ctx = this._ctx;
         const st = RL.status(r, ctx);
         const c = RL.calls(r);
-        const quiet = st === 'running' && r.session_id && ctx.live[r.session_id] && Number(ctx.live[r.session_id].quiet_seconds) >= 300
+        const quiet = st === 'running' && r.session_id && ctx.live[r.session_id] && window.LiveGridModel && LiveGridModel.isQuiet(ctx.live[r.session_id])
             ? `, quiet ${Math.round(ctx.live[r.session_id].quiet_seconds / 60)}m` : '';
         // Blocked and error are toggles: each filters this run's spans in
         // place to that kind (aria-pressed); the same badge again shows all.

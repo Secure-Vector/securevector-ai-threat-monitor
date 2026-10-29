@@ -40,7 +40,7 @@ function memStore() {
 }
 const throwing = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
 
-test('sort: waiting first (oldest expiry first), then blocked, score, activity', () => {
+test('sort: waiting first (oldest expiry first), then the newest activity on top', () => {
   const M = load();
   const list = [
     sess('calm', { quiet_seconds: 5 }),
@@ -50,7 +50,11 @@ test('sort: waiting first (oldest expiry first), then blocked, score, activity',
     sess('wait-soon', { waiting: 1, oldest_waiting_expires_at: at(60) }),
     sess('stale', { quiet_seconds: 900 }),
   ];
-  deq(M.sort(list).map(s => s.session_id), ['wait-soon', 'wait-late', 'blocked', 'scored', 'calm', 'stale']);
+  // Blocked and score no longer jump the queue: newest activity leads.
+  deq(M.sort(list).map(s => s.session_id), ['wait-soon', 'wait-late', 'calm', 'blocked', 'scored', 'stale']);
+  // Same quiet time: last activity, then start, newest first.
+  deq(M.sort([sess('old', { started_at: at(0) }), sess('new', { started_at: at(50) })]).map(s => s.session_id), ['new', 'old']);
+  deq(M.sort([sess('x', { last_activity_at: at(10) }), sess('y', { last_activity_at: at(20) })]).map(s => s.session_id), ['y', 'x']);
 });
 
 test('order holds while watching; re-sort re-applies the sort', () => {
@@ -58,15 +62,19 @@ test('order holds while watching; re-sort re-applies the sort', () => {
   const a = sess('a'), b = sess('b'), c = sess('c');
   let order = M.order(null, [a, b, c]);
   deq(order, ['a', 'b', 'c']);
-  // c starts waiting and d appears: c keeps its place, d joins at the end.
+  // c starts waiting and d appears: c keeps its place, d (running) joins
+  // at the top, newest first.
   const c2 = sess('c', { waiting: 1, oldest_waiting_expires_at: at(30) });
   const d = sess('d', { blocked: 1 });
   order = M.order(order, [a, b, c2, d]);
-  deq(order, ['a', 'b', 'c', 'd']);
-  deq(M.arrange([d, c2, b, a], order).map(s => s.session_id), ['a', 'b', 'c', 'd']);
-  // b ended: it drops out.
-  deq(M.order(order, [a, c2, d]), ['a', 'c', 'd']);
-  deq(M.order(order, [a, b, c2, d], true), ['c', 'd', 'a', 'b']);
+  deq(order, ['d', 'a', 'b', 'c']);
+  deq(M.arrange([d, c2, b, a], order).map(s => s.session_id), ['d', 'a', 'b', 'c']);
+  // b dropped out of the list.
+  deq(M.order(order, [a, c2, d]), ['d', 'a', 'c']);
+  deq(M.order(order, [a, b, c2, d], true), ['c', 'a', 'b', 'd']);
+  // New ones go after a leading waiting block; a new ended one goes last.
+  const w = sess('w', { waiting: 1, oldest_waiting_expires_at: at(30) });
+  deq(M.order(['w', 'a'], [w, a, sess('n'), sess('e', { ended: true })]), ['w', 'n', 'a', 'e']);
 });
 
 test('counters and counter filters', () => {
@@ -433,13 +441,13 @@ test('egress section: status words, tool-rule stops, risky first, capped', () =>
   assert.doesNotMatch(M.sectionsHtml(evil, { gov: { egress: { visible: true, hosts: [{ host: evil, status: evil }] } }, spans: [{ span_kind: 'tool_call', tool_id: evil, args_preview: evil, called_at: at(1) }] }), /<img/);
 });
 
-test('open compact tiles are capped at nine: a tenth closes the oldest', () => {
+test('open compact tiles are capped at twelve: a thirteenth closes the oldest', () => {
   const M = load();
-  assert.equal(M.MAX_OPEN, 9);
+  assert.equal(M.MAX_OPEN, 12);
   let open = [];
-  for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']) open = M.toggleOpen(open, id);
-  deq(open, ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
-  deq(M.ensureOpen(open, 'k'), ['c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']);
+  for (const id of 'abcdefghijklm'.split('')) open = M.toggleOpen(open, id);
+  deq(open, 'bcdefghijklm'.split(''));
+  deq(M.ensureOpen(open, 'n'), 'cdefghijklmn'.split(''));
   const html = M.sectionsHtml('s', { gov: { tool_calls: { total: 9 }, egress: { visible: true, hosts: [] } }, spans: [] }) +
     M.compactHtml(M.groups([sess('x')], 'none'), { group: 'none', open: ['x'], details: {} });
   // Each control keeps its own action, so focus returns to the same one.

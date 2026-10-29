@@ -72,8 +72,9 @@ test('a session that ends keeps its place: the tile neither moves nor vanishes',
   const later = [sess('a', { score: 90, ended: true, quiet_seconds: 700 }), sess('b', { score: 50 }), sess('c', { score: 10 }),
     sess('n', { score: 99 })];
   const next = M.order(prev, later, false, M.waitingIds(first));
-  assert.deepEqual(next, ['a', 'b', 'c', 'n']);
-  assert.deepEqual(M.arrange(later, next).map(s => s.session_id), ['a', 'b', 'c', 'n']);
+  // The new running session joins at the top; the ended one stays put.
+  assert.deepEqual(next, ['n', 'a', 'b', 'c']);
+  assert.deepEqual(M.arrange(later, next).map(s => s.session_id), ['n', 'a', 'b', 'c']);
   // a fresh sort puts ended tiles last
   assert.deepEqual(M.order(null, later, true).slice(-1), ['a']);
   // the signature changes when a session ends, so the tile repaints dimmed

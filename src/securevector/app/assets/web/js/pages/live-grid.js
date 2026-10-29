@@ -28,6 +28,15 @@ const LiveGridPage = {
     // Compact tiles opened inline (tool calls and egress). Kept across
     // polls; only these, never every tile, have their details fetched.
     _open: [],
+    // Auto-open per visit: ids seen so far (null before the first paint),
+    // panels the person closed (never reopened for them) and Close all,
+    // which stops opening new sessions until reload.
+    _autoSeen: null,
+    _closedIds: [],
+    _autoOff: false,
+    // Per panel, the session stamp its details were fetched at
+    // (LiveGridModel.detailStamp): an unchanged session is not refetched.
+    _stamps: {},
     // Call details open per tile ({ sid: { key, req, wait } }, one per
     // tile), kept across polls. Focus goes to a just-opened panel heading.
     _det: {},
@@ -54,6 +63,7 @@ const LiveGridPage = {
         this.st = M.defaults(this.pins);
         // Pinned focus opens with the pinned tiles' panels open (capped).
         if (this.st.mode === 'large') this.pins.forEach(id => { this._open = M.ensureOpen(this._open, id); });
+        this._autoSeen = null; this._closedIds = []; this._autoOff = false; this._stamps = {};
         this.data = null; this.details = {}; this._order = null; this._waiting = null; this._missed = []; this._sig = null;
         // A Review from a Guardian egress alert opens that tile's panel.
         if (this._pendingOpen) { this._open = M.ensureOpen(this._open, this._pendingOpen); this._pendingOpen = null; }
@@ -147,6 +157,12 @@ const LiveGridPage = {
             const M = this.M();
             this._order = M.order(this._order, data.sessions || [], !!opts.resort, this._waiting);
             this._waiting = M.waitingIds(data.sessions || []);
+            // Every running session's panel opens, newest first (capped);
+            // new ones open as they appear. Pinned focus keeps its own.
+            const ao = M.autoOpen(this._open, M.arrange(data.sessions || [], this._order), this._autoSeen,
+                this._closedIds, this._autoOff || this.st.mode === 'large');
+            this._open = ao.open;
+            this._autoSeen = ao.seen;
             const complete = !(data.counters && (data.sessions || []).length < (data.counters.running || 0) + (data.counters.ended || 0));
             const pr = M.prunePins(this.pins, data.sessions || [], this._missed, complete);
             this.pins = pr.pins;
@@ -210,16 +226,20 @@ const LiveGridPage = {
         });
     },
 
-    /** Governance and the newest run's spans for each session in `ids`. */
+    /** Governance and the newest run's spans for each session in `ids`
+     *  whose session moved since its last fetch (LiveGridModel.detailPlan);
+     *  the rest keep what they have, and new panels load a few per poll. */
     async _loadDetails(seq, ids) {
+        const plan = this.M().detailPlan(ids || this.pins, (this.data && this.data.sessions) || [], this._stamps, this.details);
         const [reqs, ...rows] = await Promise.all([
             API.getJitRequests ? API.getJitRequests('pending').catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
-            this._pool(ids || this.pins, this.FETCH_CAP, (sid) => this._detailOf(sid)),
+            this._pool(plan.fetch, this.FETCH_CAP, (sid) => this._detailOf(sid)),
         ]).then(([r, list]) => [r, ...list]);
         if (seq !== this._seq) return;
         this.reqs = (reqs && reqs.items) || [];
         const next = {};
-        rows.forEach(([sid, d]) => { next[sid] = d; });
+        plan.keep.forEach(sid => { if (this.details[sid]) next[sid] = this.details[sid]; });
+        rows.forEach(([sid, d]) => { next[sid] = d; this._stamps[sid] = plan.stamps[sid]; });
         // A tile opened while this poll ran keeps what its own fetch got.
         this._open.forEach(id => { if (!(id in next) && this.details[id]) next[id] = this.details[id]; });
         this.details = next;
@@ -250,6 +270,8 @@ const LiveGridPage = {
         } finally { delete this._inflight[sid]; }
         if (mine !== this._oneSeq[sid] || !this._mounted() || !this._open.includes(sid)) return;
         if (reqs && reqs.items) this.reqs = reqs.items;
+        const live = ((this.data && this.data.sessions) || []).find(s => s.session_id === sid);
+        this._stamps[sid] = this.M().detailStamp(live);
         this.details = Object.assign({}, this.details, { [sid]: d });
         this._sig = null;
         this.paint();
@@ -301,7 +323,10 @@ const LiveGridPage = {
             }
         } else {
             const mx = M.matrixList(this._open, shown);
-            html += this._compactBlock(shown, all, { matrix: M.matrixHtml(mx, { width, details: this.details, panels: this._panels || {} }), above: mx.length > 0 });
+            // At the cap, the running sessions left closed are below.
+            const openSet = new Set(this._open);
+            const more = this._open.length >= M.MAX_OPEN ? shown.filter(s => M.sessionRunning(s) && !openSet.has(s.session_id)).length : 0;
+            html += this._compactBlock(shown, all, { matrix: M.matrixHtml(mx, { width, details: this.details, panels: this._panels || {}, more }), above: mx.length > 0 });
         }
         // Rebuild, then put focus back on the same control.
         const a = document.activeElement;
@@ -387,8 +412,10 @@ const LiveGridPage = {
         const c = (this.data && this.data.counters) || M.counters(all);
         // Waiting · Blocked · Quiet: one chip narrows the grid, clicking it
         // again clears it. Coverage stays as plain information.
-        const strip = `<div class="lg-filterrow"><span class="lg-run-n">${M.esc(c.running || 0)} running` +
-            `${c.ended ? `<span class="lg-run-ended"> · ${M.esc(c.ended)} ended</span>` : ''}</span>` +
+        // "N running · M quiet · K ended": quiet sessions still count as running.
+        const sp = M.stripParts(c);
+        const strip = `<div class="lg-filterrow"><span class="lg-run-n">${M.esc(sp.running)}` +
+            `<span class="lg-run-ended"> · ${M.esc(sp.quiet)} · ${M.esc(sp.ended)}</span></span>` +
             M.chipsHtml(all, st.chip || '') +
             `<span class="lg-covline">${M.esc(M.coverageLine(c))}</span></div>`;
         const groups = M.groups(list, st.group, this.data && this.data.groups);
@@ -596,6 +623,10 @@ const LiveGridPage = {
             if (!this._paused) this.refresh({ force: true });
         } else if (act === 'close-panel' || act === 'close-all') {
             const first = this._open[0];
+            // A closed panel stays closed this visit; Close all also stops
+            // new sessions opening on their own until reload.
+            if (act === 'close-all') { this._autoOff = true; this._closedIds = this._closedIds.concat(this._open); }
+            else if (sid && !this._closedIds.includes(sid)) this._closedIds = this._closedIds.concat([sid]);
             this._open = act === 'close-all' ? [] : this._open.filter(x => x !== sid);
             this.paint();
             // Focus goes back to the closed session's tile (Close all: the
@@ -606,6 +637,8 @@ const LiveGridPage = {
         } else if (act === 'expand' || act === 'peek') {
             this._open = this.M().toggleOpen(this._open, sid);
             const opening = this._open.includes(sid);
+            this._closedIds = opening ? this._closedIds.filter(x => x !== sid)
+                : (this._closedIds.includes(sid) ? this._closedIds : this._closedIds.concat([sid]));
             this.paint();
             // A panel opened into the matrix may be above the fold: show it.
             if (opening && this._body().querySelector('.lg-mx')) {
@@ -877,6 +910,8 @@ const LiveGridPage = {
 .lg-c-egl { font-family:var(--font-body); font-style:normal; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); margin-right:2px; }
 .lg-c-foot { grid-column:1; grid-row:2; display:flex; align-items:center; gap:8px; padding:2px 10px 6px 13px; font-size:11px; color:var(--text-muted); min-height:22px; }
 .lg-c-ago { font-variant-numeric:tabular-nums; }
+.lg-c-quiet { color:var(--text-muted); margin-right:6px; }
+.lg-mx-more { margin:6px 0 0; font-size:12px; color:var(--text-muted); }
 .lg-c-cov { margin-left:auto; }
 .lg-rv { border:1px solid var(--warning-chip-border, var(--border-default)); background:transparent; color:var(--warning-text); font:600 11.5px var(--font-body); border-radius:5px; padding:1px 9px; cursor:pointer; }
 .lg-rv:hover { background:var(--bg-hover); }

@@ -16,7 +16,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from securevector.app.services import harness_coverage
-from securevector.app.terminals.store import SESSION_BOUNDARY
+from securevector.app.terminals.store import SESSION_BOUNDARY, ended_by_marker
+
+# The row a harness Stop hook writes when a session (or a headless run) ends.
+SESSION_END = "__session_end__"
+# A turn boundary (a per-turn Stop hook): never ends a session.
+TURN_END = "__turn_end__"
+SESSION_START = "__session_start__"
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +32,9 @@ LIVE_WINDOW_S = 600
 # An ended session (not running, no running task) keeps its tile, dimmed,
 # for this long after its last activity, so the grid does not jump.
 ENDED_KEEP_S = 1800
-QUIET_AFTER_S = 300
+# A running session with no call for this long shows as quiet. It still
+# counts as running: a model can think for minutes.
+QUIET_AFTER_S = 120
 # A blocked call that follows another blocked call to a different target
 # within this many seconds reads as a retry by another route.
 REPEAT_WINDOW_S = 60
@@ -652,6 +660,7 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
         "score": None, "cost_usd": None, "tokens": 0, "cost_source": None, "tokens_pending": False,
         "last_call": None, "last_egress": None, "egress_visible": False, "waiting_call": None,
         "ended": False, "ended_at": None, "alert": None,
+        "_last_real": None, "_last_end": None, "_last_start": None,
     } for sid in sids}
     if sids:
         m = _marks(sids)
@@ -659,11 +668,19 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
         for r in await _safe_all(
             db,
             "SELECT session_id, MAX(runtime_kind) AS harness, MIN(called_at) AS first, MAX(called_at) AS last, "
-            "SUM(CASE WHEN action = 'allow' AND tool_id NOT IN (?, ?) THEN 1 ELSE 0 END) AS allowed, "
-            "SUM(CASE WHEN action = 'log_only' THEN 1 ELSE 0 END) AS logged, "
-            "SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked "
+            f"SUM(CASE WHEN action = 'allow' AND tool_id NOT IN ({_marks(SESSION_BOUNDARY)}) THEN 1 ELSE 0 END) AS allowed, "
+            f"SUM(CASE WHEN action = 'log_only' AND tool_id NOT IN ({_marks(SESSION_BOUNDARY)}) THEN 1 ELSE 0 END) AS logged, "
+            "SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked, "
+            # Real calls (no lifecycle marker), the newest start marker (a
+            # resumed session) and the newest end marker the harness sent
+            # from its session-end hook. Only __session_end__ ends a session.
+            f"MAX(CASE WHEN tool_id IN ({_marks(SESSION_BOUNDARY)}) OR function_name IN ({_marks(SESSION_BOUNDARY)}) "
+            "THEN NULL ELSE called_at END) AS last_real, "
+            "MAX(CASE WHEN tool_id = ? OR function_name = ? THEN called_at END) AS last_end, "
+            "MAX(CASE WHEN tool_id = ? OR function_name = ? THEN called_at END) AS last_start "
             f"FROM tool_call_audit WHERE session_id IN ({m}) GROUP BY session_id",
-            (*SESSION_BOUNDARY, *sids),
+            (*SESSION_BOUNDARY, *SESSION_BOUNDARY, *SESSION_BOUNDARY, *SESSION_BOUNDARY,
+             SESSION_END, SESSION_END, SESSION_START, SESSION_START, *sids),
         ):
             s = sessions[r["session_id"]]
             s["harness"] = r.get("harness")
@@ -671,6 +688,8 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
             s["tool_calls"]["allowed"] = int(r.get("allowed") or 0)
             s["tool_calls"]["logged"] = int(r.get("logged") or 0)
             s["blocked"] = int(r.get("blocked") or 0)
+            s["_last_real"], s["_last_end"] = r.get("last_real"), r.get("last_end")
+            s["_last_start"] = r.get("last_start")
         # 3. Cost and tokens.
         for r in await _safe_all(
             db,
@@ -684,6 +703,7 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
             s["harness"] = s["harness"] or r.get("harness")
             s["started_at"] = _oldest(s["started_at"], r.get("first"))
             s["last_activity_at"] = _newest(s["last_activity_at"], r.get("last"))
+            s["_last_real"] = _newest(s["_last_real"], r.get("last"))
             s["cost_usd"] = round(float(r.get("usd") or 0.0), 6)
             s["tokens"] = int(r.get("tokens") or 0)
             s["cost_source"] = "proxy"
@@ -701,6 +721,7 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
             s["harness"] = s["harness"] or r.get("harness")
             s["started_at"] = _oldest(s["started_at"], r.get("first"))
             s["last_activity_at"] = _newest(s["last_activity_at"], r.get("last"))
+            s["_last_real"] = _newest(s["_last_real"], r.get("last"))
             s["blocked"] += int(r.get("blocked") or 0)
         # 4b. The latest call and the latest egress destination per session,
         # so a tile says what the agent is doing without a detail fetch.
@@ -814,12 +835,24 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
     for s in sessions.values():
         s["started_at"] = iso(s["started_at"])
         s["last_activity_at"] = iso(s["last_activity_at"])
-        last = parse_ts(s["last_activity_at"])
+        end_raw, real_raw, start_raw = s.pop("_last_end"), s.pop("_last_real"), s.pop("_last_start")
+        # Quiet and the ten-minute fallback count real activity (calls, cost,
+        # egress) and a start marker, never a turn or end marker. A session
+        # with markers only falls back to its newest row.
+        last = parse_ts(_newest(real_raw, start_raw)) or parse_ts(s["last_activity_at"])
         s["quiet_seconds"] = max(0, int((now - last).total_seconds())) if last else None
-        # A session with a call waiting for approval is never ended.
-        if s["session_id"] not in running_tasks and last is not None and last < running_after and not s["waiting"]:
-            s["ended"] = True
-            s["ended_at"] = s["last_activity_at"]
+        # A session with a call waiting for approval is never ended, nor one
+        # a running terminal task holds. An end marker ends it at once unless
+        # a start marker or real activity more than REOPEN_GRACE_S later
+        # reopened it (store.ended_by_marker, shared with the board). Without
+        # a marker, LIVE_WINDOW_S of nothing ends it.
+        if s["session_id"] not in running_tasks and not s["waiting"]:
+            if ended_by_marker(end_raw, real_raw, start_raw):
+                s["ended"] = True
+                s["ended_at"] = iso(end_raw)
+            elif last is not None and last < running_after:
+                s["ended"] = True
+                s["ended_at"] = iso(last)
         tc = s["tool_calls"]
         tc["waiting"], tc["blocked"] = s["waiting"], s["blocked"]
         tc["total"] = tc["allowed"] + tc["logged"] + tc["blocked"] + s.pop("_unmatched", 0)
@@ -836,7 +869,9 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
         "waiting": sum(s["waiting"] for s in everything),
         "blocked_sessions": sum(1 for s in everything if s["blocked"]),
         "score_70_plus": sum(1 for s in everything if isinstance(s.get("score"), int) and s["score"] >= 70),
-        "quiet_over_5m": sum(1 for s in everything if (s.get("quiet_seconds") or 0) > QUIET_AFTER_S),
+        "quiet": sum(1 for s in everything if (s.get("quiet_seconds") or 0) >= QUIET_AFTER_S),
+        # Older clients read this name; same count as `quiet`.
+        "quiet_over_5m": sum(1 for s in everything if (s.get("quiet_seconds") or 0) >= QUIET_AFTER_S),
         "cost_usd": _cost_total(everything)[0],
         "cost_known_sessions": _cost_total(everything)[1],
         "tokens": sum(s["tokens"] or 0 for s in everything),

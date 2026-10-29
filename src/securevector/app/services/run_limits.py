@@ -33,6 +33,7 @@ from typing import Optional
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.repositories.settings import SettingsRepository
 from securevector.app.services.cost_optimizer import THRESHOLDS
+from securevector.app.terminals.store import SESSION_BOUNDARY
 from securevector.app.utils.trace_id import derive_trace_id
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ LOOP_RATE_PER_MIN = THRESHOLDS["loop_calls_per_min"]
 
 RUN_CAP_PREFIX = "Per-run tool-call cap"
 LOOP_PREFIX = "Loop breaker"
+# Lifecycle markers (session start, session end, one per turn) are not tool
+# calls: none of the checks below counts them.
+_NOT_A_CALL = f"AND tool_id NOT IN ({','.join('?' * len(SESSION_BOUNDARY))}) "
 COST_CEILING_PREFIX = "Per-run cost ceiling"
 TOKEN_CEILING_PREFIX = "Per-run token ceiling"
 STOP_PREFIXES = (RUN_CAP_PREFIX, LOOP_PREFIX, COST_CEILING_PREFIX, TOKEN_CEILING_PREFIX)
@@ -115,8 +119,8 @@ async def evaluate_run_limits(db: DatabaseConnection, runtime_kind: str,
         rows: list[dict] = []
         if cap:
             count_row = await db.fetch_one(
-                "SELECT COUNT(*) AS n FROM tool_call_audit WHERE trace_id = ?",
-                (trace_id,),
+                "SELECT COUNT(*) AS n FROM tool_call_audit WHERE trace_id = ? " + _NOT_A_CALL,
+                (trace_id, *SESSION_BOUNDARY),
             )
             observed = int((count_row["n"] if count_row else 0) or 0)
             if observed >= cap:
@@ -130,11 +134,11 @@ async def evaluate_run_limits(db: DatabaseConnection, runtime_kind: str,
             # Identical-call repetition inside the window: per-tool deny.
             rep = await db.fetch_one(
                 "SELECT tool_id, COUNT(*) AS n FROM tool_call_audit "
-                "WHERE trace_id = ? AND args_preview IS NOT NULL "
+                "WHERE trace_id = ? AND args_preview IS NOT NULL " + _NOT_A_CALL +
                 f"AND called_at >= datetime('now', '-{LOOP_WINDOW_SECONDS} seconds') "
                 "GROUP BY tool_id, args_preview "
                 "ORDER BY n DESC LIMIT 1",
-                (trace_id,),
+                (trace_id, *SESSION_BOUNDARY),
             )
             if rep and int(rep["n"] or 0) >= LOOP_REPEAT_LIMIT:
                 rows.append(_deny_row(
@@ -148,9 +152,9 @@ async def evaluate_run_limits(db: DatabaseConnection, runtime_kind: str,
                 # Sustained call rate: the session shape, not any single call.
                 rate_row = await db.fetch_one(
                     "SELECT COUNT(*) AS n FROM tool_call_audit "
-                    "WHERE trace_id = ? "
+                    "WHERE trace_id = ? " + _NOT_A_CALL +
                     f"AND called_at >= datetime('now', '-{LOOP_WINDOW_SECONDS} seconds')",
-                    (trace_id,),
+                    (trace_id, *SESSION_BOUNDARY),
                 )
                 n = int((rate_row["n"] if rate_row else 0) or 0)
                 if n >= LOOP_RATE_PER_MIN * (LOOP_WINDOW_SECONDS / 60):

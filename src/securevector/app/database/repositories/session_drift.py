@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # SQLite caps bound parameters per statement; keep well under it.
 _CHUNK = 400
-_BOUNDARY = ("__session_start__", "__session_end__")
+_BOUNDARY = ("__session_start__", "__session_end__", "__turn_end__")
 _OBSERVED = "observed"
 _RUNNING = ("starting", "working", "blocked", "idle")
 
@@ -152,7 +152,7 @@ class SessionDriftRepository:
             ph = ",".join("?" for _ in batch)
             for r in await self.db.fetch_all(
                 "SELECT session_id, function_name, COUNT(*) AS n FROM tool_call_audit "
-                f"WHERE session_id IN ({ph}) AND function_name NOT IN (?, ?) "
+                f"WHERE session_id IN ({ph}) AND function_name NOT IN ({','.join('?' * len(_BOUNDARY))}) "
                 "GROUP BY session_id, function_name",
                 (*batch, *_BOUNDARY),
             ):

@@ -179,9 +179,9 @@ test('Review stays in the grid: opens the panel at the waiting call, focus on it
     deq(plan.det.s, { key: null, req: 'r1', wait: true });
     assert.equal(plan.focus, 's');
   }
-  // Caps: Review on a tenth tile closes the oldest panel.
-  const plan = M.reviewPlan({ mode: 'compact', open: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], det: {} }, 's', 'r2', reqs, null);
-  deq(plan.open, ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 's']);
+  // Caps: Review on a thirteenth tile closes the oldest panel.
+  const plan = M.reviewPlan({ mode: 'compact', open: 'abcdefghijkl'.split(''), det: {} }, 's', 'r2', reqs, null);
+  deq(plan.open, 'bcdefghijkl'.split('').concat(['s']));
   const page = read('js/pages/live-grid.js');
   const review = page.slice(page.indexOf('    reviewInPlace(sid, reqId) {'), page.indexOf('    _refreshOne(sid) {'));
   assert.ok(review.length > 50);

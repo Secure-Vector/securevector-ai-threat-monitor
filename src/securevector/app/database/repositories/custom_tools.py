@@ -1112,7 +1112,7 @@ class CustomToolsRepository:
     # boundaries — they are NOT tools, so they must never become tool
     # nodes on the Agent Map. They only contribute their session's
     # existence + recency. See get_agent_session_graph.
-    _SESSION_BOUNDARY_TOOL_IDS = ("__session_start__", "__session_end__")
+    _SESSION_BOUNDARY_TOOL_IDS = ("__session_start__", "__session_end__", "__turn_end__")
 
     async def get_agent_session_graph(self, window_days: int = 7) -> list[dict]:
         """Aggregate audit rows into per-(harness, session, tool) edges for the

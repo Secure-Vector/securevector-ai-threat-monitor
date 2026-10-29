@@ -2779,7 +2779,7 @@ const Sidebar = {
             }
             document.querySelectorAll('[data-live-waiting]').forEach(el => {
                 const meaning = n === 1 ? '1 approval waiting' : n + ' approvals waiting';
-                el.textContent = String(n);
+                el.textContent = el.dataset.obsLabel ? n + ' ' + el.dataset.obsLabel : String(n);
                 el.title = meaning;
                 el.setAttribute('aria-label', meaning);
                 el.hidden = n <= 0;

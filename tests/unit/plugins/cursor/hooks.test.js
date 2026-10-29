@@ -106,14 +106,14 @@ test('preview redacts secrets and truncates to 8 KB', () => {
 
 // --- hooks.json template -----------------------------------------------------
 
-test('hooks.json template registers all nine events with the root placeholder', () => {
+test('hooks.json template registers all ten events with the root placeholder', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks/hooks.json'), 'utf8'));
   assert.equal(manifest.version, 1);
   const events = Object.keys(manifest.hooks).sort();
   assert.deepEqual(events, [
     'afterFileEdit', 'afterMCPExecution', 'afterShellExecution',
     'beforeMCPExecution', 'beforeReadFile', 'beforeShellExecution',
-    'beforeSubmitPrompt', 'sessionStart', 'stop',
+    'beforeSubmitPrompt', 'sessionEnd', 'sessionStart', 'stop',
   ]);
   for (const [event, entries] of Object.entries(manifest.hooks)) {
     assert.equal(entries.length, 1, `${event} should register exactly one entry`);
