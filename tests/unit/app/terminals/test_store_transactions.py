@@ -61,10 +61,14 @@ async def test_failed_rollback_never_masks_the_real_error(tmp_path):
     # SQLite rolls a transaction back on its own for some errors; the old
     # unconditional ROLLBACK then raised and replaced the real exception.
     db = await _db(tmp_path)
+
+    def _fail():
+        raise ValueError("the real error")
+
     with pytest.raises(ValueError, match="the real error"):
         async with db.transaction() as conn:
             await conn.execute("ROLLBACK")  # what SQLite does on SQLITE_BUSY
-            raise ValueError("the real error")
+            _fail()
     conn = await db.connect()
     assert not conn.in_transaction
 

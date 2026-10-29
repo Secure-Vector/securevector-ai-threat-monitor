@@ -487,7 +487,8 @@ def test_codex_trust_reader_handles_arrays_multiline_and_bad_bytes(tmp_path):
 
 
 def test_memo_lock_is_created_lazily():
-    src = open(gov.__file__).read()
+    with open(gov.__file__) as fh:
+        src = fh.read()
     assert "_memo_lock: Optional[asyncio.Lock] = None" in src
     assert "\n_memo_lock = asyncio.Lock()" not in src
 
@@ -520,4 +521,6 @@ async def test_prev_partial_follows_the_parse_budget_not_the_run_cap(tmp_path, m
     monkeypatch.setattr(gov, "_warm_rest", lambda pending: None)
     cov = (await gov.compute_gaps(7))["coverage"]
     assert cov["prev_partial"] is True and cov["partial"] is True
-    assert "len(runs) >= RUN_CAP" not in open(gov.__file__).read()
+    with open(gov.__file__) as fh:
+        gov_src = fh.read()
+    assert "len(runs) >= RUN_CAP" not in gov_src

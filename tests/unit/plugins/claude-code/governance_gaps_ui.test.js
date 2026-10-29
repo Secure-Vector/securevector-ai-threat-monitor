@@ -151,7 +151,7 @@ test('empty state: no gaps plus one line on what is watched', () => {
   const G = loadGov();
   const html = G._gapsHtml({ window_days: 7, coverage: {}, gaps: [] });
   assert.match(html, /No gaps in the last 7 days\./);
-  assert.match(html, /Watched: tool calls SecureVector has no record of/);
+  assert.match(html, /Watched: unrecorded calls, inactive Guards/);
   assert.match(G._gapsHtml(null), /could not be loaded/);
 });
 
@@ -171,7 +171,9 @@ test('next action uses activity gaps and only claims no gaps for complete clean 
   const activity = { gaps: [{ severity: 'high', title: 'Unrecorded calls', detail: 'Four calls were missed', fix: { label: 'Connect Codex', route: 'guide-codex' } }] };
   const top = G._nextAction([], cleanBand, activity);
   assert.strictEqual(top.label, 'Unrecorded calls');
-  assert.strictEqual(top.note, 'Four calls were missed');
+  // The gap row above carries the detail; the card shows the label and the button.
+  assert.strictEqual(top.note, '');
+  assert.strictEqual(top.fromGap, true);
   assert.strictEqual(top.button, 'Connect Codex');
   assert.strictEqual(top.route, 'guide-codex');
   assert.doesNotMatch(top.label, /No gaps/);
@@ -193,7 +195,7 @@ test('overview leads; next action stays visible; the 7 setup controls sit in col
   const r = src.slice(src.indexOf('async render(container) {'));
   assert.match(r, /document\.createElement\('details'\)/);
   assert.match(r, /clSummary\.textContent = 'Protection controls · ' \+ \(counts\.on \+ counts\.native\) \+ '\/' \+ rows\.length \+ ' active'/);
-  assert.match(r, /clHelp\.textContent = 'Configuration status only\. Recent enforcement coverage and missed calls are shown above\.'/);
+  assert.match(r, /clHelp\.textContent = 'Configuration status only\.'/);
   assert.match(r, /clSummary\.appendChild\(clHelp\)/);
   assert.match(src, /\.gov-checklist-help\{display:block/);
   assert.doesNotMatch(src, /Initial setup checklist/);
@@ -220,7 +222,7 @@ test('overview leads; next action stays visible; the 7 setup controls sit in col
   assert.doesNotMatch(r, /clBody\.appendChild\(nextCard\)/);
   assert.match(r, /clBody\.appendChild\(list\)/);
   assert.match(r, /this\.FRAMEWORKS/);
-  assert.match(read('index.html'), /governance\.js\?v=30/);
+  assert.match(read('index.html'), /governance\.js\?v=32/);
 });
 
 test('governance uses available desktop width and collapses its overview on narrow screens', () => {

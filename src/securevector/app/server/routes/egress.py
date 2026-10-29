@@ -958,8 +958,8 @@ _PRESET_SEMANTICS = {
             "Everything Baseline denies, plus:",
             "Every write must be to an allowlisted host, or it is denied.",
             "An operation SecureVector cannot classify counts as a write. "
-            "Guessing 'read' on an opaque protocol is the assumption that makes "
-            "containment theatre.",
+            + "Guessing 'read' on an opaque protocol is the assumption that makes "
+            + "containment theatre.",
             "Reads still flow. Needs tuning: preview the impact first.",
         ],
     },

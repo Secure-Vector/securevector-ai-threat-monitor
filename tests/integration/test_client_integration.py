@@ -9,7 +9,6 @@ Licensed under the Apache License, Version 2.0
 
 import asyncio
 import time
-from typing import List
 
 import pytest
 
@@ -19,9 +18,6 @@ from securevector.testing import (
     MockAsyncSecureVectorClient,
     MockBehavior,
     MockSecureVectorClient,
-    assert_is_safe,
-    assert_is_threat,
-    assert_risk_score,
     create_test_prompts,
 )
 from securevector.utils.exceptions import SecurityException, ValidationError

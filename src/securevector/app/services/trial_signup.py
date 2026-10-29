@@ -236,6 +236,7 @@ async def _fetch_user_email(client: "httpx.AsyncClient", auth_url: str, access_t
             user = _safe_json(response).get("user") or {}
             return user.get("email")
     except httpx.RequestError:
+        # a network failure is not fatal here
         pass
     return None
 

@@ -70,6 +70,7 @@ class Subscriber:
                 self.queue.get_nowait()
                 self.dropped += 1
             except asyncio.QueueEmpty:
+                # the queue is already drained
                 pass
         self.queue.put_nowait(chunk)
 
@@ -83,15 +84,15 @@ class Subscriber:
 class PtyHost(Protocol):
     def spawn(
         self, task_id: str, launch: Launch, rows: int, cols: int, on_exit: OnExit
-    ) -> PtyInfo: ...
-    def write(self, task_id: str, data: bytes) -> None: ...
-    def resize(self, task_id: str, rows: int, cols: int) -> None: ...
-    def attach(self, task_id: str, loop: asyncio.AbstractEventLoop) -> tuple[bytes, Subscriber]: ...
-    def detach(self, task_id: str, sub: Subscriber) -> None: ...
-    def stop(self, task_id: str, grace: float = 3.0) -> None: ...
-    def snapshot(self, task_id: str) -> bytes: ...
-    def list(self) -> list[PtyInfo]: ...
-    def forget(self, task_id: str, grace: float = 3.0) -> None: ...
+    ) -> PtyInfo: pass
+    def write(self, task_id: str, data: bytes) -> None: pass
+    def resize(self, task_id: str, rows: int, cols: int) -> None: pass
+    def attach(self, task_id: str, loop: asyncio.AbstractEventLoop) -> tuple[bytes, Subscriber]: pass
+    def detach(self, task_id: str, sub: Subscriber) -> None: pass
+    def stop(self, task_id: str, grace: float = 3.0) -> None: pass
+    def snapshot(self, task_id: str) -> bytes: pass
+    def list(self) -> list[PtyInfo]: pass
+    def forget(self, task_id: str, grace: float = 3.0) -> None: pass
 
 
 @dataclass
@@ -353,6 +354,7 @@ class WinConPTYHost(InProcessPtyHost):
         try:
             proc.wait()
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
         code = proc.exitstatus
         with session.lock:
@@ -365,19 +367,25 @@ class WinConPTYHost(InProcessPtyHost):
         session = self._get(task_id)
         if session.alive:
             try: session.proc.write(data.decode("utf-8", "replace"))
-            except Exception: pass
+            except Exception:
+                # best effort: a failure here must not interrupt the caller
+                pass
 
     def resize(self, task_id: str, rows: int, cols: int) -> None:
         session = self._get(task_id)
         if session.alive:
             try: session.proc.setwinsize(max(2, rows), max(2, cols))
-            except Exception: pass
+            except Exception:
+                # best effort: a failure here must not interrupt the caller
+                pass
 
     def _terminate(self, session: _Session, grace: float) -> None:
         if not session.alive:
             return
         try: session.proc.terminate(force=False)
-        except Exception: pass
+        except Exception:
+            # best effort: a failure here must not interrupt the caller
+            pass
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline and session.proc.isalive():
             time.sleep(.05)

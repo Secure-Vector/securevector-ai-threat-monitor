@@ -304,29 +304,26 @@ const DelegationUI = {
     // --- Settings card ------------------------------------------------------
 
     COPY: {
-        intro: "Delegation lets one agent session start a second session to take on part of the work. The second session runs in its own pane with the same governance as any task: its own tool checks, network record, response steps and cost, shown under its parent.",
-        whenTitle: 'When to use it',
+        intro: 'Let a session start a second governed session.',
+        whenTitle: 'Examples',
         when: [
-            'Leave delegation on if your tasks split into parts you want to watch, such as tests or a review running beside the main work. Sub-agents in the same agent start without asking.',
-            'Turn on cross-harness delegation when you want a different agent for a step, for example Claude Code planning and Codex implementing. You approve each one.',
-            "Add folders to the allowlist only when a child must work outside its parent's folder.",
-            "Turn delegation off if you don't use it. Your agent's built-in subagents cover simple splits.",
+            'Same agent: starts without asking',
+            'Different agent: you approve each one',
+            "Folders: parent's folder unless allowlisted",
         ],
-        enabled: 'Let a governed session start a second session. Each request is checked first.',
-        cross: 'Off by default. Every cross-harness delegation needs your approval.',
-        empty: "No extra folders. A child runs in its parent's folder or a subfolder.",
+        enabled: 'Each request is checked first.',
+        cross: 'Each one needs your approval.',
+        empty: 'No extra folders yet.',
     },
 
     ASK: {
-        title: 'How to ask your agent',
-        line: 'Your agent delegates through the SecureVector delegate tool. Ask it in plain words, for example:',
         examples: [
             { text: 'Use SecureVector delegate to have another Claude Code session write the tests for this module, then summarise what it found.', note: '' },
             { text: 'Use SecureVector delegate to have Codex build page1.html, wait for the result, then merge it into index.html.', note: 'needs cross-harness delegation on' },
         ],
     },
 
-    /** The intro, the "when to use it" list and the ask examples, above the card. */
+    /** One line, then a collapsed "Examples": the copyable asks and three bullets. */
     introHtml() {
         const c = this.COPY;
         const a = this.ASK;
@@ -334,10 +331,8 @@ const DelegationUI = {
             + `${e.note ? `<div class="deleg-example-note">${this._esc(e.note)}</div>` : ''}`
             + `<button type="button" class="btn btn-sm" data-deleg-copy="${i}" aria-describedby="deleg-ex-${i}">Copy</button></div>`).join('');
         return `<p class="deleg-intro">${this._esc(c.intro)}</p>`
-            + `<div class="deleg-set-label">${this._esc(c.whenTitle)}</div>`
-            + `<ul class="deleg-when">${c.when.map(x => `<li>${this._esc(x)}</li>`).join('')}</ul>`
-            + `<div class="deleg-set-label">${this._esc(a.title)}</div>`
-            + `<p class="deleg-intro">${this._esc(a.line)}</p>${ex}`;
+            + `<details class="deleg-examples"><summary class="deleg-set-label" style="cursor: pointer;">${this._esc(c.whenTitle)}</summary>${ex}`
+            + `<ul class="deleg-when">${c.when.map(x => `<li>${this._esc(x)}</li>`).join('')}</ul></details>`;
     },
 
     /** Copy text: the clipboard API, then a hidden textarea. Then a toast. */

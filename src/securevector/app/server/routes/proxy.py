@@ -5,6 +5,7 @@ Starts LLM proxy that captures ALL LLM traffic (TUI, Telegram, API, etc.).
 
 import asyncio
 import logging
+import re
 import socket
 import subprocess
 import sys
@@ -12,8 +13,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
+
+# Integration names are short labels such as "openclaw" or "proxy-langchain".
+_INTEGRATION_NAME_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 
 router = APIRouter(prefix="/proxy", tags=["Proxy"])
 
@@ -195,6 +200,8 @@ async def start_proxy(request: StartProxyRequest = None):
     integration = request.integration if request else None
     if provider not in PROVIDERS:
         provider = "openai"
+    if integration is not None and not _INTEGRATION_NAME_RE.fullmatch(str(integration)):
+        return {"status": "error", "message": "Invalid integration name"}
 
     # Check if already running
     if _llm_proxy_process is not None and _llm_proxy_process.poll() is None:
@@ -258,7 +265,7 @@ async def start_proxy(request: StartProxyRequest = None):
             _started_with_openclaw = (integration == "openclaw")
             mode_str = "multi-provider" if multi else provider
             integration_str = f" for {integration}" if integration else ""
-            logger.info(f"LLM proxy started on port {proxy_port} ({mode_str}){integration_str}")
+            logger.info(f"LLM proxy started on port {proxy_port} ({log_safe(mode_str)}){log_safe(integration_str)}")
             return {
                 "status": "started",
                 "message": f"Proxy started ({mode_str}) on port {proxy_port}",

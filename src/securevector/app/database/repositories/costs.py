@@ -14,6 +14,7 @@ from typing import Optional
 
 from securevector.app.utils.trace_text import sanitize_trace_text
 from securevector.app.database.connection import DatabaseConnection
+from securevector.app.utils.log_text import log_safe
 
 # Provider names that mean Amazon Bedrock, as harnesses report them, and the
 # cross-region inference prefixes a Bedrock model id may start with.
@@ -793,7 +794,7 @@ class CostsRepository:
         else:
             cursor = await self.db.execute("DELETE FROM llm_cost_records")
         count = cursor.rowcount if cursor else 0
-        logger.info(f"Deleted {count} cost records" + (f" for agent {agent_id}" if agent_id else ""))
+        logger.info(f"Deleted {count} cost records" + (f" for agent {log_safe(agent_id)}" if agent_id else ""))
         return count
 
     async def delete_records_by_ids(self, ids: list) -> int:

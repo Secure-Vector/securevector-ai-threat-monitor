@@ -31,7 +31,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.costs import CostsRepository

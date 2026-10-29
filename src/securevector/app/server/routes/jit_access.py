@@ -40,6 +40,7 @@ from securevector.app.database.repositories.tool_permissions import (
 )
 from securevector.app.server import remote_access
 from securevector.app.server.remote_access import require_remote_or_local
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +378,7 @@ async def approve_request(
             await call_rules.on_approved(db, pending, duration=grant.get("duration"))
         logger.info(
             "JIT grant %s: %s for %s (%s)",
-            grant["id"], grant["tool_id"], grant["duration"], request_id,
+            log_safe(grant["id"]), log_safe(grant["tool_id"]), log_safe(grant["duration"]), log_safe(request_id),
         )
         return {"grant": grant}
     except HTTPException:

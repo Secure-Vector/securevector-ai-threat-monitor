@@ -56,10 +56,10 @@ test('settings: the section is off by default text, plain words, no em dashes', 
   const src = read('js/pages/settings.js');
   const start = src.indexOf('async renderCloudApprovals(');
   assert.ok(start > 0);
-  const body = src.slice(start, src.indexOf('createSection(title, description, badgeText) {', start));
-  assert.match(src, /'Approvals from SecureVector Cloud'/);
+  const body = src.slice(start, src.indexOf('createSection(title, description, badgeText, docsUrl, docsLabel) {', start));
+  assert.match(src, /'Approvals from the cloud'/);
   assert.match(body, /Allow approvals from SecureVector Cloud/);
-  assert.match(body, /Deny from the cloud always works while this is on/);
+  assert.match(body, /Deny always works while this is on\./);
   assert.match(body, /Approve on this computer only/);
   assert.match(body, /API\.setCloudApprovals\(/);
   assert.doesNotMatch(body, /—/);

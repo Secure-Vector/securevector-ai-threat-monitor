@@ -15,7 +15,7 @@ from securevector.app.database.repositories.rules import (
     RulesRepository,
     RuleValidationError,
 )
-from securevector.app.services.nlp_rule_generator import NLPRuleGenerator, GeneratedPattern
+from securevector.app.services.nlp_rule_generator import NLPRuleGenerator
 
 logger = logging.getLogger(__name__)
 

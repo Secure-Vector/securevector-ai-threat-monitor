@@ -48,6 +48,7 @@ for _stream_name in ("stdout", "stderr"):
             if _buf is not None:
                 setattr(sys, _stream_name, _io.TextIOWrapper(_buf, encoding="utf-8", errors="replace"))
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
 
 from securevector.app import (
@@ -185,7 +186,6 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
 
     assets_path = get_assets_path()
     loading_html = assets_path / "web" / "loading.html"
-    favicon_path = assets_path / "favicon.ico"
     app_url = desktop_url(host, port)
 
     # Restore last window geometry (validated against the current screens).
@@ -297,6 +297,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
                             coro = store.add_event(info.task_id, kind="stop", origin="quit")
                             asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=1)
                         except Exception:
+                            # best effort: a failure here must not interrupt the caller
                             pass
                     try:
                         os.killpg(info.pid, signal.SIGKILL)
@@ -471,6 +472,7 @@ def run_web(host: str, port: int) -> None:
         if not _cfg_path.exists():
             print(f"           (will be created on first run)")
     except Exception:
+        # best effort: a failure here must not interrupt the caller
         pass
     print(f"\n  Press Ctrl+C to stop\n")
 
@@ -758,14 +760,14 @@ def _find_pi_ai_path() -> str:
             npm_global = result.stdout.strip()
             search_paths.append(os.path.join(npm_global, "openclaw", "node_modules", "@mariozechner", "pi-ai"))
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        # tool missing or too slow; treat it as unavailable
         pass
 
     # Method 2: which/where openclaw -> trace back
     try:
         # Use 'where' on Windows, 'which' on Unix
         which_cmd = "where" if sys.platform == "win32" else "which"
-        # No shell. Both arguments are constants, so there was never an
-        # injection path here, but `where` is a real executable on Windows
+        # No shell. Both arguments are constants; `where` is a real executable on Windows
         # (where.exe in System32) and passing a list through cmd.exe is the
         # kind of thing that works until a path has a space in it.
         result = subprocess.run(
@@ -783,6 +785,7 @@ def _find_pi_ai_path() -> str:
                     search_paths.append(os.path.join(base, "node_modules", "@mariozechner", "pi-ai"))
                     break
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        # tool missing or too slow; treat it as unavailable
         pass
 
     # Method 3: Common paths (Windows npm global, Unix nvm)
@@ -1988,6 +1991,7 @@ Examples:
             if not _block_mode:
                 _config_wants_proxy = False
     except Exception:
+        # best effort: a failure here must not interrupt the caller
         pass
 
     # Auto-compute proxy port: CLI > config file > (server port + 1)
@@ -2161,6 +2165,7 @@ Examples:
                 import webbrowser
                 webbrowser.open(_url_str)
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
             sys.exit(0)
 
@@ -2224,6 +2229,7 @@ Examples:
             json.dumps({"web_port": args.port, "proxy_port": args.proxy_port})
         )
     except Exception:
+        # best effort: a failure here must not interrupt the caller
         pass
 
     if args.web:

@@ -209,6 +209,7 @@ def _read_staged_plugin_version() -> str:
                 "falling back to 0.0.0 to prevent path-traversal", v,
             )
     except (OSError, ValueError, KeyError):
+        # best effort: an unreadable file is not an error here
         pass
     return "0.0.0"
 
@@ -419,6 +420,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
         try:
             os.unlink(tmp_path)
         except OSError:
+            # best effort: an unreadable file is not an error here
             pass
         raise
 
@@ -715,6 +717,7 @@ def _auto_uninstall_from_codex_cache() -> bool:
         try:
             slug_dir.rmdir()
         except OSError:
+            # best effort: an unreadable file is not an error here
             pass
 
     # 2. Strip our sections from config.toml.
@@ -1194,6 +1197,7 @@ def _compute_codex_token_usage_sync() -> CodexTokenUsageResponse:
                     if a > b:
                         latest_iso = last
                 except ValueError:
+                    # malformed value; keep the default
                     pass
         for model, mu in per_model.items():
             agg = model_totals.setdefault(model, {

@@ -6,14 +6,9 @@ Licensed under the Apache License, Version 2.0
 """
 
 import hashlib
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from securevector.models.analysis_result import (
-    AnalysisResult,
-    DetectionMethod,
-    ThreatDetection,
-)
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod
 from securevector.models.config_models import LocalModeConfig
 from securevector.utils.exceptions import RuleLoadError
 from securevector.utils.logger import get_logger

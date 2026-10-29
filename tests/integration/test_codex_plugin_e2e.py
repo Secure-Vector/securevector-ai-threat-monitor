@@ -30,7 +30,6 @@ import os
 import shutil
 import socket
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -144,6 +143,7 @@ def live_server(tmp_path_factory):
         try:
             asyncio.run(pre_db.disconnect())
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
         conn_mod._db = original_db
 

@@ -2,8 +2,7 @@
 Unit tests for SecureVector AI Threat Monitor Client
 """
 
-import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

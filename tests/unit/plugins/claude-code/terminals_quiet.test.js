@@ -71,8 +71,8 @@ test('styles carry the quiet-workspace frame and rail tightening rules', () => {
 });
 
 test('pins are bumped for the touched assets', () => {
-  assert.match(html, /terminals\.js\?v=133/);
-  assert.match(html, /styles\.css\?v=502/);
+  assert.match(html, /terminals\.js\?v=134/);
+  assert.match(html, /styles\.css\?v=503/);
 });
 
 test('with nothing attached the board is the whole page', () => {

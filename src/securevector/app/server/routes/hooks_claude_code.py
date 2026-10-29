@@ -244,6 +244,7 @@ def _read_staged_plugin_version() -> str:
                 "falling back to 0.0.0 to prevent path-traversal", v,
             )
     except (OSError, ValueError, KeyError):
+        # best effort: an unreadable file is not an error here
         pass
     return "0.0.0"
 
@@ -341,6 +342,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         try:
             os.unlink(tmp_path)
         except OSError:
+            # best effort: an unreadable file is not an error here
             pass
         raise
 
@@ -611,6 +613,7 @@ def _auto_uninstall_from_claude_cache() -> bool:
         try:
             slug_dir.rmdir()  # only succeeds if empty
         except OSError:
+            # best effort: an unreadable file is not an error here
             pass
 
     # 2. Strip our entry from installed_plugins.json. Independent

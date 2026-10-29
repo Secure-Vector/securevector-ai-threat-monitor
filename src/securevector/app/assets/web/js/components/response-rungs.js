@@ -98,7 +98,7 @@ const ResponseRungs = {
 
     // --- Settings card -----------------------------------------------------
 
-    INTRO: "Automatic actions watch each session's behaviour and react in steps: 1 observe, 2 flag, 3 ask you before risky calls. Each agent starts in test mode, where actions are logged only.",
+    INTRO: 'Watch each session and act in steps: observe, flag, ask you.',
 
     harnessLabel(id) { return this.HARNESS_WORDS[id] || String(id || ''); },
 
@@ -110,7 +110,7 @@ const ResponseRungs = {
         const active = m.mode === 'active';
         const id = this._esc(m.harness);
         const hl = this._esc(this.harnessLabel(m.harness));
-        const state = active ? 'On' : (m.can_activate ? 'Test mode (logged only), ready' : 'Test mode (logged only)');
+        const state = active ? 'On' : (m.can_activate ? 'Test mode, ready' : 'Test mode');
         const prog = this.progressText(m) + (m.early_ended && !m.complete ? ', ended early' : '');
         const acts = active
             ? `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to test mode for ${hl}">Back to test mode</button>`
@@ -118,7 +118,7 @@ const ResponseRungs = {
               + (m.can_activate ? '' : `<button type="button" class="btn btn-sm" data-rung-early="${id}" aria-label="End test mode early for ${hl}">End test mode early</button>`)
               + `<button type="button" class="btn btn-sm" data-rung-shadow="${id}" aria-label="Back to test mode for ${hl}">Back to test mode</button>`;
         return `<div class="rung-mode-row" data-rung-row="${id}"><div class="rung-mode-head"><strong>${this._esc(this.harnessLabel(m.harness))}</strong>`
-            + `<span class="rung-mode-state">${this._esc(state)}</span></div>`
+            + `<span class="rung-mode-state"${active ? '' : ' title="Test mode logs only"'}>${this._esc(state)}</span></div>`
             + `<div class="rung-mode-progress">${this._esc(prog)}</div>`
             + `<div class="rung-mode-actions">${acts}</div><div class="rung-mode-confirm" data-rung-confirm="${id}" hidden></div></div>`;
     },
@@ -138,7 +138,7 @@ const ResponseRungs = {
         }
         const modes = (data && data.modes) || [];
         if (!modes.length) {
-            host.innerHTML = '<div class="rung-mode-empty">No agent sessions have run yet. Automatic actions start in test mode, where they are logged only.</div>';
+            host.innerHTML = '<div class="rung-mode-empty">No agent sessions yet.</div>';
             return;
         }
         host.innerHTML = modes.map(m => this.modeRowHtml(m)).join('');

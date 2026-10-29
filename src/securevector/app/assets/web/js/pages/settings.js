@@ -47,8 +47,8 @@ const SettingsPage = {
         // Guardian ML Detection Section — first on the page: it's on by
         // default, so the disable flag must be the easiest thing to find.
         const guardianSection = this.createSection(
-            'Guardian ML Detection',
-            'On by default. A local ML model that runs alongside the regex rules and catches obfuscated, paraphrased, and encoded attacks they miss: fully offline, sub-millisecond, nothing leaves your machine.',
+            'Guardian ML detection',
+            'Local model beside the rules. Catches paraphrased and encoded attacks.',
             'New',
         );
         guardianSection.id = 'settings-guardian-section';
@@ -85,144 +85,148 @@ const SettingsPage = {
             return;   // focused Guardian view — skip the rest of Settings
         }
 
-        // Cloud Connect Section
+        // Cloud and remote: Cloud Connect, cloud approvals, remote access.
         const cloudSection = this.createSection(
-            'Cloud Connect',
-            'Optional. Connect to fetch the latest rule bundle and route analyze calls through SecureVector Cloud: metadata-only.',
+            'Cloud and remote',
+            'Optional. Metadata by default; prompts only with cloud analysis on.',
+            null,
+            'https://docs.securevector.io/connect-to-cloud',
+            'Guide: which way to connect',
         );
         const cloudCard = Card.create({ gradient: true });
-        const cloudBody = cloudCard.querySelector('.card-body');
-        this.renderCloudSettings(cloudBody);
-        this.renderLocalOnlyAnalysisToggle(cloudBody);
+        const cloudCardBody = cloudCard.querySelector('.card-body');
         cloudSection.appendChild(cloudCard);
         container.appendChild(cloudSection);
 
-        // Approvals from SecureVector Cloud: off by default, changed only here.
+        // (a) Cloud Connect
+        const cloudBody = this._subBlock(cloudCardBody, 'Cloud Connect', null, true);
+        this.renderCloudSettings(cloudBody);
+        this.renderLocalOnlyAnalysisToggle(cloudBody);
+
+        // (b) Approvals from the cloud: off by default, changed only here.
         {
-            const caSection = this.createSection(
-                'Approvals from SecureVector Cloud',
-                'Let a held call on this computer be answered from SecureVector Cloud. Off by default. Only this app can turn it on.',
-            );
-            const caCard = Card.create({ gradient: true });
-            const caBody = caCard.querySelector('.card-body');
+            const caBody = this._subBlock(cloudCardBody, 'Approvals from the cloud');
             caBody.setAttribute('data-cloud-approvals', '');
-            caSection.appendChild(caCard);
-            container.appendChild(caSection);
             this.renderCloudApprovals(caBody);
         }
 
-        // Remote access mode: off by default, changed only on this machine.
+        // (c) Remote access mode: off by default, changed only on this machine.
         if (window.RemoteAccess) {
-            const raSection = this.createSection(
-                'Remote access',
-                'Approve, deny and stop agent sessions from another machine over HTTPS with an access token.',
-            );
-            const raCard = Card.create({ gradient: true });
-            const raBody = raCard.querySelector('.card-body');
+            const raBody = this._subBlock(cloudCardBody, 'Remote access', null, false,
+                'https://docs.securevector.io/remote-access', 'Guide: proxy, turn on, sign in');
             raBody.setAttribute('data-remote-access', '');
-            raSection.appendChild(raCard);
-            container.appendChild(raSection);
             RemoteAccess.renderSettings(raBody);
         }
 
-        // AI Analysis Section (disabled when cloud mode is on)
-        const cloudModeActive = this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled;
-        const llmDesc = cloudModeActive
-            ? 'Disabled - Cloud ML analysis is active'
-            : 'Optional. Uses an LLM to review flagged inputs and reduce false positives in threat detection. Not required for tool permissions or cost tracking: those work without any API key.';
-        const llmSection = this.createSection('AI Analysis: Optional', llmDesc);
-        const llmCard = Card.create({ gradient: true });
-        const llmBody = llmCard.querySelector('.card-body');
-        this.renderLLMSettings(llmBody, cloudModeActive);
-        llmSection.appendChild(llmCard);
-        container.appendChild(llmSection);
-
-        // Tool Permissions shortcut
-        const toolSection = this.createSection('Tool Permissions', 'Control which tool calls AI agents can execute through the proxy');
-        const toolCard = Card.create({ gradient: true });
-        const toolBody = toolCard.querySelector('.card-body');
-
-        const toolRow = document.createElement('div');
-        toolRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 16px;';
-
-        const toolInfo = document.createElement('div');
-        const toolLabel = document.createElement('div');
-        toolLabel.style.cssText = 'font-weight: 600;';
-        toolLabel.textContent = 'Manage essential tool permissions, block high-risk tool calls.';
-        toolInfo.appendChild(toolLabel);
-
-        const toolNote = document.createElement('div');
-        toolNote.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
-        toolNote.textContent = '27 high-risk tools are blocked by default when enforcement is enabled.';
-        toolInfo.appendChild(toolNote);
-        toolRow.appendChild(toolInfo);
-
-        const toolBtn = document.createElement('button');
-        toolBtn.className = 'btn btn-primary';
-        toolBtn.textContent = 'Manage';
-        toolBtn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.navigate('tool-permissions');
-        });
-        toolRow.appendChild(toolBtn);
-
-        toolBody.appendChild(toolRow);
-        toolSection.appendChild(toolCard);
-        container.appendChild(toolSection);
-
-        // SIEM Forwarder now lives on its own top-level page under
-        // Configure → SIEM Forwarder (see siem-export.js). The CRUD
-        // helpers (renderSiemForwarders / _refreshSiemForwardersTable /
-        // _showSiemEditor / etc.) stay on this module — the new page
-        // imports them at render time — so this section is removed
-        // from Settings to avoid duplication.
-
-        // Theme Section
-        const themeSection = this.createSection('Appearance', 'Customize the look and feel');
-        const themeCard = Card.create({ gradient: true });
-        const themeBody = themeCard.querySelector('.card-body');
-        this.renderThemeSettings(themeBody);
-        this.renderGuardianBotToggle(themeBody);
-        themeSection.appendChild(themeCard);
-        container.appendChild(themeSection);
-
-        // Data Refresh Section
-        const refreshSection = this.createSection('Data Refresh', 'How often the dashboard, threats, and cost pages poll for new data');
-        const refreshCard = Card.create({ gradient: true });
-        const refreshBody = refreshCard.querySelector('.card-body');
-        this.renderRefreshSettings(refreshBody);
-        refreshSection.appendChild(refreshCard);
-        container.appendChild(refreshSection);
-
-        // Agent Sessions settings (Delegation, Response rungs) live on that page.
+        // Advanced: AI analysis and the Tool Permissions shortcut, collapsed.
         {
-            const sessSection = this.createSection('Agent Sessions', 'Delegation and response steps.');
-            const sessCard = Card.create({ gradient: true });
-            const sessBody = sessCard.querySelector('.card-body');
-            sessBody.setAttribute('data-sessions-pointer', '');
-            const line = document.createElement('p');
-            line.textContent = 'Agent Sessions settings live in Agent Sessions, Settings. ';
-            const link = document.createElement('a');
-            link.href = '#terminals?settings=1';
-            link.textContent = 'Open Agent Sessions settings';
-            link.setAttribute('data-open-sessions-settings', '');
-            link.addEventListener('click', (ev) => {
-                ev.preventDefault();
-                try { sessionStorage.setItem('sv-sessions-settings', '1'); } catch (e) { /* storage unavailable */ }
-                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('terminals');
+            const advSection = document.createElement('div');
+            advSection.className = 'settings-section';
+            const adv = document.createElement('details');
+            adv.className = 'settings-advanced';
+            const summary = document.createElement('summary');
+            summary.className = 'section-header';
+            summary.style.cssText = 'cursor: pointer;';
+            const advTitle = document.createElement('h2');
+            advTitle.className = 'section-title';
+            advTitle.style.display = 'inline';
+            advTitle.textContent = 'Advanced';
+            summary.appendChild(advTitle);
+            const advDesc = document.createElement('p');
+            advDesc.className = 'section-description';
+            advDesc.textContent = 'AI analysis and tool permissions.';
+            summary.appendChild(advDesc);
+            adv.appendChild(summary);
+
+            const advCard = Card.create({ gradient: true });
+            const advCardBody = advCard.querySelector('.card-body');
+
+            // AI analysis (disabled when cloud mode is on)
+            const cloudModeActive = this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled;
+            const llmBody = this._subBlock(advCardBody, 'AI analysis', cloudModeActive
+                ? 'Disabled: cloud ML analysis is active'
+                : 'Optional. An LLM reviews flagged inputs to cut false positives.', true);
+            this.renderLLMSettings(llmBody, cloudModeActive);
+
+            // Tool permissions shortcut
+            const toolBody = this._subBlock(advCardBody, 'Tool permissions');
+            const toolRow = document.createElement('div');
+            toolRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 16px;';
+            const toolNote = document.createElement('div');
+            toolNote.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+            toolNote.textContent = 'Block high-risk tool calls.';
+            toolRow.appendChild(toolNote);
+            const toolBtn = document.createElement('button');
+            toolBtn.className = 'btn btn-primary';
+            toolBtn.textContent = 'Manage';
+            toolBtn.addEventListener('click', () => {
+                if (window.Sidebar) Sidebar.navigate('tool-permissions');
             });
-            line.appendChild(link);
-            sessBody.appendChild(line);
-            sessSection.appendChild(sessCard);
-            container.appendChild(sessSection);
+            toolRow.appendChild(toolBtn);
+            toolBody.appendChild(toolRow);
+
+            adv.appendChild(advCard);
+            advSection.appendChild(adv);
+            container.appendChild(advSection);
         }
 
+        // SIEM Forwarder lives on its own page (siem-export.js), which
+        // reuses the CRUD helpers kept on this module.
+
+        // Display: theme, Guardian bot, polling interval.
+        const displaySection = this.createSection('Display', 'Theme, assistant and refresh.');
+        const displayCard = Card.create({ gradient: true });
+        const displayBody = displayCard.querySelector('.card-body');
+        this.renderThemeSettings(displayBody);
+        this.renderGuardianBotToggle(displayBody);
+        this.renderRefreshSettings(displayBody);
+        displaySection.appendChild(displayCard);
+        container.appendChild(displaySection);
+
+        // Agent Sessions settings live on that page (its own Settings button).
+
         // Uninstall Section
-        const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from your system');
+        const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from this computer.');
         const uninstallCard = Card.create({ gradient: true });
         const uninstallBody = uninstallCard.querySelector('.card-body');
         this.renderUninstallSection(uninstallBody);
         uninstallSection.appendChild(uninstallCard);
         container.appendChild(uninstallSection);
+    },
+
+    /** One block inside a grouped card: a bold sub-title, an optional
+     *  one-line note and docs link, a thin divider above all but the first.
+     *  Returns the body element the block's controls go into. */
+    _subBlock(parent, title, line, first, docsUrl, docsLabel) {
+        const block = document.createElement('div');
+        block.className = 'settings-subblock';
+        if (!first) block.style.cssText = 'margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));';
+        const head = document.createElement('div');
+        head.style.cssText = 'font-weight: 700; font-size: 14px; margin-bottom: 8px;';
+        head.textContent = title;
+        block.appendChild(head);
+        if (line) {
+            const p = document.createElement('div');
+            p.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin: -4px 0 10px;';
+            p.textContent = line;
+            block.appendChild(p);
+        }
+        if (docsUrl) {
+            const p = document.createElement('div');
+            p.className = 'section-docs-link';
+            p.style.cssText = 'font-size: 13px; margin: -4px 0 10px;';
+            const a = document.createElement('a');
+            a.href = docsUrl;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = docsLabel || 'Read the guide';
+            p.appendChild(a);
+            block.appendChild(p);
+        }
+        const body = document.createElement('div');
+        block.appendChild(body);
+        parent.appendChild(block);
+        return body;
     },
 
     renderGuardianSettings(container) {
@@ -241,14 +245,8 @@ const SettingsPage = {
         label.textContent = 'SecureVector Guardian';
         labelRow.appendChild(label);
 
-        const statusBadge = document.createElement('span');
-        statusBadge.className = 'badge';
-        const setBadge = (on) => {
-            statusBadge.classList.toggle('badge-success', on);
-            statusBadge.textContent = on ? 'Active' : 'Off';
-        };
-        setBadge(this.generalSettings.guardian_ml_enabled !== false);
-        labelRow.appendChild(statusBadge);
+        // No state badge: the toggle shows on or off.
+        const setBadge = () => {};
 
         // Model version — transparency. Shows which Guardian model is loaded
         // (bundled today; the installed securevector-guardian-model package once
@@ -265,7 +263,7 @@ const SettingsPage = {
 
         const note = document.createElement('div');
         note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
-        note.textContent = 'Adds a semantic vote to every analyze call: blocks on its own only at high confidence, corroborates a firing rule at a lower bar. Regex rules keep running either way.';
+        note.textContent = 'Adds an ML vote to every scan. Rules keep running either way.';
         info.appendChild(note);
 
         row.appendChild(info);
@@ -276,6 +274,7 @@ const SettingsPage = {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = this.generalSettings.guardian_ml_enabled !== false;
+        checkbox.setAttribute('aria-label', 'Guardian ML detection');
         const commit = async (enabled) => {
             try {
                 await API.updateSettings({ guardian_ml_enabled: enabled });
@@ -322,15 +321,11 @@ const SettingsPage = {
         // MITRE). No third-party datasets or pretrained weights — that's an
         // originality / no-data-leakage selling point, not a limitation.
         const provenance = document.createElement('div');
-        provenance.style.cssText = 'margin-top: 14px; padding: 12px 14px; border-radius: 8px; background: rgba(94,173,184,0.08); border: 1px solid rgba(94,173,184,0.22);';
-        const provLabel = document.createElement('div');
-        provLabel.style.cssText = 'font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--accent-primary); margin-bottom: 5px;';
-        provLabel.textContent = 'How Guardian is trained';
+        provenance.style.cssText = 'margin-top: 14px; padding: 8px 14px; border-radius: 8px; background: rgba(94,173,184,0.08); border: 1px solid rgba(94,173,184,0.22);';
+        provenance.setAttribute('aria-label', 'How Guardian is trained');
         const provText = document.createElement('div');
         provText.style.cssText = 'font-size: 12.5px; line-height: 1.55; color: var(--text-secondary);';
-        // Static copy, no user input.
-        provText.innerHTML = 'Trained <strong>from scratch</strong> on SecureVector\'s own labelled threat corpus and detection-rule library, with attack coverage aligned with <strong>public security taxonomies</strong> (OWASP LLM Top&nbsp;10, MITRE ATLAS).';
-        provenance.appendChild(provLabel);
+        provText.textContent = "Trained on SecureVector's own threat corpus, aligned with OWASP LLM Top 10 and MITRE ATLAS.";
         provenance.appendChild(provText);
         container.appendChild(provenance);
     },
@@ -346,6 +341,7 @@ const SettingsPage = {
         const locked = this.generalSettings.residency_locked === true;
         // Default ON: treat anything but an explicit false as on.
         const isOn = this.generalSettings.local_only_analysis !== false || locked;
+        let setNote = () => {};
 
         const row = document.createElement('div');
         row.className = 'setting-row';
@@ -366,6 +362,7 @@ const SettingsPage = {
         const setBadge = (on) => {
             badge.classList.toggle('badge-success', on);
             badge.textContent = on ? 'Local only' : 'Cloud analysis on';
+            setNote(on);
         };
         setBadge(isOn);
         labelRow.appendChild(badge);
@@ -379,26 +376,16 @@ const SettingsPage = {
         }
         info.appendChild(labelRow);
 
-        const note = document.createElement('ul');
-        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin: 6px 0 0; padding-left: 18px; line-height: 1.6; max-width: 60ch;';
-        const bullets = locked
-            ? [
-                "Enforced by your organization's EU data-residency policy.",
-                'Prompt input and output are analyzed on-device and never leave this machine.',
-                'Local-only analysis is hard-locked on and cannot be disabled here: prompt text can never be sent to the cloud.',
-                'Rule sync, policy sync, fleet metadata, and governance keep working (metadata only).',
-              ]
-            : [
-                'On by default: prompt input and output are analyzed on-device and are never sent to SecureVector Cloud.',
-                'Rule sync, policy sync, fleet metadata, and governance keep working.',
-                'Turn off only if you want cloud ML analysis: that sends your prompt text to scan.securevector.io.',
-                'EU data-residency: when your organization enforces EU residency, this is hard-locked on, local-only analysis cannot be disabled and prompt text can never be sent to the cloud.',
-              ];
-        bullets.forEach(t => {
-            const li = document.createElement('li');
-            li.textContent = t;
-            note.appendChild(li);
-        });
+        // A default note only when the value differs from the default (on).
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
+        setNote = (on) => {
+            note.textContent = locked
+                ? "Locked on by your organization's EU data-residency policy."
+                : (on ? '' : 'On by default. Prompts go to the cloud while off.');
+            note.hidden = !note.textContent;
+        };
+        setNote(isOn);
         info.appendChild(note);
 
         row.appendChild(info);
@@ -409,6 +396,7 @@ const SettingsPage = {
         checkbox.type = 'checkbox';
         checkbox.checked = isOn;
         checkbox.disabled = locked;
+        checkbox.setAttribute('aria-label', 'Keep prompts on this device');
 
         const commit = async (enabled) => {
             try {
@@ -461,7 +449,7 @@ const SettingsPage = {
         const content = document.createElement('div');
         const lead = document.createElement('p');
         lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
-        lead.textContent = 'Turning this off lets SecureVector Cloud run ML-grade analysis on your traffic, but to do that, your prompt input and the LLM output are sent off this device:';
+        lead.textContent = 'This sends your prompts and LLM output to SecureVector Cloud for analysis:';
         content.appendChild(lead);
 
         const list = document.createElement('ul');
@@ -589,7 +577,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             const tab = document.createElement('button');
             tab.className = 'uninstall-tab' + (index === 0 ? ' active' : '');
             tab.dataset.platform = platform.id;
-            tab.textContent = platform.icon + ' ' + platform.name;
+            tab.textContent = platform.name;
             tab.addEventListener('click', () => {
                 tabs.querySelectorAll('.uninstall-tab').forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
@@ -1189,26 +1177,24 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
     },
 
     renderCloudSettings(container) {
-        // Always-visible workflow primer — explains what Cloud Connect
-        // does (and, just as importantly, what it does NOT do when
-        // turned off). Users kept asking whether scans still run with
-        // Cloud Connect off; this panel answers that inline.
-        const primer = document.createElement('div');
-        primer.style.cssText = 'margin-bottom:16px;padding:14px 16px;background:var(--bg-secondary,#f5f7fa);border-left:3px solid var(--accent-primary,#5eadb8);border-radius:6px;font-size:13px;line-height:1.55;';
-
-        const primerHeading = document.createElement('div');
-        primerHeading.style.cssText = 'font-weight:600;margin-bottom:6px;';
-        primerHeading.textContent = 'Cloud Connect is fully optional.';
-        primer.appendChild(primerHeading);
-
-        const primerBody = document.createElement('div');
-        primerBody.style.color = 'var(--text-secondary)';
-        primerBody.innerHTML =
-            '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect ON:</strong> you can sync the latest rule bundle from SecureVector Cloud, and <code>/analyze</code> requests can be scored by cloud ML. To score a request, the prompt text is transmitted to the cloud, analyzed, and discarded. We persist <strong>metadata only</strong>: scan verdicts, threat scores, rule IDs. Prompt text, LLM outputs, and reasoning are never stored on our side.</p>'
-            + '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect OFF:</strong> everything keeps running locally, threat detection, tool-call audits, cost tracking, skill scanner. Rules you have already synced stay on this machine and continue to work.</p>'
-            + '<p style="margin:0;"><strong style="color:var(--text-primary);">Typical flow:</strong> turn ON → click <em>Sync from Cloud</em> on the Rules page → turn OFF → keep running fully local with the freshest ruleset.</p>';
-        primer.appendChild(primerBody);
-
+        // What Cloud Connect does, collapsed: on/off in three bullets plus
+        // the residency rule, once.
+        const primer = document.createElement('details');
+        primer.className = 'cloud-connect-what';
+        primer.style.cssText = 'margin-bottom: 14px; font-size: 13px;';
+        const primerSummary = document.createElement('summary');
+        primerSummary.style.cssText = 'cursor: pointer; color: var(--text-secondary);';
+        primerSummary.textContent = 'What it does';
+        primer.appendChild(primerSummary);
+        const primerList = document.createElement('ul');
+        primerList.style.cssText = 'margin: 6px 0 0; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
+        [
+            'On: rule sync, optional cloud ML',
+            'Off: everything runs locally',
+            'Prompts leave only if you opt in',
+            'EU residency enforced: prompts never leave this device',
+        ].forEach(t => { const li = document.createElement('li'); li.textContent = t; primerList.appendChild(li); });
+        primer.appendChild(primerList);
         container.appendChild(primer);
 
         // Cloud Connect ON indicator (simple version - details in header tooltip)
@@ -1225,6 +1211,13 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             text.style.cssText = 'color: var(--text-primary); font-weight: 600;';
             text.textContent = 'Cloud Connect is on';
             indicator.appendChild(text);
+
+            const disconnectBtn = document.createElement('button');
+            disconnectBtn.className = 'btn btn-danger btn-small';
+            disconnectBtn.style.marginLeft = 'auto';
+            disconnectBtn.textContent = 'Disconnect';
+            disconnectBtn.addEventListener('click', () => this.disconnectCloud());
+            indicator.appendChild(disconnectBtn);
 
             container.appendChild(indicator);
         }
@@ -1299,6 +1292,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         keyInput.className = 'form-input';
         keyInput.id = 'cloud-api-key';
         keyInput.placeholder = 'svpk_...';
+        keyInput.setAttribute('aria-label', 'SecureVector API Key');
         keyInput.style.width = '250px';
         keyRow.appendChild(keyInput);
 
@@ -1335,6 +1329,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.checked = this.cloudSettings.cloud_mode_enabled;
+            checkbox.setAttribute('aria-label', 'Cloud Analysis');
             checkbox.addEventListener('change', (e) => this.toggleCloudMode(e.target.checked));
             toggle.appendChild(checkbox);
 
@@ -1354,8 +1349,8 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         container.appendChild(actionRow);
 
-        // Disconnect option if connected
-        if (this.cloudSettings.credentials_configured) {
+        // Disconnect option if connected (inline in the "on" row when shown)
+        if (this.cloudSettings.credentials_configured && !this.cloudSettings.cloud_mode_enabled) {
             const disconnectRow = document.createElement('div');
             disconnectRow.className = 'setting-row';
             disconnectRow.style.justifyContent = 'flex-end';
@@ -1386,11 +1381,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         const sub = document.createElement('div');
         sub.style.cssText = 'font-size:13px;color:var(--text-secondary);margin-bottom:12px;';
-        sub.textContent =
-            'One click: sign up in your browser and this device connects itself, '
-            + 'no key to copy. Metadata-only, same consent gates as manual connect. '
-            + 'No card required: when the 30 days end you drop to the free tier '
-            + 'automatically, nothing is charged, and this app keeps working fully local.';
+        sub.textContent = 'One click, no key, no card. Free tier after 30 days.';
         panel.appendChild(sub);
 
         const body = document.createElement('div');
@@ -1623,7 +1614,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         info.appendChild(label);
         const note = document.createElement('div');
         note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
-        note.textContent = 'The on-screen companion that announces threats, secret catches, blocks and session recaps. Drag it to pin it; hide it here or from its own panel.';
+        note.textContent = 'On-screen companion that announces threats and blocks.';
         info.appendChild(note);
         row.appendChild(info);
 
@@ -1634,6 +1625,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         let hidden = false;
         try { hidden = localStorage.getItem('sv-guardian-hidden') === '1'; } catch (_) { /* private mode */ }
         checkbox.checked = !hidden;
+        checkbox.setAttribute('aria-label', 'Guardian bot');
         checkbox.addEventListener('change', (e) => {
             if (window.GuardianAssistant) GuardianAssistant.setHidden(!e.target.checked);
             else { try { localStorage.setItem('sv-guardian-hidden', e.target.checked ? '0' : '1'); } catch (_) {} }
@@ -1709,14 +1701,15 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         const desc = document.createElement('span');
         desc.className = 'setting-description';
-        desc.textContent = 'How frequently the UI fetches new data from the backend';
+        desc.textContent = 'How often pages fetch new data.';
         info.appendChild(desc);
 
         row.appendChild(info);
 
         const select = document.createElement('select');
-        select.className = 'form-select';
-        select.style.cssText = 'padding: 8px 12px; font-size: 13px; width: 140px;';
+        select.className = 'form-input form-select';
+        select.setAttribute('aria-label', 'Polling interval');
+        select.style.cssText = 'padding: 8px 36px 8px 12px; font-size: 13px; width: 180px;';
 
         const options = [
             { value: '3000', label: '3 seconds' },
@@ -1778,14 +1771,14 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         label.style.fontWeight = '600';
         label.textContent = 'Allow approvals from SecureVector Cloud';
         info.appendChild(label);
-        const note = document.createElement('ul');
-        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin: 6px 0 0; padding-left: 18px; line-height: 1.6; max-width: 60ch;';
-        [
-            'When on, someone signed in to SecureVector Cloud for this computer can allow or deny a held call from there.',
-            'This computer checks every answer against its own request before using it: same session, still waiting, and the exact call for Allow once.',
-            'Deny from the cloud always works while this is on. Allow only works within the choices below.',
-            'The cloud cannot turn this on. Turn it off here at any time.',
-        ].forEach(t => { const li = document.createElement('li'); li.textContent = t; note.appendChild(li); });
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
+        // Shown only while on (off is the default).
+        const setNote = () => {
+            note.textContent = cfg.enabled ? 'Deny always works while this is on.' : '';
+            note.hidden = !cfg.enabled;
+        };
+        setNote();
         info.appendChild(note);
         row.appendChild(info);
 
@@ -1803,6 +1796,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                 checkbox.checked = !!cfg.enabled;
                 checkbox.disabled = false;
                 details.hidden = !cfg.enabled;
+                setNote();
             });
         });
         toggle.appendChild(checkbox);
@@ -1832,7 +1826,13 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         details.appendChild(allowHead);
         const allowNote = document.createElement('p');
         allowNote.style.cssText = 'color: var(--text-secondary); margin: 4px 0 8px;';
-        allowNote.textContent = 'Deny is always allowed. Allow once is on by default; longer approvals are off until you add them.';
+        const setAllowNote = () => {
+            const a = cfg.allowance || [];
+            const isDefault = a.length === 1 && a[0] === 'once';
+            allowNote.textContent = isDefault ? '' : 'Allow once only by default.';
+            allowNote.hidden = isDefault;
+        };
+        setAllowNote();
         details.appendChild(allowNote);
         const allowBox = document.createElement('div');
         allowBox.style.cssText = 'display: flex; gap: 14px; flex-wrap: wrap;';
@@ -1846,7 +1846,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             cb.addEventListener('change', () => {
                 const next = Object.keys(LABELS).filter(x => x === k ? cb.checked : (cfg.allowance || []).includes(x));
                 cb.disabled = true;
-                save({ allowance: next }, () => { cb.checked = (cfg.allowance || []).includes(k); cb.disabled = false; });
+                save({ allowance: next }, () => { cb.checked = (cfg.allowance || []).includes(k); cb.disabled = false; setAllowNote(); });
             });
             l.appendChild(cb);
             l.appendChild(document.createTextNode(LABELS[k]));
@@ -1860,7 +1860,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         details.appendChild(ruleHead);
         const ruleNote = document.createElement('p');
         ruleNote.style.cssText = 'color: var(--text-secondary); margin: 4px 0 8px;';
-        ruleNote.textContent = 'Calls held by these rules can be denied from the cloud but only allowed here.';
+        ruleNote.textContent = 'Deny from the cloud, allow only here.';
         details.appendChild(ruleNote);
         const ruleBox = document.createElement('div');
         ruleBox.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
@@ -1886,7 +1886,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         container.appendChild(details);
     },
 
-    createSection(title, description, badgeText) {
+    createSection(title, description, badgeText, docsUrl, docsLabel) {
         const section = document.createElement('div');
         section.className = 'settings-section';
 
@@ -1913,6 +1913,17 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             descEl.className = 'section-description';
             descEl.textContent = description;
             header.appendChild(descEl);
+        if (docsUrl) {
+            const docsEl = document.createElement('p');
+            docsEl.className = 'section-description section-docs-link';
+            const a = document.createElement('a');
+            a.href = docsUrl;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = docsLabel || 'Read the guide';
+            docsEl.appendChild(a);
+            header.appendChild(docsEl);
+        }
         }
 
         section.appendChild(header);

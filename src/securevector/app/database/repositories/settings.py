@@ -187,6 +187,7 @@ class SettingsRepository:
                 else:
                     cloud_connected_at = row_dict["cloud_connected_at"]
             except (ValueError, TypeError):
+                # malformed value; keep the default
                 pass
 
         # Parse llm_settings JSON if present
@@ -195,6 +196,7 @@ class SettingsRepository:
             try:
                 llm_settings = json.loads(row_dict["llm_settings"])
             except (json.JSONDecodeError, TypeError):
+                # malformed value; keep the default
                 pass
 
         return AppSettings(

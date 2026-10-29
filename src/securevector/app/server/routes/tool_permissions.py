@@ -802,6 +802,7 @@ async def get_synced_overrides(runtime: Optional[str] = None,
             )
             requestable_ids = {r["tool_id"] for r in (flag_rows or [])}
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
 
         merged: list = []

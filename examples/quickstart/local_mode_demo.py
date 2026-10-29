@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from securevector import SecureVectorClient
 from securevector.models.config_models import OperationMode, LocalModeConfig
-from utils.exceptions import SecurityException
 
 def demonstrate_local_mode():
     """Demonstrate local mode capabilities"""
@@ -194,12 +193,12 @@ def demonstrate_local_mode():
     
     # First analysis (cache miss)
     start_time = time.time()
-    result1 = client.analyze(test_prompt)
+    client.analyze(test_prompt)
     first_time = (time.time() - start_time) * 1000
     
     # Second analysis (cache hit)
     start_time = time.time()
-    result2 = client.analyze(test_prompt)
+    client.analyze(test_prompt)
     second_time = (time.time() - start_time) * 1000
     
     print(f"First analysis: {first_time:.1f}ms (cache miss)")

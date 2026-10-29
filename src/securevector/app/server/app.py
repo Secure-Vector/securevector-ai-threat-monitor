@@ -506,6 +506,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
                 if any(marker in cgroups for marker in ("docker", "containerd", "kubepods")):
                     return True
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
             return False
 

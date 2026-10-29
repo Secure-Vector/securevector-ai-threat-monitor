@@ -142,7 +142,7 @@ def benchmark_batch_performance(
         batch_prompts = test_prompts[:batch_size]
 
         start_time = time.time()
-        results = client.analyze_batch(batch_prompts)
+        client.analyze_batch(batch_prompts)
         total_time = (time.time() - start_time) * 1000
 
         avg_time_per_prompt = total_time / batch_size

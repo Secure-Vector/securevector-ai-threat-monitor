@@ -19,17 +19,16 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import asyncio
 import json
 import sys
 import argparse
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 try:
-    from securevector import create_mcp_server, check_mcp_dependencies
+    from securevector import check_mcp_dependencies
     from securevector.mcp.config import create_default_config
     SECUREVECTOR_AVAILABLE = True
 except ImportError:
@@ -216,6 +215,7 @@ class ClaudeDesktopIntegrator(BaseIntegrator):
                     status["installation_detected"] = True
 
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
         return status
@@ -306,7 +306,8 @@ class ClaudeCLIIntegrator(BaseIntegrator):
                         capture_output=True,
                         timeout=30
                     )
-                except:
+                except Exception:
+                    # best effort: a failure here must not interrupt the caller
                     pass
 
             return True
@@ -338,6 +339,7 @@ class ClaudeCLIIntegrator(BaseIntegrator):
                     status["installation_detected"] = True
 
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
         return status
@@ -492,6 +494,7 @@ class CursorIntegrator(BaseIntegrator):
                     status["installation_detected"] = True
 
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
         # Check workspace config
@@ -506,6 +509,7 @@ class CursorIntegrator(BaseIntegrator):
                         status["installation_detected"] = True
 
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
         return status

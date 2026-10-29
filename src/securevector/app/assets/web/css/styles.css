@@ -10639,3 +10639,10 @@ html.desktop-mac .sidebar-product-rail { padding-top: var(--titlebar-inset); }
 .terminals-remote-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border-default); font-size: 13px; }
 .terminals-remote-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .terminals-remote-meta, .terminals-remote-status { color: var(--text-secondary); }
+
+.section-docs-link { margin-top: 4px; }
+.section-docs-link a { color: var(--accent-primary); text-decoration: none; }
+.section-docs-link a:hover { text-decoration: underline; }
+
+.rt-guide-link { color: var(--accent-primary); text-decoration: none; }
+.rt-guide-link:hover { text-decoration: underline; }

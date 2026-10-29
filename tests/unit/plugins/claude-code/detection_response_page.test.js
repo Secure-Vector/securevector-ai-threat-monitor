@@ -309,7 +309,7 @@ test('fleet row copy rules and cache pins', () => {
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
   assert.match(read('index.html'), /detection-response\.js\?v=28/);
-  assert.match(read('index.html'), /styles\.css\?v=502/);
+  assert.match(read('index.html'), /styles\.css\?v=503/);
 });
 
 test('plain-language pass: Review label and heading, Launch first, one card status line', () => {

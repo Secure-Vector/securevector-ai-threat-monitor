@@ -428,8 +428,7 @@ def build_gaps(unrecorded: dict, statuses: dict, codex_trust: Optional[dict],
         gaps.append(G.gap(
             "unrecorded_calls", n,
             f"{G.plural(n, 'tool call')} from {label} not recorded",
-            f"{label} made {G.plural(n, 'call')} in {days} that SecureVector has no record of, "
-            f"so no policy checked them. Most often: {G.top_tools(by_tool)}.",
+            f"No policy checked them. Most often: {G.top_tools(by_tool)}.",
             {"label": ("How to connect" if _active(statuses, runtime) else f"Connect {label}"),
              "route": G.guide_route(runtime)}, key=runtime))
     for harness, st in sorted((statuses or {}).items()):
@@ -461,7 +460,7 @@ def build_gaps(unrecorded: dict, statuses: dict, codex_trust: Optional[dict],
             {"label": "Egress Policy", "route": "egress-policy"}))
     gaps.append(G.gap(
         "approvals_pending", pending, f"{G.plural(int(pending or 0), 'approval')} waiting on you",
-        "Agents asked for access to a blocked tool and are waiting for a decision.",
+        "Blocked tool, waiting for your decision.",
         {"label": "Open Agent Sessions", "route": "terminals"}))
     if health:
         n = int(health.get("runs") or 0)

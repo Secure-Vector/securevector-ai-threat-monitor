@@ -64,6 +64,7 @@ def main() -> int:
         url = f"http://127.0.0.1:{int(port)}/api/terminals/tasks/{safe_task_id}/events"
         _post(url, body, token)
     except Exception:
+        # best effort: a failure here must not interrupt the caller
         pass
     return 0
 

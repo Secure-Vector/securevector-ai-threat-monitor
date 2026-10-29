@@ -304,6 +304,8 @@ ${this.CLI_BIN} stop &lt;id&gt;
                   `<li>Copy the access token it shows once.</li>` +
                   `<li>Open this address again and choose Sign in for remote access.</li>` +
                   `</ol>` +
+                  `<p class="terminals-local-body">Full guide, with the reverse proxy step: ` +
+                  `<a class="terminals-local-link" href="https://docs.securevector.io/remote-access" target="_blank" rel="noopener noreferrer">Remote access mode</a>.</p>` +
                   `<p class="terminals-local-body">Launching, linking and typing into sessions stay on the machine itself in this release.</p>`) +
             `<p class="terminals-local-body">You can still watch runs, governance and costs in ` +
             `<button type="button" class="terminals-local-link" data-act="open-runs">Observability</button>.</p></div>`;

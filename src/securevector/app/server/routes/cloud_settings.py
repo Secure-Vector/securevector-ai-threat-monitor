@@ -23,7 +23,6 @@ from securevector.app.services.credentials import (
     detect_token_type,
 )
 from securevector.app.services.enrollment import EnrollmentError, enroll
-from securevector.app.services.cloud_proxy import get_cloud_proxy, CloudProxyError
 from securevector.app.services.trial_signup import (
     TrialSignupError,
     poll_trial_token,

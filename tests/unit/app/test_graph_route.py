@@ -107,7 +107,7 @@ def test_build_graph_flags_cloud_managed_and_secrets():
 
 
 def test_build_graph_truncates_top_n(monkeypatch):
-    import securevector.app.server.routes.graph as graph_mod
+    from securevector.app.server.routes import graph as graph_mod
 
     monkeypatch.setattr(graph_mod, "_EDGE_CAP", 2)
     raw = [
@@ -309,7 +309,7 @@ def test_build_graph_3layer_boundary_only_session_still_appears():
 
 
 def test_build_graph_3layer_truncates_top_n(monkeypatch):
-    import securevector.app.server.routes.graph as graph_mod
+    from securevector.app.server.routes import graph as graph_mod
 
     monkeypatch.setattr(graph_mod, "_EDGE_CAP_3L", 2)
     raw = [

@@ -5,17 +5,15 @@ Tests the API mode to ensure it correctly communicates with the SecureVector API
 using the proper endpoint, headers, and payload format.
 """
 
-import json
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-import requests
 
 from securevector.core.modes.api.api_analyzer import APIAnalyzer
 from securevector.core.modes.api.api_mode import APIMode
-from securevector.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod
 from securevector.models.config_models import APIModeConfig
-from securevector.utils.exceptions import APIError, AuthenticationError, RateLimitError
+from securevector.utils.exceptions import AuthenticationError, RateLimitError
 
 
 class TestAPIModeConfig:

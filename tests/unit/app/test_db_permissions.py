@@ -66,7 +66,7 @@ async def test_a_database_left_world_readable_by_an_older_build_is_tightened(tmp
     has a 0644 database on disk right now."""
     db = tmp_path / "threat_intel.db"
     db.write_bytes(b"")
-    os.chmod(db, 0o644)
+    os.chmod(db, 0o644)  # noqa: S103 - the test recreates the older on-disk mode on purpose
     conn = DatabaseConnection(db_path=db)
     await conn.connect()
     try:

@@ -45,6 +45,7 @@ from securevector.app.terminals.store import (
     ended_by_marker,
 )
 from securevector.app.utils.redaction import redact_secrets
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +357,7 @@ class TerminalManager:
         try:
             await handle
         except asyncio.CancelledError:
+            # the task was cancelled during shutdown; nothing left to do
             pass
 
     async def _heartbeat_loop(self, period: float) -> None:
@@ -447,6 +449,7 @@ class TerminalManager:
                 os.kill(pid, signal.SIGTERM)
             logger.info("Reaped orphaned task %s (pid %s)", task["id"], pid)
         except OSError:
+            # best effort: an unreadable file is not an error here
             pass
 
     # Executors whose Guard can relay a launched task's hook events. The rest
@@ -1748,7 +1751,7 @@ class TerminalManager:
                     previous = before.get("status") if before else None
                 changed = previous != status
             except Exception:
-                logger.debug("live runs: status read failed for %s", task_id, exc_info=True)
+                logger.debug("live runs: status read failed for %s", log_safe(task_id), exc_info=True)
         await self.store.update_status(task_id, status, activity=activity)
         if tracking:
             # Only once the new status is stored, so a failed write cannot

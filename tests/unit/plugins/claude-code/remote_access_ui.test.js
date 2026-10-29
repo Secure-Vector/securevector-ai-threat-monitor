@@ -206,11 +206,11 @@ test('settings: disabled on a localhost-only bind, read-only by network address,
   const off = RA.settingsHtml(base, {});
   assert.match(off, />Off</);
   assert.match(off, />On</);
-  assert.ok(off.includes(RA.USE_WHEN) && off.includes(RA.LEAVE_OFF_WHEN));
+  assert.ok(off.includes(RA.TURN_ON_HERE));
   assert.doesNotMatch(off, / disabled/);
   const loop = RA.settingsHtml(Object.assign({}, base, { bound_loopback_only: true }), {});
   assert.match(loop, /data-act="remote-on" aria-pressed="false" disabled/);
-  assert.match(loop, /Not needed: you are on this machine\./);
+  assert.match(loop, /Not needed here: you are on this machine\./);
   const remote = RA.settingsHtml({ enabled: true, local: false }, {});
   assert.match(remote, /Change this on the machine itself\./);
   assert.match(remote, /data-act="remote-off" aria-pressed="false" disabled/);
@@ -250,7 +250,7 @@ test('mode reported off: the session is dropped from sessionStorage and no longe
 test('settings: the guided enable names the proxy Host requirement', () => {
   const RA = load('127.0.0.1').RA;
   const html = RA.settingsHtml({ enabled: false, local: true, bound_loopback_only: false, proxy_address: [] }, { editing: true });
-  assert.match(html, /Your proxy must pass the original Host header \(nginx: proxy_set_header Host \$host\)\./);
+  assert.match(html, /Pass the original Host \(nginx: proxy_set_header Host \$host\)\./);
 });
 
 test('settings by a network address: only Off is offered when signed in', () => {

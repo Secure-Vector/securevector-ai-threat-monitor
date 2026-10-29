@@ -1078,6 +1078,7 @@ async def task_socket(websocket: WebSocket, task_id: str):
         try:
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         except WebSocketDisconnect:
+            # the peer already closed the connection
             pass
     finally:
         stop.set()
@@ -1102,6 +1103,7 @@ async def task_socket(websocket: WebSocket, task_id: str):
         try:
             await websocket.close()
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
 
 

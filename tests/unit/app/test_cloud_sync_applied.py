@@ -167,7 +167,6 @@ class _EnvRepo:
 
 
 def test_hint_falls_back_to_envelope_when_bundle_has_no_rules():
-    import asyncio
     from securevector.app.services import cloud_sync
 
     hint = asyncio.run(cloud_sync._get_last_bundle_id(_NoRows(), _EnvRepo(_Envelope("bnd_empty"))))
@@ -175,7 +174,6 @@ def test_hint_falls_back_to_envelope_when_bundle_has_no_rules():
 
 
 def test_no_hint_from_a_tampered_envelope():
-    import asyncio
     from securevector.app.services import cloud_sync
 
     tampered = _Envelope("bnd_x", tampered_at="2026-10-01T00:00:00Z")

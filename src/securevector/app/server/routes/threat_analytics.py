@@ -16,7 +16,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
-from securevector.app.database.repositories.threat_intel import ThreatIntelRepository
 from securevector.app.database.repositories.settings import SettingsRepository
 
 logger = logging.getLogger(__name__)

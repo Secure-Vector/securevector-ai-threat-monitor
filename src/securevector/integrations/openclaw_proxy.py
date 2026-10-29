@@ -363,7 +363,8 @@ class SecureVectorProxy:
                                     req_id = None
                                     try:
                                         req_id = data.get("id")
-                                    except:
+                                    except Exception:
+                                        # best effort: a failure here must not interrupt the caller
                                         pass
 
                                     # Send error response in OpenClaw format
@@ -390,6 +391,7 @@ class SecureVectorProxy:
                         # Forward to OpenClaw
                         await openclaw_ws.send(message)
                 except websockets.exceptions.ConnectionClosed:
+                    # the peer already closed the connection
                     pass
 
             async def openclaw_to_client():
@@ -453,6 +455,7 @@ class SecureVectorProxy:
                                     print(f"[proxy] JSON parse error: {e}")
 
                 except websockets.exceptions.ConnectionClosed:
+                    # the peer already closed the connection
                     pass
                 finally:
                     # Scan any remaining text if connection closes mid-response
@@ -475,6 +478,7 @@ class SecureVectorProxy:
                 try:
                     await task
                 except asyncio.CancelledError:
+                    # the task was cancelled during shutdown; nothing left to do
                     pass
 
         except websockets.exceptions.ConnectionClosed as e:
@@ -486,7 +490,8 @@ class SecureVectorProxy:
             if openclaw_ws:
                 try:
                     await openclaw_ws.close()
-                except:
+                except (Exception, asyncio.CancelledError):
+                    # best effort: a failure here must not interrupt the caller
                     pass
 
             # Cancel any remaining tasks

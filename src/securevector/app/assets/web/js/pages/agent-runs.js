@@ -1343,8 +1343,11 @@ const AgentRunsPage = {
             .rl-cov { font-size:11px; padding:1px 7px; border-radius:10px; white-space:nowrap;
                 border:1px solid var(--border-light,#303844); color:var(--text-secondary,#aeb7c2); }
             .rl-sh-right { margin-left:auto; display:flex; gap:14px; }
-            .rl-sh.rl-sh-wait { flex-wrap:nowrap; }
-            .rl-sh.rl-sh-wait > * { white-space:nowrap; flex-shrink:0; }
+            /* The waiting row keeps its first line single-line (the coverage chip
+               shrinks with an ellipsis) and the latest call still drops to its own
+               line, so Open details stays at the right edge. */
+            .rl-sh.rl-sh-wait { flex-wrap:wrap; }
+            .rl-sh.rl-sh-wait > *:not(.rl-now) { white-space:nowrap; flex-shrink:0; }
             .rl-sh.rl-sh-wait .rl-cov { flex-shrink:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
             .rl-sh.rl-sh-wait .rl-sh-right { flex-shrink:0; white-space:nowrap; }
             .rl-sh.rl-sh-wait .rl-now { flex-shrink:1; }

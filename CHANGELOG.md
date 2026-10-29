@@ -63,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Live grid tab says what its two counts are: sessions running and approvals waiting.
 - A held call filed by a harness hook carries its run's trace id, so it shows inside its run locally and in Fleet.
 - Cloud Connect accepts personal keys that start with `sk_` or `sk-` as well as `svpk_`.
+- Settings link to the Connect to Cloud and Remote access guides; the Agent Sessions and run details notes shown over a network address link to the Remote access guide.
+- A session row waiting for approval keeps its coverage chip whole, with Open details at the right edge.
+- Less text, more action: the Governance page reads as titled bullets and one-line notes; Settings has five cards (Guardian, Cloud and remote, Advanced, Display, Uninstall) with explanations behind disclosures and guide links.
 - Approvals and session controls answer only on this machine.
 
 ## [6.0.1] - 2026-10-08

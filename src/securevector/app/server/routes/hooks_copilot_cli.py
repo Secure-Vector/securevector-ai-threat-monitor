@@ -254,6 +254,7 @@ def _atomic_write_config(path: Path, data: dict, header: list[str]) -> None:
         try:
             os.unlink(tmp_path)
         except OSError:
+            # best effort: an unreadable file is not an error here
             pass
         raise
 

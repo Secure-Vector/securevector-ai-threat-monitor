@@ -9,13 +9,12 @@ Licensed under the Apache License, Version 2.0
 """
 
 import time
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from datetime import datetime, timedelta
 from collections import defaultdict
 
 try:
     from mcp.server.fastmcp import FastMCP, Context
-    from mcp.server.session import ServerSession
     from mcp import types
     MCP_AVAILABLE = True
 except ImportError:

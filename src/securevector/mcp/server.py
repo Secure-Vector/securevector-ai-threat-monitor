@@ -8,12 +8,11 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
+from datetime import datetime
 from collections import defaultdict, deque
 
 try:
@@ -34,7 +33,7 @@ from securevector import SecureVectorClient, AsyncSecureVectorClient
 from securevector.models.config_models import OperationMode
 from securevector.models.policy_models import SecurityPolicy, PolicyAction
 from securevector.utils.logger import get_logger
-from securevector.utils.exceptions import SecurityException, APIError, ConfigurationError
+from securevector.utils.exceptions import SecurityException, ConfigurationError
 
 from .config.server_config import MCPServerConfig, create_default_config
 from .auth_validator import AuthValidator
@@ -327,8 +326,7 @@ class SecureVectorMCPServer:
         # If we only have one session, return that API key
         if len(self.session_api_keys) == 1:
             api_key = list(self.session_api_keys.values())[0]
-            session_id = list(self.session_api_keys.keys())[0]
-            self.logger.debug(f"Retrieved API key from single session: {session_id}")
+            self.logger.debug("Retrieved API key from the single stored session")
             return api_key
 
         # Multiple sessions - check if all have the same API key
@@ -345,7 +343,7 @@ class SecureVectorMCPServer:
         # Multiple different API keys - try to find by exact client_id match
         if client_id and client_id in self.session_api_keys:
             api_key = self.session_api_keys[client_id]
-            self.logger.debug(f"Retrieved API key for client: {client_id}")
+            self.logger.debug("Retrieved API key by exact client match")
             return api_key
 
         # Try to find by IP address (client_id prefix match)
@@ -364,22 +362,22 @@ class SecureVectorMCPServer:
                 if len(unique_keys_for_ip) == 1:
                     api_key = list(unique_keys_for_ip)[0]
                     self.logger.debug(
-                        f"Retrieved API key for IP {client_id} "
+                        f"Retrieved API key by client address "
                         f"(matched {len(matching_sessions)} sessions)"
                     )
                     return api_key
                 else:
                     self.logger.error(
-                        f"Multiple different API keys found for IP {client_id}! "
-                        f"This should not happen. Sessions: {matching_sessions}"
+                        f"Multiple different API keys found for one client address. "
+                        f"This should not happen. Session count: {len(matching_sessions)}"
                     )
                     # Return the most recent one (arbitrary choice)
                     return list(matching_sessions.values())[-1]
 
         # No match found
         self.logger.warning(
-            f"No API key found for client_id='{client_id}'. "
-            f"Available sessions: {list(self.session_api_keys.keys())}"
+            f"No API key found for the requested client. "
+            f"Stored session count: {len(self.session_api_keys)}"
         )
         return None
 

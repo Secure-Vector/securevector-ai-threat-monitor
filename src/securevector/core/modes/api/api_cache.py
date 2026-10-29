@@ -5,12 +5,10 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import hashlib
-import json
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from securevector.models.analysis_result import AnalysisResult
 from securevector.utils.logger import get_logger
@@ -240,16 +238,17 @@ class APICache:
 
         # Check capacity utilization
         utilization = stats["current_size"] / self.max_size
-        if utilization > 0.9:
-            status = "warning"
-            warnings.append("Cache near capacity")
-        elif utilization > 0.95:
+        if utilization > 0.95:
             status = "critical"
             issues.append("Cache at critical capacity")
+        elif utilization > 0.9:
+            status = "warning"
+            warnings.append("Cache near capacity")
 
         # Check for excessive evictions
         if stats["evictions"] > stats["hits"] and stats["total_requests"] > 50:
-            status = "warning"
+            if status != "critical":
+                status = "warning"
             warnings.append("High eviction rate - consider increasing cache size")
 
         return {

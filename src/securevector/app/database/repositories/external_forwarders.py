@@ -40,8 +40,8 @@ logger = logging.getLogger(__name__)
 
 def _sanitize_for_log(value: Any, cap: int = 80) -> str:
     """Strip CR/LF + other ASCII control characters from user-provided
-    values before they hit the log stream. Prevents log-injection via a
-    malicious destination name / URL. CodeQL: py/log-injection.
+    values before they hit the log stream, so a destination name or URL
+    cannot add lines to the log.
 
     Caps the result at `cap` chars so a 10 KB pasted value doesn't blow
     up the log line.
@@ -1063,8 +1063,8 @@ class ExternalForwardersRepository:
         )
         await conn.commit()
         row_id = int(cursor.lastrowid or 0)
-        # Log only the row id — no user-provided values in the format
-        # string, which removes the log-injection surface entirely.
+        # Log only the row id, no user-provided values in the format string,
+        # so the entry stays one line.
         # Full record (kind, name, url) is already persisted to the
         # external_forwarders row and reachable via the repo.
         logger.info("external_forwarders: created id=%d", int(row_id))

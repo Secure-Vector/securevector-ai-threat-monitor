@@ -5,7 +5,7 @@ These are lighter weight benchmarks suitable for CI environments
 
 import statistics
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -188,14 +188,10 @@ class TestPerformanceBenchmarks:
 
         with patch.object(client, "analyze", side_effect=mock_analyze_with_cache):
             # First call (cache miss)
-            start_time = time.time()
             result1 = client.analyze(test_prompt)
-            miss_time = (time.time() - start_time) * 1000
 
             # Second call (cache hit)
-            start_time = time.time()
             result2 = client.analyze(test_prompt)
-            hit_time = (time.time() - start_time) * 1000
 
             assert result1 is not None
             assert result2 is not None

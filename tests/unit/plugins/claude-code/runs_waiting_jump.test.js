@@ -155,7 +155,7 @@ test('waitingFirst keeps a waiting session on page 1 however many newer sessions
 test('wiring: the grouped list orders waiting first; the session header stays on one line', () => {
   const ar = read('js/pages/agent-runs.js');
   assert.equal((ar.match(/const ordered = flat \? sorted : byHarness \? RL\.harnessOrder\(RL\.waitingFirst\(sorted\)\) : RL\.waitingFirst\(sorted\);/g) || []).length, 2, 'list and jump agree');
-  assert.match(ar, /\.rl-sh\.rl-sh-wait \{ flex-wrap:nowrap; \}/);
+  assert.match(ar, /\.rl-sh\.rl-sh-wait \{ flex-wrap:wrap; \}/);
   assert.ok(ar.indexOf("head.classList.add('rl-sh-wait')") < ar.indexOf("badge.className = 'rl-cov'"), 'badge before coverage chip');
 });
 

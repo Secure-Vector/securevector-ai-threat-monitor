@@ -13,6 +13,7 @@ from typing import Optional
 
 from securevector.app.utils.trace_text import sanitize_trace_text
 from securevector.app.database.connection import DatabaseConnection
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,7 @@ class CustomToolsRepository:
             "UPDATE custom_tools SET default_permission = ? WHERE tool_id = ?",
             (default_permission, tool_id),
         )
-        logger.info(f"Updated custom tool permission: {tool_id} -> {default_permission}")
+        logger.info(f"Updated custom tool permission: {log_safe(tool_id)} -> {log_safe(default_permission)}")
         return await self.get_custom_tool(tool_id)
 
     async def update_custom_tool_metadata(
@@ -345,7 +346,7 @@ class CustomToolsRepository:
             f"UPDATE custom_tools SET {', '.join(sets)} WHERE tool_id = ?",  # noqa: S608 — columns are literals above
             tuple(params),
         )
-        logger.info(f"Updated custom tool metadata: {tool_id} ({', '.join(s.split(' =')[0] for s in sets)})")
+        logger.info(f"Updated custom tool metadata: {log_safe(tool_id)} ({', '.join(s.split(' =')[0] for s in sets)})")
         return await self.get_custom_tool(tool_id)
 
     async def update_custom_tool_rate_limit(
@@ -387,7 +388,7 @@ class CustomToolsRepository:
             "DELETE FROM custom_tools WHERE tool_id = ?",
             (tool_id,),
         )
-        logger.info(f"Deleted custom tool: {tool_id}")
+        logger.info(f"Deleted custom tool: {log_safe(tool_id)}")
         return True
 
     # ==================== Call Log ====================

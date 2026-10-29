@@ -18,9 +18,8 @@
         PHASE1_NOTE: 'Launching, linking and typing into sessions work only on this machine (localhost) in this release.',
         DEVICE_ONLY_NOTE: 'Approve this on the machine itself.',
         REAUTH_DETAIL: 'Enter the access token again to continue',
-        USE_WHEN: 'Use it when the app runs on a server or another machine and you need to approve or stop agent sessions from your browser.',
-        LEAVE_OFF_WHEN: 'Leave it off when you use the app on this computer. You already have full control.',
-        NOT_NEEDED: 'Not needed: you are on this machine.',
+        TURN_ON_HERE: 'Turn it on here, then sign in from the other machine.',
+        NOT_NEEDED: 'Not needed here: you are on this machine.',
         CHANGE_ON_MACHINE: 'Change this on the machine itself.',
         TOKEN_ONCE: 'This token is shown once. Store it in your password manager.',
         OFF_SIGNS_OUT: 'This signs out every remote browser.',
@@ -29,9 +28,9 @@
         proxySameMachine(port) {
             const loc = root.location || {};
             const p = Number(port) || Number(loc.port) || 8741;
-            return `Not 127.0.0.1: if the proxy runs on this machine, point it at this machine's private IP (nginx: proxy_pass http://<private-ip>:${p}; Caddy: reverse_proxy <private-ip>:${p}) and list that IP here.`;
+            return `Same machine, not 127.0.0.1: proxy_pass http://<private-ip>:${p}; or reverse_proxy <private-ip>:${p}`;
         },
-        PROXY_HOST: 'Your proxy must pass the original Host header (nginx: proxy_set_header Host $host).',
+        PROXY_HOST: 'Pass the original Host (nginx: proxy_set_header Host $host).',
 
         state: { enabled: false, signedIn: false, local: true, allowance: ['once'], deviceOnlyRules: ['cred_then_net', 'outside_then_reach'], reauthAt: 0 },
 
@@ -218,18 +217,19 @@
             const v = view || {};
             const c = ctx || {};
             const on = !!v.enabled;
-            const guide = `<p class="remote-guide">${e(this.USE_WHEN)}</p><p class="remote-guide">${e(this.LEAVE_OFF_WHEN)}</p>`;
             const readOnly = !v.local;
             const notNeeded = !readOnly && !!v.bound_loopback_only && !on;
+            // One context line: by a network address, on a localhost-only
+            // bind, or the normal case on this machine.
+            const guide = readOnly || notNeeded ? '' : `<p class="remote-guide">${e(this.TURN_ON_HERE)}</p>`;
             const disabled = readOnly || notNeeded ? ' disabled' : '';
             // A signed-in remote browser may turn the mode off (only off).
             const remoteOff = readOnly && on && this.signedIn();
             const offDisabled = remoteOff ? '' : disabled;
             let html = `<div class="remote-control" role="group" aria-label="Remote access">` +
-                `<span class="remote-control-label">Remote access</span>` +
                 `<button type="button" class="remote-seg${on ? '' : ' is-active'}" data-act="remote-off" aria-pressed="${on ? 'false' : 'true'}"${offDisabled}>Off</button>` +
                 `<button type="button" class="remote-seg${on ? ' is-active' : ''}" data-act="remote-on" aria-pressed="${on ? 'true' : 'false'}"${disabled}>On</button>` +
-                `<span class="remote-state">${on ? 'On' : 'Off'}</span></div>` + guide;
+                `</div>` + guide;
             if (readOnly) {
                 return html + `<p class="remote-note">${e(this.CHANGE_ON_MACHINE)}</p>` +
                     (remoteOff ? `<p class="remote-note">Turning it off from here: ${e(this.OFF_SIGNS_OUT)}</p>` : '');

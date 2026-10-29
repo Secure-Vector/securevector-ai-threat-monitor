@@ -29,6 +29,8 @@
         DURATIONS: [['once', 'Allow once'], ['15m', '15 min'], ['1h', '1 h'], ['session', 'This session']],
         SEGMENTS: [['all', 'All'], ['tools', 'Tool calls'], ['held', 'Waiting or blocked']],
         LOCKED_NOTE: 'Approvals and session controls work only when the app is opened on this machine (localhost).',
+        // Appended to the locked note so a person on another machine can read how to turn remote access on.
+        LOCKED_GUIDE: ' <a class="rt-guide-link" href="https://docs.securevector.io/remote-access" target="_blank" rel="noopener noreferrer">Remote access guide</a>',
 
         _state: {},
         _details: {},   // trace id -> the open span details row element (kept across refresh)
@@ -1000,7 +1002,7 @@
             if (waiting && this.controlsLocked()) {
                 // Waiting and its expiry still show (badge above); the
                 // decision is made on the machine running the app.
-                html += `<p class="rt-scope rt-locked">${e(this.LOCKED_NOTE)}</p>`;
+                html += `<p class="rt-scope rt-locked">${e(this.LOCKED_NOTE)}${this.LOCKED_GUIDE}</p>`;
             } else if (waiting && this.remoteDeviceOnly(req)) {
                 // Deny always works from another machine; approving a
                 // device-only hold does not.
@@ -1182,7 +1184,7 @@
                         (g.state === 'active' && !this.controlsLocked() ? `<button type="button" class="rt-btn sm" data-act="revoke" data-grant="${e(g.id)}">Revoke</button>` : '') + '</li>';
                 }).join('') + '</ul>';
                 apBody += '<p class="rt-scope">Every approval here applies only to this session.</p>';
-                if (grants.some(g => g.state === 'active') && this.controlsLocked()) apBody += `<p class="rt-scope rt-locked">${e(this.LOCKED_NOTE)}</p>`;
+                if (grants.some(g => g.state === 'active') && this.controlsLocked()) apBody += `<p class="rt-scope rt-locked">${e(this.LOCKED_NOTE)}${this.LOCKED_GUIDE}</p>`;
             }
 
             return [

@@ -218,7 +218,7 @@ test('terminals approval list routes delegate requests to the delegation card', 
 test('policy card: cross-harness is off by default and the sentence is shown', () => {
   const ui = loadUi();
   const html = ui.cardHtml({});
-  assert.match(html, /Off by default\. Every cross-harness delegation needs your approval\./);
+  assert.match(html, /Each one needs your approval\./);
   const cross = /<input type="checkbox" data-deleg-cross[^>]*>/.exec(html)[0];
   assert.ok(!/checked/.test(cross), cross);
   const on = ui.cardHtml({ enabled: true, cross_harness: true, folder_allowlist: ['/a<b'] });
@@ -558,10 +558,9 @@ test('the Settings button opens the panel with both cards rendered inside it', (
   assert.ok(Page);
 });
 
-test('the global Settings page shows only a pointer to Agent Sessions settings', () => {
+test('the global Settings page has no Agent Sessions card; the page keeps its own Settings', () => {
   const src = read('js/pages/settings.js');
-  assert.match(src, /Agent Sessions settings live in Agent Sessions, Settings\./);
-  assert.match(src, /href = '#terminals\?settings=1'/);
+  assert.doesNotMatch(src, /data-sessions-pointer|data-open-sessions-settings/);
   assert.ok(!/DelegationUI\.renderCard|ResponseRungs\.renderCard/.test(src));
 });
 
@@ -589,13 +588,13 @@ test('the deep link and the hand-off flag both open the panel', () => {
 test('settings copy: owner text, empty allowlist line, no em dashes or banned words', () => {
   const ui = loadUi();
   const c = ui.COPY;
-  assert.match(c.intro, /^Delegation lets one agent session start a second session/);
-  assert.strictEqual(c.when.length, 4);
-  assert.strictEqual(c.empty, "No extra folders. A child runs in its parent's folder or a subfolder.");
-  assert.ok(ui.cardHtml({}).includes('No extra folders. A child runs in its parent&#39;s folder or a subfolder.'));
-  assert.ok(ui.introHtml().includes('When to use it'));
+  assert.strictEqual(c.intro, 'Let a session start a second governed session.');
+  assert.strictEqual(c.when.length, 3);
+  assert.strictEqual(c.empty, 'No extra folders yet.');
+  assert.ok(ui.cardHtml({}).includes('No extra folders yet.'));
+  assert.match(ui.introHtml(), /<details class="deleg-examples"><summary[^>]*>Examples<\/summary>/);
   const rung = read('js/components/response-rungs.js');
-  assert.match(rung, /Automatic actions watch each session's behaviour and react in steps: 1 observe, 2 flag, 3 ask you before risky calls\. Each agent starts in test mode, where actions are logged only\./);
+  assert.match(rung, /Watch each session and act in steps: observe, flag, ask you\./);
   assert.ok(!JSON.stringify(c).includes('\u2014'));
   assert.ok(!/INTRO: [^\n]*\u2014/.test(rung));
   assert.ok(!/Agent Sessions settings live[^\n]*\u2014/.test(read('js/pages/settings.js')));
@@ -641,11 +640,10 @@ test('setup chips are links to the Connect Agents page, only when a decision is 
 
 // ---- ask examples, copy, and accessible names ----
 
-test('how to ask your agent: two examples, the second marked, each with Copy', async () => {
+test('examples: two asks inside the collapsed Examples, the second marked, each with Copy', async () => {
   const ui = loadUi();
   const html = ui.introHtml();
-  assert.match(html, /How to ask your agent/);
-  assert.match(html, /Your agent delegates through the SecureVector delegate tool\. Ask it in plain words, for example:/);
+  assert.match(html, /<details class="deleg-examples">[^]*data-deleg-copy="1"[^]*<\/details>$/);
   assert.strictEqual((html.match(/data-deleg-copy="/g) || []).length, 2);
   assert.match(html, /Use SecureVector delegate to have Codex build page1\.html, wait for the result, then merge it into index\.html\./);
   assert.strictEqual((html.match(/needs cross-harness delegation on/g) || []).length, 1);

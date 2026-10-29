@@ -104,6 +104,28 @@ const Header = {
         const connectBtn = this.createConnectAgentsButton();
         right.appendChild(connectBtn);
 
+        // Phone widths: the right-side controls used to squeeze the page
+        // title to zero width. Keep the title; drop only the subtitle and the
+        // Connect Agents text (the plug icon and its tooltip stay).
+        if (this._narrowMq && this._narrowFn) {
+            try { this._narrowMq.removeEventListener('change', this._narrowFn); } catch (_) { /* old engine */ }
+        }
+        this._narrowMq = window.matchMedia ? window.matchMedia('(max-width: 600px)') : null;
+        this._narrowFn = () => {
+            const narrow = !!(this._narrowMq && this._narrowMq.matches);
+            headerSubtitleEl.style.display = narrow ? 'none' : '';
+            left.style.minWidth = narrow ? '72px' : '';
+            const connectLabel = connectBtn.querySelector('span');
+            if (connectLabel) connectLabel.style.display = narrow ? 'none' : '';
+            connectBtn.style.padding = narrow ? '0 7px' : '0 15px';
+            connectBtn.style.marginRight = narrow ? '4px' : '10px';
+            connectBtn.setAttribute('aria-label', 'Connect Agents');
+        };
+        this._narrowFn();
+        if (this._narrowMq) {
+            try { this._narrowMq.addEventListener('change', this._narrowFn); } catch (_) { /* old engine */ }
+        }
+
         // NOTE: the "AI Analysis" toggle was removed from the header — it is an
         // OPTIONAL, configure-once setting (reduce false positives via an LLM)
         // that fully duplicates Settings → "AI Analysis — Optional". The header
@@ -2029,7 +2051,7 @@ graph.add_edge("output_security", END)`,
         'tool-activity':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called: two tabs, one dataset' },
         'bill-of-tools':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called: two tabs, one dataset' },
         'redactions':      { title: 'Secret Detections',   subtitle: 'Redactions audit log: credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.' },
-        governance:        { title: 'Agent Governance',          subtitle: 'This device’s local protection posture: operational, not a legal/compliance assessment' },
+        governance:        { title: 'Agent Governance',          subtitle: 'What is enforced on this device, and what to fix next' },
         'detection-response': { title: 'Agent Detection & Response', subtitle: 'Watches each agent session for behaviour unlike its earlier sessions and shows you which ones to look at.' },
         'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         'guardian-ml':     { title: 'Guardian ML',         subtitle: 'Local ML threat detection: runs offline alongside the regex rules' },

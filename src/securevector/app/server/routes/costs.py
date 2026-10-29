@@ -546,6 +546,7 @@ async def update_model_pricing(
             # The proxy's CostRecorder will auto-refresh on next pricing miss
             pass
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
 
         return ModelPricingResponse(

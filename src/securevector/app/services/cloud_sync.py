@@ -162,6 +162,7 @@ def get_health_snapshot(last_applied_at: Optional[str] = None) -> dict:
             if quiet > timedelta(hours=DEGRADED_QUIET_HOURS):
                 status = "degraded"
         except (ValueError, TypeError):
+            # malformed value; keep the default
             pass
 
     snap["verification_status"] = status

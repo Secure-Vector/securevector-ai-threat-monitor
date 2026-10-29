@@ -7,7 +7,7 @@ Licensed under the Apache License, Version 2.0
 
 import time
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from securevector.models.analysis_result import AnalysisResult
 from securevector.models.config_models import HybridModeConfig
