@@ -302,9 +302,14 @@ async def test_exit_with_slow_metadata_is_queued_before_a_following_archive(tmp_
         m.host.exit(tid, 0)
         await _until_done(m.store, tid)
         assert await m.archive_task(tid) is True
-        await _drain()
-        await asyncio.sleep(0.1)
-        await _drain()
+        # The exit row lands after the slow metadata read; wait for both
+        # events instead of a fixed sleep, which is too short on a busy runner.
+        for _ in range(200):
+            await _drain()
+            events = [p["event"] for p in sent]
+            if "exit" in events and "archived" in events:
+                break
+            await asyncio.sleep(0.02)
         events = [p["event"] for p in sent]
         assert events.index("exit") < events.index("archived")
         exit_event = sent[events.index("exit")]
