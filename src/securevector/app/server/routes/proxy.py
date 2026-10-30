@@ -36,7 +36,7 @@ PROVIDERS = ["openai", "anthropic", "groq", "deepseek", "mistral", "xai", "gemin
 # carries values taken from these tables, never the request text itself.
 _PROVIDER_ARGS = {name: name for name in PROVIDERS}
 _KNOWN_INTEGRATIONS = (
-    "antigravity", "claude-code", "codex", "copilot-cli", "crewai", "cursor",
+    "antigravity", "claude", "claude-code", "codex", "copilot", "copilot-cli", "crewai", "cursor",
     "hermes", "langchain", "langgraph", "n8n", "node", "ollama", "openclaw",
     "opencode", "python",
 )
