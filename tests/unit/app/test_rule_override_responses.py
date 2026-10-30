@@ -94,6 +94,7 @@ def test_reset_without_an_override_is_404(tmp_path, monkeypatch):
 def test_override_without_the_ui_token_is_refused(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:
         client.headers.pop("X-SV-UI-Token")
-        assert client.put(f"/api/v1/rules/{RULE_ID}/override", json={"severity": "low"}).status_code == 403
-        assert client.delete(f"/api/v1/rules/{RULE_ID}/override").status_code == 403
-        assert client.post(f"/api/v1/rules/{RULE_ID}/toggle", json={"enabled": False}).status_code == 403
+        put_status = client.put(f"/api/v1/rules/{RULE_ID}/override", json={"severity": "low"}).status_code
+        delete_status = client.delete(f"/api/v1/rules/{RULE_ID}/override").status_code
+        toggle_status = client.post(f"/api/v1/rules/{RULE_ID}/toggle", json={"enabled": False}).status_code
+        assert (put_status, delete_status, toggle_status) == (403, 403, 403)

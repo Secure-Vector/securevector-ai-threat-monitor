@@ -212,11 +212,11 @@ async def _mint_key_fallback(client: "httpx.AsyncClient", auth_url: str, access_
             key = body.get("api_key")
             if _personal_key(key):
                 return key
-            # Field names and the key's prefix only; the value itself is never logged.
+            # Field names, type and length only; no part of the key is logged.
             logger.warning(
-                "Fallback API-key mint returned no usable key: fields=%s api_key_type=%s prefix=%s",
+                "Fallback API-key mint returned no usable key: fields=%s api_key_type=%s length=%s",
                 sorted(body.keys()) if isinstance(body, dict) else type(body).__name__,
-                type(key).__name__, (key[:5] if isinstance(key, str) else None),
+                type(key).__name__, (len(key) if isinstance(key, str) else 0),
             )
             return None
         logger.warning("Fallback API-key mint failed: HTTP %s", response.status_code)

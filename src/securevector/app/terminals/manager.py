@@ -1379,7 +1379,7 @@ class TerminalManager:
         try:
             children = await self.store.children_of(parent_task_id)
         except Exception:
-            logger.debug("child lookup failed for %s", parent_task_id, exc_info=True)
+            logger.debug("child lookup failed for %s", log_safe(parent_task_id), exc_info=True)
             return
         for child in children:
             child_id = child.get("id")
@@ -1392,7 +1392,7 @@ class TerminalManager:
             except (KeyError, NotLinkable):
                 continue
             except Exception:
-                logger.warning("stopping delegated task %s failed for %s", child_id, parent_task_id,
+                logger.warning("stopping delegated task %s failed for %s", log_safe(child_id), log_safe(parent_task_id),
                                exc_info=True)
 
     # -- delegation -----------------------------------------------------------
@@ -1523,7 +1523,7 @@ class TerminalManager:
         try:
             await self.store.update_status(task_id, "blocked", activity=warning)
         except Exception:
-            logger.debug("guard warning status failed for %s", task_id, exc_info=True)
+            logger.debug("guard warning status failed for %s", log_safe(task_id), exc_info=True)
         if delegated:
             await delegation.on_guard_silent(self, task_id, warning)
             try:
@@ -1583,7 +1583,7 @@ class TerminalManager:
                 await asyncio.sleep(0.05)
                 self.host.write(task_id, b"\r")
         except Exception:
-            logger.debug("prompt resubmit failed for %s", task_id, exc_info=True)
+            logger.debug("prompt resubmit failed for %s", log_safe(task_id), exc_info=True)
             return
         await self.store.add_event(
             task_id, kind="delegate_prompt", origin="delegate",
@@ -1632,7 +1632,7 @@ class TerminalManager:
 
             await delegation.on_prompt_delivered(self, task_id)
         except Exception:
-            logger.warning("delegation delivery note failed for %s", task_id)
+            logger.warning("delegation delivery note failed for %s", log_safe(task_id))
         return True
 
     def _notify_delegation(self, task_id: str) -> None:
@@ -1646,7 +1646,7 @@ class TerminalManager:
             fut = asyncio.ensure_future(delegation.on_child_event(self, task_id))
             fut.add_done_callback(lambda f: f.cancelled() or f.exception())
         except Exception:
-            logger.debug("delegation notify failed for %s", task_id, exc_info=True)
+            logger.debug("delegation notify failed for %s", log_safe(task_id), exc_info=True)
 
     async def stop_all(self, *, origin: str) -> None:
         for task_id in list(self._running):
@@ -1728,7 +1728,7 @@ class TerminalManager:
                 else:
                     await self._deliver_now(task_id, str(event.get("hook_event_name")))
             except Exception:
-                logger.warning("delegated prompt delivery failed for %s", task_id)
+                logger.warning("delegated prompt delivery failed for %s", log_safe(task_id))
             # Delivery is the event that ends startup, not the end of a turn.
             if event.get("hook_event_name") == "Stop":
                 return True

@@ -477,7 +477,6 @@ def test_a_session_keeps_the_mode_it_started_under(world):
 def test_audit_chain_verifies_after_rung_writes(tmp_path):
     w = World(tmp_path)
     try:
-        res = drift.DriftResult(80, "high", drift.STATUS_SCORED, [], True, "c1")
         task = {"id": "t1", "executor_id": HARNESS}
         for n in (1, 2):
             res = drift.DriftResult(80, "high", drift.STATUS_SCORED, [], True, f"c{n}")

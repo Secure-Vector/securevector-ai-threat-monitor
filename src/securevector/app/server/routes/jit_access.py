@@ -66,6 +66,8 @@ _UI_PAGE_SECRET = secrets.token_hex(24)
 
 def set_ui_page_cookie(response):
     """Attach the page cookie to a response that serves the web UI page."""
+    # The value is a random per-process nonce, regenerated on every start and
+    # held only in memory and in this HttpOnly, path-scoped cookie.
     response.set_cookie(UI_PAGE_COOKIE, _UI_PAGE_SECRET, httponly=True, samesite="strict",
                         path=UI_PAGE_COOKIE_PATH)
     return response

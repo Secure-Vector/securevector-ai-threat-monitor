@@ -32,6 +32,16 @@ _started_with_openclaw: bool = False  # Set when proxy is started with --opencla
 # Supported providers
 PROVIDERS = ["openai", "anthropic", "groq", "deepseek", "mistral", "xai", "gemini", "together", "cohere", "cerebras", "moonshot", "minimax"]
 
+# Fixed tables for proxy subprocess arguments. The command line only ever
+# carries values taken from these tables, never the request text itself.
+_PROVIDER_ARGS = {name: name for name in PROVIDERS}
+_KNOWN_INTEGRATIONS = (
+    "antigravity", "claude-code", "codex", "copilot-cli", "crewai", "cursor",
+    "hermes", "langchain", "langgraph", "n8n", "node", "ollama", "openclaw",
+    "opencode", "python",
+)
+_INTEGRATION_ARGS = {name: name for name in _KNOWN_INTEGRATIONS}
+
 
 def _get_proxy_port() -> int:
     """Return the proxy port — set by main.py via SV_PROXY_PORT, defaults to 8742."""
@@ -195,13 +205,14 @@ async def start_proxy(request: StartProxyRequest = None):
     """Start the LLM proxy that captures ALL LLM traffic."""
     global _llm_proxy_process, _current_provider, _current_integration, _multi_mode, _started_with_openclaw
 
-    provider = request.provider if request else "openai"
+    provider = _PROVIDER_ARGS.get(request.provider if request else "openai", "openai")
     multi = request.multi if request else False
     integration = request.integration if request else None
-    if provider not in PROVIDERS:
-        provider = "openai"
     if integration is not None and not _INTEGRATION_NAME_RE.fullmatch(str(integration)):
         return {"status": "error", "message": "Invalid integration name"}
+    # Value passed to the subprocess: a known name from the fixed table, or
+    # None for names outside it (the proxy then runs unattributed).
+    integration_arg = _INTEGRATION_ARGS.get(integration) if integration else None
 
     # Check if already running
     if _llm_proxy_process is not None and _llm_proxy_process.poll() is None:
@@ -249,8 +260,8 @@ async def start_proxy(request: StartProxyRequest = None):
                 cmd.extend(["--provider", provider])
             # Stamp runtime_kind so Tool Inventory rows are attributable
             # to the right harness (langchain / langgraph / n8n / etc.).
-            if integration:
-                cmd.extend(["--integration", integration])
+            if integration_arg:
+                cmd.extend(["--integration", integration_arg])
 
         # Start LLM proxy
         _llm_proxy_process = subprocess.Popen(cmd)

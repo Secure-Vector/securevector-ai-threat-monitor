@@ -539,15 +539,8 @@ async def update_model_pricing(
         if updated is None:
             raise HTTPException(status_code=500, detail=f"Failed to upsert pricing for {provider}/{model_id}")
 
-        # Refresh CostRecorder cache if available
-        try:
-            from securevector.app.services.cost_recorder import CostRecorder
-            # CostRecorder instances are per-proxy; signal cache invalidation via a marker
-            # The proxy's CostRecorder will auto-refresh on next pricing miss
-            pass
-        except Exception:
-            # best effort: a failure here must not interrupt the caller
-            pass
+        # CostRecorder instances are per-proxy; the proxy's CostRecorder
+        # refreshes its pricing cache on the next pricing miss.
 
         return ModelPricingResponse(
             id=updated.id,

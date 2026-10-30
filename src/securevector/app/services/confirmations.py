@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import functools
 import hashlib
 import hmac
 import json
@@ -395,7 +396,7 @@ def _locked(now: Optional[float] = None):
             yield
     finally:
         for conf in expired:
-            _write_soon(conf, lambda c=conf: _audit(c, "confirmation_expired"))
+            _write_soon(conf, functools.partial(_audit, conf, "confirmation_expired"))
 
 
 def get(conf_id: str) -> Optional[Confirmation]:
