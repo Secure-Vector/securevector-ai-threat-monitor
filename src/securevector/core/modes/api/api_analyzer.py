@@ -8,8 +8,7 @@ Licensed under the Apache License, Version 2.0
 import json
 import logging
 import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import requests
 
@@ -453,12 +452,14 @@ class APIAnalyzer:
                 if remaining_requests == 0:
                     self._request_count = self.config.rate_limit_requests
             except ValueError:
+                # malformed value; keep the default
                 pass
 
         if reset_time is not None:
             try:
                 self._rate_limit_reset_time = float(reset_time)
             except ValueError:
+                # malformed value; keep the default
                 pass
 
     def test_connection(self) -> Dict[str, Any]:

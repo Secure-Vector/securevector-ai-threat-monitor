@@ -22,10 +22,29 @@ openclaw gateway
 | Guard | Hook | Description |
 |-------|------|-------------|
 | Input Guard | `message_received` | Scans user messages for prompt injection, jailbreaks, social engineering |
-| Tool Audit | `agent_end` | Records every tool call with arguments, checks against permission rules |
-| Output Guard | `tool_result_persist` | Inspects tool results for credential leaks and PII |
+| Tool Audit | `after_tool_call` | Records every tool call with arguments, checks against permission rules (`agent_end` as a fallback on older OpenClaw) |
+| Output Guard | `after_tool_call` | Inspects tool results for credential leaks and PII (`tool_result_persist` as a fallback on older OpenClaw) |
 | Context Guard | `before_agent_start` | Injects security directives into the agent system prompt |
 | Cost Tracker | `llm_output` | Records LLM token usage for cost tracking |
+
+### OpenClaw 2026.10
+
+OpenClaw 2026.10 delivers some plugin hooks, including `llm_output` and `agent_end`, only to plugins the profile allows to read the conversation. The Guard needs this for cost tracking. `securevector-app --install-plugin openclaw` (and Install in the app) sets it for the Guard's entry only, and uninstall removes it with the entry. To set it by hand, add this to `~/.openclaw/openclaw.json` and restart the gateway:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "securevector-guard": {
+        "enabled": true,
+        "hooks": { "allowConversationAccess": true }
+      }
+    }
+  }
+}
+```
+
+The tool audit and output scan run on `after_tool_call`, which needs no setting.
 
 ## Block Mode (optional)
 

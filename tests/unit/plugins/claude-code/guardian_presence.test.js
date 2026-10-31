@@ -143,14 +143,15 @@ test('a blocked tool call does not get a friendly greeting', () => {
   assert.match(a, /this\._react\(mood, page\);/);
   // wave survives only as a greeting, on open
   assert.match(a, /this\._bot3d\.wave\(\); \/\/ greets while the panel opens/);
-  // the security events carry the alert register, the cost ones concern
-  // anchor on the _speak call sites (a page id alone also appears in panel rows)
+  // findings (threats, secrets, blocks) never speak in a bubble: they are a
+  // badge count plus one brief toast with a review action
   for (const cta of ["See it', page: 'threats'", "See what', page: 'redactions'",
                      "See them', page: 'blocked-ledger'"]) {
-    const i = a.indexOf(cta);
-    assert.ok(i > 0, `no _speak call for ${cta}`);
-    assert.match(a.slice(i, i + 90), /mood: 'alert'/, `${cta} should react in the alert register`);
+    assert.ok(a.indexOf(cta) < 0, `findings must not open a bubble: ${cta}`);
   }
+  assert.match(a, /page: 'threats', cta: 'Review threats'/);
+  assert.match(a, /page: 'redactions', cta: 'Review secrets'/);
+  assert.match(a, /page: 'blocked-ledger', cta: 'Review blocks'/);
   assert.match(a, /tab: 'optimizer', mood: 'concerned'/);
   assert.match(a, /tab: 'overview', mood: 'concerned'/);
 });
@@ -163,15 +164,15 @@ test('the reaction rides the existing per-category cooldown, not a new timer', (
   const calls = [...a.matchAll(/this\._react\(/g)];
   assert.equal(calls.length, 1, 'the Guardian must react from exactly one call site');
   assert.match(a, /BUBBLE_COOLDOWN_MS/);
-  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood, act, openTask })'));
-  assert.match(speak.slice(0, 400), /if \(this\._bubbleEl && this\._bubbleEl\.isConnected\) return false;/);
+  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood, act, openTask, security, openSession, asked, urgent })'));
+  assert.match(speak.slice(0, 1000), /if \(this\._bubbleEl && this\._bubbleEl\.isConnected\) return false;/);
 });
 
 test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
   assert.match(html, /guardian-bot\.js\?v=14/);
   assert.match(html, /guardian-3d\.js\?v=18/);
-  assert.match(html, /guardian-assistant\.js\?v=49/);
+  assert.match(html, /guardian-assistant\.js\?v=54/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {
@@ -457,7 +458,7 @@ test('the thought cloud is honest: dots mean real work, thoughts mean idle', () 
   assert.match(a, /this\._think\(true\);/);
   assert.match(a, /\.finally\(\(\) => this\._think\(false\)\)/);
   // and the cloud yields to anything that needs attention
-  assert.match(a, /if \(this\._quiet\(\) \|\| this\._open \|\| this\._bubbleEl \|\| !this\._fab\) return;/);
+  assert.match(a, /if \(this\._quiet\(\) \|\| this\._open \|\| this\._bubbleEl \|\| !this\._fab \|\| this\._noBubblePage\(\)\) return;/);
   // every colour is a theme token, so the cloud follows light / black /
   // azure / ember / slate without a single per-theme rule, and the only
   // accent it can reach for is the product's one teal
@@ -596,7 +597,7 @@ test('the page-aware offer is an offer, not an interception', () => {
   assert.match(a, /await this\._fill\(\);[\s\S]{0,400}if \(this\._open && !this\._panelRestore\(\)\) this\._placeNear\(this\._panel\);/);
   // the briefs explain the product, never the user's data: a claim about what
   // is on screen could be wrong, an explanation of the view cannot be
-  const briefs = a.slice(a.indexOf('PAGE_BRIEFS: {'), a.indexOf('_currentPage()'));
+  const briefs = a.slice(a.indexOf('PAGE_BRIEFS: {'), a.indexOf('_currentPage() {'));
   assert.ok(!/\$\{/.test(briefs), 'briefs must be static copy, not interpolated data');
 });
 
@@ -637,7 +638,7 @@ test('a compact win says "after your compact" only when the compact was measured
 
 test('dashboard and agent map get briefs, and arriving on a page can trigger one', () => {
   const a = read('js/components/guardian-assistant.js');
-  const briefs = a.slice(a.indexOf('PAGE_BRIEFS: {'), a.indexOf('_currentPage()'));
+  const briefs = a.slice(a.indexOf('PAGE_BRIEFS: {'), a.indexOf('_currentPage() {'));
   assert.match(briefs, /dashboard: \{/);
   assert.match(briefs, /'agent-map': \{/);
   assert.match(a, /ORIENT_ARRIVE_MS/);

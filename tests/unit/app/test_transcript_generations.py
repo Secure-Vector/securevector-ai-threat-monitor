@@ -9,7 +9,6 @@ secret redaction + 200-char cap on previews, and cost application.
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 

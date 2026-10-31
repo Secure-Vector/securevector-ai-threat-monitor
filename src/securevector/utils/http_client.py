@@ -8,18 +8,16 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import asyncio
 import json
 import logging
 import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 from urllib.parse import urlparse
 
 from .exceptions import APIError, AuthenticationError, ErrorCode, RateLimitError
-from .retry import RetryConfig, with_async_retry, with_retry
 from .telemetry import debug_log, record_metric
 
 
@@ -272,6 +270,7 @@ class HTTPConnectionPool:
                 error_detail = response.json().get("error", error_msg)
                 error_msg = error_detail
             except (ValueError, KeyError, AttributeError):
+                # malformed value; keep the default
                 pass
 
             raise APIError(error_msg, error_code=ErrorCode.API_REQUEST_FAILED)
@@ -307,6 +306,7 @@ class HTTPConnectionPool:
                 error_detail = error_data.get("error", error_msg)
                 error_msg = error_detail
             except (ValueError, KeyError, AttributeError):
+                # malformed value; keep the default
                 pass
 
             raise APIError(error_msg, error_code=ErrorCode.API_REQUEST_FAILED)
@@ -339,6 +339,7 @@ class HTTPConnectionPool:
             elif isinstance(exc, requests.exceptions.HTTPError):
                 return APIError(f"HTTP error: {str(exc)}", error_code=ErrorCode.API_REQUEST_FAILED)
         except ImportError:
+            # optional dependency is not installed; keep the fallback
             pass
 
         # Handle aiohttp exceptions
@@ -360,6 +361,7 @@ class HTTPConnectionPool:
                     f"Client error: {str(exc)}", error_code=ErrorCode.API_REQUEST_FAILED
                 )
         except ImportError:
+            # optional dependency is not installed; keep the fallback
             pass
 
         # Handle SSL errors

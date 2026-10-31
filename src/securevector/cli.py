@@ -7,17 +7,14 @@ Licensed under the Apache License, Version 2.0
 
 import argparse
 import json
-import os
 from securevector import __version__
 import sys
-from typing import Any, Dict, Optional
 
-from .utils.exceptions import APIError, ConfigurationError, SecurityException
+from .utils.exceptions import SecurityException
 from .utils.logger import get_security_logger
 
 from .client import SecureVectorClient
 from .models.config_models import OperationMode, SDKConfig
-from .models.policy_models import SecurityPolicy
 
 
 class CLIHandler:

@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from securevector.app.database.connection import DatabaseConnection
@@ -16,16 +16,51 @@ RUNNING = ("starting", "working", "blocked", "idle")
 # Lifecycle sentinels the Guard plugins emit around a harness session. They
 # are not tool calls; the linked-task liveness rules read them as boundaries
 # and the Tool calls list hides them.
-SESSION_BOUNDARY = ("__session_start__", "__session_end__")
+# Lifecycle markers, never calls. `__turn_end__` marks the end of one turn
+# (a harness Stop hook); only `__session_end__` ends a session.
+SESSION_BOUNDARY = ("__session_start__", "__session_end__", "__turn_end__")
+# A tool call's PostToolUse row can land a moment after the harness's
+# session-end row. Only a row later than this past the end reopens a session.
+REOPEN_GRACE_S = 5.0
 
-# The four harnesses whose Guard plugins report a runtime_kind that maps
-# one to one onto an Agent Tasks executor id. Anything else the audit trail
-# carries (an SDK, the proxy) has no terminal to link.
+
+def _marker_ts(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    s = str(value).strip()
+    try:
+        dt = datetime.fromisoformat(s[:-1] + "+00:00" if s.endswith("Z") else s)
+    except ValueError:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+
+def ended_by_marker(last_end: Any, last_activity: Any, last_start: Any = None,
+                    grace_s: float = REOPEN_GRACE_S) -> bool:
+    """One rule for the board and the Live grid: a session with a
+    `__session_end__` row has ended, unless a `__session_start__` came after
+    it (a resumed session) or real activity came more than `grace_s` after
+    it. Turn markers are never activity."""
+    end = _marker_ts(last_end)
+    if end is None:
+        return False
+    start = _marker_ts(last_start)
+    if start is not None and start > end:
+        return False
+    act = _marker_ts(last_activity)
+    return not (act is not None and act > end + timedelta(seconds=grace_s))
+
+# The harnesses whose Guard reports a runtime_kind that maps one to one onto
+# an Agent Tasks executor id. Anything else the audit trail carries (an SDK,
+# the proxy) has no terminal to link.
 RUNTIME_TO_EXECUTOR = {
     "claude-code": "claude-code",
     "codex": "codex",
     "copilot-cli": "copilot-cli",
     "opencode": "opencode",
+    "govrun": "govrun",
+    "hermes": "hermes",
+    "openclaw": "openclaw",
 }
 
 
@@ -149,7 +184,10 @@ def cwd_from_preview(preview: Any) -> Optional[str]:
             candidate = re.split(r"[;\r\n]", rest, 1)[0]
         found = _plausible_cwd(candidate)
         if found is not None:
-            return found
+            # A task running in its own worktree reports the source folder.
+            from securevector.app.terminals.worktree import source_for
+
+            return source_for(found)
         at = text.find("cwd=", at + 4)
     return None
 
@@ -189,8 +227,19 @@ class TerminalStore:
         status: str = "starting",
         session_id: Optional[str] = None,
         activity: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
     ) -> None:
         now = _now()
+        if parent_task_id is not None:
+            # A delegated task names the task that asked for it.
+            await self.db.execute(
+                "INSERT INTO terminal_tasks "
+                "(id, executor_id, workspace, title, status, session_id, pid, activity, origin, created_at, "
+                "parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, executor_id, workspace, title, status, session_id, pid,
+                 activity[:200] if activity else None, origin, now, parent_task_id),
+            )
+            return
         await self.db.execute(
             "INSERT INTO terminal_tasks "
             "(id, executor_id, workspace, title, status, session_id, pid, activity, origin, created_at) "
@@ -208,6 +257,26 @@ class TerminalStore:
                 now,
             ),
         )
+
+    async def parent_for_session(self, session_id: str) -> Optional[str]:
+        """The parent of a delegated task that carried this session, if any."""
+        try:
+            row = await self.db.fetch_one(
+                "SELECT parent_task_id FROM terminal_tasks WHERE session_id = ? AND parent_task_id IS NOT NULL "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (session_id,),
+            )
+        except Exception:  # a database from before the column existed
+            return None
+        return row["parent_task_id"] if row else None
+
+    async def children_of(self, parent_task_id: str) -> list[dict[str, Any]]:
+        """Tasks launched by delegation from this parent, oldest first."""
+        rows = await self.db.fetch_all(
+            "SELECT * FROM terminal_tasks WHERE parent_task_id = ? ORDER BY created_at ASC, rowid ASC",
+            (parent_task_id,),
+        )
+        return [dict(r) for r in rows]
 
     async def task_for_session(self, session_id: str) -> Optional[dict[str, Any]]:
         """The live (non-archived) task already carrying this session id.
@@ -256,8 +325,8 @@ class TerminalStore:
         """Newest audit timestamps per session, one query for the whole board.
 
         Returns `last_any` (newest row of any kind), `last_call` (newest row
-        that is not a lifecycle sentinel) and `last_end` (newest
-        __session_end__). A per-task query would scale with the number of
+        that is not a lifecycle sentinel), `last_end` (newest
+        __session_end__) and `last_start` (newest __session_start__). A per-task query would scale with the number of
         linked tasks on a list that is re-read every few seconds.
         """
         out: dict[str, dict[str, Any]] = {}
@@ -272,7 +341,8 @@ class TerminalStore:
             rows = await self.db.fetch_all(
                 "SELECT session_id, MAX(called_at) AS last_any, "
                 f"MAX(CASE WHEN function_name NOT IN ({boundary}) THEN called_at END) AS last_call, "
-                "MAX(CASE WHEN function_name = '__session_end__' THEN called_at END) AS last_end "
+                "MAX(CASE WHEN function_name = '__session_end__' THEN called_at END) AS last_end, "
+                "MAX(CASE WHEN function_name = '__session_start__' THEN called_at END) AS last_start "
                 f"FROM tool_call_audit WHERE session_id IN ({placeholders}) GROUP BY session_id",
                 (*SESSION_BOUNDARY, *batch),
             )
@@ -281,6 +351,7 @@ class TerminalStore:
                     "last_any": r["last_any"],
                     "last_call": r["last_call"],
                     "last_end": r["last_end"],
+                    "last_start": r["last_start"],
                 }
         return out
 
@@ -425,6 +496,83 @@ class TerminalStore:
             (task_id, SESSION_RELINKED),
         )
         return list(dict.fromkeys(str(r["detail"]) for r in rows))
+
+    async def session_histories(self, task_ids: list[str]) -> dict[str, list[str]]:
+        """session_history for many tasks in one query (the board is polled)."""
+        out: dict[str, list[str]] = {}
+        ids = [i for i in dict.fromkeys(task_ids) if i]
+        for start in range(0, len(ids), 500):
+            batch = ids[start : start + 500]
+            placeholders = ",".join("?" for _ in batch)
+            rows = await self.db.fetch_all(
+                "SELECT task_id, detail FROM terminal_events "
+                f"WHERE kind = ? AND detail IS NOT NULL AND task_id IN ({placeholders}) "
+                "ORDER BY seq ASC",
+                (SESSION_RELINKED, *batch),
+            )
+            for r in rows:
+                lst = out.setdefault(r["task_id"], [])
+                if str(r["detail"]) not in lst:
+                    lst.append(str(r["detail"]))
+        return out
+
+    # -- worktrees ---------------------------------------------------------
+
+    async def set_worktree(
+        self, task_id: str, *, run_dir: str, branch: str, base: str, state: str
+    ) -> None:
+        await self.db.execute(
+            "UPDATE terminal_tasks SET run_dir = ?, worktree_branch = ?, worktree_base = ?, "
+            "worktree_state = ? WHERE id = ?",
+            (run_dir, branch, base, state, task_id),
+        )
+
+    async def set_worktree_state(
+        self,
+        task_id: str,
+        state: str,
+        *,
+        dirty: Optional[int] = None,
+        commits: Optional[int] = None,
+    ) -> None:
+        """State and counts for every row sharing this task's worktree (a
+        relaunch reuses the worktree, so two rows can name one branch)."""
+        task = await self.get_task(task_id)
+        if task is None or not task.get("worktree_branch"):
+            return
+        await self.db.execute(
+            "UPDATE terminal_tasks SET worktree_state = ?, worktree_dirty = ?, worktree_commits = ? "
+            "WHERE worktree_branch = ? AND run_dir IS NOT NULL",
+            (state, dirty, commits, task["worktree_branch"]),
+        )
+
+    async def set_run_dir(self, task_id: str, run_dir: str) -> None:
+        """A delegated child running in its parent's worktree: run_dir only,
+        no branch or state, so the child never owns that worktree."""
+        await self.db.execute("UPDATE terminal_tasks SET run_dir = ? WHERE id = ?", (run_dir, task_id))
+
+    async def worktree_tasks(self, states: tuple) -> list[dict[str, Any]]:
+        placeholders = ",".join("?" * len(states))
+        rows = await self.db.fetch_all(
+            f"SELECT * FROM terminal_tasks WHERE run_dir IS NOT NULL AND worktree_state IN ({placeholders}) "
+            "ORDER BY created_at, rowid",
+            tuple(states),
+        )
+        return [dict(r) for r in rows]
+
+    async def mark_active_worktrees_kept(self) -> int:
+        """Startup: a worktree still 'active' (or 'removing') belonged to a
+        process that is gone. It is kept, never deleted."""
+        rows = await self.db.fetch_all(
+            "SELECT id FROM terminal_tasks WHERE run_dir IS NOT NULL "
+            "AND worktree_state IN ('active', 'removing')"
+        )
+        if rows:
+            await self.db.execute(
+                "UPDATE terminal_tasks SET worktree_state = 'kept' "
+                "WHERE run_dir IS NOT NULL AND worktree_state IN ('active', 'removing')"
+            )
+        return len(rows)
 
     async def update_workspace(self, task_id: str, workspace: str) -> None:
         await self.db.execute(
@@ -587,11 +735,19 @@ class TerminalStore:
             found.update(r["task_id"] for r in rows)
         return found
 
-    async def list_verdicts(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    async def list_verdicts(self, session_id, limit: int = 200) -> list[dict[str, Any]]:
+        """Newest first. `session_id` is one id or a list (a task's whole
+        session history); duplicates are dropped."""
+        ids = [session_id] if isinstance(session_id, str) else list(session_id or [])
+        ids = [i for i in dict.fromkeys(ids) if i]
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
         rows = await self.db.fetch_all(
             "SELECT tool_id, function_name, action, risk, reason, args_preview, called_at "
-            "FROM tool_call_audit WHERE session_id = ? ORDER BY called_at DESC, rowid DESC LIMIT ?",
-            (session_id, limit),
+            f"FROM tool_call_audit WHERE session_id IN ({placeholders}) "
+            "ORDER BY called_at DESC, rowid DESC LIMIT ?",
+            (*ids, limit),
         )
         return [dict(r) for r in rows]
 

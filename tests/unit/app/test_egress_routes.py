@@ -37,7 +37,7 @@ def stub_repo(monkeypatch):
          "hard_blocked": 0, "first_seen": "t0", "last_seen": "t1"},
     ]
     repo = _StubRepo(rows)
-    monkeypatch.setattr(egress_routes, "get_database", lambda: object())
+    monkeypatch.setattr(egress_routes, "get_database", object)
     monkeypatch.setattr(egress_routes, "EgressRepository", lambda db: repo)
     return repo
 
@@ -64,7 +64,7 @@ class TestSessionDestinationsRoute:
     @pytest.mark.asyncio
     async def test_no_rows_is_an_empty_list_not_an_error(self, monkeypatch):
         repo = _StubRepo([])
-        monkeypatch.setattr(egress_routes, "get_database", lambda: object())
+        monkeypatch.setattr(egress_routes, "get_database", object)
         monkeypatch.setattr(egress_routes, "EgressRepository", lambda db: repo)
         monkeypatch.setattr(
             egress_routes.codex_web_observer, "consent_granted", lambda: True)
@@ -95,7 +95,7 @@ class TestObservedOnTheSessionRoute:
             {"host": "api.example.com", "calls": 4, "blocked": 0,
              "observed": 0, "writes": 0, "hard_blocked": 0},
         ])
-        monkeypatch.setattr(egress_routes, "get_database", lambda: object())
+        monkeypatch.setattr(egress_routes, "get_database", object)
         monkeypatch.setattr(egress_routes, "EgressRepository", lambda db: repo)
         monkeypatch.setattr(
             egress_routes.codex_web_observer, "consent_granted", lambda: True)
@@ -108,7 +108,7 @@ class TestObservedOnTheSessionRoute:
     @pytest.mark.asyncio
     async def test_missing_consent_travels_with_the_rows(self, monkeypatch):
         repo = _StubRepo([])
-        monkeypatch.setattr(egress_routes, "get_database", lambda: object())
+        monkeypatch.setattr(egress_routes, "get_database", object)
         monkeypatch.setattr(egress_routes, "EgressRepository", lambda db: repo)
         monkeypatch.setattr(
             egress_routes.codex_web_observer, "consent_granted", lambda: False)

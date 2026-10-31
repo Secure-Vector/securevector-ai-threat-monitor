@@ -205,7 +205,7 @@ const DashboardPage = {
             const d = parse(t.created_at);
             return t.is_threat && d && d.getTime() >= cutoff;
         });
-        const blocked = inRange.filter(t => String(t.action_taken || '').toLowerCase().includes('block'));
+        const blocked = inRange.filter(t => API.threatBlocked(t));
         const allowedThrough = inRange.length - blocked.length;
         const latest = inRange[0];
 
@@ -315,6 +315,7 @@ const DashboardPage = {
         }
         const poll = setInterval(async () => {
             if (!card.isConnected) { clearInterval(poll); return; }
+            if (document.hidden) return; // nobody is watching the card
             try {
                 const stats = await API.getToolCallAuditStats();
                 if (stats && stats.total > 0) {
@@ -585,8 +586,10 @@ const DashboardPage = {
 
         // Security Controls — what is on and off, which is the page's
         // actionable half and now reads before the feed.
-        const securityControls = await this.renderSecurityControls();
-        container.appendChild(securityControls);
+        // Protection controls, the Cost Optimizer tile and the Reports row
+        // left the dashboard in 6.1.0 (owner: important information only).
+        // Each still lives on its own page: Settings, Cost & Tokens, and the
+        // CSV export on Threats, Tool Permissions and Secret Detections.
 
         // Governance posture moved to its own Cloud-section page
         // (GovernancePage) — kept off the dashboard to reduce clutter.
@@ -599,16 +602,20 @@ const DashboardPage = {
         // most severe first, each opening its run with the steps shown.
         this._renderNeedsAttentionCard(container);
 
-        this._renderOptimizerTile(container);
-
-        // Reports — weekly artifacts as compact tiles; the full pages (and
-        // rich PDF export) are one click away.
-        this.renderReportsSection(container);
 
         // Recent Threat Activity closes the page. The headline above already
         // states how many threats need review, so the row-by-row feed is the
         // detail you scroll to, not the thing you land on.
-        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
+        const activityCard = Card.create({ title: 'Recent threats', gradient: true });
+        {
+            const head = activityCard.querySelector('.card-header') || activityCard.firstElementChild;
+            const all = document.createElement('button');
+            all.type = 'button';
+            all.textContent = 'All threats \u2192';
+            all.style.cssText = 'margin-left:auto;background:none;border:0;color:var(--accent-primary);font-size:12px;cursor:pointer;';
+            all.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('threats'); });
+            if (head) { head.style.display = 'flex'; head.style.alignItems = 'center'; head.appendChild(all); }
+        }
         activityCard.style.marginTop = '20px';
         this.renderRecentActivity(activityCard.querySelector('.card-body'));
         container.appendChild(activityCard);
@@ -887,17 +894,20 @@ const DashboardPage = {
         const values = (data || []).map(v => Number(v) || 0);
         if (!values.length) return null;
         const color = opts.color || 'var(--text-muted)';
-        const W = 4, GAP = 2, H = 16;
+        // A line sparkline: one point per bucket, the latest marked with a
+        // dot. Zero days sit on the baseline, so a quiet day still reads as
+        // measured rather than missing.
+        const H = 16, PAD = 2;
+        const w = Math.max(48, Math.min(96, values.length * 10));
         const max = Math.max(...values, 1);
         const svgNS = 'http://www.w3.org/2000/svg';
-        const w = values.length * W + (values.length - 1) * GAP;
         const svg = document.createElementNS(svgNS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${w} ${H}`);
         svg.setAttribute('width', String(w));
         svg.setAttribute('height', String(H));
         // Cap to the cell so a 30-day series cannot bleed over its neighbour
         // in the flex strip.
-        svg.style.cssText = 'display:block; max-width:100%;';
+        svg.style.cssText = 'display:block; max-width:100%; overflow:visible;';
         svg.setAttribute('preserveAspectRatio', 'xMinYMid meet');
         svg.setAttribute('role', 'img');
         // role="img" + aria-label wins over <title>, so the accessible name
@@ -907,26 +917,26 @@ const DashboardPage = {
         const summary = (opts.ariaLabel || 'recent trend')
             + `, ${values.length} buckets, latest ${values[values.length - 1]}, peak ${peak}`;
         svg.setAttribute('aria-label', summary);
-        values.forEach((v, i) => {
-            const x = i * (W + GAP);
-            const isLast = i === values.length - 1;
-            // Floor a real value at 2px so a small count stays visible beside
-            // a large one; a true zero gets a 1px baseline tick instead.
-            const h = v > 0 ? Math.max(2, Math.round((v / max) * H)) : 1;
-            const bar = document.createElementNS(svgNS, 'rect');
-            bar.setAttribute('x', String(x));
-            bar.setAttribute('y', String(H - h));
-            bar.setAttribute('width', String(W));
-            bar.setAttribute('height', String(h));
-            bar.setAttribute('rx', v > 0 ? '1' : '0');
-            bar.setAttribute('fill', color);
-            // Non-text graphics carry the meaning here, so they have to clear
-            // the 3:1 contrast floor: 0.42/0.18 measured about 1.9:1 and 1.2:1
-            // against the card, which made the zero tick effectively invisible
-            // and defeated the absent-vs-zero distinction it exists for.
-            bar.setAttribute('opacity', v > 0 ? (isLast ? '1' : '0.7') : '0.4');
-            svg.appendChild(bar);
-        });
+        const step = values.length > 1 ? (w - PAD * 2) / (values.length - 1) : 0;
+        const pts = values.map((v, i) => [values.length > 1 ? PAD + i * step : w - PAD, H - PAD - (v / max) * (H - PAD * 2)]);
+        const base = document.createElementNS(svgNS, 'line');
+        base.setAttribute('x1', '0'); base.setAttribute('x2', String(w));
+        base.setAttribute('y1', String(H - PAD)); base.setAttribute('y2', String(H - PAD));
+        base.setAttribute('stroke', 'var(--border-default)'); base.setAttribute('stroke-width', '1');
+        svg.appendChild(base);
+        const line = document.createElementNS(svgNS, 'polyline');
+        line.setAttribute('points', pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' '));
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', color);
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-linejoin', 'round');
+        line.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(line);
+        const last = pts[pts.length - 1];
+        const dotEl = document.createElementNS(svgNS, 'circle');
+        dotEl.setAttribute('cx', last[0].toFixed(1)); dotEl.setAttribute('cy', last[1].toFixed(1));
+        dotEl.setAttribute('r', '2.5'); dotEl.setAttribute('fill', color);
+        svg.appendChild(dotEl);
         if (opts.title) {
             const t = document.createElementNS(svgNS, 'title');
             t.textContent = opts.title;
@@ -950,9 +960,12 @@ const DashboardPage = {
         strip.style.cssText = 'display: flex; flex-wrap: wrap; border-top: 1px solid var(--border-default); margin-top: 4px;';
         host.appendChild(strip);
 
-        const makeStat = (label, color, navPage) => {
+        const makeStat = (label, color, navPage, sub) => {
             const cell = document.createElement('div');
-            cell.style.cssText = 'flex: 1 1 130px; min-width: 120px; padding: 16px 22px 14px 0; cursor: pointer;';
+            cell.className = 'sv-dash-stat';
+            cell.style.cssText = 'flex: 1 1 120px; min-width: 112px; padding: 14px 12px 12px; margin: 6px 6px 0 0; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s;';
+            cell.setAttribute('role', 'link');
+            cell.tabIndex = 0;
             const valEl = document.createElement('div');
             // v5 type signature: hero numbers in the mono face read like a
             // telemetry instrument (tabular, technical). Class hook lets the
@@ -964,20 +977,42 @@ const DashboardPage = {
             const lblEl = document.createElement('div');
             lblEl.className = 'stat-label';
             lblEl.style.cssText = 'font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; margin-top: 4px; letter-spacing: 0.3px; text-transform: uppercase;';
-            lblEl.textContent = label;
+            lblEl.textContent = label + ' \u2192';
             cell.appendChild(lblEl);
+
+            // What the figure counts and where: source, device, window.
+            if (sub) {
+                const subEl = document.createElement('div');
+                subEl.className = 'stat-sub';
+                subEl.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;';
+                subEl.textContent = sub;
+                cell.appendChild(subEl);
+            }
             // Reserved slot for the number's own shape. Kept between value and
             // label so a sparkline reads as an attribute of the figure rather
             // than a chart that happens to sit nearby, and so the strip's
             // baseline never shifts when one arrives late.
             const sparkEl = document.createElement('div');
-            sparkEl.style.cssText = 'height: 16px; margin-top: 7px;';
+            sparkEl.style.cssText = 'height: 16px; margin: 12px 0 8px;';
             cell.insertBefore(sparkEl, lblEl);
-            cell.addEventListener('mouseenter', () => { valEl.style.textDecoration = 'underline'; });
-            cell.addEventListener('mouseleave', () => { valEl.style.textDecoration = ''; });
-            if (navPage) cell.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
+            cell.addEventListener('mouseenter', () => { cell.style.background = 'var(--bg-tertiary)'; cell.style.borderColor = 'var(--border-default)'; });
+            cell.addEventListener('mouseleave', () => { cell.style.background = ''; cell.style.borderColor = 'transparent'; });
+            const stat = { valEl, cell, sparkEl, lblEl, navPage };
+            // The target can change once data arrives (Runtimes guarded opens
+            // Connect only while nothing is guarded), so read it at click time.
+            const go = () => { if (stat.navPage && window.Sidebar) Sidebar.navigate(stat.navPage); };
+            cell.addEventListener('click', go);
+            cell.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
             strip.appendChild(cell);
-            return { valEl, cell, sparkEl };
+            // The accessible name comes from the tile's own text (value,
+            // label, sub line), so a screen reader hears the number too.
+            const setSub = (text) => {
+                let el = cell.querySelector('.stat-sub');
+                if (!el) { el = document.createElement('div'); el.className = 'stat-sub'; el.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;'; cell.appendChild(el); }
+                el.textContent = text;
+            };
+            stat.setSub = setSub;
+            return stat;
         };
 
         // v5 color policy: stat values are neutral by default — color is
@@ -985,14 +1020,16 @@ const DashboardPage = {
         // threats are present, amber for needs-attention). A rainbow of
         // always-on colored stats reads as alarm soup on a security console.
         const NEUTRAL = 'var(--text-primary)';
-        const guarded = makeStat('Runtimes guarded', NEUTRAL, 'guide-connect-agents');
-        const calls = makeStat(`Tool calls · ${rangeTag}`, NEUTRAL, 'tool-activity');
-        // Same number, same words as Agent Governance: tool actions SecureVector
-        // stopped. Block Mode blocks are a different, usually empty, count.
-        const blockedStat = makeStat(`Actions blocked · ${rangeTag}`, NEUTRAL, 'blocked-ledger');
-        const criticalStat = makeStat(`Critical · ${rangeTag}`, NEUTRAL, 'threats');
-        const secretsStat = makeStat(`Secrets caught · ${rangeTag}`, NEUTRAL, 'redactions');
+        // Seven numbers, each opening the page that owns it (owner, 6.1.0).
+        const runsStat = makeStat(`Runs · ${rangeTag}`, NEUTRAL, 'agent-runs');
+        const sessionsStat = makeStat('Agent Sessions', NEUTRAL, 'terminals');
+        const adrStat = makeStat('ADR drift score', NEUTRAL, 'detection-response');
+        // Tool-policy and egress refusals side by side in one figure; the sub
+        // line keeps them apart so neither is folded into the other.
+        const blockedStat = makeStat(`Blocked · ${rangeTag}`, NEUTRAL, 'blocked-ledger');
+        const criticalStat = makeStat(`Threats · ${rangeTag}`, NEUTRAL, 'threats');
         const spendStat = makeStat('Spend today', NEUTRAL, 'costs');
+        const guarded = makeStat('Runtimes guarded', NEUTRAL, 'governance');
 
         // In-range threat slices are synchronous — same lookback the posture
         // sentence uses. Fill them before any network round-trip.
@@ -1005,7 +1042,7 @@ const DashboardPage = {
             const d = parseTs(t.created_at);
             return t.is_threat && d && d.getTime() >= cutoff;
         });
-        const blocked = inRange.filter(t => String(t.action_taken || '').toLowerCase().includes('block')).length;
+        const blocked = inRange.filter(t => API.threatBlocked(t)).length;
         const critical = inRange.filter(t => t.risk_score >= 80).length;
 
         // Calendar days across the window, oldest first. The daily tool-call
@@ -1027,7 +1064,7 @@ const DashboardPage = {
 
         // Async fills — each independent, each failure-tolerant.
         try {
-            const [agents, auditDaily, redactions, costData, guardian, threatWindow] = await Promise.all([
+            const [agents, auditDaily, redactions, costData, guardian, threatWindow, egressDest] = await Promise.all([
                 fetch('/api/detection/agents').then(r => r.ok ? r.json() : null).catch(() => null),
                 API.getToolCallAuditDaily(days).catch(() => null),
                 API.getRedactions(days, { limit: 1 }).catch(() => null),
@@ -1055,8 +1092,47 @@ const DashboardPage = {
                         return { items, total };
                     })()
                     : Promise.resolve(null)).catch(() => null),
+                // Same source and sum as the sidebar Egress count, same window.
+                API.getEgressDestinations(days).catch(() => null),
             ]);
             if (!strip.isConnected) return; // page switched mid-fetch
+            // Runs, Agent Sessions and Detection & Response fill on their own,
+            // so a slow terminals read never holds the other numbers.
+            // health: 0 skips run-health scoring; the server caps the list at
+            // 500, so a full page reads as "500+".
+            API.getTraces({ window_days: days, limit: 500, health: 0 }).then((t) => {
+                if (!strip.isConnected) return;
+                const nRuns = ((t && t.runs) || []).length;
+                runsStat.valEl.textContent = nRuns >= 500 ? '500+' : nRuns.toLocaleString();
+            }).catch(() => { runsStat.valEl.textContent = '\u2014'; });
+            API.terminalsTasks().then((r) => {
+                if (!strip.isConnected) return;
+                const items = (r && r.items) || [];
+                // The store's running set (terminals/store.py RUNNING);
+                // interrupted tasks were left behind by a restart.
+                const RUNNING = ['starting', 'working', 'blocked', 'idle'];
+                const live = items.filter(x => RUNNING.includes(x.status)).length;
+                sessionsStat.valEl.textContent = live.toLocaleString();
+                sessionsStat.setSub('running now');
+            }).catch(() => { sessionsStat.valEl.textContent = '\u2014'; });
+            Promise.resolve(API.detectionResponseSummaryQuiet ? API.detectionResponseSummaryQuiet() : API.detectionResponseSummary()).then((d) => {
+                if (!strip.isConnected) return;
+                // The highest session score this week (the page's spotlight,
+                // else the highest listed session), with the review count the
+                // score drives underneath.
+                const n = Math.max(0, Number(d && d.detect && d.detect.to_review) || 0);
+                const num = (v) => (v !== null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
+                let score = num(d && d.spotlight && d.spotlight.score);
+                if (score == null) {
+                    const scored = ((d && d.sessions) || []).map(x => num(x && x.score)).filter(v => v != null);
+                    score = scored.length ? Math.max(...scored) : null;
+                }
+                const band = score == null ? null : score >= 70 ? 'high' : score >= 40 ? 'watch' : 'low';
+                adrStat.valEl.textContent = score == null ? '\u2014' : String(Math.round(score));
+                if (band === 'high') adrStat.valEl.style.color = 'var(--danger, #ef4444)';
+                else if (band === 'watch') adrStat.valEl.style.color = '#f59e0b';
+                adrStat.setSub(score == null ? 'no scored sessions yet' : `${band} · ${n} to review`);
+            }).catch(() => { adrStat.valEl.textContent = '\u2014'; adrStat.setSub('no scored sessions yet'); });
 
             if (agents) {
                 const n = (agents.harnesses || []).filter(h => h.plugin_connected).length +
@@ -1065,6 +1141,7 @@ const DashboardPage = {
                 if (n === 0) {
                     guarded.valEl.style.color = '#f59e0b';
                     guarded.cell.title = 'Nothing is protected yet: open the Connect Wizard';
+                    guarded.navPage = 'guide-connect-agents';
                 }
             }
 
@@ -1079,12 +1156,17 @@ const DashboardPage = {
                 ? auditDaily.days.filter(d => d.day >= sinceDay)
                     .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
                 : 0;
-            calls.valEl.textContent = toolCalls.toLocaleString();
+            runsStat.setSub(`${toolCalls.toLocaleString()} tool calls`);
             const blockedActions = auditDaily && auditDaily.days
                 ? auditDaily.days.filter(d => d.day >= sinceDay).reduce((s, d) => s + (d.blocked || 0), 0)
                 : 0;
-            blockedStat.valEl.textContent = blockedActions.toLocaleString();
-            if (blockedActions > 0) blockedStat.valEl.style.color = '#ef4444';
+            const egressBlocked = egressDest ? DashboardPage.egressBlockedCount(egressDest) : 0;
+            const blockedTotal = blockedActions + egressBlocked;
+            blockedStat.valEl.textContent = blockedTotal.toLocaleString();
+            if (blockedTotal > 0) blockedStat.valEl.style.color = 'var(--danger, #ef4444)';
+            blockedStat.setSub(egressDest ? `${blockedActions} tool · ${egressBlocked} egress` : `${blockedActions} tool · egress not recorded`);
+            // Only egress refusals: open Agent Egress instead of the ledger.
+            if (blockedActions === 0 && egressBlocked > 0) blockedStat.navPage = 'egress';
             // Milestone prompt: the first blocked action is the moment the app
             // has visibly done its job; real volume (tool calls plus
             // detections) is the fallback for machines that only observe.
@@ -1103,7 +1185,7 @@ const DashboardPage = {
                         ariaLabel: 'tool calls per day',
                         title: dayKeys.map((k, i) => `${dayLabel(k)}: ${series[i].toLocaleString()}`).join('\n'),
                     });
-                    if (spark) calls.sparkEl.appendChild(spark);
+                    if (spark) runsStat.sparkEl.appendChild(spark);
                 }
             }
 
@@ -1134,9 +1216,9 @@ const DashboardPage = {
                 }
             }
 
-            const secretsCaught = redactions && redactions.summary ? (redactions.summary.total || 0) : 0;
-            secretsStat.valEl.textContent = secretsCaught.toLocaleString();
-            if (secretsCaught > 0) secretsStat.valEl.style.color = '#f59e0b';
+            // Secrets caught left the strip (6.1.0); Secret Detections under
+            // Threats still lists every one.
+            void redactions;
 
             // Format: $0.00 when zero or sub-cent (4-decimal precision feels
             // performative on a dashboard); $0.0123 only when the amount is
@@ -1167,7 +1249,7 @@ const DashboardPage = {
                 est.textContent = 'est. from transcripts · not billed';
                 spendStat.cell.appendChild(est);
             } else {
-                spendStat.valEl.textContent = costData ? formatCost(metered) : '$0.00';
+                spendStat.valEl.textContent = costData ? formatCost(metered) : 'Not recorded';
             }
 
             // Budget progress bar ONLY when a budget is actually configured.
@@ -1194,7 +1276,7 @@ const DashboardPage = {
      *  like the report tiles so the dashboard stays snappy. */
     /** Top 5 run health findings (loop, failing, wasteful) by severity,
      *  newest first within a severity. Blocked calls live on Threats. */
-    _needsAttentionItems(data, max = 5) {
+    _needsAttentionItems(data, max = 3) {
         const rank = { high: 0, warn: 1, info: 2 };
         const t = (v) => { const n = window.TraceSteps ? TraceSteps.time(v) : Date.parse(v); return n == null || !Number.isFinite(n) ? 0 : n; };
         return (data && Array.isArray(data.findings) ? data.findings : [])
@@ -1210,7 +1292,9 @@ const DashboardPage = {
         const items = this._needsAttentionItems(data);
         const icon = { loop: '', failing: '', wasteful: '' };
         if (window.TraceSteps) Object.keys(icon).forEach(k => { icon[k] = TraceSteps.healthIcon(k); });
-        const head = '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Needs attention</div>';
+        const total = (data && Array.isArray(data.findings) ? data.findings : []).filter(f => f && f.category !== 'blocked').length;
+        const more = total > items.length ? `<button type="button" class="sv-dash-seeall" data-go="run-health" style="margin-left:auto;background:none;border:0;color:var(--accent-primary);font-size:12px;cursor:pointer;">All ${total} in Health \u2192</button>` : '';
+        const head = `<div style="display:flex;align-items:center;font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Needs attention${more}</div>`;
         if (!items.length) {
             return head + '<div style="font-size:12px;color:var(--text-secondary);">No loops, failing steps or waste in agent runs in the last 24 hours.</div>';
         }
@@ -1234,9 +1318,21 @@ const DashboardPage = {
             'border-radius:12px;padding:16px 20px;margin-bottom:16px;';
         container.appendChild(card);
         const fill = async () => {
-            const data = await API.getRunHealth({ window_days: 1, limit: 200 });
+            let data = await API.getRunHealth({ window_days: 1, limit: 200 });
             if (!data) { card.remove(); return; }
+            // Just after the app starts, recent runs are only checked from
+            // their tool calls (partial_runs). Ask for one warm-up pass, as
+            // the Health page does, so the card fills on the first load
+            // instead of after a refresh.
+            if (Number(data.partial_runs) > 0) {
+                card.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Needs attention</div>'
+                    + '<div style="font-size:12px;color:var(--text-secondary);">Checking recent runs\u2026</div>';
+                const warmed = await API.getRunHealth({ window_days: 1, limit: 200, warm: true });
+                if (!card.isConnected) return;
+                if (warmed) data = warmed;
+            }
             card.innerHTML = this._needsAttentionHtml(data);
+            card.querySelectorAll('button.sv-dash-seeall').forEach(b => b.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(b.dataset.go); }));
             card.querySelectorAll('button.sv-health-open').forEach(b => {
                 b.addEventListener('click', () => {
                     if (window.AgentRunsPage) {
@@ -1432,9 +1528,11 @@ const DashboardPage = {
             const total = this.data.total_threats || 0;
             const blocked = this.data.blocked_count || 0;
             const critical = this.data.critical_count || 0;
+            // No server count of blocked threats exists, so this is the
+            // sample's count and says so (same rule as the posture sentence).
             setStats(threatsCard, [
                 { value: total.toLocaleString(), label: 'scanned' },
-                { value: blocked.toLocaleString(), label: 'blocked' },
+                { value: blocked.toLocaleString(), label: DashboardPage.threatsBlockedLabel(this.data) },
                 { value: critical.toLocaleString(), label: 'critical' },
             ]);
         }
@@ -1638,7 +1736,7 @@ const DashboardPage = {
 
 
     renderRecentActivity(container) {
-        const threats = this.threats.slice(0, 8);
+        const threats = this.threats.slice(0, 3);
 
         if (threats.length === 0) {
             const empty = document.createElement('div');
@@ -1994,6 +2092,21 @@ const DashboardPage = {
         }).catch(() => {});
 
         return card;
+    },
+
+    /** Blocked egress across destinations: the sum the sidebar Egress
+     *  count shows, from GET /api/egress/destinations?days=N. */
+    egressBlockedCount(dest) {
+        return ((dest && dest.destinations) || []).reduce((a, d) => a + (Number(d.blocked) || 0), 0);
+    },
+
+    /** The Threats card's blocked label. Counted from the newest threats
+     *  only (no server total exists), so it names the sample when the total
+     *  is larger than the sample. */
+    threatsBlockedLabel(data) {
+        const n = Number((data && data.sample_size) || 0);
+        const total = Number((data && data.total_threats) || 0);
+        return n && total > n ? `blocked in the latest ${n}` : 'blocked';
     },
 
     renderError(container, error) {

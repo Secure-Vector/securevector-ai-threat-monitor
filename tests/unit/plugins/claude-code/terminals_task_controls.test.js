@@ -165,8 +165,8 @@ test('restart and the card Relaunch share one code path, and restart keeps its p
     'a restart has to come back in the pane whose banner asked for it');
   assert.match(src, /_claimPane\(taskId, paneId, group = 'replace', swapFor = null\) \{/,
     'and the pane is claimed by name, not by whichever one holds the focus');
-  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 3,
-    'two in the shared helper, one with a resume id and one without, plus the launch form');
+  assert.strictEqual((src.match(/API\.terminalsLaunch\(/g) || []).length, 5,
+    'three in the shared helper (resume id, worktree, plain), plus the launch form with and without a worktree');
 });
 
 // --------------------------------------------------------- remove confirm
@@ -532,8 +532,9 @@ test('the orphaned count appears only when something was orphaned', () => {
   assert.match(src, /data-board-filter="interrupted"/);
   // A control, so it must be a button: a span with an onclick takes no focus
   // and answers no keyboard.
-  assert.match(src, /<button type="button" class="terminals-board-stat terminals-board-orphans"/);
-  assert.match(src, /orphaned\s*\n?\s*\?/, 'rendered conditionally, not as a permanent 0');
+  assert.match(src, /<button type="button" class="terminals-board-stat terminals-board-orphans/);
+  assert.match(src, /btn\(orphaned, 'stopped by a restart'/);
+  assert.match(src, /n > 0\s*\n?\s*\?/, 'a button only above zero; zero is a dimmed count');
 });
 
 test('clicking orphaned narrows the board through the search everyone can see', () => {
@@ -612,4 +613,20 @@ test('only a blocked count above zero is coloured', () => {
   const css = read('css/styles.css');
   assert.match(css, /\.terminals-task-blocked\.is-danger \{ color: var\(--danger\); \}/);
   assert.doesNotMatch(css, /\.terminals-task-(calls|age|facts)[^{]*\{[^}]*var\(--danger\)/);
+});
+
+test('an ended linked row whose folder only the agent reported offers no Relaunch', () => {
+  const { Page, els } = relaunchHarness({});
+  Page._tasks = [{
+    id: 'r1', executor_id: 'hermes', status: 'done', session_id: 'hermes-s1', origin: 'linked',
+    workspace: '/w', title: 'Reported', workspace_reported: true,
+  }];
+  Page._renderTaskList();
+  const html = els['terminals-task-list'].innerHTML;
+  assert.doesNotMatch(html, /terminals-task-relaunch/);
+  assert.match(html, /folder reported by the agent/);
+  // The same row with a person-named folder still offers it.
+  Page._tasks[0].workspace_reported = false;
+  Page._renderTaskList();
+  assert.match(els['terminals-task-list'].innerHTML, /terminals-task-relaunch/);
 });

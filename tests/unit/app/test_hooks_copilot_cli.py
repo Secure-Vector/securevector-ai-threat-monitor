@@ -13,7 +13,6 @@ Copilot's on-disk layout (verified against CLI v1.0.60):
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
 from fastapi import FastAPI

@@ -286,3 +286,6 @@ cloud-subscriber-feedback-email.md
 npm/*.tgz
 
 npm/node_modules/
+
+# Node tooling caches at the repo root (vitest, vite)
+node_modules/

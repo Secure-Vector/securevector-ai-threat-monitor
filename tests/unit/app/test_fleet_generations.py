@@ -19,7 +19,6 @@ from securevector.app.database.repositories import external_forwarders as fwd_re
 from securevector.app.database.repositories.custom_tools import CustomToolsRepository
 from securevector.app.database.repositories.external_forwarders import (
     ExternalForwardersRepository,
-    ExternalForwardOutboxRepository,
     build_generation_payload,
     invalidate_siem_enabled_cache,
 )

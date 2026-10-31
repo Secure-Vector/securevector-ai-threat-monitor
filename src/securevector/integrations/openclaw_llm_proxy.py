@@ -26,7 +26,7 @@ from urllib.parse import urlparse
 
 try:
     import httpx
-    from fastapi import FastAPI, Request, Response, HTTPException
+    from fastapi import FastAPI, Request, Response
     from fastapi.responses import StreamingResponse
     import uvicorn
 except ImportError as _e:
@@ -428,6 +428,7 @@ class LLMProxy:
                             usage = chunk.get("usage", {})
                             output_tokens = usage.get("output_tokens", output_tokens)
                     except Exception:
+                        # best effort: a failure here must not interrupt the caller
                         pass
                 if input_tokens or output_tokens:
                     return _json.dumps({
@@ -450,6 +451,7 @@ class LLMProxy:
                     if any(k in json_str for k in usage_keys):
                         return json_str.encode("utf-8")
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
         return None
 
@@ -499,6 +501,7 @@ class LLMProxy:
                         from securevector.app.services.credentials import get_api_key
                         self._cloud_api_key = get_api_key()
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
             return {
@@ -1220,6 +1223,7 @@ class LLMProxy:
                     timeout=3.0,
                 )
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
         # If ALL tool calls are blocked, replace with text denial
@@ -1397,6 +1401,7 @@ class LLMProxy:
                     if model:
                         agent_id = model
                 except Exception:
+                    # best effort: a failure here must not interrupt the caller
                     pass
             if agent_id.startswith("client:"):
                 agent_id = "local-agent"
@@ -1649,6 +1654,7 @@ class LLMProxy:
                                     headers=dict(response.headers),
                                 )
                     except json.JSONDecodeError:
+                        # malformed value; keep the default
                         pass
 
                 # Record cost (fire-and-forget, never blocks the response)
@@ -1736,7 +1742,8 @@ class LLMProxy:
                             text = self.extract_response_text(data)
                             if text:
                                 accumulated_text += text
-                except:
+                except Exception:
+                    # best effort: a failure here must not interrupt the caller
                     pass
 
         # Scan accumulated text (strip echoed sensitive tokens from input context)
@@ -1968,7 +1975,8 @@ class LLMProxy:
                                 text = self.extract_response_text(data)
                                 if text:
                                     accumulated_text += text
-                    except:
+                    except Exception:
+                        # best effort: a failure here must not interrupt the caller
                         pass
 
                     yield chunk
@@ -2220,7 +2228,7 @@ def main():
     # Auto-detect proxy port and securevector URL from runtime file if not explicitly set
     if args.port is None or args.securevector_url == "http://127.0.0.1:8741":
         try:
-            import json, pathlib
+            import pathlib
             _runtime = json.loads((pathlib.Path.home() / '.securevector' / 'runtime.json').read_text())
             if args.port is None:
                 args.port = _runtime.get('proxy_port', 8742)

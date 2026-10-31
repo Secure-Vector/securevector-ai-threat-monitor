@@ -32,6 +32,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+from securevector.app.services import transcript_cache
 from securevector.app.utils.trace_text import TRACE_TEXT_CAP, sanitize_trace_text
 
 # Preview cap: the shared 8 KB trace-text cap (5.3.0), the same one tool
@@ -369,6 +370,36 @@ def build_generations(
         path = _find_transcript(session_id)
     if path is None:
         return []
+    # Parsed incrementally and shared: a live transcript is read only from
+    # where the last call stopped (services/transcript_cache).
+    return transcript_cache.parse(
+        path, ("claude-code", bool(store_text), bool(with_analysis)),
+        lambda: _cc_machine(store_text, with_analysis), view=_copy_gens) or []
+
+
+def _copy_gen(g: dict) -> dict:
+    """A caller's own copy of a cached generation (its lists too)."""
+    c = dict(g)
+    for k in ("tool_results", "tool_calls"):
+        v = c.get(k)
+        if isinstance(v, list):
+            c[k] = [dict(x) if isinstance(x, dict) else x for x in v]
+    for k in ("tools_called", "tool_use_names"):
+        v = c.get(k)
+        if isinstance(v, list):
+            c[k] = list(v)
+    return c
+
+
+def _copy_gens(gens) -> list[dict]:
+    return [_copy_gen(g) for g in gens] if gens else []
+
+
+def _cc_machine(store_text: bool, with_analysis: bool):
+    """The Claude Code transcript parser behind ``build_generations``, as a
+    generator: ``send(record)`` feeds one JSON line, ``send(None)`` answers
+    the generations so far (the open round-trip included, as it would be
+    flushed at the end of the file, without closing it)."""
 
     gens: list[dict] = []
     # Accumulator for the round-trip currently being assembled.
@@ -389,15 +420,12 @@ def build_generations(
     # tokens as a brand-new generation — ~3% inflation on real sessions.
     emitted_rids: dict = {}
 
-    def _flush() -> None:
-        nonlocal cur, cur_out_parts, cur_tools, cur_tool_ids, cur_tool_calls, last_gen, last_gen_ids
-        if cur is None:
-            return
-        reopen = bool(cur.get("reopen"))
+    def _finish(gen: dict, reopen: bool, input_text: str) -> None:
+        """Fill the open round-trip's text, hashes and tool names into
+        ``gen``: the accumulator's own dict on a flush, a copy for a snapshot."""
         out_text = "\n".join(p for p in cur_out_parts if p)
-        gen = cur["gen"]
         if store_text and not reopen:
-            inp_prev, inp_trunc = _preview(cur["input_text"])
+            inp_prev, inp_trunc = _preview(input_text)
             out_prev, out_trunc = _preview(out_text)
             gen["input_preview"] = inp_prev
             gen["output_preview"] = out_prev
@@ -408,8 +436,8 @@ def build_generations(
                 if cur_tool_calls:
                     gen["tool_calls"] = (gen.get("tool_calls") or []) + cur_tool_calls
             else:
-                gen["input_hash"] = _sha16(cur["input_text"])
-                gen["tool_calls"] = cur_tool_calls
+                gen["input_hash"] = _sha16(input_text)
+                gen["tool_calls"] = list(cur_tool_calls)
         # De-dupe tool names, preserving first-seen order (a tool called twice
         # in one turn shows once; token/cost stay on the run, not per tool).
         # A reopened request keeps the tools it already declared.
@@ -422,6 +450,14 @@ def build_generations(
         # step can tell which calls the Guard plugin never saw.
         base_names = (gen.get("tool_use_names") or []) if reopen else []
         gen["tool_use_names"] = list(base_names) + list(cur_tools)
+
+    def _flush() -> None:
+        nonlocal cur, cur_out_parts, cur_tools, cur_tool_ids, cur_tool_calls, last_gen, last_gen_ids
+        if cur is None:
+            return
+        reopen = bool(cur.get("reopen"))
+        gen = cur["gen"]
+        _finish(gen, reopen, cur["input_text"])
         ids_for_last = cur_tool_ids
         # Claude Code writes synthetic assistant records (system-injected turns)
         # with model "<synthetic>" and zero usage — not real API calls, so they
@@ -442,6 +478,25 @@ def build_generations(
         cur_tool_ids = {}
         cur_tool_calls = []
 
+    def _snapshot() -> list:
+        """The generations so far, with the open round-trip as a flush would
+        leave it, on copies: the accumulator stays open for the next record."""
+        out = list(gens)
+        if cur is None:
+            return out
+        reopen = bool(cur.get("reopen"))
+        gen = dict(cur["gen"])
+        _finish(gen, reopen, cur["input_text"])
+        if not reopen and gen.get("model") != "<synthetic>":
+            out.append(gen)
+        elif reopen:
+            target = cur["gen"]
+            for i in range(len(out) - 1, -1, -1):
+                if out[i] is target:
+                    out[i] = gen
+                    break
+        return out
+
     # The prompt that drove a generation is the most-recent preceding user
     # message. tool-result-only user turns leave a marker so the input box
     # reads honestly ("responding to a tool result") rather than blank.
@@ -452,143 +507,97 @@ def build_generations(
     last_user_ts = None
     # Which kind of user record that was: "prompt" or "tool_result".
     last_user_kind = None
-    try:
-        with path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                msg = rec.get("message") or {}
-                role = msg.get("role")
-                if role == "user" and rec.get("type") == "user":
-                    _flush()  # a user turn ends any open round-trip
-                    last_user_ts = rec.get("timestamp")
-                    content = msg.get("content")
-                    # Tool results belong to the LLM run that just flushed — it
-                    # made the calls (matched by tool_use_id). This is Pillar 3:
-                    # "what the tool returned", captured, not guessed.
-                    results = _tool_results_of(content)
-                    if results:
-                        last_user_kind = "tool_result"
-                    elif not _is_meta_user_record(rec, _text_of(content)):
-                        last_user_kind = "prompt"
-                    # A meta record (isMeta, command/caveat wrapper) is not
-                    # a typed prompt: it leaves the kind as it was.
-                    if results and last_gen is not None:
-                        tr = []
-                        for tid, text, is_err in results:
-                            entry = {"name": last_gen_ids.get(tid), "is_error": is_err, "tool_use_id": tid}
-                            if store_text:
-                                prev, trunc = _preview(text)
-                                entry["preview"] = prev
-                                entry["truncated"] = trunc
-                            if with_analysis:
-                                entry["result_hash"] = _sha16(text)
-                                entry["result_chars"] = len(text)
-                                # Run health: flags only, never the text. A
-                                # governed deny is policy, not a failure; an
-                                # exit 1 with no output is a search that
-                                # found nothing (grep / rg), not an error.
-                                if is_err:
-                                    entry["denied"] = _looks_denied(text)
-                                    # Only a search (grep / rg) exiting 1 with
-                                    # no output is "found nothing"; any other
-                                    # command exiting 1 is a real failure.
-                                    entry["no_match"] = bool(
-                                        tid in search_ids and _NO_MATCH_RE.match(text or ""))
-                            tr.append(entry)
-                        if tr:
-                            # Each result arrives in its own user record
-                            # when a turn made several calls: append, so a
-                            # turn keeps every result, not just the last.
-                            # A result seen twice (a re-read record) counts once.
-                            prior = list(last_gen.get("tool_results") or [])
-                            seen_ids = {r.get("tool_use_id") for r in prior if r.get("tool_use_id")}
-                            for r in tr:
-                                if r.get("tool_use_id") and r["tool_use_id"] in seen_ids:
-                                    continue
-                                if r.get("tool_use_id"):
-                                    seen_ids.add(r["tool_use_id"])
-                                prior.append(r)
-                            last_gen["tool_results"] = prior
-                    txt = _text_of(content)
-                    if txt:
-                        last_user_text = txt
-                        last_user_was_tool = False
-                    else:
-                        last_user_text = ""
-                        last_user_was_tool = True
-                    continue
-                if role != "assistant":
-                    continue
-                usage = msg.get("usage")
-                if not isinstance(usage, dict):
-                    continue
+    out = None
+    while True:
+        rec = yield out
+        out = None
+        if rec is None:
+            out = _snapshot()
+            continue
+        msg = rec.get("message") or {}
+        role = msg.get("role")
+        if role == "user" and rec.get("type") == "user":
+            _flush()  # a user turn ends any open round-trip
+            last_user_ts = rec.get("timestamp")
+            content = msg.get("content")
+            # Tool results belong to the LLM run that just flushed — it
+            # made the calls (matched by tool_use_id). This is Pillar 3:
+            # "what the tool returned", captured, not guessed.
+            results = _tool_results_of(content)
+            if results:
+                last_user_kind = "tool_result"
+            elif not _is_meta_user_record(rec, _text_of(content)):
+                last_user_kind = "prompt"
+            # A meta record (isMeta, command/caveat wrapper) is not
+            # a typed prompt: it leaves the kind as it was.
+            if results and last_gen is not None:
+                tr = []
+                for tid, text, is_err in results:
+                    entry = {"name": last_gen_ids.get(tid), "is_error": is_err, "tool_use_id": tid}
+                    if store_text:
+                        prev, trunc = _preview(text)
+                        entry["preview"] = prev
+                        entry["truncated"] = trunc
+                    if with_analysis:
+                        entry["result_hash"] = _sha16(text)
+                        entry["result_chars"] = len(text)
+                        # Run health: flags only, never the text. A
+                        # governed deny is policy, not a failure; an
+                        # exit 1 with no output is a search that
+                        # found nothing (grep / rg), not an error.
+                        if is_err:
+                            entry["denied"] = _looks_denied(text)
+                            # Only a search (grep / rg) exiting 1 with
+                            # no output is "found nothing"; any other
+                            # command exiting 1 is a real failure.
+                            entry["no_match"] = bool(
+                                tid in search_ids and _NO_MATCH_RE.match(text or ""))
+                    tr.append(entry)
+                if tr:
+                    # Each result arrives in its own user record
+                    # when a turn made several calls: append, so a
+                    # turn keeps every result, not just the last.
+                    # A result seen twice (a re-read record) counts once.
+                    prior = list(last_gen.get("tool_results") or [])
+                    seen_ids = {r.get("tool_use_id") for r in prior if r.get("tool_use_id")}
+                    for r in tr:
+                        if r.get("tool_use_id") and r["tool_use_id"] in seen_ids:
+                            continue
+                        if r.get("tool_use_id"):
+                            seen_ids.add(r["tool_use_id"])
+                        prior.append(r)
+                    last_gen["tool_results"] = prior
+            txt = _text_of(content)
+            if txt:
+                last_user_text = txt
+                last_user_was_tool = False
+            else:
+                last_user_text = ""
+                last_user_was_tool = True
+            continue
+        if role != "assistant":
+            continue
+        usage = msg.get("usage")
+        if not isinstance(usage, dict):
+            continue
 
-                rid = rec.get("requestId")
-                # New round-trip? Flush the previous, open a fresh accumulator.
-                # A missing requestId is treated as its own singleton group.
-                if cur is None or rid is None or cur["rid"] != rid:
-                    _flush()
-                    if rid is not None and rid in emitted_rids:
-                        # Continuation of a request we already emitted (its
-                        # stream was split by an interleaved user record).
-                        # Reopen the SAME generation: its usage is already
-                        # counted once; only tools/stop_reason accumulate.
-                        cur = {
-                            "rid": rid,
-                            "input_text": last_user_text,
-                            "gen": emitted_rids[rid][0],
-                            "reopen": True,
-                        }
-                        cur_out_parts = []
-                        cur_out_parts.append(_text_of(msg.get("content")))
-                        cur_tools.extend(_tool_uses_of(msg.get("content")))
-                        for _i, _n in _tool_use_pairs(msg.get("content")):
-                            cur_tool_ids[_i] = _n
-                        if with_analysis:
-                            cur_tool_calls.extend(_tool_use_calls(msg.get("content")))
-                            search_ids.update(_search_use_ids(msg.get("content")))
-                        sr = msg.get("stop_reason")
-                        if sr:
-                            cur["gen"]["stop_reason"] = sr
-                        continue
-                    cur = {
-                        "rid": rid,
-                        "input_text": last_user_text,
-                        "gen": {
-                            "span_kind": "generation",
-                            "model": msg.get("model") or "unknown",
-                            "input_tokens": int(usage.get("input_tokens") or 0),
-                            "output_tokens": int(usage.get("output_tokens") or 0),
-                            "cache_read_tokens": int(usage.get("cache_read_input_tokens") or 0),
-                            "cache_creation_tokens": int(usage.get("cache_creation_input_tokens") or 0),
-                            "stop_reason": msg.get("stop_reason"),
-                            "called_at": rec.get("timestamp"),
-                            "request_id": rid,
-                            # Cost is filled in by the caller (needs pricing).
-                            "cost": None,
-                            # Previews are metadata-gated; default to the honest
-                            # "not stored" marker, filled only when store_text.
-                            "input_preview": None,
-                            "output_preview": None,
-                            "input_truncated": False,
-                            "output_truncated": False,
-                            "input_is_tool_result": last_user_was_tool,
-                            # Filled from the following user turn's tool_result
-                            # blocks (Pillar 3 — what the tools returned).
-                            "tool_results": [],
-                        },
-                    }
-                    _stamp_estimated_duration(cur["gen"], last_user_ts, last_user_kind)
-                    cur_out_parts = []
-                # Accumulate this record's text + tool_use requests (name + id, so
-                # the returned result can be matched back); keep the latest
-                # stop_reason (the terminal record carries the real one).
+        rid = rec.get("requestId")
+        # New round-trip? Flush the previous, open a fresh accumulator.
+        # A missing requestId is treated as its own singleton group.
+        if cur is None or rid is None or cur["rid"] != rid:
+            _flush()
+            if rid is not None and rid in emitted_rids:
+                # Continuation of a request we already emitted (its
+                # stream was split by an interleaved user record).
+                # Reopen the SAME generation: its usage is already
+                # counted once; only tools/stop_reason accumulate.
+                cur = {
+                    "rid": rid,
+                    "input_text": last_user_text,
+                    "gen": emitted_rids[rid][0],
+                    "reopen": True,
+                }
+                cur_out_parts = []
                 cur_out_parts.append(_text_of(msg.get("content")))
                 cur_tools.extend(_tool_uses_of(msg.get("content")))
                 for _i, _n in _tool_use_pairs(msg.get("content")):
@@ -599,10 +608,49 @@ def build_generations(
                 sr = msg.get("stop_reason")
                 if sr:
                     cur["gen"]["stop_reason"] = sr
-            _flush()
-    except OSError:
-        return []
-    return gens
+                continue
+            cur = {
+                "rid": rid,
+                "input_text": last_user_text,
+                "gen": {
+                    "span_kind": "generation",
+                    "model": msg.get("model") or "unknown",
+                    "input_tokens": int(usage.get("input_tokens") or 0),
+                    "output_tokens": int(usage.get("output_tokens") or 0),
+                    "cache_read_tokens": int(usage.get("cache_read_input_tokens") or 0),
+                    "cache_creation_tokens": int(usage.get("cache_creation_input_tokens") or 0),
+                    "stop_reason": msg.get("stop_reason"),
+                    "called_at": rec.get("timestamp"),
+                    "request_id": rid,
+                    # Cost is filled in by the caller (needs pricing).
+                    "cost": None,
+                    # Previews are metadata-gated; default to the honest
+                    # "not stored" marker, filled only when store_text.
+                    "input_preview": None,
+                    "output_preview": None,
+                    "input_truncated": False,
+                    "output_truncated": False,
+                    "input_is_tool_result": last_user_was_tool,
+                    # Filled from the following user turn's tool_result
+                    # blocks (Pillar 3 — what the tools returned).
+                    "tool_results": [],
+                },
+            }
+            _stamp_estimated_duration(cur["gen"], last_user_ts, last_user_kind)
+            cur_out_parts = []
+        # Accumulate this record's text + tool_use requests (name + id, so
+        # the returned result can be matched back); keep the latest
+        # stop_reason (the terminal record carries the real one).
+        cur_out_parts.append(_text_of(msg.get("content")))
+        cur_tools.extend(_tool_uses_of(msg.get("content")))
+        for _i, _n in _tool_use_pairs(msg.get("content")):
+            cur_tool_ids[_i] = _n
+        if with_analysis:
+            cur_tool_calls.extend(_tool_use_calls(msg.get("content")))
+            search_ids.update(_search_use_ids(msg.get("content")))
+        sr = msg.get("stop_reason")
+        if sr:
+            cur["gen"]["stop_reason"] = sr
 
 
 def _codex_sessions_dir() -> Path:
@@ -658,6 +706,15 @@ def build_generations_codex(
         path = _find_codex_rollout(session_id)
     if path is None:
         return []
+    return transcript_cache.parse(
+        path, ("codex", bool(store_text), bool(with_analysis)),
+        lambda: _codex_machine(store_text, with_analysis), view=_copy_gens) or []
+
+
+def _codex_machine(store_text: bool, with_analysis: bool):
+    """The Codex rollout parser behind ``build_generations_codex``, as a
+    generator: ``send(record)`` feeds one JSON line, ``send(None)`` answers
+    the generations so far."""
 
     gens: list[dict] = []
     model = "unknown"
@@ -713,114 +770,108 @@ def build_generations_codex(
         pending_out = []
         pending_calls = []
 
-    try:
-        with path.open("r", encoding="utf-8") as fh:
-            last_ts = None
-            # Timestamp of the record that fed the next turn: the user
-            # message or a tool call's output.
-            fed_ts = None
-            fed_by = None  # "prompt" | "tool_result": what fed_ts was
-            # A model call's own record order, as Codex writes it: its output
-            # items (reasoning, assistant message, function/custom tool call),
-            # then a token_usage_record, then (for a tool call) the tool's
-            # output, and only then the event_msg token_count carrying its
-            # usage. So the call is timed from its own records, not from the
-            # token_count: `call_fed` is the feeding record seen when its first
-            # output item arrived, `call_out_ts` its last output item, and
-            # `call_end_ts` its token_usage_record (the model end).
-            call_fed = None  # (ts, "prompt" | "tool_result") or None
-            call_out_ts = None
-            call_end_ts = None
-            last_total = None  # info.total_token_usage of the last emitted call
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                ts = rec.get("timestamp")
+    last_ts = None
+    # Timestamp of the record that fed the next turn: the user
+    # message or a tool call's output.
+    fed_ts = None
+    fed_by = None  # "prompt" | "tool_result": what fed_ts was
+    # A model call's own record order, as Codex writes it: its output
+    # items (reasoning, assistant message, function/custom tool call),
+    # then a token_usage_record, then (for a tool call) the tool's
+    # output, and only then the event_msg token_count carrying its
+    # usage. So the call is timed from its own records, not from the
+    # token_count: `call_fed` is the feeding record seen when its first
+    # output item arrived, `call_out_ts` its last output item, and
+    # `call_end_ts` its token_usage_record (the model end).
+    call_fed = None  # (ts, "prompt" | "tool_result") or None
+    call_out_ts = None
+    call_end_ts = None
+    last_total = None  # info.total_token_usage of the last emitted call
+    out = None
+    while True:
+        rec = yield out
+        out = None
+        if rec is None:
+            out = list(gens)
+            continue
+        ts = rec.get("timestamp")
+        if isinstance(ts, str):
+            last_ts = ts
+        payload = rec.get("payload") or {}
+        ptype = payload.get("type")
+        if rec.get("type") == "turn_context" and payload.get("model"):
+            model = payload.get("model")
+            continue
+        if rec.get("type") == "token_usage_record" or ptype == "token_usage_record":
+            if isinstance(ts, str):
+                call_end_ts = ts
+            continue
+        is_output = ptype in ("reasoning", "function_call", "custom_tool_call") or (
+            ptype == "message" and payload.get("role") == "assistant")
+        if is_output:
+            if call_fed is None:
+                call_fed = (fed_ts, fed_by)
+            if ptype != "reasoning" and isinstance(ts, str):
+                call_out_ts = ts
+            if ptype in ("function_call", "custom_tool_call"):
+                n = payload.get("name")
+                if isinstance(n, str) and n:
+                    pending_calls.append(_CODEX_HOOK_NAMES.get(n, n))
+            if ptype != "message":
+                continue
+        if ptype == "message":
+            role = payload.get("role")
+            text = _codex_text(payload.get("content"))
+            if role == "assistant":
+                if text:
+                    pending_out.append(text)
+            elif role == "user":
+                fed_by = "prompt"
                 if isinstance(ts, str):
-                    last_ts = ts
-                payload = rec.get("payload") or {}
-                ptype = payload.get("type")
-                if rec.get("type") == "turn_context" and payload.get("model"):
-                    model = payload.get("model")
+                    fed_ts = ts
+                if text:
+                    last_user_text = text
+                    last_user_was_tool = False
+                else:
+                    last_user_text = ""
+                    last_user_was_tool = True
+            continue
+        if ptype in ("function_call_output", "custom_tool_call_output"):
+            fed_by = "tool_result"
+            if isinstance(ts, str):
+                fed_ts = ts
+            continue
+        if ptype == "token_count":
+            info = payload.get("info") or {}
+            usage = info.get("last_token_usage")
+            total = info.get("total_token_usage")
+            if isinstance(usage, dict) and int(usage.get("output_tokens") or 0) > 0:
+                if total is not None and total == last_total and call_fed is None \
+                        and call_end_ts is None:
+                    # The same call's usage reported again: the running
+                    # total did not move and no model output came
+                    # between. One call, one generation.
                     continue
-                if rec.get("type") == "token_usage_record" or ptype == "token_usage_record":
-                    if isinstance(ts, str):
-                        call_end_ts = ts
-                    continue
-                is_output = ptype in ("reasoning", "function_call", "custom_tool_call") or (
-                    ptype == "message" and payload.get("role") == "assistant")
-                if is_output:
-                    if call_fed is None:
-                        call_fed = (fed_ts, fed_by)
-                    if ptype != "reasoning" and isinstance(ts, str):
-                        call_out_ts = ts
-                    if ptype in ("function_call", "custom_tool_call"):
-                        n = payload.get("name")
-                        if isinstance(n, str) and n:
-                            pending_calls.append(_CODEX_HOOK_NAMES.get(n, n))
-                    if ptype != "message":
-                        continue
-                if ptype == "message":
-                    role = payload.get("role")
-                    text = _codex_text(payload.get("content"))
-                    if role == "assistant":
-                        if text:
-                            pending_out.append(text)
-                    elif role == "user":
-                        fed_by = "prompt"
-                        if isinstance(ts, str):
-                            fed_ts = ts
-                        if text:
-                            last_user_text = text
-                            last_user_was_tool = False
-                        else:
-                            last_user_text = ""
-                            last_user_was_tool = True
-                    continue
-                if ptype in ("function_call_output", "custom_tool_call_output"):
-                    fed_by = "tool_result"
-                    if isinstance(ts, str):
-                        fed_ts = ts
-                    continue
-                if ptype == "token_count":
-                    info = payload.get("info") or {}
-                    usage = info.get("last_token_usage")
-                    total = info.get("total_token_usage")
-                    if isinstance(usage, dict) and int(usage.get("output_tokens") or 0) > 0:
-                        if total is not None and total == last_total and call_fed is None \
-                                and call_end_ts is None:
-                            # The same call's usage reported again: the running
-                            # total did not move and no model output came
-                            # between. One call, one generation.
-                            continue
-                        last_total = total
-                        _emit(usage)
-                        if call_fed is not None:
-                            # Timed from the call's own records (see above).
-                            end = call_end_ts or call_out_ts or last_ts
-                            start_ts, start_by = call_fed
-                        else:
-                            # An older rollout with no output items: the
-                            # token_count is the only mark of the call.
-                            end = call_end_ts or last_ts
-                            start_ts, start_by = fed_ts, fed_by
-                        if end:
-                            gens[-1]["called_at"] = end
-                        _stamp_estimated_duration(gens[-1], start_ts, start_by)
-                        if call_fed is None:
-                            fed_ts = None
-                            fed_by = None
-                        call_fed = None
-                        call_out_ts = None
-                        call_end_ts = None
-    except OSError:
-        return []
-    return gens
+                last_total = total
+                _emit(usage)
+                if call_fed is not None:
+                    # Timed from the call's own records (see above).
+                    end = call_end_ts or call_out_ts or last_ts
+                    start_ts, start_by = call_fed
+                else:
+                    # An older rollout with no output items: the
+                    # token_count is the only mark of the call.
+                    end = call_end_ts or last_ts
+                    start_ts, start_by = fed_ts, fed_by
+                if end:
+                    gens[-1]["called_at"] = end
+                _stamp_estimated_duration(gens[-1], start_ts, start_by)
+                if call_fed is None:
+                    fed_ts = None
+                    fed_by = None
+                call_fed = None
+                call_out_ts = None
+                call_end_ts = None
 
 
 def _codex_text(content) -> str:

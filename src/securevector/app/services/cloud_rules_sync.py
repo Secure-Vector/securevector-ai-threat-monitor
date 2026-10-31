@@ -28,10 +28,9 @@ shapes so this module doesn't break if the cloud adds envelope fields.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.rules import RulesRepository

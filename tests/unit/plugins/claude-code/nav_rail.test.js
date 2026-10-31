@@ -17,24 +17,29 @@ function navItemsSource() {
 function productGroupsSource() {
   const src = read('js/components/sidebar.js');
   const start = src.indexOf('productGroups: [');
-  const end = src.indexOf("currentPage: 'terminals'", start);
+  const end = src.indexOf("currentPage: 'dashboard'", start);
   return src.slice(start, end);
 }
 
 test('product rail order and contextual route mappings are stable', () => {
   const groups = productGroupsSource();
   const ids = [...groups.matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
-  assert.deepStrictEqual(ids, ['tasks', 'visibility', 'governance', 'policies', 'connect', 'more']);
+  assert.deepStrictEqual(ids, ['visibility', 'tasks', 'detect', 'governance', 'policies', 'connect', 'more', 'settings']);
+  assert.match(groups, /id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'radar', landing: 'detection-response',[\s\S]*?items: \['detection-response'\]/);
+  assert.match(groups, /id: 'settings', label: 'Settings', icon: 'settings', landing: 'settings', rail: false,[\s\S]*?items: \['settings'\]/);
   assert.match(groups, /id: 'tasks'[\s\S]*?landing: 'terminals',[\s\S]*?items: \['terminals'\]/);
   assert.match(groups, /id: 'visibility'[\s\S]*?items: \['dashboard', 'agent-runs', 'threats', 'costs', 'egress'\]/);
+  // Visibility opens Runs (owner, 6.1); Dashboard stays a menu item until the Overview ships.
+  assert.match(groups, /id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',/);
   assert.match(groups, /id: 'governance'[\s\S]*?items: \['governance'\]/);
+  assert.doesNotMatch(groups, /extraPages: \['detection-response'\]/);
   assert.match(groups, /id: 'policies'[\s\S]*?items: \['policies'\]/);
   assert.match(groups, /id: 'connect'[\s\S]*?items: \['guide-connect-agents', 'siem-export'\]/);
-  assert.match(groups, /id: 'more'[\s\S]*?items: \['guide', 'settings'\]/);
-  assert.match(read('js/components/sidebar.js'), /return this\.productGroups\.find\(group => group\.items\.some/);
+  assert.match(groups, /id: 'more'[\s\S]*?items: \['guide'\] \}/);
+  assert.match(read('js/components/sidebar.js'), /return this\.productGroups\.find\(group => \(group\.extraPages \|\| \[\]\)\.includes\(page\) \|\| group\.items\.some/);
 });
 
-test('Agent Tasks is first and root/fallback navigation is session-first', () => {
+test('Agent Tasks is first in the rail and root/fallback navigation opens Runs', () => {
   const ids = [...navItemsSource().matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
   assert.equal(ids[0], 'terminals');
   // Every destination the product rail offers must resolve to a real navItems
@@ -42,9 +47,9 @@ test('Agent Tasks is first and root/fallback navigation is session-first', () =>
   // destination (say `threats`) has to fail here, instead of silently
   // degrading its deep link into the Agent Tasks context.
   const navIds = new Set(ids);
-  const groupItemIds = [...productGroupsSource().matchAll(/items: \[([^\]]*)\]/g)]
+  const groupItemIds = [...productGroupsSource().matchAll(/(?:items|extraPages): \[([^\]]*)\]/g)]
     .flatMap(m => [...m[1].matchAll(/'([a-z0-9-]+)'/g)].map(x => x[1]));
-  assert.equal(groupItemIds.length, 12, 'the rail must offer all twelve destinations');
+  assert.equal(groupItemIds.length, 13, 'the rail must offer all thirteen destinations');
   assert.equal(new Set(groupItemIds).size, groupItemIds.length, 'a destination belongs to one group only');
   for (const id of groupItemIds) {
     assert.ok(navIds.has(id), `productGroups lists '${id}', which is not a navItems destination`);
@@ -54,11 +59,12 @@ test('Agent Tasks is first and root/fallback navigation is session-first', () =>
   }
   const sidebar = read('js/components/sidebar.js');
   const app = read('js/app.js');
-  assert.match(sidebar, /currentPage: 'terminals'/);
-  assert.match(app, /currentPage: 'terminals'/);
-  assert.match(app, /return this\.pages\[path\] \? path : 'terminals';/);
+  assert.match(sidebar, /currentPage: 'dashboard'/);
+  assert.match(app, /currentPage: 'dashboard'/);
+  assert.match(app, /DEFAULT_PAGE: 'dashboard'/);
+  assert.match(app, /return this\.pages\[path\] \? path : this\.DEFAULT_PAGE;/);
   assert.match(app, /initialPage = await this\.maybeAutoLaunchWizard\(initialPage\)/);
-  assert.match(app, /if \(initialPage !== 'terminals'\) return initialPage;/);
+  assert.match(app, /if \(initialPage !== this\.DEFAULT_PAGE\) return initialPage;/);
 });
 
 test('product controls are real accessible buttons and retain the SecureVector shield', () => {
@@ -66,8 +72,9 @@ test('product controls are real accessible buttons and retain the SecureVector s
   assert.match(src, /home = document\.createElement\('button'\)/);
   assert.match(src, /shield\.src = '\/images\/favicon\.png'/);
   assert.match(src, /button = document\.createElement\('button'\)/);
-  assert.match(src, /button\.setAttribute\('aria-label', group\.label\)/);
-  assert.match(src, /button\.title = group\.label/);
+  assert.match(src, /button\.setAttribute\('aria-label', group\.title \|\| group\.label\)/);
+  assert.match(src, /button\.title = group\.title \|\| group\.label/);
+  assert.match(src, /if \(group\.rail === false\) return;/);
   assert.doesNotMatch(src, /sv-nav-redesign|reference-logo|logo-mark/);
 });
 
@@ -100,12 +107,12 @@ test('folded pages are views of a destination, so every old page id still lands'
 
 test('single-item groups whose item is the landing hoist views instead of duplicating the label', () => {
   const src = read('js/components/sidebar.js');
-  // Tasks, Governance and Policies each have exactly one item, and that item
+  // Tasks and Policies each have exactly one item, and that item
   // is the group's own landing page. Rendering it as a normal row would show
   // the same label three times: the rail button, the context heading, and
   // this single destination row.
   const groups = productGroupsSource();
-  for (const id of ['tasks', 'governance', 'policies']) {
+  for (const id of ['tasks', 'policies']) {
     const m = groups.match(new RegExp(`id: '${id}'[\\s\\S]*?landing: '([a-z0-9-]+)',[\\s\\S]*?items: \\[([^\\]]*)\\]`));
     assert.ok(m, `${id} group must exist`);
     const landing = m[1];
@@ -151,8 +158,16 @@ test('views render under the active destination only and the flyout serves the i
   // never open, because collapsed hides the context panel outright — which is
   // also what stranded six of the twelve destinations.
   assert.match(src, /container\.querySelectorAll\('\.product-rail-button'\)\.forEach\(button => \{/);
-  assert.match(src, /if \(container\.classList\.contains\('collapsed'\)\) this\._flyoutShow\(button\);/);
-  assert.match(src, /if \(this\._suppressFlyoutFocus\) return;\s*\n\s*open\(\);/);
+  // Hover opens it after a pause (hover intent), so a cursor crossing the
+  // rail opens nothing; keyboard focus alone never opens it (6.1.0).
+  const init = src.slice(src.indexOf('    _flyoutInit(container) {'), src.indexOf('    _flyoutShow(button) {'));
+  assert.match(init, /const HOVER_INTENT_MS = 250;/);
+  assert.match(init, /button\.matches\(':hover'\) && container\.classList\.contains\('collapsed'\)\) this\._flyoutShow\(button\);/);
+  assert.doesNotMatch(init, /addEventListener\('focus'/);
+  // A menu flag left by a same-group click never opens on the next render.
+  assert.match(src, /if \(flyGroup && flyGroup === activeGroup\.id && container\.classList\.contains\('collapsed'\)\) \{/);
+  assert.match(init, /if \(e\.key !== 'ArrowRight' && e\.key !== 'ArrowDown'\) return;/);
+  assert.match(src, /this\._flyoutAfterRender = multi && !sameGroup \? group\.id : null;/);
   assert.match(src, /group\.items\s*\n\s*\.map\(id => this\.navItems\.find\(item => item\.id === id\)\)/);
   assert.doesNotMatch(src, /nav\.querySelectorAll\('\.nav-item\[data-page\]/,
     'no dead flyout path may be left on the context rows');
@@ -174,12 +189,12 @@ test('the search row opens the palette and live counts hide at zero', () => {
   assert.match(read('js/api.js'), /queryParams\.set\('is_threat'/);
 });
 
-test('context rendering filters destinations and More owns Guide and Settings', () => {
+test('context rendering filters destinations; More owns Guide, Settings is pinned', () => {
   const src = read('js/components/sidebar.js');
   assert.match(src, /if \(!activeGroup\.items\.includes\(item\.id\)\) return;/);
-  assert.match(src, /contextTitle\.textContent = activeGroup\.label/);
+  assert.match(src, /contextTitle\.textContent = activeGroup\.title \|\| activeGroup\.label/);
   assert.match(src, /contextSubtitle\.textContent = activeGroup\.subtitle/);
-  assert.match(productGroupsSource(), /id: 'more'.*landing: 'guide',[\s\S]*?items: \['guide', 'settings'\]/);
+  assert.match(productGroupsSource(), /id: 'more'.*landing: 'guide',[\s\S]*?items: \['guide'\] \}/);
   assert.doesNotMatch(navItemsSource(), /dock: true/);
   assert.doesNotMatch(src, /bottomSection\.appendChild\(this\._createDock\(\)\)/);
 });
@@ -190,9 +205,9 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=183/);
-  assert.match(html, /styles\.css\?v=469/);
-  assert.match(html, /app\.js\?v=72/);
+  assert.match(html, /sidebar\.js\?v=214/);
+  assert.match(html, /styles\.css\?v=503/);
+  assert.match(html, /app\.js\?v=81/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -227,10 +242,10 @@ test('governance credits a control only on current evidence', () => {
   const gov = read('js/pages/governance.js');
   // a harness node from 30 days ago is not evidence that anything runs now
   assert.match(gov, /const recentActivity = traceRows\.length > 0;/);
-  assert.match(gov, /no agent has run in the last 7 days/);
+  assert.match(gov, /No agent has run in 7 days/);
   // an absent setting is unknown, never a pass
   assert.match(gov, /has never been configured on this device, so it cannot be reported as enforced/);
-  assert.match(read('index.html'), /governance\.js\?v=30/);
+  assert.match(read('index.html'), /governance\.js\?v=32/);
 });
 
 test('posture is computed once, in governance, and the rail no longer reads it', () => {
@@ -259,7 +274,7 @@ test('picking a search result with the mouse actually navigates', () => {
   assert.match(p, /_syncSel\(\) \{/);
   assert.match(p, /row\.addEventListener\('mousedown'/);
   assert.match(p, /row\.addEventListener\('click', \(\) => this\._go\(item\)\);/);
-  assert.match(read('index.html'), /command-palette\.js\?v=20/);
+  assert.match(read('index.html'), /command-palette\.js\?v=21/);
 });
 
 test('the collapse button is reachable, not buried under the resize handle', () => {
@@ -287,7 +302,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=469/);
+  assert.match(read('index.html'), /styles\.css\?v=503/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -462,9 +477,9 @@ test('the collapsed rail is complete, and nothing it owns is stranded, leaked or
   const src = read('js/components/sidebar.js');
   const css = read('css/styles.css');
 
-  // Desktop opens expanded: the shell window is 1200px, so a width-derived
-  // default put every fresh profile into the icon rail.
-  assert.match(src, /this\.collapsed = savedCollapsed !== null \? savedCollapsed === 'true' : false;/);
+  // Owner decision (6.1): every app load opens with the icon rail collapsed;
+  // a toggle holds for the rest of the session. Never width-derived.
+  assert.match(src, /if \(!Sidebar\._railDefaultApplied\) \{\s*Sidebar\._railDefaultApplied = true;\s*this\.collapsed = true;/);
   assert.doesNotMatch(src, /window\.innerWidth < 1280/);
   assert.match(src, /if \(window\.innerWidth <= 768\) this\.collapsed = false;/);
 
@@ -610,7 +625,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=183/);
+  assert.match(read('index.html'), /sidebar\.js\?v=214/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
@@ -670,7 +685,21 @@ test('every page id dropped from the Visibility menu still resolves to a nav ite
     assert.match(app, new RegExp(`^\\s+'?${id}'?:\\s`, 'm'), `${id} is routed in app.js`);
   }
   const agentRuns = items.find(i => i.id === 'agent-runs');
+  // Tabs only: Observability has no left-nav views, and its aliases light the row.
   assert.equal(agentRuns.views, undefined);
+  for (const id of ['agent-runs', 'live-grid', 'run-health', 'agent-map', 'agent-timeline', 'replay', 'storylines', 'agent-activity']) {
+    assert.ok(reach(agentRuns).includes(id), `${id} lights Observability`);
+  }
+  // waiting-approvals badge sits on the Observability row and the Live grid tab
+  assert.equal(agentRuns.liveWaiting, true);
+  assert.match(src, /if \(item\.liveWaiting\) \{[\s\S]*?wait\.dataset\.liveWaiting = '1';[\s\S]*?navItem\.appendChild\(wait\);/);
+  const tabs = read('js/components/obs-tabs.js');
+  assert.match(tabs, /if \(t\.page === 'live-grid'\) \{[\s\S]*?wait\.dataset\.liveWaiting = '1';/);
+  for (const page of ['agent-runs', 'live-grid', 'run-health', 'agent-map']) {
+    assert.ok(tabs.includes(`page: '${page}'`), `${page} tab stays`);
+  }
+  assert.ok(tabs.includes("label: 'Map'"), 'Map tab stays');
+  assert.match(app, /'live-grid':\s/);
   const threats = items.find(i => i.id === 'threats');
   assert.deepStrictEqual(threats.views.map(v => v.id), ['threats', 'blocked-ledger', 'redactions']);
   // nothing becomes unreachable from the command palette
@@ -682,4 +711,11 @@ test('every page id dropped from the Visibility menu still resolves to a nav ite
   const th = read('js/pages/threats.js');
   assert.match(th, /auditBtn\.textContent = 'Audit past sessions'/);
   assert.match(th, /Sidebar\.navigate\('instant-audit'\)/);
+});
+
+test('Detection & Response: the edge bar follows the lit section row, not the parent', () => {
+  const src = read('js/components/sidebar.js');
+  assert.match(src, /rows\.find\(r => r\.classList\.contains\('nav-dr-section'\)\)\s*\|\| rows\.find\(r => !r\.classList\.contains\('nav-view'\)\)/);
+  // Lighting a section moves the bar on the next frame.
+  assert.match(src, /r\.removeAttribute\('aria-current'\);\s*\}\);\s*\/\/ The edge bar follows the lit section\.\s*if \(this\._indicator && typeof requestAnimationFrame === 'function'\) requestAnimationFrame\(\(\) => this\._moveIndicator\(false\)\);/);
 });

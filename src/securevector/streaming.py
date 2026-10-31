@@ -66,12 +66,10 @@ class StreamProcessor(Protocol):
     @abstractmethod
     def process_chunk(self, chunk: StreamChunk) -> AnalysisResult:
         """Process a single chunk"""
-        ...
 
     @abstractmethod
     async def process_chunk_async(self, chunk: StreamChunk) -> AnalysisResult:
         """Process a single chunk asynchronously"""
-        ...
 
 
 class StreamingAnalyzer:

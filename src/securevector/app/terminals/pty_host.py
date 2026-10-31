@@ -1,7 +1,7 @@
 """PtyHost: the one seam between Agent Terminals and process ownership.
 
 Phase 1 (6.0.0) owns the PTY inside the app process (``InProcessPtyHost``).
-The 6.0.1 daemon implements the same Protocol over a unix socket; nothing
+A later daemon implements the same Protocol over a unix socket; nothing
 above this module may depend on ptyprocess or threads.
 """
 
@@ -70,6 +70,7 @@ class Subscriber:
                 self.queue.get_nowait()
                 self.dropped += 1
             except asyncio.QueueEmpty:
+                # the queue is already drained
                 pass
         self.queue.put_nowait(chunk)
 
@@ -83,15 +84,15 @@ class Subscriber:
 class PtyHost(Protocol):
     def spawn(
         self, task_id: str, launch: Launch, rows: int, cols: int, on_exit: OnExit
-    ) -> PtyInfo: ...
-    def write(self, task_id: str, data: bytes) -> None: ...
-    def resize(self, task_id: str, rows: int, cols: int) -> None: ...
-    def attach(self, task_id: str, loop: asyncio.AbstractEventLoop) -> tuple[bytes, Subscriber]: ...
-    def detach(self, task_id: str, sub: Subscriber) -> None: ...
-    def stop(self, task_id: str, grace: float = 3.0) -> None: ...
-    def snapshot(self, task_id: str) -> bytes: ...
-    def list(self) -> list[PtyInfo]: ...
-    def forget(self, task_id: str, grace: float = 3.0) -> None: ...
+    ) -> PtyInfo: pass
+    def write(self, task_id: str, data: bytes) -> None: pass
+    def resize(self, task_id: str, rows: int, cols: int) -> None: pass
+    def attach(self, task_id: str, loop: asyncio.AbstractEventLoop) -> tuple[bytes, Subscriber]: pass
+    def detach(self, task_id: str, sub: Subscriber) -> None: pass
+    def stop(self, task_id: str, grace: float = 3.0) -> None: pass
+    def snapshot(self, task_id: str) -> bytes: pass
+    def list(self) -> list[PtyInfo]: pass
+    def forget(self, task_id: str, grace: float = 3.0) -> None: pass
 
 
 @dataclass
@@ -268,10 +269,24 @@ class InProcessPtyHost:
             return
         self._signal_group(proc, signal.SIGTERM)
         deadline = time.monotonic() + grace
-        while time.monotonic() < deadline and proc.isalive():
+        # Wait for the whole group, not just the harness: a child that
+        # ignores SIGTERM (a shell tool, a background server) must not
+        # outlive a Stop because the harness itself exited in time.
+        while time.monotonic() < deadline and (proc.isalive() or self._group_alive(proc.pid)):
             time.sleep(0.05)
-        if proc.isalive():
+        if proc.isalive() or self._group_alive(proc.pid):
             self._signal_group(proc, signal.SIGKILL)
+
+    @staticmethod
+    def _group_alive(pgid: int) -> bool:
+        """True while any process is left in the task's process group. A
+        child that starts its own session (setsid) leaves the group and is
+        not reached by a group signal."""
+        try:
+            os.killpg(pgid, 0)
+        except OSError:
+            return False
+        return True
 
     def stop(self, task_id: str, grace: float = 3.0) -> None:
         session = self._get(task_id)
@@ -339,6 +354,7 @@ class WinConPTYHost(InProcessPtyHost):
         try:
             proc.wait()
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
         code = proc.exitstatus
         with session.lock:
@@ -351,19 +367,25 @@ class WinConPTYHost(InProcessPtyHost):
         session = self._get(task_id)
         if session.alive:
             try: session.proc.write(data.decode("utf-8", "replace"))
-            except Exception: pass
+            except Exception:
+                # best effort: a failure here must not interrupt the caller
+                pass
 
     def resize(self, task_id: str, rows: int, cols: int) -> None:
         session = self._get(task_id)
         if session.alive:
             try: session.proc.setwinsize(max(2, rows), max(2, cols))
-            except Exception: pass
+            except Exception:
+                # best effort: a failure here must not interrupt the caller
+                pass
 
     def _terminate(self, session: _Session, grace: float) -> None:
         if not session.alive:
             return
         try: session.proc.terminate(force=False)
-        except Exception: pass
+        except Exception:
+            # best effort: a failure here must not interrupt the caller
+            pass
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline and session.proc.isalive():
             time.sleep(.05)

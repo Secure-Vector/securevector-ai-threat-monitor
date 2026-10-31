@@ -5,15 +5,20 @@ Starts LLM proxy that captures ALL LLM traffic (TUI, Telegram, API, etc.).
 
 import asyncio
 import logging
+import re
 import socket
 import subprocess
 import sys
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
+
+# Integration names are short labels such as "openclaw" or "proxy-langchain".
+_INTEGRATION_NAME_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 
 router = APIRouter(prefix="/proxy", tags=["Proxy"])
 
@@ -26,6 +31,16 @@ _started_with_openclaw: bool = False  # Set when proxy is started with --opencla
 
 # Supported providers
 PROVIDERS = ["openai", "anthropic", "groq", "deepseek", "mistral", "xai", "gemini", "together", "cohere", "cerebras", "moonshot", "minimax"]
+
+# Fixed tables for proxy subprocess arguments. The command line only ever
+# carries values taken from these tables, never the request text itself.
+_PROVIDER_ARGS = {name: name for name in PROVIDERS}
+_KNOWN_INTEGRATIONS = (
+    "antigravity", "claude", "claude-code", "codex", "copilot", "copilot-cli", "crewai", "cursor",
+    "hermes", "langchain", "langgraph", "n8n", "node", "ollama", "openclaw",
+    "opencode", "python",
+)
+_INTEGRATION_ARGS = {name: name for name in _KNOWN_INTEGRATIONS}
 
 
 def _get_proxy_port() -> int:
@@ -190,11 +205,14 @@ async def start_proxy(request: StartProxyRequest = None):
     """Start the LLM proxy that captures ALL LLM traffic."""
     global _llm_proxy_process, _current_provider, _current_integration, _multi_mode, _started_with_openclaw
 
-    provider = request.provider if request else "openai"
+    provider = _PROVIDER_ARGS.get(request.provider if request else "openai", "openai")
     multi = request.multi if request else False
     integration = request.integration if request else None
-    if provider not in PROVIDERS:
-        provider = "openai"
+    if integration is not None and not _INTEGRATION_NAME_RE.fullmatch(str(integration)):
+        return {"status": "error", "message": "Invalid integration name"}
+    # Value passed to the subprocess: a known name from the fixed table, or
+    # None for names outside it (the proxy then runs unattributed).
+    integration_arg = _INTEGRATION_ARGS.get(integration) if integration else None
 
     # Check if already running
     if _llm_proxy_process is not None and _llm_proxy_process.poll() is None:
@@ -242,8 +260,8 @@ async def start_proxy(request: StartProxyRequest = None):
                 cmd.extend(["--provider", provider])
             # Stamp runtime_kind so Tool Inventory rows are attributable
             # to the right harness (langchain / langgraph / n8n / etc.).
-            if integration:
-                cmd.extend(["--integration", integration])
+            if integration_arg:
+                cmd.extend(["--integration", integration_arg])
 
         # Start LLM proxy
         _llm_proxy_process = subprocess.Popen(cmd)
@@ -258,7 +276,7 @@ async def start_proxy(request: StartProxyRequest = None):
             _started_with_openclaw = (integration == "openclaw")
             mode_str = "multi-provider" if multi else provider
             integration_str = f" for {integration}" if integration else ""
-            logger.info(f"LLM proxy started on port {proxy_port} ({mode_str}){integration_str}")
+            logger.info(f"LLM proxy started on port {proxy_port} ({log_safe(mode_str)}){log_safe(integration_str)}")
             return {
                 "status": "started",
                 "message": f"Proxy started ({mode_str}) on port {proxy_port}",
@@ -283,6 +301,14 @@ def set_openclaw_mode(enabled: bool):
 
 
 @router.post("/stop")
+async def stop_proxy_route(http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
+    """Stop the LLM proxy: a person in the app, with the UI token."""
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
+    return await stop_proxy()
+
+
 async def stop_proxy():
     """Stop the LLM proxy and revert pi-ai files if started with --openclaw."""
     global _llm_proxy_process, _current_integration, _started_with_openclaw
@@ -328,8 +354,12 @@ async def stop_proxy():
 
 
 @router.post("/revert")
-async def revert_proxy():
+async def revert_proxy(http_request: Request = None, x_sv_ui_token: Optional[str] = Header(None)):
     """Revert pi-ai files to original state (remove SecureVector proxy patches)."""
+    # Changes what agents may do or what was recorded: a person in the app.
+    from securevector.app.services import decisions
+
+    await decisions.require_person(http_request, x_sv_ui_token)
     try:
         from securevector.app.main import revert_proxy as do_revert
 

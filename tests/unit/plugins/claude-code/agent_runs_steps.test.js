@@ -359,3 +359,71 @@ test('trace masthead and PDF count tool blocks plus egress denies once', () => {
   const src = read('js/pages/agent-runs.js');
   assert.match(src, /this\._blockedTotal\(trace\)\s*\? stat\(/);
 });
+
+// Live refresh: an open full timeline, or a click that just landed in the
+// detail, makes the detail busy so the live tick offers the pill instead.
+test('detail is busy while the full timeline is open', () => {
+  const { P, els } = loadPage();
+  els['ar-detail'] = { querySelector: () => null, contains: () => false };
+  els['ar-timeline'] = { hidden: true };
+  assert.strictEqual(P._detailBusy(), false, 'collapsed timeline, no click: not busy');
+  els['ar-timeline'].hidden = false;
+  assert.strictEqual(P._detailBusy(), true);
+});
+
+test('detail is busy within 1.5 s of a click inside it, and not after', () => {
+  const { P, els } = loadPage();
+  els['ar-detail'] = { querySelector: () => null, contains: () => false };
+  els['ar-timeline'] = { hidden: true };
+  P._detailPointerAt = Date.now() - 200;
+  assert.strictEqual(P._detailBusy(), true);
+  P._detailPointerAt = Date.now() - 1600;
+  assert.strictEqual(P._detailBusy(), false);
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /addEventListener\('pointerdown', \(\) => \{ this\._detailPointerAt = Date\.now\(\); \}, true\)/);
+});
+
+test('a rebuild keeps the timeline open when it was open, even if the choice could not be saved', () => {
+  const { P, els, toggle } = loadPage({ throwStorage: true });
+  els['ar-timeline'] = { hidden: true };
+  els['ar-steps'] = makeBox();
+  P._trace = sampleTrace();
+  P._setTimeline(true, { persist: true });
+  assert.strictEqual(P._timelineIsOpen('tr-1'), true, 'renderWaterfall reads this on rebuild');
+  els['ar-timeline'] = { hidden: true }; // a rebuild makes a new node
+  P._timelineSync(P._timelineIsOpen('tr-1'));
+  assert.strictEqual(els['ar-timeline'].hidden, false);
+  assert.strictEqual(toggle.textContent, 'Hide full timeline ▴');
+  P._setTimeline(false, { persist: true });
+  assert.strictEqual(P._timelineIsOpen('tr-1'), false);
+  assert.strictEqual(P._timelineIsOpen('tr-2'), false, 'another trace falls back to the saved choice');
+});
+
+const HASH = 'ab12cd34ef56'.padEnd(64, '9');
+
+test('open span detail shows the short span hash with a copy button for the full value', () => {
+  const { P } = loadPage();
+  const html = P._spanDetail({ tool_id: 'Bash', function_name: 'Bash', row_hash: HASH, called_at: at(0) }, false);
+  assert.match(html, /<div class="ar-span-hash ar-det-dim">span <code[^>]*>ab12cd34ef56…<\/code>/);
+  assert.match(html, new RegExp(`<button type="button" class="ar-copy" data-copy="${HASH}" title="Copy span id">copy</button>`));
+  assert.doesNotMatch(P._spanDetail({ tool_id: 'Bash' }, false), /ar-span-hash/, 'no hash, no line');
+  assert.doesNotMatch(P._spanHashLine({ row_hash: HASH }), /—/);
+});
+
+test('filtering by the full span hash shows only that run; placeholder names span', () => {
+  const { P, els } = loadPage();
+  const mk = (s) => ({ dataset: { search: P._searchText(s) }, cls: new Set(), classList: { toggle(c, on) { on ? this.o.cls.add(c) : this.o.cls.delete(c); } } });
+  const rows = [
+    mk(call('Bash', 0, { row_hash: HASH })),
+    mk(call('Bash', 10, { row_hash: 'f'.repeat(64) })),
+    mk(gen('g1', 20, 5, { model: 'claude' })),
+  ];
+  rows.forEach(r => { r.classList.o = r; });
+  els['ar-detail'] = { querySelectorAll: () => rows, querySelector: () => null };
+  P.runSearch = HASH;
+  P._applySearch();
+  assert.deepStrictEqual(rows.map(r => r.cls.has('ar-search-hidden')), [false, true, true]);
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /search\.placeholder = 'Filter runs: tool, model, reason, span…';/);
+  assert.match(src, /if \(s\.row_hash\) span\.dataset\.rowHash = String\(s\.row_hash\);/);
+});

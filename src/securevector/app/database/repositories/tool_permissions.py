@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional
 
 from securevector.app.database.connection import DatabaseConnection
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ class ToolPermissionsRepository:
             """,
             (tool_id, action, runtime_kind, now, action, runtime_kind, now),
         )
-        # Strip CR/LF from user-provided values before logging (log-injection guard).
+        # Strip CR/LF from user-provided values before logging so each entry stays on one line.
         _s_tool = str(tool_id).replace("\n", " ").replace("\r", " ")
         _s_action = str(action).replace("\n", " ").replace("\r", " ")
         _s_rk = str(runtime_kind or "all").replace("\n", " ").replace("\r", " ")
@@ -94,7 +95,7 @@ class ToolPermissionsRepository:
             "DELETE FROM tool_essential_overrides WHERE tool_id = ?",
             (tool_id,),
         )
-        logger.info(f"Deleted tool override: {tool_id}")
+        logger.info(f"Deleted tool override: {log_safe(tool_id)}")
         return True
 
     async def upsert_rate_limit(

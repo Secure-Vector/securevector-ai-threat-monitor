@@ -22,8 +22,10 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Tuple
 
@@ -31,6 +33,8 @@ from securevector.app.terminals.executors import EXECUTORS, UnknownExecutor, bui
 from securevector.app.terminals.pty_host import PtyHost, Subscriber
 from securevector.app.terminals.session_cwd import resolve_session_cwd, session_last_write
 from securevector.app.terminals import live_runs
+from securevector.app.terminals import worktree as worktrees
+from securevector.app.services import session_drift
 from securevector.app.terminals.store import (
     RUNNING,
     SESSION_RELINKED,
@@ -38,8 +42,10 @@ from securevector.app.terminals.store import (
     _plausible_cwd,
     age_seconds,
     cwd_from_preview,
+    ended_by_marker,
 )
 from securevector.app.utils.redaction import redact_secrets
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +53,35 @@ logger = logging.getLogger(__name__)
 # shell-style 128+N from a harness that traps it, or -N from the PTY host when
 # the signal killed it. SIGHUP covers the PTY closing, SIGKILL the host's
 # escalation after its grace period.
+# How far a harness's start may sit from its task row's created_at for the
+# startup reaper to treat the pid as that task's (spawn and the row write
+# happen moments apart).
+_REAP_START_WINDOW_S = 120
+
+
+def _process_start(pid: int) -> Optional[float]:
+    """Epoch seconds a process started, from ps, or None."""
+    try:
+        text = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True,
+                              text=True, timeout=2, env={**os.environ, "LC_ALL": "C"}).stdout.strip()
+        return time.mktime(time.strptime(" ".join(text.split()), "%a %b %d %H:%M:%S %Y"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _started_near(pid: int, created_at: Optional[str]) -> bool:
+    if not created_at:
+        return False
+    try:
+        created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    started = _process_start(pid)
+    return started is not None and abs(started - created.timestamp()) <= _REAP_START_WINDOW_S
+
+
 def _stop_signal_exits(sig_module=signal) -> frozenset:
     # getattr: Windows has no SIGHUP or SIGKILL, and importing must not fail there.
     sigs = (getattr(sig_module, n, None) for n in ("SIGHUP", "SIGINT", "SIGKILL", "SIGTERM"))
@@ -87,6 +122,21 @@ GUARD_HEARTBEAT_SECONDS = 300
 UNKNOWN_WORKSPACE = "(unknown folder)"
 
 
+# terminal_events.kind on a linked task whose folder came only from an audit
+# preview (the agent's own report, possibly a tool argument), so it is shown
+# as reported and never used to resume until a person names the folder.
+FOLDER_REPORTED = "folder_reported"
+# Linked harnesses whose folder this app can only scrape from audit previews.
+FOLDER_FROM_PREVIEW_ONLY = frozenset({"govrun", "hermes", "openclaw"})
+
+
+# A board read refreshes a stopped task's worktree counts at most this often.
+WORKTREE_REFRESH_S = 10.0
+
+
+# Overall cap on one heartbeat tick's detection and response reads.
+HEARTBEAT_ADR_BUDGET_SECONDS = 3.0
+
 class GuardHooksMissing(RuntimeError):
     """Kept for the routes/tests import surface. A missing Guard no longer
     refuses a launch: the task runs ungoverned and says so, so nothing raises
@@ -95,6 +145,37 @@ class GuardHooksMissing(RuntimeError):
 
 class SessionAlreadyLinked(RuntimeError):
     """This harness session already has a live task on the board."""
+
+
+# Delegated prompt delivery: how often the child's screen is looked at,
+# how long a dialog waiting for the person may hold the prompt, and what
+# counts as a drawn, still screen for a harness with no ready hook.
+PROMPT_POLL_S = 0.25
+WAITING_TIMEOUT_S = 600.0
+QUIET_MIN_BYTES = 2048
+QUIET_SECONDS = 1.5
+# A delegated child of a ready-hook harness whose screen has settled at its
+# input with no SessionStart this long after: its Guard is not running there,
+# so the delegation ends and nothing is typed.
+HOOKS_SILENT_S = 20.0
+# After a delegated prompt is delivered, or a launched session's first line
+# is submitted, its Guard should report a hook (SessionStart,
+# UserPromptSubmit or PreToolUse) within this many seconds.
+GUARD_REPORT_S = 30.0
+# A harness whose Guard reports only once a message is submitted (OpenCode's
+# session.created) reports within a few seconds of a paste it took. No hook
+# this long after a quiet paste: the prompt is sent once more, and the Guard
+# check runs its full GUARD_REPORT_S from that second send.
+PROMPT_RESUBMIT_S = 10.0
+# More output than this after the paste means the session is working, so it
+# is never sent a second time.
+RESUBMIT_BUSY_BYTES = 8192
+# Full-screen resets: screen bytes before the last one are no longer shown.
+_SCREEN_RESETS = (b"\x1b[2J", b"\x1b[?1049h", b"\x1bc")
+
+
+class FolderOutOfScope(RuntimeError):
+    """A delegated launch whose folder no longer passes its scope check."""
 
 
 class NotLinkable(RuntimeError):
@@ -113,6 +194,9 @@ class ManagerSettings:
     parent_env: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))
     default_rows: int = 30
     default_cols: int = 120
+    # Agent Config Trust setup checks at start, on SessionStart and at exit.
+    # Off unless the app turns it on, so a bare manager never scans a home.
+    config_trust: bool = False
 
 
 def status_from_hook(event: Mapping) -> Tuple[Optional[str], Optional[str]]:
@@ -179,6 +263,31 @@ class TerminalManager:
         # current status does not send a second event for it.
         self._live_status: dict = {}
         self._heartbeat: Optional["asyncio.Task"] = None
+        # Delegation: a prompt waiting for its child's first SessionStart or
+        # idle hook (task_id -> text), the fallback timers that deliver it
+        # anyway, and the child task ids this process launched by delegation.
+        self._pending_prompts: dict = {}
+        self._prompt_timers: dict = {}
+        self._delegated: set = set()
+        # Delegated tasks whose ready hook arrived while a dialog waiting for
+        # the person was on screen; their prompt goes once it is answered.
+        self._hook_seen: set = set()
+        # Tasks whose Guard sent no hook after their first prompt: task id
+        # -> the card warning. Cleared by the next hook event.
+        self._guard_silent: dict = {}
+        # Delegated prompts that may be sent once more if their paste brings
+        # no hook (executors with prompt_resubmit): task id -> text.
+        self._resubmit: dict = {}
+        self._input_checked: set = set()
+        # Worktree claims: task id -> worktree root it runs in, taken under
+        # _wt_lock at spawn and checked by removal under the same lock, so a
+        # relaunch or delegation cannot start in a worktree being removed.
+        self._wt_claims: dict = {}
+        self._wt_lock: Optional[asyncio.Lock] = None
+        # Last fresh count read per task (monotonic seconds), for GET reads.
+        self._wt_refreshed: dict = {}
+        self._wt_refresh_sem: Optional[asyncio.Semaphore] = None
+        worktrees.configure(settings.data_dir)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -204,8 +313,29 @@ class TerminalManager:
             # _reap does blocking os.kill / subprocess.run(timeout=2); keep it
             # off the event loop.
             await loop.run_in_executor(None, self._reap, task)
+        await self._sweep_worktrees(loop)
         if live_runs.has_sink():
             self.start_heartbeat()
+
+    async def _sweep_worktrees(self, loop: asyncio.AbstractEventLoop) -> None:
+        """A worktree left 'active' by a process that is gone is kept, never
+        deleted. Paths are registered for source_for, and git's bookkeeping
+        is pruned only in repositories that have a removed task worktree."""
+        try:
+            await self.store.mark_active_worktrees_kept()
+            for row in await self.store.worktree_tasks((worktrees.ACTIVE, worktrees.KEPT)):
+                paths = self._worktree_paths(row)
+                if paths is not None:
+                    worktrees.register(*paths)
+            sources = set()
+            for row in await self.store.worktree_tasks((worktrees.REMOVED,)):
+                paths = self._worktree_paths(row)
+                if paths is not None:
+                    sources.add(paths[1])
+            for source_root in sources:
+                await loop.run_in_executor(None, worktrees.prune, source_root)
+        except Exception:
+            logger.warning("worktree startup sweep failed", exc_info=True)
 
     # -- Live Runs heartbeat --------------------------------------------------
 
@@ -227,6 +357,7 @@ class TerminalManager:
         try:
             await handle
         except asyncio.CancelledError:
+            # the task was cancelled during shutdown; nothing left to do
             pass
 
     async def _heartbeat_loop(self, period: float) -> None:
@@ -244,14 +375,44 @@ class TerminalManager:
             # pays one small read a minute and schedules nothing.
             if not await live_runs.fleet_enrolled():
                 continue
-            for task_id in list(self._running):
-                try:
-                    task = await self.store.get_task(task_id)
-                except Exception:
-                    logger.debug("heartbeat read failed for %s", task_id, exc_info=True)
-                    continue
-                if task is not None and task.get("archived_at") is None:
-                    live_runs.emit_nowait(task, "heartbeat")
+            await self._heartbeat_tick()
+
+    async def _heartbeat_tick(self) -> None:
+        """One beat for every running task. The metadata reads run
+        concurrently, each capped by the collector and all of them by
+        HEARTBEAT_ADR_BUDGET_SECONDS; a task that misses the budget beats
+        without the fields. Never raises."""
+        stamp = datetime.now(timezone.utc)
+        # Device-wide, so read once per tick rather than once per task.
+        mods = await live_runs.unmanaged_mod_count(self.store.db)
+
+        async def one(task_id: str):
+            try:
+                task = await self.store.get_task(task_id)
+            except Exception:
+                logger.debug("heartbeat read failed for %s", task_id, exc_info=True)
+                return None
+            if task is None or task.get("archived_at") is not None:
+                return None
+            box["tasks"][task_id] = task
+            box["adr"][task_id] = await live_runs.collect_adr(task, self.store.db, mods_unmanaged=mods)
+            return task_id
+
+        box: dict = {"tasks": {}, "adr": {}}
+        ids = list(self._running)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(one(t) for t in ids), return_exceptions=True),
+                HEARTBEAT_ADR_BUDGET_SECONDS,
+            )
+        except Exception:
+            logger.debug("heartbeat metadata budget exceeded", exc_info=True)
+        if not live_runs.has_sink():
+            return
+        for task_id in ids:
+            task = box["tasks"].get(task_id)
+            if task is not None:
+                live_runs.emit_nowait(task, "heartbeat", adr=box["adr"].get(task_id, {}), now=stamp)
 
     def _reap(self, task: Mapping) -> None:
         """Startup reaper. Only signals a pid that is alive AND still runs the
@@ -274,11 +435,29 @@ class TerminalManager:
             return
         if os.path.basename(comm) != executor.binary:
             return
+        # A process that did not start when the task did is a later process
+        # on a reused pid: leave it alone.
+        if not _started_near(pid, task.get("created_at")):
+            logger.info("Startup reaper left pid %s alone: it is not task %s", pid, task.get("id"))
+            return
         try:
-            os.kill(pid, signal.SIGTERM)
+            # The harness was spawned as its own group leader: signal the
+            # group so its children go too, unless it is this app's own group.
+            if os.getpgid(pid) == pid and pid != os.getpgrp():
+                os.killpg(pid, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
             logger.info("Reaped orphaned task %s (pid %s)", task["id"], pid)
         except OSError:
+            # best effort: an unreadable file is not an error here
             pass
+
+    # Executors whose Guard can relay a launched task's hook events. The rest
+    # (GovRun, Hermes, OpenClaw) have no gate below: a launch of one is
+    # ungoverned whatever their Guard's install state, because a gate that
+    # opened on "plugin installed" would mark a task governed that no hook
+    # ever reaches, and its card would then read as a silent Guard.
+    _RELAY_GATED = frozenset({"claude-code", "codex", "copilot-cli", "opencode"})
 
     def _guard_gate(self, executor_id: str) -> Tuple[Callable[[], bool], str]:
         """The per-executor "its Guard plugin relays hook events" predicate.
@@ -325,6 +504,16 @@ class TerminalManager:
                 governed = bool(gate())
             if not installed:
                 hint = f"Install {executor.label} to launch tasks with it."
+            elif not governed and executor.id not in self._RELAY_GATED:
+                # GovRun, Hermes and OpenClaw: their Guard writes the audit
+                # trail, but nothing relays this app's per-task hook events,
+                # so "install the Guard" would be advice that cannot help.
+                hint = (
+                    f"Tasks launched here show as ungoverned: the {executor.label} "
+                    "Guard records tool calls but does not report to a task the "
+                    "app started. Sessions it reports can be linked from "
+                    "Running outside SecureVector."
+                )
             elif not governed:
                 # "Enable or reinstall": an upgraded-but-not-restaged plugin
                 # reads as enabled yet carries no relay, so "enable" alone
@@ -345,10 +534,23 @@ class TerminalManager:
                     # A harness without a resume-by-id flag never gets the
                     # offer, so the client does not hard-code harness ids.
                     "supports_resume": bool(executor.resume_argv),
+                    # False when no Guard can relay a launched task's hooks,
+                    # so the UI offers no Guard install that could not help.
+                    "guard_relay": executor.id in self._RELAY_GATED,
                     "hint": hint,
                 }
             )
         return rows
+
+    def would_be_governed(self, executor_id: str) -> bool:
+        """The same governed/ungoverned decision spawn makes for a launch of
+        this executor."""
+        if executor_id not in EXECUTORS:
+            return False
+        if executor_id == "claude-code":
+            return True
+        gate, _label = self._guard_gate(executor_id)
+        return bool(gate())
 
     def ungoverned_ids(self) -> set:
         """Task ids that were launched without their Guard plugin relaying."""
@@ -370,6 +572,11 @@ class TerminalManager:
         title: Optional[str],
         origin: str,
         resume_session_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        folder_check: Optional[Callable[[str], bool]] = None,
+        initial_prompt: Optional[str] = None,
+        worktree: bool = False,
+        from_task_id: Optional[str] = None,
     ) -> dict:
         """Start a governed task. With `resume_session_id` the harness reopens
         that conversation instead of starting a fresh one, which is the only
@@ -396,6 +603,30 @@ class TerminalManager:
             # as the value at all and would be parsed as a flag of its own.
             if resume_session_id.startswith("-"):
                 raise ValueError("Session id must not start with a dash.")
+            # A folder scraped from an audit preview may be a tool argument,
+            # not where the session runs. It is never used as a launch folder
+            # until a person names it: relinking with an explicit folder does.
+            linked = await self.store.task_for_session(resume_session_id)
+            if linked is not None and await self.store.tasks_with_event(
+                FOLDER_REPORTED, [linked["id"]]
+            ):
+                raise ValueError(
+                    "This session's folder was reported by the agent, not confirmed. "
+                    "Unlink it, then link it again with its folder: sv-monitor session link "
+                    f"{linked.get('executor_id')} <session> --folder <path>"
+                )
+            # A resumed delegated session stays a child of its parent.
+            if parent_task_id is None:
+                parent_task_id = await self.store.parent_for_session(resume_session_id)
+        # A relaunch of a row whose folder only the agent reported would start
+        # a harness in a folder no person named, the same hazard as resume.
+        if from_task_id and await self.store.tasks_with_event(FOLDER_REPORTED, [from_task_id]):
+            prior = await self.store.get_task(from_task_id)
+            raise ValueError(
+                "This session's folder was reported by the agent, not confirmed. "
+                "Unlink it, then link it again with its folder: sv-monitor session link "
+                f"{(prior or {}).get('executor_id')} <session> --folder <path>"
+            )
         # A launch is never refused for a missing Guard. It runs ungoverned,
         # writes a guard_missing event, and the session carries a banner until
         # the Guard reports in.
@@ -439,7 +670,37 @@ class TerminalManager:
             parent_env=self.settings.parent_env,
             plugin_dir=inject,
             resume_session_id=resume_session_id,
+            initial_prompt=initial_prompt,
         ))
+        # Worktree isolation: the process runs in the worktree, every record
+        # keeps the source folder. A relaunch or resume reuses the earlier
+        # task's worktree when it still exists.
+        source_cwd = str(launch.cwd)
+        created_wt: Optional[worktrees.Created] = None
+        child_dir: Optional[str] = None
+        async with self._worktree_lock():
+            reused = await self._reusable_worktree(from_task_id, resume_session_id, source_cwd)
+            if parent_task_id is not None and reused is None and not worktree:
+                # A child of a worktree task runs in the parent's worktree, never
+                # in the person's source folder. Refused when that worktree is gone.
+                parent_row = await self.store.get_task(parent_task_id)
+                child_dir = self.child_run_dir(parent_row, source_cwd)
+                if child_dir is not None:
+                    self._wt_claims[task_id] = self._worktree_paths(parent_row)[0]
+            if reused is not None:
+                self._wt_claims[task_id] = reused["_root"]
+        if reused is None and worktree:
+            created_wt = await asyncio.get_running_loop().run_in_executor(
+                None, worktrees.create, source_cwd, task_dir, task_id
+            )
+        if created_wt is not None:
+            self._wt_claims[task_id] = os.path.realpath(created_wt.root)
+        if reused is not None:
+            launch = replace(launch, cwd=reused["run_dir"])
+        elif created_wt is not None:
+            launch = replace(launch, cwd=created_wt.run_dir)
+        elif child_dir is not None:
+            launch = replace(launch, cwd=child_dir)
         self._hook_tokens[task_id] = hook_token
         # The store row is created BEFORE host.spawn() runs, with pid=None.
         # InProcessPtyHost's reader thread can call on_exit almost as soon as
@@ -451,13 +712,46 @@ class TerminalManager:
         # harmless: _on_exit always finds a row to update.
         created = False
         try:
-            await self.store.create_task(
-                task_id, executor_id=executor_id, workspace=str(launch.cwd), title=title, pid=None
-            )
+            if parent_task_id is not None:
+                await self.store.create_task(
+                    task_id, executor_id=executor_id, workspace=source_cwd, title=title, pid=None,
+                    parent_task_id=parent_task_id,
+                )
+                self._delegated.add(task_id)
+            else:
+                await self.store.create_task(
+                    task_id, executor_id=executor_id, workspace=source_cwd, title=title, pid=None
+                )
             created = True
+            if created_wt is not None:
+                await self.store.set_worktree(
+                    task_id, run_dir=created_wt.run_dir, branch=created_wt.branch,
+                    base=created_wt.base, state=worktrees.ACTIVE,
+                )
+            elif reused is not None:
+                await self.store.set_worktree(
+                    task_id, run_dir=reused["run_dir"], branch=reused["worktree_branch"],
+                    base=reused["worktree_base"], state=worktrees.ACTIVE,
+                )
+                await self.store.set_worktree_state(task_id, worktrees.ACTIVE)
+            elif child_dir is not None:
+                # Shown by the UI; no branch, so this row can never remove it.
+                await self.store.set_run_dir(task_id, child_dir)
+            # A delegated launch re-checks its folder scope right before the
+            # process starts, so the folder that runs is the folder approved.
+            if parent_task_id is not None and folder_check is not None and not folder_check(source_cwd):
+                raise FolderOutOfScope("The folder is no longer inside the approved scope.")
             # Also mark running before spawn, for the same reason: if on_exit
             # fires before this line would otherwise run, _on_exit's discard
             # must not be a no-op followed by a stale add.
+            if child_dir is not None:
+                # Re-checked right before the start: the path must still
+                # resolve to itself inside the parent's worktree.
+                claimed = self._wt_claims.get(task_id)
+                if (not claimed or os.path.realpath(child_dir) != child_dir
+                        or not worktrees.inside_real(child_dir, claimed)):
+                    raise worktrees.WorktreeError(
+                        "That folder leaves the requesting task's worktree through a link.")
             self._running.add(task_id)
             info = self.host.spawn(
                 task_id,
@@ -469,6 +763,16 @@ class TerminalManager:
         except Exception as exc:
             self._hook_tokens.pop(task_id, None)
             self._running.discard(task_id)
+            self._wt_claims.pop(task_id, None)
+            if created_wt is not None:
+                # Only what this spawn just created: its worktree and branch.
+                await asyncio.get_running_loop().run_in_executor(
+                    None, worktrees.discard, created_wt.source_root, created_wt.root, created_wt.branch
+                )
+                if created:
+                    await self.store.set_worktree_state(task_id, worktrees.REMOVED)
+            elif reused is not None and created:
+                await self.store.set_worktree_state(task_id, worktrees.KEPT)
             if created:
                 await self.store.set_exit(task_id, None)
             detail = redact_secrets(f"{type(exc).__name__}: {exc}", "outgoing")[0]
@@ -476,11 +780,31 @@ class TerminalManager:
             raise
         await self.store.update_pid(task_id, info.pid)
         await self.store.add_event(
-            task_id, kind="spawn", origin=origin, detail=f"{executor_id} in {launch.cwd}"
+            task_id, kind="spawn", origin=origin, detail=f"{executor_id} in {source_cwd}"
         )
+        if created_wt is not None:
+            copied = f"; copied {', '.join(created_wt.copied)}" if created_wt.copied else ""
+            await self.store.add_event(
+                task_id, kind="worktree", origin=origin,
+                detail=f"Running in worktree {created_wt.branch} from {created_wt.base[:12]}{copied}",
+            )
+        elif reused is not None:
+            await self.store.add_event(
+                task_id, kind="worktree", origin=origin,
+                detail=f"Reusing worktree {reused['worktree_branch']}",
+            )
+        if initial_prompt is not None:
+            import hashlib
+
+            data = initial_prompt.encode("utf-8")
+            await self.store.add_event(
+                task_id, kind="delegate_prompt", origin="delegate",
+                detail=f"sha256={hashlib.sha256(data).hexdigest()} length={len(data)} trigger=argv",
+            )
         task = await self.store.get_task(task_id)
         if task is None:
             raise RuntimeError(f"terminal task {task_id} vanished immediately after spawn")
+        self._config_check(task_id, executor_id, source_cwd, "start")
         # Metadata only, and never awaited on this path: a cloud that is slow
         # or gone must not hold up a local launch. No `detail` is passed, and
         # the emitter takes none: the audit detail above carries the working
@@ -502,6 +826,9 @@ class TerminalManager:
                 detail=(
                     f"Launched without the {EXECUTORS[executor_id].label} Guard plugin; "
                     "the task is ungoverned until it is installed"
+                    if executor_id in self._RELAY_GATED
+                    else f"Launched ungoverned: the {EXECUTORS[executor_id].label} "
+                    "Guard does not report to a task the app started"
                 ),
             )
         # A resume moves an existing harness session onto a PTY this host owns.
@@ -541,8 +868,57 @@ class TerminalManager:
         """Take a finished task off the board (the store keeps its audit)."""
         archived = await self.store.archive_task(task_id)
         if archived:
+            await self._close_approvals(task_id, "archived")
+            await self._revoke_host_grants(task_id)
             await self._emit_archived(task_id, origin=origin)
         return archived
+
+    async def _close_approvals(self, task_id: str, reason: str) -> None:
+        """Approvals still waiting for a stopped or removed task close as no
+        longer needed, for its current session and every earlier one."""
+        try:
+            from securevector.app.services import response_rungs
+
+            task = await self.store.get_task(task_id)
+            # A linked row can be archived while its session still runs:
+            # archiving stops nothing, so its approvals stay open.
+            if not task or task.get("status") in RUNNING:
+                return
+            sids = [task.get("session_id")] + await self.store.session_history(task_id)
+            closable = []
+            for sid in dict.fromkeys(s for s in sids if s):
+                # A resumed task shares the session id; while it runs, the
+                # session is live and its approvals are its own.
+                others = await self.store.tasks_claiming_session(sid, exclude_task_id=task_id)
+                if any(o.get("status") in RUNNING for o in others):
+                    continue
+                closable.append(sid)
+            if not closable:
+                return
+            await response_rungs.close_pending_for_task(
+                self.store.db, {**task, "session_id": closable[0]}, reason=reason,
+                extra_session_ids=closable[1:],
+            )
+        except Exception:
+            logger.debug("could not close approvals for an ended task", exc_info=True)
+
+    async def _revoke_host_grants(self, task_id: str) -> None:
+        """A task's egress host grants end with it: its current session and
+        every session it held before a re-link. Best effort; the 24h cap on
+        the grant rows remains the backstop."""
+        try:
+            from securevector.app.database.repositories.jit_access import (
+                JitAccessRepository,
+            )
+
+            task = await self.store.get_task(task_id)
+            sids = [task.get("session_id")] if task else []
+            sids += await self.store.session_history(task_id)
+            n = await JitAccessRepository(self.store.db).revoke_session_host_grants(sids)
+            if n:
+                logger.info("revoked %d egress host grant(s) for an ended task", n)
+        except Exception:
+            logger.debug("could not revoke host grants for an ended task", exc_info=True)
 
     async def _emit_archived(self, task_id: str, *, origin: str) -> None:
         self._live_status.pop(task_id, None)
@@ -564,6 +940,7 @@ class TerminalManager:
         workspace: Optional[str] = None,
         title: Optional[str] = None,
         origin: str = "ui",
+        folder_confirmed: bool = False,
     ) -> dict:
         """Put a harness session that runs outside the app on the board.
 
@@ -587,8 +964,19 @@ class TerminalManager:
             if existing is not None:
                 raise SessionAlreadyLinked("This session is already on the board.")
             folder = (workspace or "").strip()
+            reported = False
+            if executor_id in FOLDER_FROM_PREVIEW_ONLY and not folder_confirmed:
+                # These harnesses keep no transcript this app reads, so the
+                # only folder on offer is the audit preview scrape. A folder
+                # equal to it (the board pre-fills it) is still the agent's
+                # report, not a person's.
+                scraped = await self._resolve_linked_workspace(executor_id, session_id)
+                if not folder:
+                    folder = scraped
+                reported = scraped != UNKNOWN_WORKSPACE and folder == scraped
             if not folder:
                 folder = await self._resolve_linked_workspace(executor_id, session_id)
+            folder = worktrees.source_for(folder)
             task_id = uuid.uuid4().hex[:12]
             await self.store.create_task(
                 task_id,
@@ -608,6 +996,10 @@ class TerminalManager:
                 origin=origin,
                 detail=f"Linked {label} session {session_id}",
             )
+            if reported:
+                await self.store.add_event(
+                    task_id, kind=FOLDER_REPORTED, origin=origin, detail=folder
+                )
         task = await self.store.get_task(task_id)
         if task is None:
             raise RuntimeError(f"terminal task {task_id} vanished immediately after linking")
@@ -644,9 +1036,10 @@ class TerminalManager:
         """
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
+            found = await loop.run_in_executor(
                 None, resolve_session_cwd, executor_id, session_id
             )
+            return worktrees.source_for(found)
         except Exception:
             logger.debug("session cwd lookup failed for %s", str(session_id).replace("\n", " ").replace("\r", " "), exc_info=True)
             return None
@@ -732,7 +1125,7 @@ class TerminalManager:
                 "last_activity_at": task.get("last_activity_at"),
                 "ended_at": None,
             }
-        ended_by_session = bool(last_end) and (not last_call or str(last_end) >= str(last_call))
+        ended_by_session = ended_by_marker(last_end, last_call, (seen or {}).get("last_start"))
         age = age_seconds(last_any)
         if age is None:
             age = 0.0
@@ -863,25 +1256,72 @@ class TerminalManager:
 
     async def _on_exit(self, task_id: str, code: Optional[int]) -> None:
         self._running.discard(task_id)
+        self._wt_claims.pop(task_id, None)
+        self._wt_refreshed.pop(task_id, None)
         self._hook_tokens.pop(task_id, None)
         self._input_bytes.pop(task_id, None)
         # The audit trail is authoritative for finished tasks; the set is a cache.
         self._ungoverned.discard(task_id)
+        self._guard_silent.pop(task_id, None)
+        self._input_checked.discard(task_id)
         stop_requested = task_id in self._stop_requested
         self._stop_requested.discard(task_id)
+        self._pending_prompts.pop(task_id, None)
+        self._resubmit.pop(task_id, None)
+        self._hook_seen.discard(task_id)
+        timer = self._prompt_timers.pop(task_id, None)
+        if timer is not None:
+            timer.cancel()
+        # Detection and response metadata for the exit event is read before
+        # the task is marked ended (bounded by the collector's timeout), so
+        # nothing that follows the exit, such as an archive, can overtake it.
+        # The values reflect state at send time.
+        adr = None
+        # Stamped before the read, so an archive that lands meanwhile still
+        # carries the later emitted_at.
+        stamp = datetime.now(timezone.utc)
+        if live_runs.has_sink():
+            try:
+                adr = await live_runs.collect_adr(await self.store.get_task(task_id) or {}, self.store.db)
+            except Exception:
+                adr = None
         await self.store.set_exit(
             task_id, code, stopped=stop_requested and code in _STOP_SIGNAL_EXITS
         )
         await self.store.add_event(
             task_id, kind="exit", origin="process", detail=f"exit code {code}"
         )
-        self._live_status.pop(task_id, None)
         if live_runs.has_sink():
             try:
                 exited = await self.store.get_task(task_id)
             except Exception:
                 exited = None
-            live_runs.emit_nowait(exited, "exit", origin="process")
+            if exited is not None and exited.get("archived_at") is None:
+                live_runs.emit_nowait(exited, "exit", origin="process", adr=adr, now=stamp)
+        await self._close_approvals(task_id, "ended")
+        await self._revoke_host_grants(task_id)
+        # A parent that exits takes the tasks it delegated with it.
+        try:
+            await self._stop_children(task_id, origin="process")
+        except Exception:
+            logger.warning("stopping delegated tasks failed for %s", task_id)
+        # Score the session once at exit, in the background. Observe only: it
+        # writes a session_drift row and never touches this exit path.
+        session_drift.schedule_for_task(self.store.db, task_id)
+        if self.settings.config_trust:
+            exited_task = await self.store.get_task(task_id)
+            if exited_task:
+                self._config_check(task_id, exited_task.get("executor_id"), exited_task.get("workspace"),
+                                   "exit", exited_task.get("session_id"))
+        await self._worktree_ended(task_id)
+        self._live_status.pop(task_id, None)
+        self._notify_delegation(task_id)
+        try:
+            from securevector.app.services import delegation
+
+            delegation.forget_task(task_id)
+        except Exception:
+            logger.debug("delegation cleanup failed for %s", task_id, exc_info=True)
         # Bound how many finished sessions the host keeps alive: each one
         # holds a ring buffer up to the host's ring capacity, so an
         # unbounded backlog of finished tasks is a slow memory leak. The
@@ -900,7 +1340,7 @@ class TerminalManager:
             except Exception:
                 logger.debug("failed to forget retired task %s", old_id, exc_info=True)
 
-    async def stop(self, task_id: str, *, origin: str) -> None:
+    async def stop(self, task_id: str, *, origin: str, detail: Optional[str] = None) -> None:
         task = await self.store.get_task(task_id)
         if task is not None and task.get("origin") == "linked":
             # There is no process here to signal: the harness belongs to the
@@ -909,6 +1349,8 @@ class TerminalManager:
             raise NotLinkable("This session runs outside SecureVector")
         if task_id not in self._running:
             raise KeyError(task_id)
+        # A parent's stop also stops the tasks it delegated that still run.
+        await self._stop_children(task_id, origin=origin)
         # Audit the stop request before host.stop() runs: host.stop() can
         # trigger on_exit on the host's own thread, which races
         # run_coroutine_threadsafe against this coroutine's own next await.
@@ -917,7 +1359,7 @@ class TerminalManager:
         # Marked before any await, so an exit that races the audit write
         # below still reads as the user's stop.
         self._stop_requested.add(task_id)
-        await self.store.add_event(task_id, kind="stop", origin=origin)
+        await self.store.add_event(task_id, kind="stop", origin=origin, detail=detail)
         # Before host.stop(), matching the ordering above: the stop is recorded
         # while the row still reads as running, so an exit cannot race it.
         # `task`, fetched above, is that same still-running row: add_event()
@@ -933,6 +1375,279 @@ class TerminalManager:
             self._stop_requested.discard(task_id)
             raise
 
+    async def _stop_children(self, parent_task_id: str, *, origin: str) -> None:
+        try:
+            children = await self.store.children_of(parent_task_id)
+        except Exception:
+            logger.debug("child lookup failed for %s", log_safe(parent_task_id), exc_info=True)
+            return
+        for child in children:
+            child_id = child.get("id")
+            if child_id not in self._running:
+                continue
+            # One child's failure never blocks the parent's own stop.
+            try:
+                await self.store.add_event(child_id, kind="parent_stopped", origin=origin, detail=parent_task_id)
+                await self.stop(child_id, origin=origin)
+            except (KeyError, NotLinkable):
+                continue
+            except Exception:
+                logger.warning("stopping delegated task %s failed for %s", log_safe(child_id), log_safe(parent_task_id),
+                               exc_info=True)
+
+    # -- delegation -----------------------------------------------------------
+
+    def deliver_prompt(self, task_id: str, text: str, *, ready_timeout_s: Optional[float] = 60.0,
+                       quiet: bool = False) -> None:
+        """Queue `text` for a delegated task. It is pasted into the PTY once,
+        followed by Enter, when the task is ready: its first SessionStart or
+        idle hook, or, with `quiet`, once its screen is drawn and still.
+
+        While the child's screen shows a dialog that waits for the person
+        (a folder trust or update prompt), the delegation is marked waiting
+        for the user and the wait grows to WAITING_TIMEOUT_S. Nothing is typed
+        into such a dialog. With no readiness by the deadline the prompt is
+        dropped and the delegation service is told."""
+        if not isinstance(text, str) or not text:
+            return
+        self._pending_prompts[task_id] = text
+        loop = self._loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+        if loop is not None and ready_timeout_s is not None:
+            watcher = asyncio.ensure_future(self._watch_prompt(task_id, ready_timeout_s, quiet), loop=loop)
+            watcher.add_done_callback(lambda f: f.cancelled() or f.exception())
+            self._prompt_timers[task_id] = watcher
+
+    async def _watch_prompt(self, task_id: str, timeout_s: float, quiet: bool) -> None:
+        from securevector.app.services import delegation
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        waiting = False
+        silent_noted = False
+        settled_at = None
+        last_len, last_change = -1, loop.time()
+        while task_id in self._pending_prompts:
+            now = loop.time()
+            snap = self._screen(task_id)
+            if len(snap) != last_len:
+                last_len, last_change = len(snap), now
+            dialog = delegation.user_dialog(snap)
+            if dialog and not waiting:
+                waiting = True
+                deadline = max(deadline, now + WAITING_TIMEOUT_S)
+                try:
+                    await delegation.on_waiting_for_user(self, task_id, dialog)
+                except Exception:
+                    logger.warning("delegation waiting note failed for %s", task_id)
+            ready_after_dialog = task_id in self._hook_seen
+            if (quiet or ready_after_dialog) and not dialog and len(snap) >= (
+                    QUIET_MIN_BYTES if quiet else 0) and now - last_change >= QUIET_SECONDS:
+                self._prompt_timers.pop(task_id, None)
+                await self._deliver_now(task_id, "quiet" if quiet else "hook")
+                return
+            # Ready-hook harness: settled at its input with no hook. Its Guard
+            # is not running, so nothing is typed and the delegation ends.
+            if settled_at is None and not dialog and len(snap) >= QUIET_MIN_BYTES \
+                    and now - last_change >= QUIET_SECONDS:
+                settled_at = now
+            if dialog:
+                settled_at = None
+            if (not quiet and settled_at is not None and not silent_noted and task_id not in self._hook_seen
+                    and now - settled_at >= HOOKS_SILENT_S):
+                silent_noted = True
+                self._prompt_timers.pop(task_id, None)
+                if self._pending_prompts.pop(task_id, None) is not None:
+                    await delegation.on_prompt_not_ready(
+                        self, task_id, delegation.guard_not_running_reason(await self._executor_of(task_id)))
+                return
+            if now >= deadline:
+                if quiet and not dialog and len(snap) >= QUIET_MIN_BYTES and not waiting:
+                    self._prompt_timers.pop(task_id, None)
+                    await self._deliver_now(task_id, "quiet")
+                    return
+                self._prompt_timers.pop(task_id, None)
+                if self._pending_prompts.pop(task_id, None) is not None:
+                    await self._prompt_not_ready(task_id)
+                return
+            await asyncio.sleep(min(PROMPT_POLL_S, max(0.0, deadline - now)))
+
+    async def _resubmits(self, task_id: str) -> bool:
+        from securevector.app.terminals.executors import EXECUTORS
+
+        executor = EXECUTORS.get(await self._executor_of(task_id) or "")
+        return bool(executor and executor.prompt_resubmit)
+
+    async def _executor_of(self, task_id: str) -> Optional[str]:
+        task = await self.store.get_task(task_id)
+        return task.get("executor_id") if task else None
+
+    def guard_silent(self) -> dict:
+        """Running tasks whose Guard did not report after their first
+        prompt: {task_id: card warning}."""
+        return {t: w for t, w in self._guard_silent.items() if t in self._running}
+
+    def _schedule_guard_check(self, task_id: str, after_seq: Optional[int], *, delegated: bool) -> None:
+        try:
+            fut = asyncio.ensure_future(self._guard_check(task_id, after_seq, delegated))
+            fut.add_done_callback(lambda f: f.cancelled() or f.exception())
+        except RuntimeError:
+            pass
+
+    async def _guard_check(self, task_id: str, after_seq: Optional[int], delegated: bool) -> None:
+        """No hook within GUARD_REPORT_S of the first prompt: the session is
+        running without its Guard reporting. The card says so; a delegated
+        child is also stopped and its delegation fails."""
+        from securevector.app.services import delegation
+
+        if delegated and task_id in self._resubmit:
+            await asyncio.sleep(PROMPT_RESUBMIT_S)
+            held = self._resubmit.pop(task_id, None)
+            if task_id not in self._running:
+                return
+            if await self._hook_since(task_id, after_seq):
+                return
+            if held is not None and self._output_since(task_id, held[1]) <= RESUBMIT_BUSY_BYTES:
+                await self._resubmit_prompt(task_id, held[0])
+        await asyncio.sleep(GUARD_REPORT_S)
+        if task_id not in self._running:
+            return
+        if await self._hook_since(task_id, after_seq):
+            return
+        warning = delegation.guard_silent_reason(await self._executor_of(task_id))
+        self._guard_silent[task_id] = warning
+        try:
+            await self.store.update_status(task_id, "blocked", activity=warning)
+        except Exception:
+            logger.debug("guard warning status failed for %s", log_safe(task_id), exc_info=True)
+        if delegated:
+            await delegation.on_guard_silent(self, task_id, warning)
+            try:
+                await self.stop(task_id, origin="policy")
+            except (KeyError, NotLinkable):
+                pass
+
+    async def _hook_since(self, task_id: str, after_seq: Optional[int]) -> bool:
+        events = await self.store.list_events(task_id, limit=2000)
+        return any(e.get("kind") == "hook" and (after_seq is None or int(e.get("seq") or 0) > int(after_seq))
+                   for e in events)
+
+    def _output_mark(self, task_id: str) -> tuple:
+        snap = self._screen(task_id)
+        return len(snap), snap[-256:]
+
+    def _output_since(self, task_id: str, mark: tuple) -> int:
+        """Bytes of screen output since `mark`. Once the ring has wrapped
+        its length stops growing, so the end of the mark is looked up."""
+        length, tail = mark
+        snap = self._screen(task_id)
+        if len(snap) > length and snap[length - len(tail):length] == tail:
+            return len(snap) - length
+        if not tail:
+            return len(snap)
+        at = snap.rfind(tail)
+        return len(snap) if at < 0 else len(snap) - (at + len(tail))
+
+    async def _resubmit_prompt(self, task_id: str, text: str) -> None:
+        """Send a delegated prompt once more after its paste brought no hook.
+        Still on screen (the Enter was lost): Enter only. Gone (the paste was
+        lost): pasted again, then Enter."""
+        import hashlib
+
+        from securevector.app.services.delegation import DIALOG_TAIL_BYTES, _ANSI_RE, paste_text
+
+        def letters(raw: bytes) -> str:
+            return re.sub(r"[^a-z]", "", _ANSI_RE.sub(b" ", raw).decode("utf-8", "ignore").lower())
+
+        data = paste_text(text).encode("utf-8")
+        screen = self._screen(task_id)
+        # Only what is still drawn: output before the last full-screen reset
+        # (a redraw after a self-update, say) is stale echo.
+        cut = max(screen.rfind(r) for r in _SCREEN_RESETS)
+        if cut >= 0:
+            screen = screen[cut:]
+        tail = letters(screen[-DIALOG_TAIL_BYTES:])
+        words = letters(data)
+        shown = bool(words) and (words[:40] in tail or words[-40:] in tail) or bool(
+            re.search(r"\[pasted ~?\d+ lines?\]", _ANSI_RE.sub(b" ", screen[-DIALOG_TAIL_BYTES:])
+                      .decode("utf-8", "ignore").lower()))
+        try:
+            if shown:
+                self.host.write(task_id, b"\r")
+            else:
+                self.host.write(task_id, b"\x1b[200~" + data + b"\x1b[201~")
+                await asyncio.sleep(0.05)
+                self.host.write(task_id, b"\r")
+        except Exception:
+            logger.debug("prompt resubmit failed for %s", log_safe(task_id), exc_info=True)
+            return
+        await self.store.add_event(
+            task_id, kind="delegate_prompt", origin="delegate",
+            detail=f"sha256={hashlib.sha256(data).hexdigest()} length={len(data)} trigger=resubmit",
+        )
+
+    def _screen(self, task_id: str) -> bytes:
+        try:
+            return self.host.snapshot(task_id) or b""
+        except Exception:
+            return b""
+
+    async def _prompt_not_ready(self, task_id: str) -> None:
+        from securevector.app.services import delegation
+
+        await delegation.on_prompt_not_ready(self, task_id)
+
+    async def _deliver_now(self, task_id: str, trigger: str) -> bool:
+        text = self._pending_prompts.pop(task_id, None)
+        self._hook_seen.discard(task_id)
+        timer = self._prompt_timers.pop(task_id, None)
+        if timer is not None:
+            timer.cancel()
+        if text is None or task_id not in self._running:
+            return False
+        import hashlib
+
+        from securevector.app.services.delegation import paste_text
+
+        data = paste_text(text).encode("utf-8")
+        # Bracketed paste, so the harness takes the prompt as typed text;
+        # Enter as its own write after it.
+        mark = self._output_mark(task_id)
+        self.host.write(task_id, b"\x1b[200~" + data + b"\x1b[201~")
+        await asyncio.sleep(0.05)
+        self.host.write(task_id, b"\r")
+        seq = await self.store.add_event(
+            task_id, kind="delegate_prompt", origin="delegate",
+            detail=f"sha256={hashlib.sha256(data).hexdigest()} length={len(data)} trigger={trigger}",
+        )
+        if trigger == "quiet" and await self._resubmits(task_id):
+            self._resubmit[task_id] = (text, mark)
+        self._schedule_guard_check(task_id, seq, delegated=True)
+        try:
+            from securevector.app.services import delegation
+
+            await delegation.on_prompt_delivered(self, task_id)
+        except Exception:
+            logger.warning("delegation delivery note failed for %s", log_safe(task_id))
+        return True
+
+    def _notify_delegation(self, task_id: str) -> None:
+        """Tell the delegation service a delegated task went idle or exited.
+        Background and best effort; the hook and exit paths never wait."""
+        if task_id not in self._delegated:
+            return
+        try:
+            from securevector.app.services import delegation
+
+            fut = asyncio.ensure_future(delegation.on_child_event(self, task_id))
+            fut.add_done_callback(lambda f: f.cancelled() or f.exception())
+        except Exception:
+            logger.debug("delegation notify failed for %s", log_safe(task_id), exc_info=True)
+
     async def stop_all(self, *, origin: str) -> None:
         for task_id in list(self._running):
             try:
@@ -941,6 +1656,19 @@ class TerminalManager:
                 continue
 
     # -- hook events --------------------------------------------------------
+
+    def _config_check(self, task_id: str, executor_id: Optional[str], workspace: Optional[str],
+                      phase: str, session_id: Optional[str] = None) -> None:
+        """Agent Config Trust: one read-only setup check, scheduled off this
+        path so a launch or a hook never waits on it. Observe only."""
+        if not self.settings.config_trust or not executor_id:
+            return
+        workspace = worktrees.source_for(workspace)
+        from securevector.app.services import config_trust
+        config_trust.schedule(config_trust.session_check(
+            self.store.db, harness=executor_id, workspace=workspace, phase=phase,
+            task_id=task_id, session_id=session_id,
+        ))
 
     async def handle_hook_event(self, task_id: str, token: str, event: Mapping) -> bool:
         expected = self._hook_tokens.get(task_id)
@@ -980,6 +1708,30 @@ class TerminalManager:
                     await self.store.add_event(
                         task_id, kind=SESSION_RELINKED, origin="hook", detail=old,
                     )
+        if event.get("hook_event_name") == "SessionStart":
+            task = await self.store.get_task(task_id)
+            if task:
+                cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else None
+                cwd = worktrees.source_for(cwd)
+                self._config_check(task_id, task.get("executor_id"), cwd or task.get("workspace"), "start",
+                                   task.get("session_id"))
+        self._guard_silent.pop(task_id, None)
+        self._resubmit.pop(task_id, None)
+        if task_id in self._pending_prompts and event.get("hook_event_name") in ("SessionStart", "Stop"):
+            try:
+                from securevector.app.services import delegation
+
+                if delegation.user_dialog(self._screen(task_id)):
+                    # Never typed into a dialog; the watcher sends it once
+                    # the person has answered.
+                    self._hook_seen.add(task_id)
+                else:
+                    await self._deliver_now(task_id, str(event.get("hook_event_name")))
+            except Exception:
+                logger.warning("delegated prompt delivery failed for %s", log_safe(task_id))
+            # Delivery is the event that ends startup, not the end of a turn.
+            if event.get("hook_event_name") == "Stop":
+                return True
         status, activity = status_from_hook(event)
         if status is None:
             return True
@@ -999,7 +1751,7 @@ class TerminalManager:
                     previous = before.get("status") if before else None
                 changed = previous != status
             except Exception:
-                logger.debug("live runs: status read failed for %s", task_id, exc_info=True)
+                logger.debug("live runs: status read failed for %s", log_safe(task_id), exc_info=True)
         await self.store.update_status(task_id, status, activity=activity)
         if tracking:
             # Only once the new status is stored, so a failed write cannot
@@ -1017,7 +1769,249 @@ class TerminalManager:
             except Exception:
                 current = None
             live_runs.emit_nowait(current, "hook", origin="hook")
+        if status == "idle":
+            self._notify_delegation(task_id)
         return True
+
+    # -- worktrees ------------------------------------------------------------
+
+    def _worktree_paths(self, task: Optional[Mapping]) -> Optional[Tuple[str, str]]:
+        """(worktree root, source top level) for a task row with a worktree.
+        The root is always <data_dir>/terminals/tasks/<creating task>/worktree;
+        the creating task is named by the branch, so a relaunch that reuses a
+        worktree resolves to the same root."""
+        if not task:
+            return None
+        branch = str(task.get("worktree_branch") or "")
+        run_dir = task.get("run_dir")
+        if not run_dir or not branch.startswith(worktrees.BRANCH_PREFIX):
+            return None
+        owner = branch[len(worktrees.BRANCH_PREFIX):]
+        if not re.fullmatch(r"[0-9a-f]{12}", owner):
+            return None
+        root = os.path.realpath(
+            Path(self.settings.data_dir) / "terminals" / "tasks" / owner / worktrees.WORKTREE_DIRNAME
+        )
+        source_root = worktrees.split_source(
+            str(task.get("workspace") or ""), os.path.normpath(str(run_dir)), root
+        )
+        if not source_root:
+            return None
+        return root, source_root
+
+    def _worktree_lock(self) -> asyncio.Lock:
+        if self._wt_lock is None:
+            self._wt_lock = asyncio.Lock()
+        return self._wt_lock
+
+    @staticmethod
+    def _worktree_gone(task: Mapping) -> bool:
+        return task.get("worktree_state") in (worktrees.REMOVED, worktrees.REMOVING)
+
+    async def _reusable_worktree(self, from_task_id: Optional[str], resume_session_id: Optional[str],
+                                 source_cwd: str) -> Optional[dict]:
+        """The earlier task's worktree row, when a relaunch or resume should
+        run in it again: same source folder, folder still on disk and inside
+        the worktree once links are resolved, not removed or being removed,
+        and no running task in it. Called under _worktree_lock()."""
+        prior = None
+        if from_task_id:
+            prior = await self.store.get_task(from_task_id)
+        elif resume_session_id:
+            prior = await self.store.task_for_session(resume_session_id)
+        if not prior or not prior.get("run_dir") or self._worktree_gone(prior):
+            return None
+        if os.path.realpath(str(prior.get("workspace") or "")) != os.path.realpath(source_cwd):
+            return None
+        paths = self._worktree_paths(prior)
+        if paths is None or not os.path.isdir(str(prior["run_dir"])):
+            return None
+        run_dir = os.path.realpath(str(prior["run_dir"]))
+        if not worktrees.inside_real(run_dir, paths[0]):
+            raise worktrees.WorktreeError("The worktree folder leaves the worktree through a link.")
+        if await self._worktree_busy(prior):
+            raise worktrees.WorktreeError("Another running task is using this worktree.")
+        worktrees.register(*paths)
+        return dict(prior, run_dir=run_dir, _root=paths[0])
+
+    def child_run_dir(self, parent: Optional[Mapping], folder: str) -> Optional[str]:
+        """Where a delegated child of `parent` runs for the (source) `folder`:
+        the same subpath in the parent's worktree, links resolved. None when
+        the parent has no worktree or the folder is outside the parent's
+        repository. Raises WorktreeError when the parent's worktree was
+        removed, is being removed, is missing, or the path leaves it."""
+        if not parent or not parent.get("run_dir"):
+            return None
+        paths = self._worktree_paths(parent)
+        if paths is None:
+            return None
+        if self._worktree_gone(parent) or not os.path.isdir(paths[0]):
+            raise worktrees.WorktreeError("The requesting task's worktree was removed, so it cannot delegate.")
+        root, source_root = paths
+        rel = os.path.relpath(os.path.realpath(folder), source_root)
+        if rel == ".." or rel.startswith(".." + os.sep):
+            return None
+        target = os.path.realpath(root if rel == "." else os.path.join(root, rel))
+        if not worktrees.inside_real(target, root):
+            raise worktrees.WorktreeError("That folder leaves the requesting task's worktree through a link.")
+        if not os.path.isdir(target):
+            raise worktrees.WorktreeError("That folder does not exist in the requesting task's worktree.")
+        return target
+
+    async def _worktree_busy(self, task: Mapping) -> bool:
+        branch = task.get("worktree_branch")
+        if not branch:
+            return False
+        paths = self._worktree_paths(task)
+        root = paths[0] if paths else None
+        if root and root in self._wt_claims.values():
+            return True
+        for running_id in list(self._running):
+            row = await self.store.get_task(running_id)
+            if not row:
+                continue
+            if row.get("worktree_branch") == branch:
+                return True
+            # A delegated child running inside this worktree.
+            run_dir = row.get("run_dir")
+            if root and run_dir:
+                real = os.path.realpath(str(run_dir))
+                if real == root or real.startswith(root + os.sep):
+                    return True
+        return False
+
+    async def _worktree_ended(self, task_id: str) -> None:
+        """At exit: count changed files and commits, mark the worktree kept.
+        Nothing is removed."""
+        try:
+            task = await self.store.get_task(task_id)
+            paths = self._worktree_paths(task)
+            if paths is None or self._worktree_gone(task):
+                return
+            root, source_root = paths
+            found = await asyncio.get_running_loop().run_in_executor(
+                None, worktrees.counts, source_root, root, task["worktree_branch"], task.get("worktree_base") or "",
+            )
+            await self.store.set_worktree_state(
+                task_id, worktrees.KEPT, dirty=found["dirty"], commits=found["commits"]
+            )
+            self._wt_refreshed[task_id] = asyncio.get_running_loop().time()
+            await self.store.add_event(
+                task_id, kind="worktree_kept", origin="process",
+                detail=(f"Worktree {task['worktree_branch']} kept: "
+                        f"{found['dirty']} changed file{'' if found['dirty'] == 1 else 's'}, "
+                        f"{found['commits']} commit{'' if found['commits'] == 1 else 's'}"),
+            )
+        except Exception:
+            logger.warning("worktree end check failed for %s", task_id, exc_info=True)
+
+    async def refresh_worktree(self, task_id: str) -> Optional[dict]:
+        """Fresh counts for one task's worktree (read only), stored on its row.
+        At most one read per task every WORKTREE_REFRESH_S, none while a task
+        runs in the worktree (the exit check counts then), and at most two at
+        a time across the app."""
+        task = await self.store.get_task(task_id)
+        paths = self._worktree_paths(task)
+        if paths is None or self._worktree_gone(task):
+            return task
+        loop = asyncio.get_running_loop()
+        last = self._wt_refreshed.get(task_id)
+        if last is not None and loop.time() - last < WORKTREE_REFRESH_S:
+            return task
+        if await self._worktree_busy(task):
+            return task
+        if self._wt_refresh_sem is None:
+            self._wt_refresh_sem = asyncio.Semaphore(2)
+        if self._wt_refresh_sem.locked():
+            return task
+        root, source_root = paths
+        async with self._wt_refresh_sem:
+            self._wt_refreshed[task_id] = loop.time()
+            try:
+                found = await loop.run_in_executor(
+                    None, worktrees.counts, source_root, root, task["worktree_branch"],
+                    task.get("worktree_base") or "",
+                )
+            except worktrees.WorktreeError:
+                return task
+        current = await self.store.get_task(task_id)
+        if current is None or self._worktree_gone(current) or await self._worktree_busy(current):
+            return current
+        await self.store.set_worktree_state(
+            task_id, current.get("worktree_state") or worktrees.KEPT, dirty=found["dirty"], commits=found["commits"]
+        )
+        return await self.store.get_task(task_id)
+
+    async def worktree_removal_check(self, task_id: str, *, confirm: bool,
+                                     dirty_seen: Optional[int] = None) -> Optional[dict]:
+        """Read only: the needs_confirm answer `remove_worktree` would give
+        with these arguments, or None when it would remove. Raises like it
+        for an unknown task or a task without a worktree."""
+        task = await self.store.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        paths = self._worktree_paths(task)
+        if paths is None:
+            raise ValueError("This task has no worktree.")
+        root, source_root = paths
+        branch, base = task["worktree_branch"], task.get("worktree_base") or ""
+        return await asyncio.get_running_loop().run_in_executor(
+            None, lambda: worktrees.check_removal(source_root, root, branch, base, confirm=bool(confirm),
+                                                  dirty_seen=dirty_seen))
+
+    async def remove_worktree(self, task_id: str, *, confirm: bool, origin: str = "ui",
+                              dirty_seen: Optional[int] = None) -> dict:
+        """Remove a task's worktree, only on the person's explicit request.
+        Marked 'removing' under the worktree lock first, so a relaunch or a
+        delegation cannot start in it meanwhile; restored on any failure."""
+        async with self._worktree_lock():
+            task = await self.store.get_task(task_id)
+            if task is None:
+                raise KeyError(task_id)
+            paths = self._worktree_paths(task)
+            if paths is None:
+                raise ValueError("This task has no worktree.")
+            if task.get("worktree_state") == worktrees.REMOVED:
+                raise ValueError("The worktree was already removed.")
+            if task.get("worktree_state") == worktrees.REMOVING:
+                raise ValueError("The worktree is already being removed.")
+            if await self._worktree_busy(task):
+                raise ValueError("Stop the task before removing its worktree.")
+            previous = task.get("worktree_state") or worktrees.KEPT
+            await self.store.set_worktree_state(
+                task_id, worktrees.REMOVING, dirty=task.get("worktree_dirty"), commits=task.get("worktree_commits")
+            )
+        root, source_root = paths
+        branch, base = task["worktree_branch"], task.get("worktree_base") or ""
+        result = None
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: worktrees.remove(source_root, root, branch, base, confirm=bool(confirm),
+                                         dirty_seen=dirty_seen)
+            )
+        finally:
+            if not (result and result.get("removed")):
+                await self.store.set_worktree_state(
+                    task_id, previous,
+                    dirty=(result or {}).get("dirty", task.get("worktree_dirty")),
+                    commits=(result or {}).get("commits", task.get("worktree_commits")),
+                )
+        if not result.get("removed"):
+            return result
+        self._wt_refreshed.pop(task_id, None)
+        await self.store.set_worktree_state(
+            task_id, worktrees.REMOVED, dirty=result.get("dirty"), commits=result.get("commits")
+        )
+        await self.store.add_event(task_id, kind="worktree_removed", origin=origin,
+                                   detail=result.get("message"))
+        return result
+
+    def worktree_folder(self, task: Optional[Mapping]) -> Optional[str]:
+        """The folder to reveal for a task's worktree, when it exists."""
+        if self._worktree_paths(task) is None or task.get("worktree_state") == worktrees.REMOVED:
+            return None
+        run_dir = str(task.get("run_dir"))
+        return run_dir if os.path.isdir(run_dir) else None
 
     # -- attached terminal ----------------------------------------------------
 
@@ -1042,6 +2036,9 @@ class TerminalManager:
         self._input_bytes[task_id] = self._input_bytes.get(task_id, 0) + len(data)
         if b"\r" in data or b"\n" in data:
             n = self._input_bytes.pop(task_id, 0)
-            await self.store.add_event(
+            seq = await self.store.add_event(
                 task_id, kind="input", origin="ui", detail=f"line submitted, {n} bytes"
             )
+            if task_id not in self._input_checked and task_id not in self._ungoverned:
+                self._input_checked.add(task_id)
+                self._schedule_guard_check(task_id, seq, delegated=False)

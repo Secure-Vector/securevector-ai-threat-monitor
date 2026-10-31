@@ -10,7 +10,7 @@ import logging
 import random
 import time
 from functools import wraps
-from typing import Any, Callable, Optional, Tuple, Type, Union
+from typing import Any, Callable, Optional, Tuple, Type
 
 from .exceptions import (
     APIError,

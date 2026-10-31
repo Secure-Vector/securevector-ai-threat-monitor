@@ -19,7 +19,6 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import asyncio
 import json
 import sys
 import argparse
@@ -80,7 +79,8 @@ class CursorManager:
             )
             if result.returncode == 0:
                 return result.stdout.strip()
-        except:
+        except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
         return None
 
@@ -268,7 +268,7 @@ class CursorManager:
         try:
             from securevector.mcp.tools.analyze_prompt import AnalyzePromptTool
 
-            tool = AnalyzePromptTool(server)
+            AnalyzePromptTool(server)
             # We can't easily test async tools here, but we can test creation
             print("✅ MCP tools can be instantiated")
 
@@ -548,7 +548,8 @@ class CursorManager:
                     else:
                         workspace_settings.unlink()
 
-                except:
+                except Exception:
+                    # best effort: a failure here must not interrupt the caller
                     pass
 
             return True

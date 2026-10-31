@@ -214,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_launch = sub.add_parser(
         "launch", help="Start a governed session in a folder", parents=[common]
     )
-    p_launch.add_argument("harness", help="claude-code, codex, copilot-cli or opencode")
+    p_launch.add_argument("harness", help="claude-code, codex, copilot-cli, opencode, govrun, hermes or openclaw")
     p_launch.add_argument("folder", nargs="?", default=".", help="Working folder (default: here)")
     p_launch.add_argument("--title", help="A name for the board", default=None)
     p_launch.add_argument(
@@ -227,7 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_link = sub.add_parser(
         "link", help="Put a session you started yourself on the board", parents=[common]
     )
-    p_link.add_argument("harness", help="claude-code, codex, copilot-cli or opencode")
+    p_link.add_argument("harness", help="claude-code, codex, copilot-cli, opencode, govrun, hermes or openclaw")
     p_link.add_argument("session", help="The harness session id")
     p_link.add_argument("--folder", default=None, help="Its working folder, if it never reported one")
     p_link.add_argument("--title", default=None)

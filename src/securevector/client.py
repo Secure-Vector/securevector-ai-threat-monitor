@@ -5,42 +5,14 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import hashlib
 import hmac
-import logging
-import secrets
 import time
-from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar, Union, overload
-
-# Handle typing_extensions imports with fallbacks for older Python versions
-try:
-    from typing_extensions import Concatenate, Literal, ParamSpec, TypedDict
-except ImportError:
-    try:
-        # Python 3.8+ has some of these in typing
-        from typing import Literal, TypedDict
-
-        # Create dummy types for missing ones
-        ParamSpec = TypeVar
-        Concatenate = Any
-    except ImportError:
-        # Fallback for older Python versions
-        Literal = Any
-        TypedDict = dict
-        ParamSpec = TypeVar
-        Concatenate = Any
+from typing import Any, List, Optional, TypeVar, Union
 
 from .models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from .models.config_models import OperationMode, SDKConfig
 from .models.policy_models import PolicyAction, SecurityPolicy
-from .models.threat_types import RiskLevel, ThreatType
-from .types import (
-    BaseSecureVectorClient,
-    HealthStatusDict,
-    OperationModeType,
-    StatisticsDict,
-    SyncClientContextManager,
-)
+from .types import HealthStatusDict, OperationModeType, StatisticsDict
 
 from securevector.core.modes.mode_factory import ModeFactory
 from securevector.utils.exceptions import (
@@ -53,7 +25,7 @@ from securevector.utils.exceptions import (
 from securevector.utils.logger import get_logger
 from securevector.utils.performance import PerformanceTracker
 from securevector.utils.security import secure_cache_key_derivation
-from securevector.utils.telemetry import debug_log, get_telemetry_collector, record_event, trace_operation
+from securevector.utils.telemetry import get_telemetry_collector, trace_operation
 
 
 def _constant_time_string_compare(s1: str, s2: str) -> bool:

@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # ubuntu-latest (26.04) has no Python 3.9 build
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]

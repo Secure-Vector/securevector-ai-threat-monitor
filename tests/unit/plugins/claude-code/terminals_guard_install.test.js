@@ -29,7 +29,7 @@ function makeEl(extra = {}) {
 
 function makeContainer() {
   const els = {
-    '#terminals-launch': makeEl(),
+    '#terminals-launch': makeEl({ addEventListener() {} }),
     '#terminals-launch-btn': makeEl(),
     '#terminals-launch-cancel': makeEl(),
     '#terminals-workspace': makeEl(),
@@ -40,12 +40,12 @@ function makeContainer() {
     '#terminals-launch button[type="submit"]': makeEl({ disabled: false }),
     '#terminals-guard-row': makeEl({ hidden: true }),
     '#terminals-guard-text': makeEl(),
-    '#terminals-guard-install': makeEl({ hidden: false, disabled: false, textContent: 'Install SecureVector Guard' }),
+    '#terminals-guard-install': makeEl({ hidden: false, disabled: false, textContent: 'Install' }),
     '#terminals-guard-recheck': makeEl({ hidden: true }),
     '#terminals-guard-commands': makeEl({ hidden: true }),
     isConnected: true,
   };
-  const container = { els, isConnected: true, querySelector: (sel) => els[sel] || null };
+  const container = { els, isConnected: true, querySelector: (sel) => els[sel] || null, addEventListener(t, fn) { (this.listeners = this.listeners || {})[t] = fn; } };
   return container;
 }
 
@@ -101,8 +101,7 @@ test('an installed-but-ungoverned executor stays selectable and submit is enable
   assert.strictEqual(sel.value, 'codex');
   assert.strictEqual(submit.disabled, false, 'an installed harness can launch even when its Guard is not enabled');
   assert.strictEqual(guardRow.hidden, false, 'the guard row shows for the selected ungoverned executor');
-  assert.match(guardText.textContent, /SecureVector Guard is not enabled for Codex/);
-  assert.match(guardText.textContent, /launches ungoverned/);
+  assert.match(guardText.textContent, /SecureVector Guard is not installed for Codex\. Install it now\?/);
 });
 
 test('a not-installed executor keeps the disabled option, the plain hint, no guard row, and a disabled submit', () => {
@@ -193,7 +192,7 @@ test('an install error surfaces the message and re-enables the button', async ()
   assert.strictEqual(guardText.textContent, 'Guard install failed (500)');
   assert.strictEqual(install.hidden, false);
   assert.strictEqual(install.disabled, false);
-  assert.strictEqual(install.textContent, 'Install SecureVector Guard');
+  assert.strictEqual(install.textContent, 'Install');
 });
 
 test('a launch submits for an installed-but-ungoverned executor (it runs ungoverned) and refuses a not-installed one', async () => {
@@ -228,9 +227,9 @@ test('a launch submits for an installed-but-ungoverned executor (it runs ungover
 
 test('index.html and pin assertions moved to the bumped versions', () => {
   const html = read('index.html');
-  assert.match(html, /api\.js\?v=330/);
-  assert.match(html, /terminals\.js\?v=96/);
-  assert.match(html, /styles\.css\?v=469/);
+  assert.match(html, /api\.js\?v=349/);
+  assert.match(html, /terminals\.js\?v=134/);
+  assert.match(html, /styles\.css\?v=503/);
 });
 
 test('the launch-form recheck reports a failed executors fetch and the ready timer is cancelled on harness change', () => {
@@ -241,4 +240,51 @@ test('the launch-form recheck reports a failed executors fetch and the ready tim
   assert.match(ready, /clearTimeout\(this\._guardReadyTimer\);\s*this\._guardReadyTimer = setTimeout/, 'the auto-hide timer is stored so it can be cancelled');
   const show = src.slice(src.indexOf('_showExecutorState(container) {'), src.indexOf('_showExecutorState(container) {') + 400);
   assert.match(show, /clearTimeout\(this\._guardReadyTimer\)/, 'changing harness cancels a pending auto-hide');
+});
+
+
+test('Install and Check again use one delegated listener, so a re-created button still works', async () => {
+  const calls = [];
+  const Page = loadTerminalsPage({});
+  const container = makeContainer();
+  Page._executors = [{ id: 'codex', label: 'Codex', installed: true, governed: false }];
+  Page._installGuard = (id) => calls.push(['install', id]);
+  Page._recheckGuard = (id) => calls.push(['recheck', id]);
+  Page._bindLaunchForm(container);
+  Page._bindLaunchForm(container);
+  container.els['#terminals-executor'].value = 'codex';
+  const click = container.listeners.click;
+  assert.ok(click, 'a click listener is on the container');
+  const target = (id, text) => ({ nodeType: text ? 3 : 1, parentElement: text ? { closest: (s) => (s.includes(id) ? { id } : null) } : null,
+    closest: (s) => (s.includes(id) ? { id } : null) });
+  click({ target: target('terminals-guard-install'), preventDefault() {} });
+  click({ target: target('terminals-guard-recheck', true), preventDefault() {} });
+  click({ target: target('something-else'), preventDefault() {} });
+  assert.strictEqual(JSON.stringify(calls), JSON.stringify([['install', 'codex'], ['recheck', 'codex']]));
+  assert.strictEqual(Object.keys(container.listeners).length, 1);
+  assert.ok(!container.els['#terminals-guard-install'].onclick, 'no handler on the node itself');
+});
+
+test('a re-render restores the open launch form, harness and typed fields', () => {
+  const Page = loadTerminalsPage({});
+  const container = makeContainer();
+  container.els['#terminals-launch'].hidden = false;
+  container.els['#terminals-executor'].value = 'codex';
+  container.els['#terminals-workspace'].value = '/w/app';
+  container.els['#terminals-title'].value = 'keepme';
+  Page._saveLaunchDraft(container);
+  const fresh = makeContainer();
+  fresh.els['#terminals-launch'].hidden = true;
+  fresh.els['#terminals-executor'].options = [{ value: 'codex', disabled: false }];
+  Page._executors = [{ id: 'codex', label: 'Codex', installed: true, governed: false }];
+  Page._restoreLaunchDraft(fresh);
+  assert.strictEqual(fresh.els['#terminals-launch'].hidden, false);
+  assert.strictEqual(fresh.els['#terminals-workspace'].value, '/w/app');
+  assert.strictEqual(fresh.els['#terminals-title'].value, 'keepme');
+  assert.strictEqual(fresh.els['#terminals-executor'].value, 'codex');
+  Page._launchDraft = null;
+  const closed = makeContainer();
+  closed.els['#terminals-launch'].hidden = true;
+  Page._saveLaunchDraft(closed);
+  assert.strictEqual(Page._launchDraft, null);
 });

@@ -5,15 +5,10 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import hashlib
 import time
 from typing import Any, Dict, List, Optional
 
-from securevector.models.analysis_result import (
-    AnalysisResult,
-    DetectionMethod,
-    ThreatDetection,
-)
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod
 from securevector.models.config_models import APIModeConfig, HybridModeConfig, LocalModeConfig
 from securevector.utils.exceptions import APIError, ConfigurationError
 from securevector.utils.logger import get_logger

@@ -48,6 +48,7 @@ for _stream_name in ("stdout", "stderr"):
             if _buf is not None:
                 setattr(sys, _stream_name, _io.TextIOWrapper(_buf, encoding="utf-8", errors="replace"))
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
 
 from securevector.app import (
@@ -150,6 +151,33 @@ def _app_terminating() -> bool:
         return False
 
 
+def _attach_confirmations(window: Any) -> None:
+    """Decisions are confirmed by the person through this shell, in process."""
+    from securevector.app import desktop_shell
+    from securevector.app.services import confirmations
+
+    activate = desktop_shell.make_activate_callback(window)
+    if sys.platform == "darwin":
+        confirmations.attach_shell(prompt=desktop_shell.make_confirm_prompt(window, activate))
+    else:
+        # No Cancel-default dialog here: the person types a code the shell shows.
+        confirmations.attach_shell(show_code=desktop_shell.make_code_display(window, activate))
+
+
+def desktop_url(host: str, port: int) -> str:
+    """The address the desktop window opens. A wildcard bind (0.0.0.0, ::,
+    empty) also listens on loopback, so the window opens 127.0.0.1: the
+    approval routes answer only there. A loopback bind keeps its name. A
+    bind to one specific address does not listen on loopback, so the window
+    keeps that address."""
+    h = str(host or "").strip()
+    if h in ("", "0.0.0.0", "::", "[::]"):
+        return f"http://127.0.0.1:{port}"
+    if ":" in h and not h.startswith("["):
+        h = f"[{h}]"
+    return f"http://{h}:{port}"
+
+
 def run_desktop(host: str, port: int, debug: bool) -> None:
     """Run the application with a native desktop window."""
     import os
@@ -158,8 +186,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
 
     assets_path = get_assets_path()
     loading_html = assets_path / "web" / "loading.html"
-    favicon_path = assets_path / "favicon.ico"
-    app_url = f"http://{host}:{port}"
+    app_url = desktop_url(host, port)
 
     # Restore last window geometry (validated against the current screens).
     geometry = desktop_shell.restore_geometry()
@@ -208,6 +235,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
             "configure_app": lambda app: (
                 desktop_shell.install_activation_route(app, desktop_shell.make_activate_callback(window)),
                 desktop_shell.install_chrome_routes(app, chrome),
+                _attach_confirmations(window),
             )
         },
         daemon=True,
@@ -269,6 +297,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
                             coro = store.add_event(info.task_id, kind="stop", origin="quit")
                             asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=1)
                         except Exception:
+                            # best effort: a failure here must not interrupt the caller
                             pass
                     try:
                         os.killpg(info.pid, signal.SIGKILL)
@@ -443,6 +472,7 @@ def run_web(host: str, port: int) -> None:
         if not _cfg_path.exists():
             print(f"           (will be created on first run)")
     except Exception:
+        # best effort: a failure here must not interrupt the caller
         pass
     print(f"\n  Press Ctrl+C to stop\n")
 
@@ -730,14 +760,14 @@ def _find_pi_ai_path() -> str:
             npm_global = result.stdout.strip()
             search_paths.append(os.path.join(npm_global, "openclaw", "node_modules", "@mariozechner", "pi-ai"))
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        # tool missing or too slow; treat it as unavailable
         pass
 
     # Method 2: which/where openclaw -> trace back
     try:
         # Use 'where' on Windows, 'which' on Unix
         which_cmd = "where" if sys.platform == "win32" else "which"
-        # No shell. Both arguments are constants, so there was never an
-        # injection path here, but `where` is a real executable on Windows
+        # No shell. Both arguments are constants; `where` is a real executable on Windows
         # (where.exe in System32) and passing a list through cmd.exe is the
         # kind of thing that works until a path has a space in it.
         result = subprocess.run(
@@ -755,6 +785,7 @@ def _find_pi_ai_path() -> str:
                     search_paths.append(os.path.join(base, "node_modules", "@mariozechner", "pi-ai"))
                     break
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        # tool missing or too slow; treat it as unavailable
         pass
 
     # Method 3: Common paths (Windows npm global, Unix nvm)
@@ -1583,6 +1614,7 @@ EXECUTOR_FOR_PLUGIN = {
     "codex": "codex",
     "copilot-cli": "copilot-cli",
     "opencode": "opencode",
+    "openclaw": "openclaw",
 }
 
 
@@ -1674,7 +1706,8 @@ def _handle_plugin_command(args) -> None:
             # None matches the route's default ("install with bundled config").
             result = asyncio.run(mod.install_plugin(None))
         else:
-            result = asyncio.run(mod.uninstall_plugin())
+            # `_uninstall_plugin`, not the route: see the claude-code branch.
+            result = asyncio.run(mod._uninstall_plugin())
     elif name == "codex":
         from securevector.app.server.routes import hooks_codex as mod
         handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
@@ -1958,6 +1991,7 @@ Examples:
             if not _block_mode:
                 _config_wants_proxy = False
     except Exception:
+        # best effort: a failure here must not interrupt the caller
         pass
 
     # Auto-compute proxy port: CLI > config file > (server port + 1)
@@ -2131,6 +2165,7 @@ Examples:
                 import webbrowser
                 webbrowser.open(_url_str)
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
             sys.exit(0)
 
@@ -2194,6 +2229,7 @@ Examples:
             json.dumps({"web_port": args.port, "proxy_port": args.proxy_port})
         )
     except Exception:
+        # best effort: a failure here must not interrupt the caller
         pass
 
     if args.web:

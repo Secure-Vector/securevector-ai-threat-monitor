@@ -16,7 +16,6 @@ import yaml
 
 from securevector.models.analysis_result import ThreatDetection
 from securevector.models.config_models import LocalModeConfig
-from securevector.models.threat_types import ThreatType
 from securevector.utils.exceptions import RuleLoadError
 from securevector.utils.logger import get_logger
 from securevector.utils.security import (

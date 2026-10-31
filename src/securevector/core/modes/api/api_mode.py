@@ -6,19 +6,13 @@ Licensed under the Apache License, Version 2.0
 """
 
 import hashlib
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from securevector.models.analysis_result import (
-    AnalysisResult,
-    DetectionMethod,
-    ThreatDetection,
-)
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod
 from securevector.models.config_models import APIModeConfig
 from securevector.utils.exceptions import APIError, AuthenticationError, RateLimitError
 from securevector.utils.logger import get_logger
 from securevector.utils.performance import ContextTimer, PerformanceTracker
-from securevector.utils.security import secure_cache_key_derivation
 
 from .api_analyzer import APIAnalyzer
 from .api_cache import APICache

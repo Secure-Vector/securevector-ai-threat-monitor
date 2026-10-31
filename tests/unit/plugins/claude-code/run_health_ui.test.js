@@ -391,25 +391,26 @@ test('Dashboard: Needs attention lists the top 5 by severity, escaped, linked to
     finding({ id: '6', severity: 'info' }), finding({ id: '7', severity: 'info' }),
   ];
   const top = D._needsAttentionItems({ findings: fs_ });
-  assert.deepStrictEqual(top.map(f => f.id), ['2', '4', '3', '1', '6']);
+  assert.deepStrictEqual(top.map(f => f.id), ['2', '4', '3']);
   const html = D._needsAttentionHtml({ findings: fs_.map(f => Object.assign({ trace_id: 't"x' }, f)) });
   assert.match(html, /Needs attention/);
   assert.match(html, /&lt;b&gt;high&lt;\/b&gt;/);
   assert.match(html, /data-trace-id="t&quot;x"[^>]*>Open run</);
   assert.match(D._needsAttentionHtml({ findings: [] }), /No loops, failing steps or waste/);
-  assert.match(src, /this\._renderNeedsAttentionCard\(container\);\s*\n\s*this\._renderOptimizerTile\(container\);/);
+  assert.match(src, /this\._renderNeedsAttentionCard\(container\);\s*\n\s*\/\/ Recent Threat Activity closes the page/);
+  assert.doesNotMatch(src, /this\._renderOptimizerTile\(container\);/, 'the optimizer tile left the dashboard in 6.1.0');
   assert.match(src, /API\.getRunHealth\(\{ window_days: 1, limit: 200 \}\)/);
 });
 
 // ---------------- Nav labels and routing ----------------
 
-test('nav: Observability has no sub-views; Health and Map stay aliases so the row stays lit', () => {
+test('nav: Observability has no sub-items (tabs only); the older pages stay aliases', () => {
   const sb = read('js/components/sidebar.js');
-  assert.match(sb, /id: 'agent-runs', label: 'Observability', icon: 'history', aliases: \['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay'\]/);
+  assert.match(sb, /id: 'agent-runs', label: 'Observability', icon: 'history', liveWaiting: true,\s*aliases: \['run-health', 'agent-activity', 'storylines', 'agent-map', 'agent-timeline', 'replay', 'live-grid'\]/);
   const views = sb.slice(sb.indexOf("label: 'Observability'"), sb.indexOf("id: 'threats'"));
   assert.doesNotMatch(views, /views:/);
-  const labels = [...views.matchAll(/\{ id: '([a-z-]+)', label: '([^']+)'/g)].map(m => `${m[1]}:${m[2]}`);
-  assert.deepStrictEqual(labels, []);
+  // Owner rule: Map always stays, as an in-page tab.
+  assert.match(read('js/components/obs-tabs.js'), /page: 'agent-map'/);
   assert.match(read('js/components/obs-tabs.js'), /page: 'run-health'/);
   const pal = read('js/components/command-palette.js');
   assert.match(pal, /'Observability: trace \+ run waterfall'/);
@@ -437,10 +438,10 @@ test('no em dashes in the run health UI copy', () => {
 
 // ---------------- review fixes ----------------
 
-test('ObsTabs: Runs | Health | Map, and the Health view renders the tabs', () => {
+test('ObsTabs: Runs | Live grid | Health | Map, and the Health view renders the tabs', () => {
   const src = read('js/components/obs-tabs.js');
   const tabs = [...src.slice(src.indexOf('_TABS: ['), src.indexOf('],', src.indexOf('_TABS: ['))).matchAll(/label: '([^']+)',\s*page: '([a-z-]+)'/g)].map(m => `${m[1]}:${m[2]}`);
-  assert.deepStrictEqual(tabs, ['Runs:agent-runs', 'Health:run-health', 'Map:agent-map']);
+  assert.deepStrictEqual(tabs, ['Runs:agent-runs', 'Live grid:live-grid', 'Health:run-health', 'Map:agent-map']);
   assert.match(src, /health: 'run-health'/);
   assert.match(read('js/pages/run-health.js'), /ObsTabs\.render\(header, 'health'\)/);
 });

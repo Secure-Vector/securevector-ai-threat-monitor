@@ -8,14 +8,13 @@ always pass through auth headers and forward requests.
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 # Skip entire module if optional LLM proxy dependencies are not installed
 pytest.importorskip("uvicorn", reason="uvicorn not installed; skipping LLM proxy tests")
 pytest.importorskip("fastapi", reason="fastapi not installed; skipping LLM proxy tests")
 
 import httpx
-from fastapi.testclient import TestClient
 
 from securevector.integrations.openclaw_llm_proxy import (
     LLMProxy,
@@ -190,7 +189,7 @@ class TestSingleProviderProxy:
         from starlette.requests import Request
         request = Request(scope, receive)
 
-        response = await proxy.handle_request(request)
+        await proxy.handle_request(request)
 
         # The proxy MUST have attempted a forward, even without a valid key
         assert len(captured_requests) >= 1, (

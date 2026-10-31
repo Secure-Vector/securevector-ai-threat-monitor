@@ -8,14 +8,12 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import os
 import yaml
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from pathlib import Path
 
 try:
     from mcp.server.fastmcp import FastMCP
-    from mcp.server.session import ServerSession
     from mcp import types
     MCP_AVAILABLE = True
 except ImportError:

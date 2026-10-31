@@ -311,6 +311,20 @@ const TaskAvatar = {
                background-position-x at its declared 0%: one static frame, not
                a badge stuck mid-turn. */
             '@media (prefers-reduced-motion: reduce) { .sv-task-avatar .ta-body, .sv-task-avatar svg, .sv-task-avatar .ta-shadow, .sv-task-avatar .ta-sprite, .sv-task-avatar .ta-sprite > i, .sv-task-avatar .ta-spin, .sv-task-avatar .ta-spin > i { animation: none; } }';
+        style.textContent +=
+            /* Junior: about 80% of the parent's figure, same proportions. The
+               root's own transform is free (the idle motion lives on the
+               children), so the layout box stays the same as the parent's and
+               text keeps its alignment. */
+            '.sv-task-avatar-junior { transform: scale(.8); transform-origin: 50% 70%; }' +
+            '.sv-task-avatar .ta-antenna-wrap { position: absolute; left: 50%; top: -22%; width: 30%; height: 21%; margin-left: -15%; color: var(--sv-teal, #5eadb8); filter: none; }' +
+            '.sv-task-avatar .ta-antenna-wrap svg, .sv-task-avatar .ta-deleg-badge svg { visibility: visible !important; }' +
+            '.sv-task-avatar .ta-antenna-wrap svg { width: 100%; height: 100%; animation: none; }' +
+            '.sv-task-avatar .ta-deleg-badge { position: absolute; right: -14%; bottom: -12%; width: 46%; height: 46%; min-width: 11px; min-height: 11px; color: var(--sv-teal, #5eadb8); line-height: 0; filter: none; }' +
+            '.sv-task-avatar .ta-deleg-badge svg { width: 100%; height: 100%; animation: none; overflow: visible; }' +
+            '.sv-task-avatar .ta-deleg-badge .ta-b-disc { fill: var(--bg-primary, #0d1117); stroke: currentColor; stroke-width: 1.2; }' +
+            '[data-theme="light"] .sv-task-avatar .ta-deleg-badge .ta-b-disc { fill: #fff; }' +
+            '.sv-task-avatar-junior.sv-task-avatar-interrupted .ta-antenna-wrap, .sv-task-avatar-junior.sv-task-avatar-interrupted .ta-deleg-badge { opacity: 1; }';
         document.head.appendChild(style);
     },
 
@@ -335,6 +349,21 @@ const TaskAvatar = {
             '</g></svg>';
     },
 
+    // Inline SVG, one teal accent, no other colour. The badge has a quiet disc
+    // behind it so the glyph reads on any shell tone.
+    JUNIOR_ANTENNA: '<svg class="ta-antenna" viewBox="0 0 20 14" aria-hidden="true"><path d="M10 14V5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="3.4" r="2.6" fill="currentColor"/></svg>',
+    // dot into ring: a hand-off.
+    JUNIOR_HANDOFF: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" class="ta-b-disc"/><circle cx="6" cy="12" r="1.9" fill="currentColor"/><path d="M8.6 12h5M12 9.6l2.6 2.4-2.6 2.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="12" r="2.9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+    // two arrows: swap between agents.
+    JUNIOR_SWAP: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" class="ta-b-disc"/><path d="M6 9h11M14.4 6.6L17 9l-2.6 2.4M18 15H7M9.6 12.6L7 15l2.6 2.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+
+    _junior(o) {
+        const from = o.parentTitle ? String(o.parentTitle) : 'another session';
+        const title = o.cross ? `Delegated from ${from} to a different agent` : `Delegated from ${from}`;
+        return `<span class="ta-antenna-wrap" aria-hidden="true">${this.JUNIOR_ANTENNA}</span>`
+            + `<span class="ta-deleg-badge${o.cross ? ' is-cross' : ''}" title="${this._esc(title)}">${o.cross ? this.JUNIOR_SWAP : this.JUNIOR_HANDOFF}</span>`;
+    },
+
     html(opts) {
         const o = opts || {};
         const state = this.STATES.includes(o.state) ? o.state : 'active';
@@ -342,7 +371,9 @@ const TaskAvatar = {
         const hue = this.color(o.id, o.harness);
         const hasLabel = o.label != null && o.label !== '';
         const label = this._esc(o.label || '');
-        const a11y = hasLabel ? `role="img" aria-label="${label}"` : 'aria-hidden="true"';
+        const deleg = !!o.delegated;
+        const a11y = hasLabel ? `role="img" aria-label="${label}"`
+            : (deleg ? 'role="img" aria-label="Delegated task"' : 'aria-hidden="true"');
         this._injectDefs();
         this._injectStyle();
         this._ensureAtlas();
@@ -361,8 +392,11 @@ const TaskAvatar = {
         const spinEl = spin
             ? `<i class="ta-spin" aria-hidden="true" style="--ta-row:${spin.row}"><i></i></i>`
             : '';
-        return `<span class="sv-task-avatar sv-task-avatar-${state} sv-task-avatar-posture-${this.POSTURE[state]}${tiny}${sprite}${spin ? ' sv-task-avatar-spin' : ''}" ${a11y} style="--sv-bot-accent:${hue};--sv-bot-delay:${this._delay(o.id)}s;--sv-ta-size:${size}px;width:${size}px;height:${size}px">` +
-            this._figure() + spriteEl + spinEl + '</span>';
+        // A delegated child is the same bot, a little smaller, with an antenna
+        // and a hand-off badge. Nothing here touches the state expressions.
+        const junior = deleg ? this._junior(o) : '';
+        return `<span class="sv-task-avatar${deleg ? ' sv-task-avatar-junior' : ''} sv-task-avatar-${state} sv-task-avatar-posture-${this.POSTURE[state]}${tiny}${sprite}${spin ? ' sv-task-avatar-spin' : ''}" ${a11y} style="--sv-bot-accent:${hue};--sv-bot-delay:${this._delay(o.id)}s;--sv-ta-size:${size}px;width:${size}px;height:${size}px">` +
+            this._figure() + spriteEl + spinEl + junior + '</span>';
     },
 
     el(opts) {

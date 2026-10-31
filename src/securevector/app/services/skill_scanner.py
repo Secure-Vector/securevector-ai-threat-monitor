@@ -469,6 +469,7 @@ class SkillScannerService:
                     or match.group("url_axios")
                 )
             except IndexError:
+                # malformed value; keep the default
                 pass
 
             line_no = text[: match.start()].count("\n") + 1

@@ -234,3 +234,14 @@ test('every Guard uninstall button goes through the shared helper', () => {
   }
   assert.ok(!SOURCE.includes('force=true'), 'force is a body field, not a query parameter');
 });
+
+test('the OpenClaw Guard uninstall goes through the shared helper too', () => {
+  assert.ok(
+    !SOURCE.includes("fetch('/api/hooks/uninstall', { method: 'POST' })"),
+    'OpenClaw still uninstalls with a bare POST that drops the 409 refusal',
+  );
+  assert.ok(
+    SOURCE.includes("IntegrationPage.runPluginUninstall({\n            url: '/api/hooks/uninstall',"),
+    'OpenClaw does not use runPluginUninstall',
+  );
+});

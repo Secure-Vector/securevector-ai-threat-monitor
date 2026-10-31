@@ -296,8 +296,6 @@ Please provide your assessment in JSON format."""
                 json_str = response[start:end]
                 data = json.loads(json_str)
 
-                # If LLM provided its own risk_score, use it for adjustment
-                llm_risk = data.get("risk_score")
                 risk_adj = int(data.get("risk_adjustment", 0))
 
                 return LLMReviewResult(
@@ -333,6 +331,7 @@ Please provide your assessment in JSON format."""
             try:
                 risk_adjustment = int(risk_match.group(1).replace('+', ''))
             except ValueError:
+                # malformed value; keep the default
                 pass
 
         # Extract category if present

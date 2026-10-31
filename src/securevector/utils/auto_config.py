@@ -8,12 +8,11 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import logging
 import os
 import platform
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from securevector.models.config_models import LogLevel, OperationMode, SDKConfig
 from .exceptions import ConfigurationError, ErrorCode
@@ -264,11 +263,12 @@ class AutoConfigurator:
 
     def _is_running_in_docker(self) -> bool:
         """Check if running in Docker container"""
-        return (
-            os.path.exists("/.dockerenv")
-            or os.path.exists("/proc/self/cgroup")
-            and any("docker" in line for line in open("/proc/self/cgroup", "r").readlines())
-        )
+        if os.path.exists("/.dockerenv"):
+            return True
+        if not os.path.exists("/proc/self/cgroup"):
+            return False
+        with open("/proc/self/cgroup", "r") as cgroup:
+            return any("docker" in line for line in cgroup.readlines())
 
     def _is_running_in_cloud(self) -> bool:
         """Check if running in cloud environment"""
@@ -311,6 +311,7 @@ class AutoConfigurator:
                             if line.startswith("MemAvailable:"):
                                 return int(line.split()[1]) // 1024
                 except (OSError, IOError, ValueError):
+                    # best effort: an unreadable file is not an error here
                     pass
             return 1024  # Default assumption
 

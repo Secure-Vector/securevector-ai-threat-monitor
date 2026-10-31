@@ -189,6 +189,15 @@ async def request_device_code(*, app_version: Optional[str] = None) -> DeviceCod
     )
 
 
+def _personal_key(value) -> bool:
+    """A personal key as the auth service mints it. The service has issued
+    `svpk_`, `sk_` and `sk-` prefixes; an enrollment token (`svet_`) is not
+    a personal key."""
+    return isinstance(value, str) and len(value) > 8 and (
+        value.startswith("svpk_") or value.startswith("sk_") or value.startswith("sk-")
+    )
+
+
 async def _mint_key_fallback(client: "httpx.AsyncClient", auth_url: str, access_token: str) -> Optional[str]:
     """Mint a personal key with the fresh access token when the token exchange
     didn't return one (mint_api_key unsupported or minting failed server-side)."""
@@ -199,9 +208,17 @@ async def _mint_key_fallback(client: "httpx.AsyncClient", auth_url: str, access_
             headers={"Authorization": f"Bearer {access_token}"},
         )
         if response.status_code in (200, 201):
-            key = _safe_json(response).get("api_key")
-            if isinstance(key, str) and key.startswith("svpk_"):
+            body = _safe_json(response)
+            key = body.get("api_key")
+            if _personal_key(key):
                 return key
+            # Field names, type and length only; no part of the key is logged.
+            logger.warning(
+                "Fallback API-key mint returned no usable key: fields=%s api_key_type=%s length=%s",
+                sorted(body.keys()) if isinstance(body, dict) else type(body).__name__,
+                type(key).__name__, (len(key) if isinstance(key, str) else 0),
+            )
+            return None
         logger.warning("Fallback API-key mint failed: HTTP %s", response.status_code)
     except httpx.RequestError as exc:
         logger.warning("Fallback API-key mint unreachable: %s", exc)
@@ -219,6 +236,7 @@ async def _fetch_user_email(client: "httpx.AsyncClient", auth_url: str, access_t
             user = _safe_json(response).get("user") or {}
             return user.get("email")
     except httpx.RequestError:
+        # a network failure is not fatal here
         pass
     return None
 
@@ -264,7 +282,7 @@ async def poll_trial_token(device_code: str) -> TrialTokenResult:
                 )
             minted = body.get("api_key")
             api_key = minted.get("api_key") if isinstance(minted, dict) else minted
-            if not (isinstance(api_key, str) and api_key.startswith("svpk_")):
+            if not _personal_key(api_key):
                 api_key = await _mint_key_fallback(client, auth_url, access_token)
             if not api_key:
                 raise TrialSignupError(

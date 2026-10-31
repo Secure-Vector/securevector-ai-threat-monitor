@@ -13,6 +13,7 @@ from typing import Optional
 
 from securevector.app.utils.trace_text import sanitize_trace_text
 from securevector.app.database.connection import DatabaseConnection
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,7 @@ class CustomToolsRepository:
             "UPDATE custom_tools SET default_permission = ? WHERE tool_id = ?",
             (default_permission, tool_id),
         )
-        logger.info(f"Updated custom tool permission: {tool_id} -> {default_permission}")
+        logger.info(f"Updated custom tool permission: {log_safe(tool_id)} -> {log_safe(default_permission)}")
         return await self.get_custom_tool(tool_id)
 
     async def update_custom_tool_metadata(
@@ -345,7 +346,7 @@ class CustomToolsRepository:
             f"UPDATE custom_tools SET {', '.join(sets)} WHERE tool_id = ?",  # noqa: S608 — columns are literals above
             tuple(params),
         )
-        logger.info(f"Updated custom tool metadata: {tool_id} ({', '.join(s.split(' =')[0] for s in sets)})")
+        logger.info(f"Updated custom tool metadata: {log_safe(tool_id)} ({', '.join(s.split(' =')[0] for s in sets)})")
         return await self.get_custom_tool(tool_id)
 
     async def update_custom_tool_rate_limit(
@@ -387,7 +388,7 @@ class CustomToolsRepository:
             "DELETE FROM custom_tools WHERE tool_id = ?",
             (tool_id,),
         )
-        logger.info(f"Deleted custom tool: {tool_id}")
+        logger.info(f"Deleted custom tool: {log_safe(tool_id)}")
         return True
 
     # ==================== Call Log ====================
@@ -1112,7 +1113,7 @@ class CustomToolsRepository:
     # boundaries — they are NOT tools, so they must never become tool
     # nodes on the Agent Map. They only contribute their session's
     # existence + recency. See get_agent_session_graph.
-    _SESSION_BOUNDARY_TOOL_IDS = ("__session_start__", "__session_end__")
+    _SESSION_BOUNDARY_TOOL_IDS = ("__session_start__", "__session_end__", "__turn_end__")
 
     async def get_agent_session_graph(self, window_days: int = 7) -> list[dict]:
         """Aggregate audit rows into per-(harness, session, tool) edges for the
@@ -1398,7 +1399,7 @@ class CustomToolsRepository:
             SELECT
                 seq, turn_index, tool_id, function_name, action,
                 risk, reason, called_at, runtime_kind, args_preview,
-                request_id, session_id, span_id, parent_span_id
+                request_id, session_id, span_id, parent_span_id, row_hash
             FROM tool_call_audit
             WHERE trace_id = ?
             ORDER BY seq ASC

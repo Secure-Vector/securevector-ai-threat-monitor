@@ -269,7 +269,7 @@ def test_pty_unavailable_is_an_exception_type():
 
 
 def test_host_factory_selects_conpty_only_on_windows(monkeypatch):
-    import securevector.app.terminals.pty_host as host_module
+    from securevector.app.terminals import pty_host as host_module
 
     monkeypatch.setattr(host_module.sys, "platform", "win32")
     assert isinstance(create_pty_host(), WinConPTYHost)

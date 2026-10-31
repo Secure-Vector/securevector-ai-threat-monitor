@@ -195,6 +195,15 @@ const GuideConnectAgentsPage = {
         lede.textContent = 'See what is connected and covered on this device, then connect more: the guided one-click way or by copying commands.';
         root.appendChild(lede);
 
+        // Your agent setup: what every harness on this device is configured
+        // with, risky items first, before anything changes. Read-only.
+        if (window.ConfigTrust && !endpointMode) {
+            const setupHost = document.createElement('div');
+            setupHost.className = 'ct-host';
+            root.appendChild(setupHost);
+            ConfigTrust.mountSetup(setupHost);
+        }
+
         // Guided-setup CTA — the old "Connect Wizard" is no longer a separate
         // nav row (it read as a duplicate of this page). Its guided one-click
         // flow lives here as the recommended path; the manual commands are
@@ -797,6 +806,8 @@ const GuideConnectAgentsPage = {
                 wrap.appendChild(warn);
             } else { sum.style.marginBottom = '8px'; }
 
+            // Whether each harness has the SecureVector MCP tools registered.
+            const mcpReg = fetch('/api/policy/mcp-registration').then(r => (r.ok ? r.json() : null)).catch(() => null);
             (d.harnesses || []).forEach(h => {
                 const present = h.detected || h.plugin_connected;
                 const row = document.createElement('div');
@@ -835,6 +846,15 @@ const GuideConnectAgentsPage = {
                     sessTxt.textContent = h.detected ? 'installed' : 'not detected';
                 }
                 row.appendChild(sessTxt);
+                if (present) {
+                    mcpReg.then(m => {
+                        if (!m || !m.harnesses || !Object.prototype.hasOwnProperty.call(m.harnesses, h.slug)) return;
+                        const mt = document.createElement('span');
+                        const st = m.harnesses[h.slug];
+                        mt.textContent = ' · ' + (st && typeof st.text === 'string' ? st.text : 'MCP tools: not registered');
+                        sessTxt.appendChild(mt);
+                    });
+                }
 
                 if (present) { row.title = 'Open the ' + h.label + ' install page'; name.style.cursor = 'pointer'; name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
                 wrap.appendChild(row);

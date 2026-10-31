@@ -86,7 +86,6 @@ def test_nothing_reports_a_version_of_its_own():
     to do with which release of SecureVector is reading it and must NOT move
     when the product does. Those live in one module and are named here.
     """
-    import re
 
     root = ROOT / "src" / "securevector"
     expected = declared(ROOT / "src/securevector/__init__.py")

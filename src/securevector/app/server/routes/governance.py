@@ -165,17 +165,11 @@ def _session_calls(runtime_kind: str, session_id: str, path) -> Optional[list]:
     hit = _cached_calls(path)
     if hit is not None:
         return hit
-    gens = None
-    # A trace open or the health warm-up may already hold this parse.
-    with T._parse_lock:
-        for k, v in T._parse_cache.items():
-            if k[:3] == key:
-                gens = v
-                break
-    if gens is None:
-        gens = (T.build_generations_codex(session_id, store_text=False, path=path)
-                if runtime_kind == "codex"
-                else T.build_generations(session_id, store_text=False, path=path)) or []
+    # The parse is shared and incremental (services/transcript_cache): a
+    # trace open or the health warm-up may already hold it.
+    gens = (T.build_generations_codex(session_id, store_text=False, path=path)
+            if runtime_kind == "codex"
+            else T.build_generations(session_id, store_text=False, path=path)) or []
     compact = [(T._ts_key(g.get("called_at")), list(g.get("tool_use_names") or [])) for g in gens]
     with _calls_lock:
         _calls_cache[key] = compact
@@ -434,8 +428,7 @@ def build_gaps(unrecorded: dict, statuses: dict, codex_trust: Optional[dict],
         gaps.append(G.gap(
             "unrecorded_calls", n,
             f"{G.plural(n, 'tool call')} from {label} not recorded",
-            f"{label} made {G.plural(n, 'call')} in {days} that SecureVector has no record of, "
-            f"so no policy checked them. Most often: {G.top_tools(by_tool)}.",
+            f"No policy checked them. Most often: {G.top_tools(by_tool)}.",
             {"label": ("How to connect" if _active(statuses, runtime) else f"Connect {label}"),
              "route": G.guide_route(runtime)}, key=runtime))
     for harness, st in sorted((statuses or {}).items()):
@@ -467,7 +460,7 @@ def build_gaps(unrecorded: dict, statuses: dict, codex_trust: Optional[dict],
             {"label": "Egress Policy", "route": "egress-policy"}))
     gaps.append(G.gap(
         "approvals_pending", pending, f"{G.plural(int(pending or 0), 'approval')} waiting on you",
-        "Agents asked for access to a blocked tool and are waiting for a decision.",
+        "Blocked tool, waiting for your decision.",
         {"label": "Open Agent Sessions", "route": "terminals"}))
     if health:
         n = int(health.get("runs") or 0)

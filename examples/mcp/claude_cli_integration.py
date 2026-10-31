@@ -18,7 +18,6 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import asyncio
 import json
 import sys
 import argparse
@@ -57,7 +56,8 @@ class ClaudeCLIManager:
             )
             if result.returncode == 0:
                 return result.stdout.strip()
-        except:
+        except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
         return None
 
@@ -299,7 +299,8 @@ class ClaudeCLIManager:
                 with open(self.mcp_config_file, 'r') as f:
                     config = json.load(f)
                 status["securevector_configured"] = "securevector" in config
-            except:
+            except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
         return status
@@ -396,7 +397,7 @@ class ClaudeCLIManager:
                         timeout=30
                     )
                     print("✅ Unregistered from Claude CLI")
-                except:
+                except Exception:
                     print("ℹ️  Manual unregistration from CLI")
 
             print("✅ Uninstallation completed")

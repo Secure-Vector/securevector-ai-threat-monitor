@@ -62,7 +62,7 @@ test('an observed-only row carries no status colour and says it is not governed'
   });
   await Page._renderEgress();
   assert.match(el.innerHTML, /terminals-egress-observed/);
-  assert.match(el.innerHTML, /observed, not governed/);
+  assert.match(el.innerHTML, /observed, not monitored/);
   assert.ok(!el.innerHTML.includes('sv-status-green'),
     'an observed row must not be coloured as if a policy allowed it');
   assert.ok(!el.innerHTML.includes('sv-status-red'));
@@ -89,7 +89,7 @@ test('a governed row keeps its verdict colour and gains no observed wording', as
   await Page._renderEgress();
   assert.match(el.innerHTML, /sv-status-red/);
   assert.match(el.innerHTML, /sv-status-green/);
-  assert.ok(!el.innerHTML.includes('observed, not governed'));
+  assert.ok(!el.innerHTML.includes('observed, not monitored'));
 });
 
 test('a host with both governed and observed calls stays a governed row', async () => {
@@ -99,7 +99,7 @@ test('a host with both governed and observed calls stays a governed row', async 
   });
   await Page._renderEgress();
   assert.match(el.innerHTML, /sv-status-green/);
-  assert.ok(!el.innerHTML.includes('observed, not governed'));
+  assert.ok(!el.innerHTML.includes('observed, not monitored'));
 });
 
 test('a Codex task gets the after-the-fact note under the rows', async () => {
@@ -172,7 +172,7 @@ test('the Codex Guard card tells the user how to bring web access under the Guar
 
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
-  assert.match(html, /terminals\.js\?v=96/);
-  assert.match(html, /styles\.css\?v=469/);
-  assert.match(html, /integrations\.js\?v=53/);
+  assert.match(html, /terminals\.js\?v=134/);
+  assert.match(html, /styles\.css\?v=503/);
+  assert.match(html, /integrations\.js\?v=54/);
 });
