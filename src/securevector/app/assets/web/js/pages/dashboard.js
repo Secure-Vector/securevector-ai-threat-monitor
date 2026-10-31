@@ -894,17 +894,20 @@ const DashboardPage = {
         const values = (data || []).map(v => Number(v) || 0);
         if (!values.length) return null;
         const color = opts.color || 'var(--text-muted)';
-        const W = 4, GAP = 2, H = 16;
+        // A line sparkline: one point per bucket, the latest marked with a
+        // dot. Zero days sit on the baseline, so a quiet day still reads as
+        // measured rather than missing.
+        const H = 16, PAD = 2;
+        const w = Math.max(48, Math.min(96, values.length * 10));
         const max = Math.max(...values, 1);
         const svgNS = 'http://www.w3.org/2000/svg';
-        const w = values.length * W + (values.length - 1) * GAP;
         const svg = document.createElementNS(svgNS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${w} ${H}`);
         svg.setAttribute('width', String(w));
         svg.setAttribute('height', String(H));
         // Cap to the cell so a 30-day series cannot bleed over its neighbour
         // in the flex strip.
-        svg.style.cssText = 'display:block; max-width:100%;';
+        svg.style.cssText = 'display:block; max-width:100%; overflow:visible;';
         svg.setAttribute('preserveAspectRatio', 'xMinYMid meet');
         svg.setAttribute('role', 'img');
         // role="img" + aria-label wins over <title>, so the accessible name
@@ -914,26 +917,26 @@ const DashboardPage = {
         const summary = (opts.ariaLabel || 'recent trend')
             + `, ${values.length} buckets, latest ${values[values.length - 1]}, peak ${peak}`;
         svg.setAttribute('aria-label', summary);
-        values.forEach((v, i) => {
-            const x = i * (W + GAP);
-            const isLast = i === values.length - 1;
-            // Floor a real value at 2px so a small count stays visible beside
-            // a large one; a true zero gets a 1px baseline tick instead.
-            const h = v > 0 ? Math.max(2, Math.round((v / max) * H)) : 1;
-            const bar = document.createElementNS(svgNS, 'rect');
-            bar.setAttribute('x', String(x));
-            bar.setAttribute('y', String(H - h));
-            bar.setAttribute('width', String(W));
-            bar.setAttribute('height', String(h));
-            bar.setAttribute('rx', v > 0 ? '1' : '0');
-            bar.setAttribute('fill', color);
-            // Non-text graphics carry the meaning here, so they have to clear
-            // the 3:1 contrast floor: 0.42/0.18 measured about 1.9:1 and 1.2:1
-            // against the card, which made the zero tick effectively invisible
-            // and defeated the absent-vs-zero distinction it exists for.
-            bar.setAttribute('opacity', v > 0 ? (isLast ? '1' : '0.7') : '0.4');
-            svg.appendChild(bar);
-        });
+        const step = values.length > 1 ? (w - PAD * 2) / (values.length - 1) : 0;
+        const pts = values.map((v, i) => [PAD + i * step, H - PAD - (v / max) * (H - PAD * 2)]);
+        const base = document.createElementNS(svgNS, 'line');
+        base.setAttribute('x1', '0'); base.setAttribute('x2', String(w));
+        base.setAttribute('y1', String(H - PAD)); base.setAttribute('y2', String(H - PAD));
+        base.setAttribute('stroke', 'var(--border-default)'); base.setAttribute('stroke-width', '1');
+        svg.appendChild(base);
+        const line = document.createElementNS(svgNS, 'polyline');
+        line.setAttribute('points', pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' '));
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', color);
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-linejoin', 'round');
+        line.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(line);
+        const last = pts[pts.length - 1];
+        const dotEl = document.createElementNS(svgNS, 'circle');
+        dotEl.setAttribute('cx', last[0].toFixed(1)); dotEl.setAttribute('cy', last[1].toFixed(1));
+        dotEl.setAttribute('r', '2.5'); dotEl.setAttribute('fill', color);
+        svg.appendChild(dotEl);
         if (opts.title) {
             const t = document.createElementNS(svgNS, 'title');
             t.textContent = opts.title;
@@ -1018,7 +1021,7 @@ const DashboardPage = {
         // Seven numbers, each opening the page that owns it (owner, 6.1.0).
         const runsStat = makeStat(`Runs · ${rangeTag}`, NEUTRAL, 'agent-runs');
         const sessionsStat = makeStat('Agent Sessions', NEUTRAL, 'terminals');
-        const adrStat = makeStat('Sessions to review', NEUTRAL, 'detection-response');
+        const adrStat = makeStat('ADR drift score', NEUTRAL, 'detection-response');
         // Tool-policy and egress refusals side by side in one figure; the sub
         // line keeps them apart so neither is folded into the other.
         const blockedStat = makeStat(`Blocked · ${rangeTag}`, NEUTRAL, 'blocked-ledger');
@@ -1105,11 +1108,22 @@ const DashboardPage = {
             }).catch(() => { sessionsStat.valEl.textContent = '0'; });
             Promise.resolve(API.detectionResponseSummaryQuiet ? API.detectionResponseSummaryQuiet() : API.detectionResponseSummary()).then((d) => {
                 if (!strip.isConnected) return;
+                // The highest session score this week (the page's spotlight,
+                // else the highest listed session), with the review count the
+                // score drives underneath.
                 const n = Math.max(0, Number(d && d.detect && d.detect.to_review) || 0);
-                adrStat.valEl.textContent = n.toLocaleString();
-                if (n > 0) adrStat.valEl.style.color = '#f59e0b';
-                adrStat.setSub('Detection & Response');
-            }).catch(() => { adrStat.valEl.textContent = '0'; adrStat.setSub('Detection & Response'); });
+                const num = (v) => (v !== null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
+                let score = num(d && d.spotlight && d.spotlight.score);
+                if (score == null) {
+                    const scored = ((d && d.sessions) || []).map(x => num(x && x.score)).filter(v => v != null);
+                    score = scored.length ? Math.max(...scored) : null;
+                }
+                const band = score == null ? null : score >= 70 ? 'high' : score >= 40 ? 'watch' : 'low';
+                adrStat.valEl.textContent = score == null ? '\u2014' : String(Math.round(score));
+                if (band === 'high') adrStat.valEl.style.color = 'var(--danger, #ef4444)';
+                else if (band === 'watch') adrStat.valEl.style.color = '#f59e0b';
+                adrStat.setSub(score == null ? 'no scored sessions yet' : `${band} · ${n} to review`);
+            }).catch(() => { adrStat.valEl.textContent = '\u2014'; adrStat.setSub('no scored sessions yet'); });
             if (!strip.isConnected) return; // page switched mid-fetch
 
             if (agents) {
