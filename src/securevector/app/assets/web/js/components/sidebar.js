@@ -1217,7 +1217,9 @@ const Sidebar = {
         }
         const flyGroup = this._flyoutAfterRender;
         this._flyoutAfterRender = null;
-        if (flyGroup && container.classList.contains('collapsed')) {
+        // Only the group this render is for: a flag left by a click that
+        // did not re-render (same group) must never open on the next one.
+        if (flyGroup && flyGroup === activeGroup.id && container.classList.contains('collapsed')) {
             const btn = productRail.querySelector(`.product-rail-button[data-product-group="${flyGroup}"]`);
             if (btn) this._flyoutShow(btn);
         }
@@ -1588,9 +1590,16 @@ const Sidebar = {
                 // On the collapsed rail a click opens the group's landing and
                 // keeps its menu visible, so the other destinations stay one
                 // click away (owner, 6.1).
-                if (group.items && group.items.length > 1) this._flyoutAfterRender = group.id;
+                const multi = !!(group.items && group.items.length > 1);
+                const sameGroup = group.id === this._renderedProductGroup;
+                this._flyoutAfterRender = multi && !sameGroup ? group.id : null;
                 if (group.id === 'tasks') this._showAgentTasksBoard();
                 else this.navigate(group.landing);
+                // Same group: no re-render follows, so open the menu here.
+                if (multi && sameGroup) {
+                    const live = document.querySelector(`.product-rail-button[data-product-group="${group.id}"]`);
+                    if (live && document.getElementById('sidebar')?.classList.contains('collapsed')) this._flyoutShow(live);
+                }
             });
             groupList.appendChild(button);
         });
@@ -2163,13 +2172,20 @@ const Sidebar = {
         }
         // The flyout hangs off the PRODUCT RAIL, not off the context rows.
         // Collapsed hides the context panel outright, so the flyout is how
-        // the other destinations stay reachable. It opens on intent only
-        // (6.1.0, the usual practice for an icon rail): a click (which also
-        // opens the group's landing), Enter, or ArrowRight/ArrowDown. Hover
-        // and focus never open it, so a cursor crossing the rail on its way
-        // somewhere else no longer pops a menu. Escape closes it.
+        // the other destinations stay reachable. Hover opens it after a short
+        // pause (hover intent, 6.1.0), so a cursor crossing the rail on its
+        // way elsewhere opens nothing. A click, Enter or ArrowRight/ArrowDown
+        // also open it; keyboard focus alone does not. Escape closes it.
+        const HOVER_INTENT_MS = 250;
         container.querySelectorAll('.product-rail-button').forEach(button => {
-            button.addEventListener('mouseleave', () => this._flyoutHide());
+            let intent = null;
+            button.addEventListener('mouseenter', () => {
+                clearTimeout(intent);
+                intent = setTimeout(() => {
+                    if (button.isConnected && button.matches(':hover') && container.classList.contains('collapsed')) this._flyoutShow(button);
+                }, HOVER_INTENT_MS);
+            });
+            button.addEventListener('mouseleave', () => { clearTimeout(intent); this._flyoutHide(); });
             button.addEventListener('blur', () => this._flyoutHide());
             button.addEventListener('keydown', (e) => {
                 if (e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
