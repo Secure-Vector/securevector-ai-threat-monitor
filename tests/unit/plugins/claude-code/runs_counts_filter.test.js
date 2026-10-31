@@ -240,8 +240,9 @@ test('dashboard: one blocked-threat rule, an honest sample label, egress blocked
   assert.equal(D.egressBlockedCount({ destinations: [{ blocked: 2 }, { blocked: 0 }, { blocked: '3' }] }), 5);
   assert.equal(D.egressBlockedCount(null), 0);
   const src = read('js/pages/dashboard.js');
-  assert.match(src, /makeStat\('Tool calls blocked', NEUTRAL, 'blocked-ledger', `tool policy · this device · \$\{scopeWin\}`\)/);
-  assert.match(src, /makeStat\('Egress blocked', NEUTRAL, 'egress', `egress policy · this device · \$\{scopeWin\}`\)/);
+  // One Blocked figure; the sub line keeps tool policy and egress apart.
+  assert.match(src, /makeStat\(`Blocked · \$\{rangeTag\}`, NEUTRAL, 'blocked-ledger'\)/);
+  assert.match(src, /blockedStat\.setSub\(egressDest \? `\$\{blockedActions\} tool · \$\{egressBlocked\} egress`/);
   assert.match(src, /API\.getEgressDestinations\(days\)/);
   assert.doesNotMatch(src, /Actions blocked/);
   assert.equal((src.match(/API\.threatBlocked\(t\)/g) || []).length, 2, 'posture sentence and hero slice share it');

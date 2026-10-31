@@ -75,7 +75,7 @@ const Sidebar = {
         { id: 'settings', label: 'Settings', icon: 'settings', aliases: ['guardian-ml'] },
     ],
     productGroups: [
-        { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'agent-runs',
+        { id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',
           subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
         { id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',
           subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
@@ -94,7 +94,7 @@ const Sidebar = {
         { id: 'settings', label: 'Settings', icon: 'settings', landing: 'settings', rail: false,
           subtitle: 'App settings', items: ['settings'] },
     ],
-    currentPage: 'agent-runs',
+    currentPage: 'dashboard',
 
     // The parent is the consolidated command centre; these direct session
     // entries are hydrated once terminal authentication is ready.

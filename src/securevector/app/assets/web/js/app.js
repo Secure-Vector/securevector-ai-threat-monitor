@@ -4,9 +4,9 @@
  */
 
 const App = {
-    currentPage: 'agent-runs',
-    // Owner decision (6.1): the app opens on Observability > Runs.
-    DEFAULT_PAGE: 'agent-runs',
+    currentPage: 'dashboard',
+    // Owner decision (6.1.0, revised): the app opens on the Dashboard again.
+    DEFAULT_PAGE: 'dashboard',
 
     pages: {
         guide: GettingStartedPage,

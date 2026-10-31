@@ -152,7 +152,7 @@ test('opening the Live grid acknowledges, and the shell starts the watcher', () 
   assert.match(read('js/pages/live-grid.js'), /if \(window\.EgressAlertWatch\) EgressAlertWatch\.acknowledge\(\);/);
   const html = read('index.html');
   assert.match(html, /egress-alert-watch\.js\?v=2/);
-  assert.match(html, /app\.js\?v=80/);
+  assert.match(html, /app\.js\?v=81/);
   assert.ok(html.indexOf('egress-alert-watch.js') < html.indexOf('/js/app.js'));
   assert.ok(!/—/.test(read('js/components/egress-alert-watch.js')), 'no em dashes');
 });

@@ -586,8 +586,10 @@ const DashboardPage = {
 
         // Security Controls — what is on and off, which is the page's
         // actionable half and now reads before the feed.
-        const securityControls = await this.renderSecurityControls();
-        container.appendChild(securityControls);
+        // Protection controls, the Cost Optimizer tile and the Reports row
+        // left the dashboard in 6.1.0 (owner: important information only).
+        // Each still lives on its own page: Settings, Cost & Tokens, and the
+        // CSV export on Threats, Tool Permissions and Secret Detections.
 
         // Governance posture moved to its own Cloud-section page
         // (GovernancePage) — kept off the dashboard to reduce clutter.
@@ -600,16 +602,20 @@ const DashboardPage = {
         // most severe first, each opening its run with the steps shown.
         this._renderNeedsAttentionCard(container);
 
-        this._renderOptimizerTile(container);
-
-        // Reports — weekly artifacts as compact tiles; the full pages (and
-        // rich PDF export) are one click away.
-        this.renderReportsSection(container);
 
         // Recent Threat Activity closes the page. The headline above already
         // states how many threats need review, so the row-by-row feed is the
         // detail you scroll to, not the thing you land on.
-        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
+        const activityCard = Card.create({ title: 'Recent threats', gradient: true });
+        {
+            const head = activityCard.querySelector('.card-header') || activityCard.firstElementChild;
+            const all = document.createElement('button');
+            all.type = 'button';
+            all.textContent = 'All threats \u2192';
+            all.style.cssText = 'margin-left:auto;background:none;border:0;color:var(--accent-primary);font-size:12px;cursor:pointer;';
+            all.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('threats'); });
+            if (head) { head.style.display = 'flex'; head.style.alignItems = 'center'; head.appendChild(all); }
+        }
         activityCard.style.marginTop = '20px';
         this.renderRecentActivity(activityCard.querySelector('.card-body'));
         container.appendChild(activityCard);
@@ -953,7 +959,10 @@ const DashboardPage = {
 
         const makeStat = (label, color, navPage, sub) => {
             const cell = document.createElement('div');
-            cell.style.cssText = 'flex: 1 1 130px; min-width: 120px; padding: 16px 22px 14px 0; cursor: pointer;';
+            cell.className = 'sv-dash-stat';
+            cell.style.cssText = 'flex: 1 1 120px; min-width: 112px; padding: 14px 12px 12px; margin: 6px 6px 0 0; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s;';
+            cell.setAttribute('role', 'link');
+            cell.tabIndex = 0;
             const valEl = document.createElement('div');
             // v5 type signature: hero numbers in the mono face read like a
             // telemetry instrument (tabular, technical). Class hook lets the
@@ -965,8 +974,9 @@ const DashboardPage = {
             const lblEl = document.createElement('div');
             lblEl.className = 'stat-label';
             lblEl.style.cssText = 'font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; margin-top: 4px; letter-spacing: 0.3px; text-transform: uppercase;';
-            lblEl.textContent = label;
+            lblEl.textContent = label + ' \u2192';
             cell.appendChild(lblEl);
+            cell.setAttribute('aria-label', label);
             // What the figure counts and where: source, device, window.
             if (sub) {
                 const subEl = document.createElement('div');
@@ -982,11 +992,22 @@ const DashboardPage = {
             const sparkEl = document.createElement('div');
             sparkEl.style.cssText = 'height: 16px; margin-top: 7px;';
             cell.insertBefore(sparkEl, lblEl);
-            cell.addEventListener('mouseenter', () => { valEl.style.textDecoration = 'underline'; });
-            cell.addEventListener('mouseleave', () => { valEl.style.textDecoration = ''; });
-            if (navPage) cell.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
+            cell.addEventListener('mouseenter', () => { cell.style.background = 'var(--bg-tertiary)'; cell.style.borderColor = 'var(--border-default)'; });
+            cell.addEventListener('mouseleave', () => { cell.style.background = ''; cell.style.borderColor = 'transparent'; });
+            const stat = { valEl, cell, sparkEl, lblEl, navPage };
+            // The target can change once data arrives (Runtimes guarded opens
+            // Connect only while nothing is guarded), so read it at click time.
+            const go = () => { if (stat.navPage && window.Sidebar) Sidebar.navigate(stat.navPage); };
+            cell.addEventListener('click', go);
+            cell.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
             strip.appendChild(cell);
-            return { valEl, cell, sparkEl };
+            const setSub = (text) => {
+                let el = cell.querySelector('.stat-sub');
+                if (!el) { el = document.createElement('div'); el.className = 'stat-sub'; el.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;'; cell.appendChild(el); }
+                el.textContent = text;
+            };
+            stat.setSub = setSub;
+            return stat;
         };
 
         // v5 color policy: stat values are neutral by default — color is
@@ -994,16 +1015,16 @@ const DashboardPage = {
         // threats are present, amber for needs-attention). A rainbow of
         // always-on colored stats reads as alarm soup on a security console.
         const NEUTRAL = 'var(--text-primary)';
-        const guarded = makeStat('Runtimes guarded', NEUTRAL, 'guide-connect-agents');
-        const calls = makeStat(`Tool calls · ${rangeTag}`, NEUTRAL, 'tool-activity');
-        // Tool calls the tool policy blocked (tool_call_audit). Egress refusals
-        // are a separate figure beside it, never folded into this one.
-        const scopeWin = days === 1 ? 'last 24h' : `last ${days} days`;
-        const blockedStat = makeStat('Tool calls blocked', NEUTRAL, 'blocked-ledger', `tool policy · this device · ${scopeWin}`);
-        const egressStat = makeStat('Egress blocked', NEUTRAL, 'egress', `egress policy · this device · ${scopeWin}`);
-        const criticalStat = makeStat(`Critical · ${rangeTag}`, NEUTRAL, 'threats');
-        const secretsStat = makeStat(`Secrets caught · ${rangeTag}`, NEUTRAL, 'redactions');
+        // Seven numbers, each opening the page that owns it (owner, 6.1.0).
+        const runsStat = makeStat(`Runs · ${rangeTag}`, NEUTRAL, 'agent-runs');
+        const sessionsStat = makeStat('Agent Sessions', NEUTRAL, 'terminals');
+        const adrStat = makeStat('Sessions to review', NEUTRAL, 'detection-response');
+        // Tool-policy and egress refusals side by side in one figure; the sub
+        // line keeps them apart so neither is folded into the other.
+        const blockedStat = makeStat(`Blocked · ${rangeTag}`, NEUTRAL, 'blocked-ledger');
+        const criticalStat = makeStat(`Threats · ${rangeTag}`, NEUTRAL, 'threats');
         const spendStat = makeStat('Spend today', NEUTRAL, 'costs');
+        const guarded = makeStat('Runtimes guarded', NEUTRAL, 'governance');
 
         // In-range threat slices are synchronous — same lookback the posture
         // sentence uses. Fill them before any network round-trip.
@@ -1069,6 +1090,26 @@ const DashboardPage = {
                 // Same source and sum as the sidebar Egress count, same window.
                 API.getEgressDestinations(days).catch(() => null),
             ]);
+            // Runs, Agent Sessions and Detection & Response fill on their own,
+            // so a slow terminals read never holds the other numbers.
+            API.getTraces({ window_days: days, limit: 500 }).then((t) => {
+                if (!strip.isConnected) return;
+                runsStat.valEl.textContent = ((t && t.runs) || []).length.toLocaleString();
+            }).catch(() => { runsStat.valEl.textContent = 'Not recorded'; });
+            API.terminalsTasks().then((r) => {
+                if (!strip.isConnected) return;
+                const items = (r && r.items) || [];
+                const live = items.filter(x => !['done', 'stopped', 'archived', 'failed'].includes(x.status)).length;
+                sessionsStat.valEl.textContent = live.toLocaleString();
+                sessionsStat.setSub('running now');
+            }).catch(() => { sessionsStat.valEl.textContent = '0'; });
+            Promise.resolve(API.detectionResponseSummaryQuiet ? API.detectionResponseSummaryQuiet() : API.detectionResponseSummary()).then((d) => {
+                if (!strip.isConnected) return;
+                const n = Math.max(0, Number(d && d.detect && d.detect.to_review) || 0);
+                adrStat.valEl.textContent = n.toLocaleString();
+                if (n > 0) adrStat.valEl.style.color = '#f59e0b';
+                adrStat.setSub('Detection & Response');
+            }).catch(() => { adrStat.valEl.textContent = '0'; adrStat.setSub('Detection & Response'); });
             if (!strip.isConnected) return; // page switched mid-fetch
 
             if (agents) {
@@ -1078,6 +1119,7 @@ const DashboardPage = {
                 if (n === 0) {
                     guarded.valEl.style.color = '#f59e0b';
                     guarded.cell.title = 'Nothing is protected yet: open the Connect Wizard';
+                    guarded.navPage = 'guide-connect-agents';
                 }
             }
 
@@ -1092,19 +1134,17 @@ const DashboardPage = {
                 ? auditDaily.days.filter(d => d.day >= sinceDay)
                     .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
                 : 0;
-            calls.valEl.textContent = toolCalls.toLocaleString();
+            runsStat.setSub(`${toolCalls.toLocaleString()} tool calls`);
             const blockedActions = auditDaily && auditDaily.days
                 ? auditDaily.days.filter(d => d.day >= sinceDay).reduce((s, d) => s + (d.blocked || 0), 0)
                 : 0;
-            blockedStat.valEl.textContent = blockedActions.toLocaleString();
-            if (blockedActions > 0) blockedStat.valEl.style.color = 'var(--danger, #ef4444)';
-            if (egressDest) {
-                const egressBlocked = DashboardPage.egressBlockedCount(egressDest);
-                egressStat.valEl.textContent = egressBlocked.toLocaleString();
-                if (egressBlocked > 0) egressStat.valEl.style.color = 'var(--danger, #ef4444)';
-            } else {
-                egressStat.valEl.textContent = 'Not recorded';
-            }
+            const egressBlocked = egressDest ? DashboardPage.egressBlockedCount(egressDest) : 0;
+            const blockedTotal = blockedActions + egressBlocked;
+            blockedStat.valEl.textContent = blockedTotal.toLocaleString();
+            if (blockedTotal > 0) blockedStat.valEl.style.color = 'var(--danger, #ef4444)';
+            blockedStat.setSub(egressDest ? `${blockedActions} tool · ${egressBlocked} egress` : `${blockedActions} tool · egress not recorded`);
+            // Only egress refusals: open Agent Egress instead of the ledger.
+            if (blockedActions === 0 && egressBlocked > 0) blockedStat.navPage = 'egress';
             // Milestone prompt: the first blocked action is the moment the app
             // has visibly done its job; real volume (tool calls plus
             // detections) is the fallback for machines that only observe.
@@ -1123,7 +1163,7 @@ const DashboardPage = {
                         ariaLabel: 'tool calls per day',
                         title: dayKeys.map((k, i) => `${dayLabel(k)}: ${series[i].toLocaleString()}`).join('\n'),
                     });
-                    if (spark) calls.sparkEl.appendChild(spark);
+                    if (spark) runsStat.sparkEl.appendChild(spark);
                 }
             }
 
@@ -1154,9 +1194,9 @@ const DashboardPage = {
                 }
             }
 
-            const secretsCaught = redactions && redactions.summary ? (redactions.summary.total || 0) : 0;
-            secretsStat.valEl.textContent = secretsCaught.toLocaleString();
-            if (secretsCaught > 0) secretsStat.valEl.style.color = '#f59e0b';
+            // Secrets caught left the strip (6.1.0); Secret Detections under
+            // Threats still lists every one.
+            void redactions;
 
             // Format: $0.00 when zero or sub-cent (4-decimal precision feels
             // performative on a dashboard); $0.0123 only when the amount is
@@ -1214,7 +1254,7 @@ const DashboardPage = {
      *  like the report tiles so the dashboard stays snappy. */
     /** Top 5 run health findings (loop, failing, wasteful) by severity,
      *  newest first within a severity. Blocked calls live on Threats. */
-    _needsAttentionItems(data, max = 5) {
+    _needsAttentionItems(data, max = 3) {
         const rank = { high: 0, warn: 1, info: 2 };
         const t = (v) => { const n = window.TraceSteps ? TraceSteps.time(v) : Date.parse(v); return n == null || !Number.isFinite(n) ? 0 : n; };
         return (data && Array.isArray(data.findings) ? data.findings : [])
@@ -1230,7 +1270,9 @@ const DashboardPage = {
         const items = this._needsAttentionItems(data);
         const icon = { loop: '', failing: '', wasteful: '' };
         if (window.TraceSteps) Object.keys(icon).forEach(k => { icon[k] = TraceSteps.healthIcon(k); });
-        const head = '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Needs attention</div>';
+        const total = (data && Array.isArray(data.findings) ? data.findings : []).filter(f => f && f.category !== 'blocked').length;
+        const more = total > items.length ? `<button type="button" class="sv-dash-seeall" data-go="run-health" style="margin-left:auto;background:none;border:0;color:var(--accent-primary);font-size:12px;cursor:pointer;">All ${total} in Health \u2192</button>` : '';
+        const head = `<div style="display:flex;align-items:center;font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Needs attention${more}</div>`;
         if (!items.length) {
             return head + '<div style="font-size:12px;color:var(--text-secondary);">No loops, failing steps or waste in agent runs in the last 24 hours.</div>';
         }
@@ -1257,6 +1299,7 @@ const DashboardPage = {
             const data = await API.getRunHealth({ window_days: 1, limit: 200 });
             if (!data) { card.remove(); return; }
             card.innerHTML = this._needsAttentionHtml(data);
+            card.querySelectorAll('button.sv-dash-seeall').forEach(b => b.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(b.dataset.go); }));
             card.querySelectorAll('button.sv-health-open').forEach(b => {
                 b.addEventListener('click', () => {
                     if (window.AgentRunsPage) {
@@ -1660,7 +1703,7 @@ const DashboardPage = {
 
 
     renderRecentActivity(container) {
-        const threats = this.threats.slice(0, 8);
+        const threats = this.threats.slice(0, 3);
 
         if (threats.length === 0) {
             const empty = document.createElement('div');
