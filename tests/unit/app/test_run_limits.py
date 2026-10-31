@@ -186,6 +186,18 @@ async def test_loop_breaker_denies_identical_repeats(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_turn_and_session_markers_never_trip_the_breaker_cap_or_rate(tmp_path):
+    db = await _build_db(tmp_path)
+    await SettingsRepository(db).update(run_loop_breaker=True, run_max_tool_calls=5)
+    # Ten turn markers inside the 180 s window, identical arguments.
+    await _log_calls(db, 10, tool_id="__turn_end__", action="log_only", args_preview=f"session_id={SESSION}")
+    await _log_calls(db, 1, tool_id="__session_start__", action="log_only", args_preview=f"session_id={SESSION}")
+    await _log_calls(db, 1, tool_id="__session_end__", action="log_only", args_preview=f"session_id={SESSION}")
+    assert await evaluate_run_limits(db, RUNTIME, SESSION) == []
+    await db.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_loop_breaker_off_by_default_ignores_repeats(tmp_path):
     db = await _build_db(tmp_path)
     await _log_calls(db, LOOP_REPEAT_LIMIT + 5, args_preview="same args")
@@ -222,7 +234,10 @@ def _budget_client(db, monkeypatch):
     app = FastAPI()
     app.include_router(costs_routes.router, prefix="/api")
     monkeypatch.setattr(costs_routes, "get_database", lambda: db)
-    return TestClient(app)
+    from securevector.app.server.routes import jit_access
+
+    # Budget and run-limit writes come from a person in the app.
+    return TestClient(app, headers={"X-SV-UI-Token": jit_access._UI_TOKEN})
 
 
 async def _record(db, session_id, cost, tokens):

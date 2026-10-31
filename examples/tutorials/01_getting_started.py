@@ -37,11 +37,11 @@ def main():
     print("\n🔧 Alternative initialization methods:")
     
     # Using convenience function
-    client2 = create_client(mode="local")
+    create_client(mode="local")
     print("✅ Using create_client() convenience function")
     
     # With explicit configuration
-    client3 = SecureVectorClient(
+    SecureVectorClient(
         mode="local",
         raise_on_threat=False,  # Don't raise exceptions on threats
         log_level="INFO"

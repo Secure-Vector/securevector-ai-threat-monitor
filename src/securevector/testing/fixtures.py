@@ -8,11 +8,10 @@ Licensed under the Apache License, Version 2.0
 import random
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import List
 
 from securevector.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from securevector.models.config_models import OperationMode, SDKConfig
-from securevector.models.policy_models import SecurityPolicy
 
 
 class ThreatScenario(Enum):

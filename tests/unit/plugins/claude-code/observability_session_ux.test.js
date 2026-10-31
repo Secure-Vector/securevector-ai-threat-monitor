@@ -43,19 +43,19 @@ test('Observability tabs are named, focusable, and support roving keyboard navig
   const list = host.children[0];
   const buttons = list.children;
   assert.equal(list.getAttribute('aria-label'), 'Observability views');
-  assert.deepEqual(buttons.map(b => b.title), ['Open Runs', 'Open Health', 'Open Map']);
-  assert.deepEqual(buttons.map(b => b.tabIndex), [0, -1, -1]);
+  assert.deepEqual(buttons.map(b => b.title), ['Open Runs', 'Open Live grid', 'Open Health', 'Open Map']);
+  assert.deepEqual(buttons.map(b => b.tabIndex), [0, -1, -1, -1]);
   assert.equal(buttons[0].getAttribute('aria-selected'), 'true');
   buttons[0].focus();
   let prevented = false;
   list.listeners.keydown({ key: 'ArrowRight', preventDefault() { prevented = true; } });
   assert.equal(prevented, true);
   assert.equal(document.activeElement, buttons[1]);
-  assert.deepEqual(buttons.map(b => b.tabIndex), [-1, 0, -1]);
-  assert.deepEqual(pages, ['run-health']);
+  assert.deepEqual(buttons.map(b => b.tabIndex), [-1, 0, -1, -1]);
+  assert.deepEqual(pages, ['live-grid']);
   list.listeners.keydown({ key: 'End', preventDefault() {} });
-  assert.equal(document.activeElement, buttons[2]);
-  assert.deepEqual(pages, ['run-health', 'agent-map']);
+  assert.equal(document.activeElement, buttons[3]);
+  assert.deepEqual(pages, ['live-grid', 'agent-map']);
   list.listeners.keydown({ key: 'Home', preventDefault() {} });
   assert.equal(document.activeElement, buttons[0]);
   assert.equal(pages.at(-1), 'agent-runs');
@@ -72,7 +72,7 @@ test('roving tab focus survives the reload that activating a tab triggers', () =
   // Activating a tab reloads the page: a fresh tablist is rendered into a
   // fresh container, discarding the button we just focused.
   const host2 = document.createElement('div');
-  tabs.render(host2, 'health');
+  tabs.render(host2, 'grid');
   const list2 = host2.children[0];
   const buttons2 = list2.children;
   assert.equal(document.activeElement, buttons2[1]);
@@ -97,12 +97,14 @@ test('session names use custom, verified Terminal, workspace, and stable ID prio
   assert.equal(page._esc(page._agentLabel({ trace_id: 'custom' })), '&lt;Owner&gt;');
 });
 
-test('session toolbar spans the split and offers a verified Terminal navigation action', () => {
+test('runs list is full width with the trace in its place, and offers a verified Terminal navigation action', () => {
   const src = read('js/pages/agent-runs.js');
-  assert.match(src, /grid-template-columns:296px minmax\(0,1fr\); gap:12px/);
-  assert.match(src, /command\.appendChild\(toolbar\);\s*container\.appendChild\(command\)/);
-  assert.match(src, /\(triage \|\| list\)\.appendChild\(chips\)/);
-  assert.match(src, /className = 'ar-more-views'/);
+  assert.match(src, /\.ar-layout\.runs-v2\.trace-open \.ar-listview \{ display:none; \}/);
+  assert.match(src, /\.ar-layout\.runs-v2:not\(\.trace-open\) \.ar-pane \{ display:none; \}/);
+  // 6.1: no "Runs" heading row; the filters sit on the tab row (ObsTabs.foldFilters).
+  assert.doesNotMatch(src, /<h2 class="rl-title">/);
+  assert.match(src, /ObsTabs\.foldFilters\(header,/);
+  assert.match(src, /id="rl-filters" role="toolbar" aria-label="Run filters"/);
   assert.match(src, /sessionStorage\.setItem\('sv-agent-task-id', taskId\)/);
   assert.match(src, /Sidebar\.navigate\('terminals'\)/);
   assert.match(src, /\(taskId \? '<button type="button" class="ar-terminal-open"/);

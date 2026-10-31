@@ -11,11 +11,12 @@ import hashlib
 import json
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, List, Optional
 
 from securevector.app.database.connection import DatabaseConnection
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -645,7 +646,7 @@ class ThreatIntelRepository:
         )
         deleted = cursor.rowcount > 0
         if deleted:
-            logger.info(f"Deleted threat intel record: {record_id}")
+            logger.info(f"Deleted threat intel record: {log_safe(record_id)}")
         return deleted
 
     async def delete_all(self) -> int:
@@ -721,8 +722,8 @@ class ThreatIntelRepository:
             (json.dumps(meta) if meta else None, record_id),
         )
         logger.info(
-            f"Threat intel record {record_id} disposition "
-            f"{'set to ' + disposition if disposition else 'cleared'}"
+            f"Threat intel record {log_safe(record_id)} disposition "
+            f"{'set to ' + log_safe(disposition) if disposition else 'cleared'}"
         )
         return True
 

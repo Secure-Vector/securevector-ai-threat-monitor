@@ -183,11 +183,15 @@ const ObsTabs = {
     //           trace_id from the session, so they're 1:1). The unit you pick.
     //   Run   = one step inside a trace: an LLM run (a model call) or a Tool
     //           run (an enforced tool call). Every row is a Run.
-    // "Session" is demoted to a provenance line ("from session <id>"), not a
-    // competing noun; "Activity / Sessions / turns / steps / spans" are retired
-    // from the UI. This is the whole fix for the Trace-vs-Run-vs-Session soup.
+    // 6.0 vocabulary (replaces the v5.2 lock above, owner ask): the
+    // conventional observability terms. Session = one agent session, Run =
+    // one task inside it, Span = one model turn or tool call inside a run.
+    // "Session" and "span" are UI words again. The tabs mirror the
+    // Observability sub-items in the left nav: Runs, Live grid, Health, Map.
+    // Map always stays.
     _TABS: [
         { label: 'Runs', page: 'agent-runs', icon: 'M4 6h16M4 12h16M4 18h10' },
+        { label: 'Live grid', page: 'live-grid', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
         { label: 'Health', page: 'run-health', icon: 'M3 12h4l3-7 4 14 3-7h4' },
         { label: 'Map',    page: 'agent-map',  icon: 'M5 7h4v4H5zM15 13h4v4h-4zM9 9h6M17 11v2' },
     ],
@@ -228,6 +232,44 @@ const ObsTabs = {
             .sv-obs-tab:hover:not(.on) { color:var(--text-primary,#e6edf3); background:var(--bg-hover,#30363d); }
             .sv-obs-tab:hover:not(.on) svg { stroke:var(--text-primary,#e6edf3); }
             .sv-obs-tab:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:2px; }
+            /* Filters fold (6.1): the page filters sit on the tab row, right
+               aligned. When they do not fit beside the tabs they fold into
+               one "Filters" button with a popover, so the tabs are never
+               crowded and the filters never wrap into a second row. */
+            .obs-header .sv-obs-tabs { flex:0 0 auto; }
+            .obs-fold { position:relative; margin-left:auto; display:flex; align-items:center; min-width:0; }
+            .obs-fold[data-mode="inline"] > .obs-fold-btn { display:none; }
+            .obs-fold[data-mode="inline"] > .obs-fold-slot { display:flex; flex-wrap:nowrap; }
+            .obs-fold[data-mode="inline"] > .obs-fold-slot > * { flex-wrap:nowrap; }
+            .obs-fold[data-mode="popover"] > .obs-fold-slot { display:none; }
+            .obs-fold .rl-menu { left:auto; right:0; }
+            .obs-fold-btn { display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:6px 12px; border-radius:6px;
+                border:1px solid var(--border-default); background:var(--bg-card); color:var(--text-secondary);
+                font:600 13px var(--font-body, inherit); cursor:pointer; white-space:nowrap; }
+            .obs-fold-btn:hover, .obs-fold-btn[aria-expanded="true"] { color:var(--text-primary); border-color:var(--accent-primary); }
+            .obs-fold-btn.on { color:var(--text-primary); border-color:var(--accent-primary);
+                background:color-mix(in srgb, var(--accent-primary) 16%, var(--bg-card)); }
+            .obs-fold-btn:focus-visible { outline:2px solid var(--accent-primary); outline-offset:2px; }
+            .obs-fold-btn svg { width:14px; height:14px; flex:0 0 auto; }
+            .obs-fold-pop { position:absolute; right:0; top:calc(100% + 6px); z-index:45; width:max-content;
+                max-width:min(560px, calc(100vw - 32px)); padding:10px; border-radius:10px; background:var(--bg-elevated, var(--bg-card));
+                border:1px solid var(--border-default); box-shadow:var(--shadow-lg); }
+            .obs-fold-pop[hidden] { display:none; }
+            .obs-fold-pop > * { flex-wrap:wrap; }
+            .obs-fold-pop .rl-menu { left:0; right:auto; }
+            .obs-fold-active { margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--border-default); }
+            .obs-fold-active-h { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-muted); }
+            .obs-fold-active-h span { flex:1 1 auto; }
+            .obs-fold-clear { font:inherit; font-size:12.5px; border:0; background:none; padding:2px 4px; cursor:pointer; color:var(--accent-primary); }
+            .obs-fold-clear:hover { text-decoration:underline; }
+            .obs-fold-chips { list-style:none; margin:8px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:6px; }
+            .obs-fold-chip { display:inline-flex; align-items:center; gap:4px; font-size:12px; padding:3px 4px 3px 9px; border-radius:14px;
+                border:1px solid var(--accent-primary); color:var(--text-primary);
+                background:color-mix(in srgb, var(--accent-primary) 16%, var(--bg-card)); }
+            .obs-fold-chip button { font:inherit; font-size:14px; line-height:1; border:0; background:none; cursor:pointer;
+                color:var(--text-secondary); padding:0 5px; border-radius:10px; }
+            .obs-fold-chip button:hover { color:var(--text-primary); }
+            .obs-fold-chip button:focus-visible, .obs-fold-clear:focus-visible { outline:2px solid var(--accent-primary); outline-offset:1px; }
             .sv-export-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:8px;
                 border:1px solid var(--border-default,#30363d); background:var(--bg-card,#161b22); color:var(--text-primary,#e6edf3);
                 font:600 12.5px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; transition:background .12s,border-color .12s; }
@@ -246,6 +288,198 @@ const ObsTabs = {
         document.head.appendChild(st);
     },
 
+    /** Pure fit-or-fold decision for the filters on the tab row: 'inline'
+     *  when the filters' natural width (plus a little slack) fits in the
+     *  width left beside the tabs, else 'popover' (one Filters button). */
+    filterFit(available, needed, slack = 8) {
+        const a = Number(available), n = Number(needed);
+        if (!Number.isFinite(a) || !Number.isFinite(n) || a <= 0) return 'popover';
+        return n + slack <= a ? 'inline' : 'popover';
+    },
+
+    /** The Filters button label: "Filters", or "Filters · 2" with two active. */
+    filterLabel(count) {
+        const n = Math.max(0, Number(count) || 0);
+        return n ? `Filters · ${n}` : 'Filters';
+    },
+
+    /** Put `filters` (the page's filter element) on the tab row `header`,
+     *  right aligned, folding it into a Filters button with a popover when
+     *  it does not fit (measured with a ResizeObserver, not a breakpoint).
+     *  opts.count() -> active-filter count for the button label.
+     *  Returns { refit(), close(), el }. Call refit() after rebuilding the
+     *  filters; the popover stays open across a rebuild. */
+    foldFilters(header, filters, opts = {}) {
+        this._injectStyle();
+        const fold = document.createElement('div');
+        fold.className = 'obs-fold';
+        fold.dataset.mode = 'inline';
+        const slot = document.createElement('div');
+        slot.className = 'obs-fold-slot';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'obs-fold-btn';
+        const popId = (filters.id || 'obs') + '-pop';
+        btn.setAttribute('aria-haspopup', 'dialog');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-controls', popId);
+        const pop = document.createElement('div');
+        pop.className = 'obs-fold-pop';
+        pop.id = popId;
+        pop.setAttribute('role', 'dialog');
+        pop.setAttribute('aria-label', opts.label || 'Filters');
+        pop.hidden = true;
+        slot.appendChild(filters);
+        fold.appendChild(slot);
+        fold.appendChild(btn);
+        fold.appendChild(pop);
+        header.appendChild(fold);
+
+        const count = () => { try { return opts.count ? opts.count() : 0; } catch (_) { return 0; } };
+        const paintBtn = () => {
+            const n = count();
+            const text = this.filterLabel(n);
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+                'stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg><span></span>';
+            btn.querySelector('span').textContent = text;
+            btn.classList.toggle('on', n > 0);
+        };
+        const isOpen = () => !pop.hidden;
+        const close = (refocus) => {
+            if (!isOpen()) return;
+            pop.hidden = true;
+            btn.setAttribute('aria-expanded', 'false');
+            if (fold.dataset.mode === 'popover') slot.appendChild(filters);
+            if (refocus) btn.focus();
+            refit();
+        };
+        const focusables = () => [...pop.querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+            .filter(el => el.offsetParent !== null && !el.closest('[hidden]'));
+        // Active filters as removable chips, plus Clear all. opts.chips()
+        // -> [{ label, remove() }]; opts.clearAll() clears them.
+        const active = document.createElement('div');
+        active.className = 'obs-fold-active';
+        pop.appendChild(active);
+        const paintChips = () => {
+            let list = [];
+            try { list = (opts.chips && opts.chips()) || []; } catch (_) { list = []; }
+            active.textContent = '';
+            const head = document.createElement('div');
+            head.className = 'obs-fold-active-h';
+            const t = document.createElement('span');
+            t.textContent = list.length ? `Active filters (${list.length})` : 'No filters applied';
+            head.appendChild(t);
+            if (list.length && opts.clearAll) {
+                const clr = document.createElement('button');
+                clr.type = 'button';
+                clr.className = 'obs-fold-clear';
+                clr.textContent = 'Clear all';
+                clr.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    opts.clearAll();
+                    refit();
+                    const f = focusables(); if (f.length) f[0].focus();
+                });
+                head.appendChild(clr);
+            }
+            active.appendChild(head);
+            if (!list.length) return;
+            const ul = document.createElement('ul');
+            ul.className = 'obs-fold-chips';
+            ul.setAttribute('aria-label', 'Active filters');
+            list.forEach((c, i) => {
+                const li = document.createElement('li');
+                li.className = 'obs-fold-chip';
+                const lab = document.createElement('span');
+                lab.textContent = c.label;
+                li.appendChild(lab);
+                const x = document.createElement('button');
+                x.type = 'button';
+                x.setAttribute('aria-label', `Remove ${c.label}`);
+                x.title = `Remove ${c.label}`;
+                x.textContent = '×';
+                x.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    c.remove();
+                    refit();
+                    const xs = [...active.querySelectorAll('.obs-fold-chip button')];
+                    const target = xs[Math.min(i, xs.length - 1)] || active.querySelector('.obs-fold-clear') || focusables()[0];
+                    if (target) target.focus();
+                });
+                li.appendChild(x);
+                ul.appendChild(li);
+            });
+            active.appendChild(ul);
+        };
+        const open = () => {
+            pop.appendChild(filters);
+            pop.hidden = false;
+            btn.setAttribute('aria-expanded', 'true');
+            paintChips();
+            const first = focusables()[0];
+            if (first) first.focus();
+        };
+        btn.addEventListener('click', (e) => { e.stopPropagation(); if (isOpen()) close(true); else open(); });
+        fold.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape' || !isOpen()) return;
+            // A menu inside the popover closes first; the next Esc closes the popover.
+            if (e.target.closest && e.target.closest('.rl-menu, .lg-views-menu')) return;
+            const dd = pop.querySelector('.rl-dd.open');
+            if (dd && dd._rlClose) { dd._rlClose(); const b = dd.querySelector('button'); if (b) b.focus(); e.preventDefault(); return; }
+            e.preventDefault();
+            close(true);
+        });
+        const onDown = (e) => {
+            if (!fold.isConnected) { document.removeEventListener('pointerdown', onDown, true); return; }
+            if (isOpen() && !fold.contains(e.target)) close(false);
+        };
+        document.addEventListener('pointerdown', onDown, true);
+        // Focus stays inside the popover while it is open (Tab and Shift+Tab
+        // wrap); Esc or a click outside closes it.
+        pop.addEventListener('keydown', (e) => {
+            if (e.key !== 'Tab') return;
+            const f = focusables();
+            if (!f.length) return;
+            const at = f.indexOf(document.activeElement);
+            let next = null;
+            if (e.shiftKey && at <= 0) next = f[f.length - 1];
+            else if (!e.shiftKey && (at === -1 || at === f.length - 1)) next = f[0];
+            if (next) { e.preventDefault(); next.focus(); }
+        });
+
+        const refit = () => {
+            paintBtn();
+            if (isOpen()) paintChips();
+            if (isOpen() || !fold.isConnected || !fold.offsetParent) return;
+            const cs = getComputedStyle(header);
+            const gap = parseFloat(cs.columnGap) || 0;
+            const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+            let used = 0, others = 0;
+            [...header.children].forEach(c => {
+                if (c === fold || c.offsetParent === null) return;
+                used += c.getBoundingClientRect().width;
+                others += 1;
+            });
+            const available = header.clientWidth - padX - used - gap * others;
+            // Natural width of the filters on one line, measured in place.
+            fold.dataset.mode = 'inline';
+            slot.appendChild(filters);
+            const needed = filters.scrollWidth;
+            const mode = this.filterFit(available, needed);
+            fold.dataset.mode = mode;
+        };
+        let raf = 0;
+        const schedule = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; refit(); }); };
+        if (typeof ResizeObserver === 'function') {
+            const ro = new ResizeObserver(() => { if (!fold.isConnected) { ro.disconnect(); return; } schedule(); });
+            ro.observe(header);
+            ro.observe(fold);
+        }
+        paintBtn();
+        schedule();
+        return { refit, close: () => close(false), el: fold, button: btn, popover: pop };
+    },
+
     _icon(d) {
         return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
             `<path d="${d}"/></svg>`;
@@ -261,7 +495,7 @@ const ObsTabs = {
         wrap.setAttribute('aria-label', 'Observability views');
         // 'storylines' (the retired Sessions page) maps to the Activity tab so
         // a deep link still highlights the merged view.
-        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs', health: 'run-health' }[active];
+        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs', health: 'run-health', grid: 'live-grid' }[active];
         let activeBtn = null;
         this._TABS.forEach(t => {
             const b = document.createElement('button');
@@ -273,6 +507,22 @@ const ObsTabs = {
             b.title = `Open ${t.label}`;
             b.dataset.p = t.page;
             b.innerHTML = this._icon(t.icon) + `<span>${t.label}</span>`;
+            if (t.page === 'live-grid') {
+                // Sessions running now: neutral, filled by every live read.
+                const run = document.createElement('span');
+                run.className = 'nav-count nav-count-quiet';
+                run.dataset.liveRunning = '1';
+                run.dataset.obsLabel = 'running';
+                run.hidden = true;
+                b.appendChild(run);
+                // Same amber count as the rail row, filled by the sidebar poll.
+                const wait = document.createElement('span');
+                wait.className = 'nav-count nav-count-warn';
+                wait.dataset.liveWaiting = '1';
+                wait.dataset.obsLabel = 'waiting';
+                wait.hidden = true;
+                b.appendChild(wait);
+            }
             b.addEventListener('click', () => window.App && App.loadPage(t.page));
             if (t.page === activePage) activeBtn = b;
             wrap.appendChild(b);
@@ -298,6 +548,15 @@ const ObsTabs = {
             tabs[next].click();
         });
         container.appendChild(wrap);
+        this._paintRunning();
+        // Fill the Live grid badge now instead of waiting for the next tick.
+        if (window.Sidebar && Sidebar.loadJitPendingCount) Sidebar.loadJitPendingCount();
+        // Runs and the Live grid read live data on their own; other tabs
+        // ask once when the count is older than 20 s.
+        if (Date.now() - (this._runningAt || 0) > 20000 && window.API && API.getObservabilityLive) {
+            this._runningAt = Date.now();
+            API.getObservabilityLive({ limit: 1 }).catch(() => {});
+        }
         if (this._restoreTabFocus) {
             this._restoreTabFocus = false;
             if (activeBtn) activeBtn.focus();
@@ -305,9 +564,34 @@ const ObsTabs = {
         // The Traces tab has two views: the grouped trace list ("By trace")
         // and the flat chronological feed (the pre-v5 Timeline page, now
         // "Live feed"). Render the sub-toggle right next to the tabs on both.
-        if (active === 'runs' || active === 'timeline') {
+        // The Runs tab has its own list now; the toggle stays on the Live
+        // feed page only, as the way back to Runs.
+        if (active === 'timeline') {
             container.appendChild(this._viewToggle(active));
         }
+    },
+
+    _running: null,
+    _runningAt: 0,
+
+    /** Record the number of sessions running now and show it on the tab. */
+    setRunning(n) {
+        this._running = Math.max(0, Number(n) || 0);
+        this._runningAt = Date.now();
+        this._paintRunning();
+    },
+
+    _paintRunning() {
+        const n = this._running;
+        if (n == null) return;
+        document.querySelectorAll('[data-live-running]').forEach(el => {
+            const meaning = n === 1 ? '1 session running now' : `${n} sessions running now`;
+            // The tab chip says what it counts; the rail chip is a bare number.
+            el.textContent = el.dataset.obsLabel ? `${n} ${el.dataset.obsLabel}` : String(n);
+            el.title = meaning;
+            el.setAttribute('aria-label', meaning);
+            el.hidden = false;
+        });
     },
 
     /** Small segmented "By trace | Live feed" control shown on the Traces tab. */

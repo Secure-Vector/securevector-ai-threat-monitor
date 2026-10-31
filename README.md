@@ -13,7 +13,6 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
-[![npm SDK](https://img.shields.io/npm/v/@securevector/sdk.svg?style=for-the-badge&logo=npm&label=%40securevector%2Fsdk&color=CB3837)](https://www.npmjs.com/package/@securevector/sdk)
 [![npm CLI](https://img.shields.io/npm/v/@securevector/cli.svg?style=for-the-badge&logo=npm&label=%40securevector%2Fcli&color=CB3837)](https://www.npmjs.com/package/@securevector/cli)
 [![Downloads/month](https://img.shields.io/pypi/dm/securevector-ai-monitor?style=for-the-badge&label=downloads%2Fmonth&color=orange)](https://pypistats.org/packages/securevector-ai-monitor)
 [![Downloads total](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads%20total&color=orange)](https://pepy.tech/project/securevector-ai-monitor)
@@ -21,8 +20,8 @@
 
 </div>
 
-<p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Agent Sessions: a Claude Code and a Codex session side by side in SecureVector, with each tool call and its verdict in the governance column on the right" width="100%"></p>
-<p align="center"><sub><b>Agent Sessions, new in 6.0.</b> Run Claude Code, Codex, Copilot CLI or OpenCode inside the app and watch every tool call get checked as it happens. <a href="docs/AGENT_SESSIONS.md">Guide</a></sub></p>
+<p align="center"><img src="docs/screenshots/agent-sessions-governance.gif" alt="Observability runs grouped by harness with a run's tool calls expanded inline and its details with Session governance, then Agent Sessions: a Claude Code and a Codex session side by side with each tool call and its verdict in the governance column" width="100%"></p>
+<p align="center"><sub><b>Runs grouped by harness and inline run details, new in 6.1, then Agent Sessions.</b> Open a run in place to see its tool calls, then run Claude Code, Codex, Copilot CLI or OpenCode inside the app and watch every tool call get checked as it happens. <a href="docs/AGENT_SESSIONS.md">Guide</a></sub></p>
 
 ## Start here
 
@@ -143,30 +142,29 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 
 </div>
 
-> **What's new in 6.0**
-> - **Agent Sessions**: launch Claude Code, Codex, GitHub Copilot CLI or OpenCode from inside SecureVector and watch every tool call get checked beside the terminal. [Guide](docs/AGENT_SESSIONS.md)
-> - **Bring your own sessions**: an agent you started in your own terminal appears in the app as soon as it makes a tool call. Add it to the board, continue it in the app, or leave it where it is.
-> - **Unchecked, not just quiet**: an agent that is still running but no longer reporting tool calls is marked **unverified**, so it never looks the same as an idle one.
-> - **Session commands in the CLI**: `sv-monitor session list | harnesses | unlinked | launch | link | stop` (`securevector monitor session ...` with npm), each with `--json`.
-> - **Live governance beside every session**: tool calls with verdicts, blocks, hosts reached and an approval inbox in a column on the right. Approve a held call for 15 minutes, 1 hour or the rest of the session without leaving it.
-> - **Session board and summary**: sessions grouped by folder with cost, calls and blocked counts; a summary when a session ends (duration, tool calls by verdict, hosts, findings), exportable as JSON.
-> - **Observability** (was Traces): each run shows a step list with model time vs tool time, and **Agent Health** points out loops, failing steps, waste and blocked runs. CSV and PDF exports include the steps.
-> - **Governance coverage**: see how many of your agents' tool calls SecureVector recorded and checked, and a list of gaps to close.
-> - **Live Runs in the cloud** (Cloud Connect): every governed session on your devices, live, with its title and folder name and the same step timeline. Metadata only.
-> - **Antigravity plugin**: install it from **Connect Agents** like the others.
-> - **Install from npm**: `npx @securevector/cli` runs the same app for Node developers, and [`@securevector/sdk`](https://github.com/Secure-Vector/securevector-sdk-js#readme) checks tools in JavaScript and TypeScript agents.
+> **What's new in 6.1**
+> - **Runs grouped by harness**: Observability opens on Runs, grouped by harness with each session under it, running counts on every row, and a one-line summary (runs, sessions running, waiting, refused, median). A run's tool calls expand under the row; Open details keeps Session governance beside the trace.
+> - **Live grid**: every running session as a tile with what it is doing now, waiting and blocked chips, tiles that open as a 2x2 or 3x3 matrix, and a running count on the tab. Sessions end on the harness's own end marker.
+> - **Agent Detection & Response**: every governed session gets a score from 0 to 100 against what the same agent tool normally does in that folder, with the reasons in plain words. Two named rules act at call time: a credential file read followed by a network call, and outside content (web pages, MCP results) followed by a reach outward.
+> - **Approvals from the cloud** (Professional and Enterprise): an enrolled device can let held calls be answered from Fleet Runs, off by default, with Deny always and the durations you allow. The device pulls the answer; nothing connects in.
+> - **Remote access mode** (off by default): approve, deny and stop sessions from your own browser on another machine over HTTPS, with a short-lived token and re-sign-in for anything that lifts a block.
+> - **Guardian stays quiet**: new findings show as an unread count and one short toast; urgent advice sits in the corner.
+> - **One-session approvals**: approve a blocked host for 15 minutes, 1 hour or the rest of the session from the Approval inbox. Other sessions stay blocked.
+> - **Agent Config Trust**: Integrations scans each agent tool's MCP servers, hooks and rules files, and shows changes as side-by-side cards to approve.
+> - **SecureVector MCP**: `check_policy` tells the agent whether a tool call will be allowed before it makes it; `session_burn` reports tokens and estimated cost so far.
+> - **Fleet** (Professional and Enterprise): Runs grouped by harness with inline expansion, run traces with governance, a Live grid across devices, held counts, rule matches and stopped sessions.
 >
-> Full release history in the [CHANGELOG](CHANGELOG.md).
+> 6.0 (Agent Sessions, Observability, npm install) and earlier releases are in the [CHANGELOG](CHANGELOG.md).
 
 ## Screenshots
 
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/agent-sessions-board.png" alt="Agent Sessions board" width="100%"><br><em>Agent Sessions board: sessions grouped by folder, with calls, blocked count and age on each card.</em></td>
-<td width="50%"><img src="docs/screenshots/agent-runs.png" alt="Observability" width="100%"><br><em>Observability: a step list per run with model time versus tool time, each call's verdict, and Agent Health findings.</em></td>
+<td width="50%"><img src="docs/screenshots/agent-runs.png" alt="Observability" width="100%"><br><em>Observability: runs grouped by harness, a run's tool calls expanded under the row, Session governance beside the details.</em></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map: harnesses, sessions and tools, with blocked calls in red.</em></td>
+<td width="50%"><img src="docs/screenshots/live-grid.png" alt="Live grid" width="100%"><br><em>Live grid: one tile per running session with waiting and blocked chips; open a tile for its recent calls and egress.</em></td>
 <td width="50%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Activity" width="100%"><br><em>Tool Activity: every tool call in a SHA-256 hash-chained log, each row integrity-verified.</em></td>
 </tr>
 </table>
@@ -223,6 +221,8 @@ A wrong detection is the most useful thing you can send. Every detection in the 
 ## Cloud (optional, opt-in)
 
 A separate cloud product handles MCP tool-permission policy sync across enrolled devices, per-org audit attribution, and per-device fleet slicing. It also adds **AI Agent Governance**, your agents' governance posture rolled into a single score across the fleet ([app.securevector.io/governance](https://app.securevector.io/governance)), plus **EU AI Act orientation** that maps your action-layer logging and tamper-evident tool-call audit to the relevant obligations ([governance/eu-ai-act](https://app.securevector.io/governance/eu-ai-act)); orientation only, not legal advice. Sign in for the fleet-wide view; the local install already gives you the single-device snapshot. Strictly additive: the local install above works standalone without it. Details: [securevector.io](https://securevector.io).
+
+Three ways to connect the app, all from **Settings, Cloud Connect**: pair your account (a short code you confirm in the browser, gives you rule sync and optional cloud analysis), enroll the device with a single-use token from the cloud app (puts the machine in Fleet, with runs, traces, the Live grid and held calls answered from the cloud), or paste a key you already have. The [Connect to Cloud guide](https://docs.securevector.io/connect-to-cloud) has the diagrams and a "which one do I need" table. To approve and stop sessions from another machine without the cloud, see [Remote access mode](https://docs.securevector.io/remote-access).
 
 ## License
 

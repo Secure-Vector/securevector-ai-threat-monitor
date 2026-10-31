@@ -121,8 +121,13 @@ function postJsonAndForget(url, body) {
  * @returns {Promise<object>}  `{ synced: [...], total: N }` or `{}`.
  */
 async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
-  const q = runtime ? `?runtime=${encodeURIComponent(runtime)}` : '';
-  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${q}`, opts);
+  const params = new URLSearchParams();
+  if (runtime) params.set('runtime', runtime);
+  // The session id scopes JIT grants (and per-run limits) to the session
+  // that asked for them; without it a session's grants are not returned.
+  if (opts.sessionId) params.set('session_id', opts.sessionId);
+  const qs = params.toString();
+  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${qs ? `?${qs}` : ''}`, opts);
 }
 
 /**
@@ -133,6 +138,17 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
  * and only applies to network-capable tools, a small fraction of tool calls.
  */
 const EGRESS_TIMEOUT_MS = 400;
+
+/**
+ * Inside a task launched by Agent Sessions, the app hands the session its task
+ * id and hook token. Sending them lets the egress check bind this call to the
+ * session it claims; without them the call is still evaluated, just not bound.
+ */
+function terminalHeaderFields() {
+  const task = (process.env.SV_TERMINAL_TASK_ID || '').trim();
+  const token = (process.env.SV_TERMINAL_HOOK_TOKEN || '').trim();
+  return task && token ? { 'x-sv-terminal-task': task, 'x-sv-terminal-hook': token } : {};
+}
 
 /**
  * Domain helper: POST a tool call to the local app's egress evaluator.
@@ -152,7 +168,7 @@ async function evaluateEgress(baseUrl, body, opts = {}) {
   try {
     const resp = await fetch(`${baseUrl}/api/egress/evaluate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...authHeaders(), ...terminalHeaderFields() },
       body: JSON.stringify(body),
       signal: controller.signal,
     });

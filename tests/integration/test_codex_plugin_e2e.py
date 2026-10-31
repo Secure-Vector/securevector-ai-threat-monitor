@@ -30,7 +30,6 @@ import os
 import shutil
 import socket
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -52,6 +51,7 @@ PRE_HOOK = PLUGIN_DIR / "hooks" / "pre-tool-use.js"
 POST_HOOK = PLUGIN_DIR / "hooks" / "post-tool-use.js"
 SESSION_START_HOOK = PLUGIN_DIR / "hooks" / "session-start.js"
 STOP_HOOK = PLUGIN_DIR / "hooks" / "stop.js"
+SESSION_END_HOOK = PLUGIN_DIR / "hooks" / "session-end.js"
 
 
 def _free_port() -> int:
@@ -143,6 +143,7 @@ def live_server(tmp_path_factory):
         try:
             asyncio.run(pre_db.disconnect())
         except Exception:
+            # best effort: a failure here must not interrupt the caller
             pass
         conn_mod._db = original_db
 
@@ -434,13 +435,10 @@ def test_session_start_writes_audit_row_with_session_sentinel(live_server):
     assert "additionalContext" not in hso, parsed
 
 
-def test_stop_writes_session_end_audit_row(live_server):
-    """Stop hook fires at Codex turn/session boundaries. Writes a
-    `__session_end__` audit row with action=log_only and the branded
-    reason. Note: Codex's Stop may fire per-turn rather than only at
-    session close — this test pins the per-fire behaviour; clients
-    reconstruct true sessions by adjacency to the matching
-    `__session_start__` row, not by counting Stop fires."""
+def test_stop_writes_turn_end_audit_row(live_server):
+    """Stop fires at the end of every Codex turn, so it writes a
+    `__turn_end__` row (action=log_only), never `__session_end__`: only
+    the SessionEnd hook ends a session."""
     if not STOP_HOOK.is_file():
         pytest.skip(f"stop.js not present at {STOP_HOOK}")
 
@@ -466,8 +464,8 @@ def test_stop_writes_session_end_audit_row(live_server):
     )
     new_row = rows[0]
     assert new_row["runtime_kind"] == "codex", new_row
-    assert new_row["function_name"] == "__session_end__", new_row
-    assert new_row["tool_id"] == "__session_end__", new_row
+    assert new_row["function_name"] == "__turn_end__", new_row
+    assert new_row["tool_id"] == "__turn_end__", new_row
     assert new_row["action"] == "log_only", new_row
 
     # Codex's `stop.command.output` schema is `additionalProperties: false`
@@ -479,3 +477,23 @@ def test_stop_writes_session_end_audit_row(live_server):
     parsed = json.loads(proc.stdout) if proc.stdout.strip() else {}
     assert "hookSpecificOutput" not in parsed, parsed
     assert parsed == {}, parsed
+
+
+def test_session_end_writes_session_end_audit_row(live_server):
+    """SessionEnd fires once when the Codex session ends and writes the
+    `__session_end__` row the Live grid ends the session on."""
+    if not SESSION_END_HOOK.is_file():
+        pytest.skip(f"session-end.js not present at {SESSION_END_HOOK}")
+    before = _audit_rows_for(live_server["db_path"])
+    proc = _run_hook(SESSION_END_HOOK, {"session_id": "test-session-end-1", "reason": "other"}, live_server["base_url"])
+    assert proc.returncode == 0, proc.stderr
+    deadline = time.time() + 3.0
+    rows: list = []
+    while time.time() < deadline:
+        rows = _audit_rows_for(live_server["db_path"])
+        if len(rows) > len(before):
+            break
+        time.sleep(0.05)
+    assert len(rows) > len(before)
+    assert rows[0]["tool_id"] == "__session_end__" and rows[0]["runtime_kind"] == "codex", rows[0]
+    assert json.loads(proc.stdout or "{}") == {}

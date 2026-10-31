@@ -45,6 +45,7 @@ from securevector.app.services.cloud_rules_sync import (
     _extract_rule_list,
     _normalize_rule,
 )
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -297,10 +298,11 @@ async def apply_preview(
         "total_after": total_after,
         "source": "cloud_sync_preview",
     }
-    # Log only the numeric counts (no user-provided strings) to avoid log injection.
+    # Log only the numeric counts so the line stays single-line and short.
     logger.info(
         "cloud_rules_preview: applied upserted=%s replaced_existing=%s skipped_by_user=%s total_after=%s",
-        result.get("upserted"), result.get("replaced_existing"), result.get("skipped_by_user"), result.get("total_after"),
+        log_safe(result.get("upserted")), log_safe(result.get("replaced_existing")),
+        log_safe(result.get("skipped_by_user")), log_safe(result.get("total_after")),
     )
     return result
 

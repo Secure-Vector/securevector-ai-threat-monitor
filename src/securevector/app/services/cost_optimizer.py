@@ -1059,6 +1059,7 @@ class CostOptimizerService:
             if isinstance(data, dict):
                 return data
         except (OSError, json.JSONDecodeError):
+            # best effort: an unreadable file is not an error here
             pass
         return {}
 

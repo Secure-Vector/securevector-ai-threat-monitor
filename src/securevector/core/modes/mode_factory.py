@@ -5,7 +5,6 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-from typing import Union
 
 from securevector.models.config_models import OperationMode, SDKConfig
 from securevector.utils.exceptions import ConfigurationError, ModeNotAvailableError
@@ -99,6 +98,7 @@ class ModeFactory:
 
             available.append(OperationMode.LOCAL)
         except ImportError:
+            # optional dependency is not installed; keep the fallback
             pass
 
         try:
@@ -106,6 +106,7 @@ class ModeFactory:
 
             available.append(OperationMode.API)
         except ImportError:
+            # optional dependency is not installed; keep the fallback
             pass
 
         try:
@@ -113,6 +114,7 @@ class ModeFactory:
 
             available.append(OperationMode.HYBRID)
         except ImportError:
+            # optional dependency is not installed; keep the fallback
             pass
 
         return available

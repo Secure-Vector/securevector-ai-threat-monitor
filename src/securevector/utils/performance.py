@@ -261,6 +261,7 @@ class ContextTimer:
                 self.metadata["exception_type"] = exc_type.__name__
 
             return False  # Don't suppress exceptions
+        return False
 
 
 def timed_operation(

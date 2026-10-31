@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 from securevector.app.database.connection import DatabaseConnection
+from securevector.app.utils.log_text import log_safe
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +232,7 @@ class RulesRepository:
             ),
         )
 
-        logger.info(f"Created custom rule: {rule_id} ({name})")
+        logger.info(f"Created custom rule: {log_safe(rule_id)} ({log_safe(name)})")
 
         return CustomRule(
             id=rule_id,
@@ -372,7 +373,7 @@ class RulesRepository:
             tuple(values + [rule_id]),
         )
 
-        logger.info(f"Updated custom rule: {rule_id}")
+        logger.info(f"Updated custom rule: {log_safe(rule_id)}")
         return await self.get_custom_rule(rule_id)
 
     async def delete_custom_rule(self, rule_id: str) -> bool:
@@ -392,7 +393,7 @@ class RulesRepository:
 
         deleted = cursor.rowcount > 0
         if deleted:
-            logger.info(f"Deleted custom rule: {rule_id}")
+            logger.info(f"Deleted custom rule: {log_safe(rule_id)}")
 
         return deleted
 
@@ -449,7 +450,7 @@ class RulesRepository:
                     original_rule_id,
                 ),
             )
-            logger.info(f"Updated override for rule: {original_rule_id}")
+            logger.info(f"Updated override for rule: {log_safe(original_rule_id)}")
         else:
             # Create new override
             override_id = str(uuid.uuid4())
@@ -470,7 +471,7 @@ class RulesRepository:
                     now.isoformat(),
                 ),
             )
-            logger.info(f"Created override for rule: {original_rule_id}")
+            logger.info(f"Created override for rule: {log_safe(original_rule_id)}")
 
         return await self.get_override(original_rule_id)
 
@@ -523,7 +524,7 @@ class RulesRepository:
 
         deleted = cursor.rowcount > 0
         if deleted:
-            logger.info(f"Deleted override for rule: {original_rule_id}")
+            logger.info(f"Deleted override for rule: {log_safe(original_rule_id)}")
 
         return deleted
 

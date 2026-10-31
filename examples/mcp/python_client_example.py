@@ -13,7 +13,6 @@ Licensed under the Apache License, Version 2.0
 """
 
 import asyncio
-import json
 import sys
 from typing import Any, Dict, List, Optional
 

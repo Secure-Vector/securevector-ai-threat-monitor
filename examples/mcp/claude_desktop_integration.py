@@ -142,6 +142,7 @@ def check_installation_status() -> Dict[str, Any]:
                 if "mcpServers" in config and "securevector" in config["mcpServers"]:
                     status["mcp_server_configured"] = True
             except Exception:
+                # best effort: a failure here must not interrupt the caller
                 pass
 
     return status

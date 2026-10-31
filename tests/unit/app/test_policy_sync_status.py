@@ -6,7 +6,6 @@ Covers the two states the UI needs to distinguish:
   - enrolled (svet_*) → enrolled=True, org info + last bundle stats present
 """
 
-import asyncio
 from unittest.mock import patch
 
 import pytest

@@ -25,7 +25,6 @@ actual running SecureVector API (port 8741) and the permission engine:
 Run: cd src && pytest ../tests/test_tool_audit_log_live.py -v
 """
 
-import json
 import time
 from typing import Optional
 import pytest

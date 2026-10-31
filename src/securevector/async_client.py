@@ -6,20 +6,12 @@ Licensed under the Apache License, Version 2.0
 """
 
 import asyncio
-import hashlib
-import logging
 import threading
 import time
 from typing import Any, Dict, List, Optional, Union
 
 from .core.modes.mode_factory import ModeFactory
-from .utils.exceptions import (
-    APIError,
-    ConfigurationError,
-    ErrorCode,
-    SecurityException,
-    ValidationError,
-)
+from .utils.exceptions import ConfigurationError, ErrorCode, SecurityException, ValidationError
 from .utils.logger import get_logger
 from .utils.performance import PerformanceTracker
 from .utils.security import secure_cache_key_derivation
@@ -27,7 +19,6 @@ from .utils.security import secure_cache_key_derivation
 from .models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from .models.config_models import OperationMode, SDKConfig
 from .models.policy_models import PolicyAction, SecurityPolicy
-from .models.threat_types import RiskLevel, ThreatType
 
 
 class AsyncSecureVectorClient:

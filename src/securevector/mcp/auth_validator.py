@@ -98,6 +98,8 @@ class AuthValidator:
             logger.error(f"Error validating API key: {e}")
             return None
 
+        return None
+
     def _get_from_cache(self, api_key: str, allow_expired: bool = False) -> Optional[Dict[str, Any]]:
         """Get validation result from cache"""
         if api_key in self._cache:

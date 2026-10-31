@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from .threat_types import RiskLevel, ThreatType
+from .threat_types import ThreatType
 
 
 class PolicyAction(Enum):

@@ -8,11 +8,8 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import asyncio
 import pytest
 import sys
-from unittest.mock import Mock, patch
-from typing import Dict, Any
 
 import securevector
 

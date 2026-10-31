@@ -201,6 +201,19 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         52: migrate_to_v52,
         53: migrate_to_v53,
         54: migrate_to_v54,
+        55: migrate_to_v55,
+        56: migrate_to_v56,
+        57: migrate_to_v57,
+        58: migrate_to_v58,
+        59: migrate_to_v59,
+        60: migrate_to_v60,
+        61: migrate_to_v61,
+        62: migrate_to_v62,
+        63: migrate_to_v63,
+        64: migrate_to_v64,
+        65: migrate_to_v65,
+        66: migrate_to_v66,
+        67: migrate_to_v67,
     }
 
     if version in migrations:
@@ -2137,6 +2150,26 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     logger.info("Initializing database schema...")
     version = await run_migrations(db)
 
+    # Session Drift Score and Agent Config Trust tables. Idempotent; run at
+    # startup, outside any request, as a safety net after the migrations.
+    await ensure_session_drift_table(db)
+    await ensure_config_trust_tables(db)
+    await ensure_policy_check_tables(db)
+    await ensure_response_rung_tables(db)
+    await ensure_delegation_tables(db)
+    await ensure_worktree_columns(db)
+    await ensure_response_holds_table(db)
+    await ensure_session_rule_state_table(db)
+    await ensure_stop_switch_storage(db)
+    await ensure_outbox_alert_kind(db)
+    await ensure_jit_call_fingerprint(db)
+    await ensure_activity_time_indexes(db)
+    await ensure_egress_host_time_index(db)
+    await ensure_cloud_approval_storage(db)
+    await ensure_remote_access_column(db)
+    await cleanup_old_policy_decisions(db)
+    await cleanup_old_response_holds(db)
+
     # Load community rules after schema is ready
     await load_community_rules(db)
 
@@ -2233,6 +2266,17 @@ async def cleanup_old_event_records(db: DatabaseConnection) -> None:
     except Exception as e:  # noqa: BLE001 — settings unreadable: skip, never block startup
         logger.debug(f"Event records cleanup skipped (no settings): {e}")
         return
+
+    # Session Drift rows age out on the same knob as the audit rows they are
+    # derived from. computed_at is ISO with an offset, so compare through
+    # datetime() rather than as text.
+    try:
+        await db.execute(
+            "DELETE FROM session_drift WHERE datetime(computed_at) < datetime('now', ?)",
+            (f"-{int(retention_days)} days",),
+        )
+    except Exception as e:  # noqa: BLE001 - table missing on an older schema
+        logger.debug(f"Cleanup skipped for session_drift: {e}")
 
     for table, ts_col in _EVENT_RETENTION_TABLES:
         try:
@@ -2843,3 +2887,1026 @@ async def migrate_to_v54(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v54: terminal_tasks status 'stopped'")
+
+
+async def migrate_to_v55(db: DatabaseConnection) -> None:
+    """v54 -> v55: egress_audit.session_verified.
+
+    A session id on an egress audit row is a claim the Guard made. A task the
+    app launched proves it with its hook token; a row written without that
+    proof keeps its session id (the per-session counts and Egress list still
+    work with a Guard plugin from before 6.1.0) but is marked unverified: it
+    never files an approval request, is never grantable, and no grant clears
+    it. Idempotent: an existing column is left alone.
+    """
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(egress_audit)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+    if "session_verified" not in existing_columns:
+        await conn.execute(
+            "ALTER TABLE egress_audit ADD COLUMN session_verified INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (55, CURRENT_TIMESTAMP, 'egress_audit.session_verified')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v55: egress_audit.session_verified")
+
+
+# Plain statements run one at a time with conn.execute: executescript would
+# COMMIT any transaction another coroutine holds open on the shared connection.
+SESSION_DRIFT_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS session_drift (
+        session_id        TEXT PRIMARY KEY,
+        task_id           TEXT,
+        harness           TEXT,
+        workspace         TEXT,
+        score             INTEGER,
+        band              TEXT CHECK (band IS NULL OR band IN ('calm', 'watch', 'high')),
+        status            TEXT NOT NULL,
+        features_json     TEXT,
+        baseline_sessions INTEGER NOT NULL DEFAULT 0,
+        baseline_calls    INTEGER NOT NULL DEFAULT 0,
+        feedback          TEXT CHECK (feedback IS NULL OR feedback = 'normal'),
+        computed_at       TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_drift_task ON session_drift (task_id)",
+    "CREATE INDEX IF NOT EXISTS idx_session_drift_workspace ON session_drift (workspace, computed_at)",
+)
+
+
+async def ensure_session_drift_table(db: DatabaseConnection) -> None:
+    """Create ``session_drift`` if it is missing. Idempotent.
+
+    Called by migrate_to_v56 and once at startup right after run_migrations
+    (init_database_schema). Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in SESSION_DRIFT_DDL:
+        await conn.execute(stmt)
+    await conn.commit()
+
+
+async def migrate_to_v56(db: DatabaseConnection) -> None:
+    """v55 -> v56: ``session_drift``, one Session Drift Score row per session.
+
+    One row per governed session, overwritten on each compute; baselines are
+    derived from audit rows and never stored. ``features_json`` holds feature
+    ids, values, weights and counts only, never argument text, hosts or
+    paths. ``feedback`` is the "looks normal" mark, kept across recomputes.
+    Observe only: nothing reads this table to decide a verdict. Idempotent.
+    """
+    await ensure_session_drift_table(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (56, CURRENT_TIMESTAMP, 'Session Drift Score rows')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v56: session_drift")
+# Plain statements run one at a time with conn.execute: executescript would
+# COMMIT any transaction another coroutine holds open on the shared connection.
+CONFIG_TRUST_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS config_pins (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        harness            TEXT NOT NULL,
+        scope              TEXT NOT NULL CHECK (scope IN ('user', 'project')),
+        workspace_hash     TEXT NOT NULL DEFAULT '',
+        workspace_name     TEXT,
+        surface            TEXT NOT NULL,
+        surface_type       TEXT NOT NULL,
+        path_hint          TEXT,
+        hash               TEXT,
+        normaliser_version INTEGER NOT NULL,
+        alerted_hash       TEXT,
+        pinned_at          TEXT NOT NULL,
+        UNIQUE (harness, scope, workspace_hash, surface)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS config_checks (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id     TEXT,
+        task_id        TEXT,
+        harness        TEXT NOT NULL,
+        workspace_hash TEXT NOT NULL DEFAULT '',
+        phase          TEXT NOT NULL,
+        setup_hash     TEXT NOT NULL,
+        state          TEXT NOT NULL,
+        diff_json      TEXT,
+        checked_at     TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_config_checks_task ON config_checks (task_id, checked_at)",
+    "CREATE INDEX IF NOT EXISTS idx_config_checks_session ON config_checks (session_id, checked_at)",
+    """
+    CREATE TABLE IF NOT EXISTS mcp_pins (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        harness         TEXT NOT NULL,
+        server          TEXT NOT NULL,
+        scope           TEXT NOT NULL CHECK (scope IN ('user', 'project')),
+        workspace_hash  TEXT NOT NULL DEFAULT '',
+        definition_hash TEXT,
+        tools_json      TEXT,
+        observed_json   TEXT,
+        source          TEXT,
+        state           TEXT NOT NULL DEFAULT 'pinned',
+        probe_opt_in    INTEGER NOT NULL DEFAULT 0,
+        probe_definition_hash TEXT,
+        probed_at       TEXT,
+        alerted_hash    TEXT,
+        pinned_at       TEXT,
+        UNIQUE (harness, scope, workspace_hash, server)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS mod_inventory (
+        mod_key          TEXT PRIMARY KEY,
+        version          TEXT,
+        managed          INTEGER NOT NULL DEFAULT 0,
+        enabled_json     TEXT,
+        handlers_json    TEXT,
+        permissions_json TEXT,
+        manifest_hash    TEXT,
+        tree_hash        TEXT,
+        first_seen       TEXT NOT NULL,
+        last_seen        TEXT NOT NULL
+    )
+    """,
+)
+
+
+async def ensure_config_trust_tables(db: DatabaseConnection) -> None:
+    """Create the Agent Config Trust tables if missing. Idempotent.
+
+    Called by migrate_to_v57 and once at startup right after run_migrations
+    (init_database_schema). Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in CONFIG_TRUST_DDL:
+        await conn.execute(stmt)
+    await _ensure_mcp_pins_columns(conn)
+    await conn.commit()
+
+
+async def _ensure_mcp_pins_columns(conn) -> None:
+    """Columns added to mcp_pins after its first CREATE: a DB that already
+    has the table never gets them from CREATE IF NOT EXISTS. Idempotent via
+    PRAGMA table_info."""
+    cur = await conn.execute("PRAGMA table_info(mcp_pins)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "probe_definition_hash" not in existing:
+        await conn.execute("ALTER TABLE mcp_pins ADD COLUMN probe_definition_hash TEXT")
+
+
+async def migrate_to_v57(db: DatabaseConnection) -> None:
+    """v56 -> v57: Agent Config Trust pins, checks, MCP pins, mod inventory.
+
+    Hashes, key names, counts and basenames only. ``mcp_pins.tools_json`` and
+    ``observed_json`` keep tool description text locally for the approval
+    diff; it never leaves the device. Idempotent.
+    """
+    await ensure_config_trust_tables(db)
+    conn = await db.connect()
+    await _ensure_mcp_pins_columns(conn)
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (57, CURRENT_TIMESTAMP, 'Agent Config Trust')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v57: config trust")
+
+
+# Plain statements run one at a time with conn.execute, for the same reason
+# as CONFIG_TRUST_DDL.
+POLICY_CHECK_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS logical_sessions (
+        handle             TEXT PRIMARY KEY,
+        harness            TEXT,
+        cwd_hash           TEXT,
+        task_id            TEXT,
+        harness_session_id TEXT,
+        binding            TEXT NOT NULL CHECK (binding IN ('verified', 'observed', 'unlinked')),
+        created_at         TEXT NOT NULL,
+        last_seen_at       TEXT NOT NULL,
+        closed_at          TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_logical_sessions_task ON logical_sessions (task_id)",
+    "CREATE INDEX IF NOT EXISTS idx_logical_sessions_harness_session ON logical_sessions (harness_session_id)",
+    """
+    CREATE TABLE IF NOT EXISTS policy_decisions (
+        jti                  TEXT PRIMARY KEY,
+        session              TEXT NOT NULL,
+        task_id              TEXT,
+        action_kind          TEXT NOT NULL,
+        tool_name            TEXT,
+        action_hash          TEXT NOT NULL,
+        target_hash          TEXT NOT NULL,
+        decision             TEXT NOT NULL CHECK (decision IN ('allow', 'deny', 'needs_approval', 'indeterminate')),
+        reason               TEXT NOT NULL,
+        policy_version       TEXT,
+        issued_at            TEXT NOT NULL,
+        expires_at           TEXT,
+        consumed_at          TEXT,
+        consume_result       TEXT,
+        attempted_after_deny INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_policy_decisions_session ON policy_decisions (session, issued_at)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_decisions_task ON policy_decisions (task_id, action_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_decisions_issued ON policy_decisions (issued_at)",
+)
+
+POLICY_DECISION_RETENTION_DAYS = 30
+
+
+async def ensure_policy_check_tables(db: DatabaseConnection) -> None:
+    """Create ``logical_sessions`` and ``policy_decisions`` if missing.
+    Idempotent.
+
+    Called by migrate_to_v58 and once at startup right after run_migrations
+    (init_database_schema). Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in POLICY_CHECK_DDL:
+        await conn.execute(stmt)
+    await conn.commit()
+
+
+async def cleanup_old_policy_decisions(db: DatabaseConnection) -> None:
+    """Drop pre-flight decision rows and closed or idle session handles
+    older than the 30-day retention. Best effort, startup only."""
+    try:
+        conn = await db.connect()
+        window = f"-{POLICY_DECISION_RETENTION_DAYS} days"
+        await conn.execute(
+            "DELETE FROM policy_decisions WHERE issued_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)",
+            (window,),
+        )
+        await conn.execute(
+            "DELETE FROM logical_sessions WHERE last_seen_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)",
+            (window,),
+        )
+        await conn.commit()
+    except Exception as e:  # noqa: BLE001 - retention never blocks startup
+        logger.warning("Pre-flight decision cleanup skipped: %s", e)
+
+
+async def migrate_to_v58(db: DatabaseConnection) -> None:
+    """v57 -> v58: ``logical_sessions`` and ``policy_decisions``.
+
+    One row per pre-flight check: hashes of the action and its target, the
+    decision, a coarse reason and the policy version. No argument text, no
+    paths, no hosts. Idempotent.
+    """
+    await ensure_policy_check_tables(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (58, CURRENT_TIMESTAMP, 'Pre-flight policy checks')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v58: policy checks")
+
+
+RESPONSE_RUNG_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS session_rungs (
+        session_id TEXT PRIMARY KEY,
+        task_id TEXT,
+        harness TEXT NOT NULL DEFAULT '',
+        rung INTEGER NOT NULL DEFAULT 1,
+        mode TEXT NOT NULL DEFAULT 'shadow',
+        reasons_json TEXT NOT NULL DEFAULT '[]',
+        since TEXT,
+        last_eval_at TEXT,
+        released_at TEXT,
+        feedback TEXT,
+        last_drift_at TEXT,
+        streak_watch INTEGER NOT NULL DEFAULT 0,
+        streak_high INTEGER NOT NULL DEFAULT 0,
+        last_r2_at TEXT,
+        last_r3_at TEXT,
+        cooldown_until TEXT,
+        cooldown_kinds TEXT NOT NULL DEFAULT '[]',
+        pinned INTEGER NOT NULL DEFAULT 0,
+        peak_rung INTEGER NOT NULL DEFAULT 1,
+        counted_at TEXT,
+        would_ask INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_session_rungs_harness ON session_rungs (harness, counted_at)",
+    "CREATE INDEX IF NOT EXISTS idx_session_rungs_task ON session_rungs (task_id)",
+    """
+    CREATE TABLE IF NOT EXISTS rung_modes (
+        harness TEXT PRIMARY KEY,
+        mode TEXT NOT NULL DEFAULT 'shadow',
+        shadow_started_at TEXT NOT NULL,
+        shadow_sessions INTEGER NOT NULL DEFAULT 0,
+        unintended INTEGER NOT NULL DEFAULT 0,
+        activated_at TEXT,
+        early_ended INTEGER NOT NULL DEFAULT 0,
+        config_sig TEXT
+    )
+    """,
+)
+
+
+async def ensure_response_rung_tables(db: DatabaseConnection) -> None:
+    """Create ``session_rungs`` and ``rung_modes`` if missing. Idempotent.
+
+    Called by migrate_to_v59 and once at startup (init_database_schema).
+    Never called from a request path.
+    """
+    conn = await db.connect()
+    for stmt in RESPONSE_RUNG_DDL:
+        await conn.execute(stmt)
+    cursor = await conn.execute("PRAGMA table_info(session_rungs)")
+    if "would_ask" not in [r[1] for r in await cursor.fetchall()]:
+        await conn.execute("ALTER TABLE session_rungs ADD COLUMN would_ask INTEGER NOT NULL DEFAULT 0")
+    await conn.commit()
+    await ensure_rung_rule_source(db)
+
+
+_RULE_SOURCE_CHECK = "CHECK (rule_source IN ('synced', 'local'))"
+
+
+async def ensure_rung_rule_source(db: DatabaseConnection) -> None:
+    """Allow ``rule_source = 'rung'`` on jit_access_requests (approvals a
+    response rung files). SQLite cannot change a CHECK in place, so the
+    table is rebuilt once with the same columns and rows, in one
+    transaction. Idempotent, and a rerun after an interrupted earlier run
+    finishes from whatever it left: a staged copy is restored when the main
+    table is missing or empty, and dropped otherwise."""
+    conn = await db.connect()
+
+    async def table_sql(name: str):
+        cur = await conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (name,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+    main_sql = await table_sql("jit_access_requests")
+    staged_sql = await table_sql("jit_access_requests_v59")
+    if staged_sql is None and (main_sql is None or "'rung'" in main_sql):
+        return
+    if main_sql and staged_sql is None and _RULE_SOURCE_CHECK not in main_sql:
+        logger.warning("jit_access_requests has an unexpected shape; rung requests stay off")
+        return
+    await conn.commit()
+    await conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            if staged_sql is not None:
+                rows = 0
+                if main_sql is not None:
+                    cur = await conn.execute("SELECT COUNT(*) FROM jit_access_requests")
+                    rows = (await cur.fetchone())[0]
+                if main_sql is None or rows == 0:
+                    if main_sql is not None:
+                        await conn.execute("DROP TABLE jit_access_requests")
+                    await conn.execute("ALTER TABLE jit_access_requests_v59 RENAME TO jit_access_requests")
+                else:
+                    await conn.execute("DROP TABLE jit_access_requests_v59")
+                main_sql = await table_sql("jit_access_requests")
+            if main_sql and "'rung'" not in main_sql and _RULE_SOURCE_CHECK in main_sql:
+                staged = main_sql.replace(
+                    _RULE_SOURCE_CHECK, "CHECK (rule_source IN ('synced', 'local', 'rung'))"
+                ).replace("jit_access_requests (", "jit_access_requests_v59 (", 1)
+                cur = await conn.execute("PRAGMA table_info(jit_access_requests)")
+                cols = ", ".join(r[1] for r in await cur.fetchall())
+                await conn.execute(staged)
+                await conn.execute(
+                    f"INSERT INTO jit_access_requests_v59 ({cols}) SELECT {cols} FROM jit_access_requests"
+                )
+                await conn.execute("DROP TABLE jit_access_requests")
+                await conn.execute("ALTER TABLE jit_access_requests_v59 RENAME TO jit_access_requests")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jit_requests_status ON jit_access_requests (status, requested_at)"
+            )
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+    finally:
+        await conn.execute("PRAGMA foreign_keys = ON")
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    problems = await cur.fetchall()
+    if problems:
+        logger.warning("jit_access tables: %d rows fail the foreign key check after the v59 rebuild", len(problems))
+
+
+async def migrate_to_v59(db: DatabaseConnection) -> None:
+    """v58 -> v59: response rung state per session and mode per harness.
+
+    Rung number, mode, signal ids and counters only. No request text.
+    Idempotent.
+    """
+    await ensure_policy_check_tables(db)
+    await ensure_response_rung_tables(db)
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(policy_decisions)")
+    if "attempted_at" not in [r[1] for r in await cursor.fetchall()]:
+        await conn.execute("ALTER TABLE policy_decisions ADD COLUMN attempted_at TEXT")
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (59, CURRENT_TIMESTAMP, 'Response rungs')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v59: response rungs")
+
+
+DELEGATION_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS delegations (
+        id TEXT PRIMARY KEY,
+        parent_task_id TEXT NOT NULL,
+        child_task_id TEXT,
+        harness TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        prompt_sha256 TEXT NOT NULL,
+        prompt_text TEXT,
+        state TEXT NOT NULL DEFAULT 'pending_approval'
+            CHECK (state IN ('pending_approval', 'refused', 'running', 'waiting_for_user', 'done', 'held', 'failed')),
+        refusal_reason TEXT,
+        result_text TEXT,
+        result_flag TEXT,
+        jit_request_id TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        ended_at TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_delegations_parent ON delegations (parent_task_id, state)",
+    "CREATE INDEX IF NOT EXISTS idx_delegations_child ON delegations (child_task_id)",
+    "CREATE INDEX IF NOT EXISTS idx_delegations_request ON delegations (jit_request_id)",
+)
+
+_RUNG_SOURCE_CHECK = "CHECK (rule_source IN ('synced', 'local', 'rung'))"
+_DELEGATE_SOURCE_CHECK = "CHECK (rule_source IN ('synced', 'local', 'rung', 'delegate'))"
+
+
+async def ensure_delegate_rule_source(db: DatabaseConnection) -> None:
+    """Allow ``rule_source = 'delegate'`` on jit_access_requests (approvals
+    a delegation files). Same shape as ensure_rung_rule_source: the rung
+    widening runs first, then the table is rebuilt once with the same
+    columns and rows in one transaction, through a staged copy that a
+    rerun restores or drops. Idempotent."""
+    await ensure_rung_rule_source(db)
+    conn = await db.connect()
+
+    async def table_sql(name: str):
+        cur = await conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (name,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+    main_sql = await table_sql("jit_access_requests")
+    staged_sql = await table_sql("jit_access_requests_v60")
+    if staged_sql is None and (main_sql is None or "'delegate'" in main_sql):
+        return
+    if main_sql and staged_sql is None and _RUNG_SOURCE_CHECK not in main_sql:
+        logger.warning("jit_access_requests has an unexpected shape; delegation requests stay off")
+        return
+    await conn.commit()
+    await conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            if staged_sql is not None:
+                rows = 0
+                if main_sql is not None:
+                    cur = await conn.execute("SELECT COUNT(*) FROM jit_access_requests")
+                    rows = (await cur.fetchone())[0]
+                if main_sql is None or rows == 0:
+                    if main_sql is not None:
+                        await conn.execute("DROP TABLE jit_access_requests")
+                    await conn.execute("ALTER TABLE jit_access_requests_v60 RENAME TO jit_access_requests")
+                else:
+                    await conn.execute("DROP TABLE jit_access_requests_v60")
+                main_sql = await table_sql("jit_access_requests")
+            if main_sql and "'delegate'" not in main_sql and _RUNG_SOURCE_CHECK in main_sql:
+                # After the v59 rename SQLite stores the name quoted.
+                staged = re.sub(
+                    r'^(\s*CREATE\s+TABLE\s+)(["`]?)jit_access_requests\2\s*\(',
+                    r"\1jit_access_requests_v60 (",
+                    main_sql.replace(_RUNG_SOURCE_CHECK, _DELEGATE_SOURCE_CHECK), count=1,
+                )
+                if "jit_access_requests_v60 (" not in staged:
+                    raise RuntimeError("jit_access_requests could not be staged")
+                cur = await conn.execute("PRAGMA table_info(jit_access_requests)")
+                cols = ", ".join(r[1] for r in await cur.fetchall())
+                await conn.execute(staged)
+                await conn.execute(
+                    f"INSERT INTO jit_access_requests_v60 ({cols}) SELECT {cols} FROM jit_access_requests"
+                )
+                await conn.execute("DROP TABLE jit_access_requests")
+                await conn.execute("ALTER TABLE jit_access_requests_v60 RENAME TO jit_access_requests")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jit_requests_status ON jit_access_requests (status, requested_at)"
+            )
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+    finally:
+        await conn.execute("PRAGMA foreign_keys = ON")
+    cur = await conn.execute("PRAGMA foreign_key_check")
+    problems = await cur.fetchall()
+    if problems:
+        logger.warning("jit_access tables: %d rows fail the foreign key check after the v60 rebuild", len(problems))
+
+
+async def ensure_delegation_tables(db: DatabaseConnection) -> None:
+    """Create ``delegations``, add ``terminal_tasks.parent_task_id`` and
+    ``app_settings.delegation_policy`` when missing, and allow delegation
+    requests on jit_access_requests. Idempotent; PRAGMA guarded."""
+    conn = await db.connect()
+    cur = await conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'delegations'")
+    found = await cur.fetchone()
+    if found and "'waiting_for_user'" not in (found[0] or ""):
+        # An earlier build of this table without the waiting state: rebuilt
+        # once, same columns and rows, in one transaction.
+        await conn.commit()
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            await conn.execute("ALTER TABLE delegations RENAME TO delegations_prev")
+            for name in ("idx_delegations_parent", "idx_delegations_child", "idx_delegations_request"):
+                await conn.execute(f"DROP INDEX IF EXISTS {name}")
+            await conn.execute(DELEGATION_DDL[0])
+            cur = await conn.execute("PRAGMA table_info(delegations_prev)")
+            cols = ", ".join(r[1] for r in await cur.fetchall())
+            await conn.execute(f"INSERT INTO delegations ({cols}) SELECT {cols} FROM delegations_prev")
+            await conn.execute("DROP TABLE delegations_prev")
+            await conn.commit()
+        except BaseException:
+            await conn.rollback()
+            raise
+    for stmt in DELEGATION_DDL:
+        await conn.execute(stmt)
+    cursor = await conn.execute("PRAGMA table_info(terminal_tasks)")
+    task_cols = [r[1] for r in await cursor.fetchall()]
+    if task_cols and "parent_task_id" not in task_cols:
+        await conn.execute("ALTER TABLE terminal_tasks ADD COLUMN parent_task_id TEXT")
+    if task_cols:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_terminal_tasks_parent ON terminal_tasks (parent_task_id)"
+        )
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    settings_cols = [r[1] for r in await cursor.fetchall()]
+    if settings_cols and "delegation_policy" not in settings_cols:
+        await conn.execute("ALTER TABLE app_settings ADD COLUMN delegation_policy TEXT")
+    await conn.commit()
+    await ensure_delegate_rule_source(db)
+
+
+async def migrate_to_v60(db: DatabaseConnection) -> None:
+    """v59 -> v60: governed delegation. A parent link on terminal tasks,
+    the delegations table, the delegation policy setting, and delegation
+    approvals on jit_access_requests. Idempotent."""
+    await ensure_response_rung_tables(db)
+    await ensure_delegation_tables(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (60, CURRENT_TIMESTAMP, 'Governed delegation')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v60: governed delegation")
+
+
+# Worktree isolation: where a task actually runs when it has its own git
+# worktree. `workspace` keeps the source folder.
+WORKTREE_COLUMNS = (
+    ("run_dir", "TEXT"),
+    ("worktree_branch", "TEXT"),
+    ("worktree_base", "TEXT"),
+    ("worktree_state", "TEXT"),
+    ("worktree_dirty", "INTEGER"),
+    ("worktree_commits", "INTEGER"),
+)
+
+
+async def ensure_worktree_columns(db: DatabaseConnection) -> None:
+    """Add the nullable worktree columns to terminal_tasks when missing.
+    Idempotent; PRAGMA guarded."""
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(terminal_tasks)")
+    task_cols = [r[1] for r in await cursor.fetchall()]
+    if not task_cols:
+        return
+    for name, kind in WORKTREE_COLUMNS:
+        if name not in task_cols:
+            await conn.execute(f"ALTER TABLE terminal_tasks ADD COLUMN {name} {kind}")
+    await conn.commit()
+
+
+async def migrate_to_v61(db: DatabaseConnection) -> None:
+    """v60 -> v61: worktree isolation for tasks. Nullable run_dir and
+    worktree columns on terminal_tasks. Idempotent."""
+    await ensure_worktree_columns(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (61, CURRENT_TIMESTAMP, 'Worktree isolation for tasks')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v61: worktree isolation")
+
+
+async def ensure_response_holds_table(db: DatabaseConnection) -> None:
+    """Create ``response_holds``: one row per automatic hold event, with the
+    mode at event time and the rule that fired. Idempotent."""
+    conn = await db.connect()
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS response_holds ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, session_id TEXT NOT NULL DEFAULT '', "
+        "harness TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'shadow', rule TEXT NOT NULL DEFAULT '')"
+    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_response_holds_mode_ts ON response_holds (mode, ts)")
+    await conn.commit()
+
+
+async def migrate_to_v62(db: DatabaseConnection) -> None:
+    """v61 -> v62: hold events for the Automatic actions count. Idempotent."""
+    await ensure_response_holds_table(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (62, CURRENT_TIMESTAMP, 'Automatic hold events')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v62: automatic hold events")
+
+
+RESPONSE_HOLD_RETENTION_DAYS = 30
+
+
+async def cleanup_old_response_holds(db: DatabaseConnection) -> None:
+    """Drop hold events, per-session rule state and session stops older than the 30-day
+    retention. Best effort, startup only."""
+    try:
+        conn = await db.connect()
+        window = f"-{RESPONSE_HOLD_RETENTION_DAYS} days"
+        await conn.execute(
+            "DELETE FROM response_holds WHERE ts < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)", (window,)
+        )
+        await conn.execute(
+            "DELETE FROM session_rule_state WHERE updated_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)",
+            (window,),
+        )
+        await conn.execute(
+            "DELETE FROM session_stops WHERE ts < strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)", (window,)
+        )
+        await conn.commit()
+    except Exception as e:  # noqa: BLE001 - retention never blocks startup
+        logger.warning("Hold event cleanup skipped: %s", e)
+
+
+async def ensure_session_rule_state_table(db: DatabaseConnection) -> None:
+    """Create ``session_rule_state``: one row per session with the times
+    the named call-time rules were armed and cleared, and the rule ids that
+    fired. Timestamps and rule ids only. Idempotent."""
+    conn = await db.connect()
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS session_rule_state ("
+        "session_id TEXT PRIMARY KEY, cred_read_at TEXT, outside_read_at TEXT, "
+        "cleared_cred_at TEXT, cleared_outside_at TEXT, last_held_at TEXT, "
+        "fired_rules TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')"
+    )
+    cursor = await conn.execute("PRAGMA table_info(session_rule_state)")
+    cols = [r[1] for r in await cursor.fetchall()]
+    if "last_held_at" not in cols:
+        await conn.execute("ALTER TABLE session_rule_state ADD COLUMN last_held_at TEXT")
+    await conn.commit()
+
+
+async def migrate_to_v63(db: DatabaseConnection) -> None:
+    """v62 -> v63: per-session state for the named call-time rules. Idempotent."""
+    await ensure_session_rule_state_table(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (63, CURRENT_TIMESTAMP, 'Named call-time rule state')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v63: named call-time rule state")
+
+
+async def ensure_stop_switch_storage(db: DatabaseConnection) -> None:
+    """The per agent tool "stop the session and alert" switch and the
+    per-session stop record. ``rung_modes.stop_high`` (0 or 1, off by
+    default) sits next to the automatic actions mode; ``session_stops`` has
+    one row per session the switch acted on: the trigger id, the outcome
+    and the time. Ids and states only. Idempotent."""
+    conn = await db.connect()
+    cursor = await conn.execute("PRAGMA table_info(rung_modes)")
+    cols = [r[1] for r in await cursor.fetchall()]
+    if cols and "stop_high" not in cols:
+        await conn.execute("ALTER TABLE rung_modes ADD COLUMN stop_high INTEGER NOT NULL DEFAULT 0")
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS session_stops ("
+        "session_id TEXT PRIMARY KEY, task_id TEXT, harness TEXT NOT NULL DEFAULT '', "
+        "trigger TEXT NOT NULL DEFAULT '', outcome TEXT NOT NULL DEFAULT '', "
+        "test_mode INTEGER NOT NULL DEFAULT 0, alerted INTEGER NOT NULL DEFAULT 0, ts TEXT NOT NULL)"
+    )
+    await conn.commit()
+
+
+async def ensure_outbox_alert_kind(db: DatabaseConnection) -> None:
+    """Widen the forward-outbox kind vocabulary with `alert`, by the same
+    staged rebuild v53 uses inside one ``BEGIN IMMEDIATE``. A widened
+    constraint is left alone and an interrupted rebuild is repaired first.
+    Idempotent."""
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    async def _create_indexes() -> None:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+            "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+            "WHERE delivered_at IS NULL"
+        )
+
+    leftover = await _table_sql("external_forward_outbox_v64")
+    if leftover:
+        if await _table_sql("external_forward_outbox"):
+            await conn.execute("DROP TABLE external_forward_outbox_v64")
+        else:
+            await conn.execute(
+                "ALTER TABLE external_forward_outbox_v64 RENAME TO external_forward_outbox"
+            )
+            await _create_indexes()
+        await conn.commit()
+
+    existing = await _table_sql("external_forward_outbox")
+    if existing and "CHECK" in existing and "'alert'" not in existing:
+        try:
+            await conn.executescript(
+            """
+            BEGIN IMMEDIATE;
+            CREATE TABLE external_forward_outbox_v64 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+                kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit', 'task_event', 'generation', 'alert')),
+                payload_json  TEXT NOT NULL,
+                created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                delivered_at  TIMESTAMP,
+                last_error    TEXT
+            );
+            INSERT INTO external_forward_outbox_v64 (
+                id, forwarder_id, kind, payload_json, created_at,
+                attempts, delivered_at, last_error
+            )
+            SELECT id, forwarder_id, kind, payload_json, created_at,
+                   attempts, delivered_at, last_error
+            FROM external_forward_outbox;
+            DROP TABLE external_forward_outbox;
+            ALTER TABLE external_forward_outbox_v64 RENAME TO external_forward_outbox;
+            CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending
+                ON external_forward_outbox (forwarder_id, delivered_at, id)
+                WHERE delivered_at IS NULL;
+            COMMIT;
+            """
+            )
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    if await _table_sql("external_forward_outbox"):
+        await _create_indexes()
+    await conn.commit()
+
+
+async def migrate_to_v64(db: DatabaseConnection) -> None:
+    """v63 -> v64: the "stop the session and alert" switch. A per agent tool
+    column, the per-session stop record, and `alert` in the forward-outbox
+    kind vocabulary. Idempotent."""
+    await ensure_response_rung_tables(db)
+    await ensure_stop_switch_storage(db)
+    await ensure_outbox_alert_kind(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (64, CURRENT_TIMESTAMP, 'Stop the session and alert')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v64: stop the session and alert")
+
+
+async def ensure_jit_call_fingerprint(db: DatabaseConnection) -> None:
+    """``call_fingerprint`` on jit_access_requests and jit_access_grants.
+
+    A request filed by a server path that holds the call with its arguments
+    in hand records the call's fingerprint (tool plus a SHA-256 of the
+    normalized arguments). An "Allow once" grant copies it and lifts only
+    that exact call, one time, in that session. Idempotent."""
+    conn = await db.connect()
+    wanted = {
+        # The bound call's redacted preview (shown to the approver) and the
+        # hold kinds that filed the request (re-checked before it is spent).
+        "jit_access_requests": (("call_fingerprint", "TEXT"), ("call_preview", "TEXT"),
+                                ("held_by", "TEXT")),
+        # When a call-bound grant was spent by its call.
+        "jit_access_grants": (("call_fingerprint", "TEXT"), ("used_at", "TIMESTAMP")),
+    }
+    for table, columns in wanted.items():
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in await cur.fetchall()}
+        for name, kind in columns:
+            if cols and name not in cols:
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    await conn.commit()
+
+
+async def migrate_to_v65(db: DatabaseConnection) -> None:
+    """v64 -> v65: approvals bound to one call ("Allow once"). Idempotent."""
+    await ensure_jit_call_fingerprint(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (65, CURRENT_TIMESTAMP, 'Approvals bound to one call')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v65: approvals bound to one call")
+
+
+async def ensure_activity_time_indexes(db: DatabaseConnection) -> None:
+    """Indexes leading on the row time of tool_call_audit and
+    llm_cost_records, so "what was active in the last few minutes" reads a
+    range instead of the whole table. Idempotent."""
+    conn = await db.connect()
+    for table, name, column in (
+        ("tool_call_audit", "idx_tool_call_audit_called_at", "called_at"),
+        # Same name and shape as the fresh-install schema (models.py), so an
+        # install created from it keeps its one index.
+        ("llm_cost_records", "idx_cost_records_recorded_at", "recorded_at DESC"),
+    ):
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        if column.split()[0] in {row[1] for row in await cur.fetchall()}:
+            await conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})")
+    await conn.commit()
+
+
+async def migrate_to_v66(db: DatabaseConnection) -> None:
+    """v65 -> v66: time indexes for the Live sessions read. Idempotent."""
+    await ensure_activity_time_indexes(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (66, CURRENT_TIMESTAMP, 'Time indexes for live sessions')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v66: time indexes for live sessions")
+
+
+async def ensure_egress_host_time_index(db: DatabaseConnection) -> None:
+    """(host, timestamp) on egress_audit, so "has this device reached this
+    host before?" is one index probe (suspicious egress, new-host rule).
+    Idempotent."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(egress_audit)")
+    if {"host", "timestamp"} <= {row[1] for row in await cur.fetchall()}:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_egress_audit_host_time ON egress_audit (host, timestamp)")
+    await conn.commit()
+
+
+async def migrate_to_v67(db: DatabaseConnection) -> None:
+    """v66 -> v67: host and time index for egress alerts. Idempotent."""
+    await ensure_egress_host_time_index(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (67, CURRENT_TIMESTAMP, 'Host and time index for egress alerts')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v67: host and time index for egress alerts")
+
+
+_GOVERNANCE_OUTBOX_KINDS = ("egress", "approval_request", "harness_coverage")
+
+
+async def ensure_cloud_approval_storage(db: DatabaseConnection) -> None:
+    """Cloud sync of governance rows and approvals from SecureVector Cloud.
+
+    - Widens the forward-outbox kind vocabulary with `egress`,
+      `approval_request` and `harness_coverage` (fleet-only rows), by the same
+      staged rebuild ensure_outbox_alert_kind uses.
+    - `decision_source` on jit_access_requests: NULL or 'local' for a
+      decision made in this app, 'cloud' for one applied from the cloud.
+    - `cloud_approval_state`: the local-only cloud approvals setting plus
+      sync markers. Nothing synced from the cloud ever writes it.
+    - `cloud_approval_shared`: which requests were sent to the cloud, with
+      the last state sent, so each state change goes up once.
+    Idempotent."""
+    conn = await db.connect()
+
+    async def _table_sql(name: str) -> str:
+        cur = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        row = await cur.fetchone()
+        return (row[0] if row else "") or ""
+
+    leftover = await _table_sql("external_forward_outbox_v67")
+    if leftover:
+        if await _table_sql("external_forward_outbox"):
+            await conn.execute("DROP TABLE external_forward_outbox_v67")
+        else:
+            await conn.execute(
+                "ALTER TABLE external_forward_outbox_v67 RENAME TO external_forward_outbox"
+            )
+        await conn.commit()
+
+    existing = await _table_sql("external_forward_outbox")
+    if existing and "CHECK" in existing and "'approval_request'" not in existing:
+        try:
+            await conn.executescript(
+            """
+            BEGIN IMMEDIATE;
+            CREATE TABLE external_forward_outbox_v67 (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+                kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit', 'task_event', 'generation', 'alert', 'egress', 'approval_request', 'harness_coverage')),
+                payload_json  TEXT NOT NULL,
+                created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                delivered_at  TIMESTAMP,
+                last_error    TEXT
+            );
+            INSERT INTO external_forward_outbox_v67 (
+                id, forwarder_id, kind, payload_json, created_at,
+                attempts, delivered_at, last_error
+            )
+            SELECT id, forwarder_id, kind, payload_json, created_at,
+                   attempts, delivered_at, last_error
+            FROM external_forward_outbox;
+            DROP TABLE external_forward_outbox;
+            ALTER TABLE external_forward_outbox_v67 RENAME TO external_forward_outbox;
+            CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending
+                ON external_forward_outbox (forwarder_id, delivered_at, id)
+                WHERE delivered_at IS NULL;
+            COMMIT;
+            """
+            )
+        except Exception:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:
+                pass  # no transaction left open to roll back
+            raise
+    if await _table_sql("external_forward_outbox"):
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+            "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+            "WHERE delivered_at IS NULL"
+        )
+
+    cur = await conn.execute("PRAGMA table_info(jit_access_requests)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if cols and "decision_source" not in cols:
+        await conn.execute("ALTER TABLE jit_access_requests ADD COLUMN decision_source TEXT")
+
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS cloud_approval_state ("
+        " key TEXT PRIMARY KEY,"
+        " value TEXT NOT NULL,"
+        " updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS cloud_approval_shared ("
+        " request_id TEXT PRIMARY KEY,"
+        " last_state TEXT NOT NULL,"
+        " cloud_approvable INTEGER NOT NULL DEFAULT 0,"
+        " shared_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        " updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    await conn.commit()
+
+
+async def ensure_remote_access_column(db: DatabaseConnection) -> None:
+    """``app_settings.remote_access``: the remote access mode state as JSON
+    (off by default; the token only as a salted hash). Idempotent."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(app_settings)")
+    cols = [r[1] for r in await cur.fetchall()]
+    if cols and "remote_access" not in cols:
+        await conn.execute("ALTER TABLE app_settings ADD COLUMN remote_access TEXT")
+    await conn.commit()

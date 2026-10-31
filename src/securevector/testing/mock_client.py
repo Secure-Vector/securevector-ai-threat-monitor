@@ -9,14 +9,13 @@ import hashlib
 import random
 import time
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from securevector.async_client import AsyncSecureVectorClient
 from securevector.client import SecureVectorClient
 from securevector.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from securevector.models.config_models import OperationMode, SDKConfig
-from securevector.models.policy_models import PolicyAction, SecurityPolicy
-from securevector.models.threat_types import RiskLevel, ThreatType
+from securevector.models.policy_models import SecurityPolicy
 
 
 class MockBehavior:

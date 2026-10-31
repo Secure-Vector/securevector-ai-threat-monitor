@@ -787,7 +787,7 @@ def detect_runaway(gens: list[dict], gen_refs: list, n_calls: int, baseline: Opt
         "This run is far outside this agent's usual size or pace, which is how a loop or a "
         "stuck plan looks from the outside.",
         "Check whether the run is still making progress; stop it if it is not.",
-        [gen_refs[last] if 0 <= last < len(gen_refs) else last] if last >= 0 else [],
+        [gen_refs[last] if last < len(gen_refs) else last] if last >= 0 else [],
         key="runaway", counts=counts, est_usd=cost or None,
         nudge=("You have been working on this for much longer than usual. Stop, summarise what is "
                "done and what is blocking you, and propose the smallest next step."),

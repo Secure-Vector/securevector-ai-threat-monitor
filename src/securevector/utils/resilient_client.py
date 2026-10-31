@@ -13,23 +13,12 @@ import logging
 import time
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, Optional
 
-from securevector.models.analysis_result import (
-    AnalysisResult,
-    DetectionMethod,
-    ThreatDetection,
-)
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod
 from securevector.models.config_models import OperationMode
-from .exceptions import (
-    APIError,
-    AuthenticationError,
-    CircuitBreakerError,
-    ConfigurationError,
-    ErrorCode,
-    RateLimitError,
-)
-from .retry import CircuitBreaker, RetryConfig, with_async_retry, with_retry
+from .exceptions import APIError, AuthenticationError, CircuitBreakerError, ErrorCode
+from .retry import CircuitBreaker
 from .telemetry import debug_log, record_event
 
 

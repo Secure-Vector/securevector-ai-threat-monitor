@@ -71,8 +71,8 @@ test('styles carry the quiet-workspace frame and rail tightening rules', () => {
 });
 
 test('pins are bumped for the touched assets', () => {
-  assert.match(html, /terminals\.js\?v=96/);
-  assert.match(html, /styles\.css\?v=469/);
+  assert.match(html, /terminals\.js\?v=134/);
+  assert.match(html, /styles\.css\?v=503/);
 });
 
 test('with nothing attached the board is the whole page', () => {
@@ -111,7 +111,7 @@ test('the board is a dashboard of tasks, and only the gap gets colour', () => {
     'and say what the agent is doing now, so a board of five needs no clicks');
   assert.match(page, /_renderBoardSummary\(shown\)/,
     'one line of state over the whole board');
-  assert.match(page, /cell\(ungoverned, 'not governed', 'is-amber'/,
+  assert.match(page, /btn\(notChecked, 'not monitored', 'is-amber'/,
     'the summary counts the tasks nobody is watching');
 
   assert.match(css, /\.terminals-guard-ungoverned \{ border-color: rgba\(245, 158, 11/,

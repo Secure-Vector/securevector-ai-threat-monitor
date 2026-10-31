@@ -118,6 +118,30 @@ class AppSettings:
         }
 
 
+DEFAULT_DELEGATION_POLICY = {"enabled": True, "cross_harness": False, "folder_allowlist": []}
+MAX_DELEGATION_ALLOWLIST = 50
+
+
+def normalize_delegation_policy(value: dict) -> dict:
+    """Keep only known keys with the right types. Allowlist entries are
+    absolute paths, at most MAX_DELEGATION_ALLOWLIST of them."""
+    out = {
+        "enabled": bool(value.get("enabled", DEFAULT_DELEGATION_POLICY["enabled"])),
+        "cross_harness": bool(value.get("cross_harness", DEFAULT_DELEGATION_POLICY["cross_harness"])),
+        "folder_allowlist": [],
+    }
+    folders = value.get("folder_allowlist")
+    if isinstance(folders, list):
+        for f in folders:
+            if isinstance(f, str) and f.startswith("/") and len(f) <= 4096 and "\x00" not in f:
+                path = f.rstrip("/") or "/"
+                if path not in out["folder_allowlist"]:
+                    out["folder_allowlist"].append(path)
+            if len(out["folder_allowlist"]) >= MAX_DELEGATION_ALLOWLIST:
+                break
+    return out
+
+
 class SettingsRepository:
     """
     Repository for application settings.
@@ -163,6 +187,7 @@ class SettingsRepository:
                 else:
                     cloud_connected_at = row_dict["cloud_connected_at"]
             except (ValueError, TypeError):
+                # malformed value; keep the default
                 pass
 
         # Parse llm_settings JSON if present
@@ -171,6 +196,7 @@ class SettingsRepository:
             try:
                 llm_settings = json.loads(row_dict["llm_settings"])
             except (json.JSONDecodeError, TypeError):
+                # malformed value; keep the default
                 pass
 
         return AppSettings(
@@ -288,6 +314,73 @@ class SettingsRepository:
 
         logger.info(f"Updated settings: {list(updates.keys())}")
         return await self.get()
+
+    async def get_delegation_policy(self) -> dict:
+        """The delegation policy: {enabled, cross_harness, folder_allowlist}.
+        Defaults when unset or unreadable."""
+        policy = dict(DEFAULT_DELEGATION_POLICY)
+        policy["folder_allowlist"] = []
+        try:
+            row = await self.db.fetch_one("SELECT delegation_policy FROM app_settings WHERE id = 1")
+        except Exception:  # column absent before v60
+            return policy
+        raw = dict(row).get("delegation_policy") if row else None
+        if raw:
+            try:
+                stored = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                stored = None
+            if isinstance(stored, dict):
+                policy.update(normalize_delegation_policy(stored))
+        return policy
+
+    async def set_delegation_policy(self, policy: dict) -> dict:
+        """Store a normalized delegation policy and return it."""
+        clean = normalize_delegation_policy(policy)
+        await self.db.execute(
+            "UPDATE app_settings SET delegation_policy = ?, updated_at = ? WHERE id = 1",
+            (json.dumps(clean), datetime.utcnow().isoformat()),
+        )
+        return clean
+
+    async def _ensure_remote_access_column(self) -> None:
+        """Add ``app_settings.remote_access`` when missing (idempotent)."""
+        try:
+            rows = await self.db.fetch_all("PRAGMA table_info(app_settings)")
+        except Exception:  # noqa: BLE001 - no table: nothing to add to
+            return
+        cols = {dict(r)["name"] for r in rows or []}
+        if cols and "remote_access" not in cols:
+            await self.db.execute("ALTER TABLE app_settings ADD COLUMN remote_access TEXT")
+
+    async def get_remote_access(self) -> dict:
+        """Remote access mode state as stored (a dict, {} when unset). The
+        token is kept only as a salted hash; see server/remote_access.py."""
+        try:
+            row = await self.db.fetch_one("SELECT remote_access FROM app_settings WHERE id = 1")
+        except Exception:  # column absent before the remote access step
+            return {}
+        raw = dict(row).get("remote_access") if row else None
+        if not raw:
+            return {}
+        try:
+            stored = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return stored if isinstance(stored, dict) else {}
+
+    async def set_remote_access(self, state: dict) -> dict:
+        """Store the remote access mode state (a JSON object) and return it."""
+        await self._ensure_remote_access_column()
+        cur = await self.db.execute(
+            "UPDATE app_settings SET remote_access = ?, updated_at = ? WHERE id = 1",
+            (json.dumps(state, sort_keys=True), datetime.utcnow().isoformat()),
+        )
+        if getattr(cur, "rowcount", 1) == 0:
+            # No settings row: nothing was stored, so the caller must not
+            # report (or cache) the new state.
+            raise RuntimeError("Settings are not initialised; remote access was not changed")
+        return dict(state)
 
     async def update_window_state(
         self,

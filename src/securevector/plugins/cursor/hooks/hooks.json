@@ -54,6 +54,12 @@
         "command": "node \"__SV_PLUGIN_ROOT__/hooks/stop.js\"",
         "timeout": 10
       }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/session-end.js\"",
+        "timeout": 10
+      }
     ]
   }
 }

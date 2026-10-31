@@ -1,6 +1,6 @@
 # Agent Sessions
 
-Run Claude Code, Codex, GitHub Copilot CLI or OpenCode from inside SecureVector
+Run Claude Code, Codex, GitHub Copilot CLI, OpenCode, GovRun, Hermes or OpenClaw from inside SecureVector
 and see what the agent does while it works: every tool call, whether it was
 allowed or blocked, which websites it reached, and how much context it has used.
 
@@ -80,6 +80,28 @@ The app asks before continuing or starting a new session when the other terminal
 may still be open, because two agents editing the same folder can overwrite each
 other's work.
 
+### GovRun, Hermes and OpenClaw
+
+These three report their tool calls through their own Guard: GovRun's is built
+in, Hermes uses the `securevector-sdk-hermes` plugin, and OpenClaw uses the
+SecureVector OpenClaw plugin. A session started in your own terminal shows up
+under **Running outside SecureVector** and can be put on the board the same way.
+
+You can also launch them from the app (`govrun`, `hermes`, and `openclaw tui`
+in the folder you pick), and continue an earlier session by its id. A session
+launched this way is marked ungoverned on the board, because these Guards do not
+report to a task the app started. OpenClaw's terminal UI talks to the OpenClaw
+Gateway, so its agent works in the Gateway's workspace, not the folder you pick;
+its card says so.
+
+The folder shown for a linked GovRun, Hermes or OpenClaw session is the one the
+agent reported, and its card says "folder reported by the agent". Before such a
+session can be continued here, unlink it and link it again with the folder it runs
+in: `sv-monitor session link <agent> <session-id> --folder <path>`.
+
+Known limit: a session launched from the app also appears under **Running
+outside SecureVector** once it reports, and linking it adds a second row.
+
 ### "Unverified"
 
 If an agent is still running but has stopped reporting tool calls, its session
@@ -121,12 +143,25 @@ sv-monitor session stop --all
 
 Add `--json` to any command for machine-readable output.
 
-The agent names are `claude-code`, `codex`, `copilot-cli` and `opencode`.
+The agent names are `claude-code`, `codex`, `copilot-cli`, `opencode`,
+`govrun`, `hermes` and `openclaw`.
 
 The command line uses the same local API as the app, so it can do exactly what
 the page can and nothing more. You name an agent and a folder; the app decides
 how to start it. Each action is recorded in the session's history as coming
 from the command line rather than the page.
+
+## Approve and stop sessions from another machine
+
+When the app runs on a server and you open it from a laptop, you can watch runs, governance and costs by its network address. To also approve, deny and revoke held calls and stop sessions from there, turn on **Settings > Remote access** on the machine itself. It is off by default and is offered only when the app listens on a network address.
+
+- Put the app behind a reverse proxy that serves HTTPS. Enter the https address you open it by and the IP address (or range) the proxy connects from. Your proxy must pass the original Host header (nginx: `proxy_set_header Host $host;`). The proxy address cannot be a loopback address: if the proxy runs on this machine, point it at this machine's private IP instead of 127.0.0.1 (nginx: `proxy_pass http://<private-ip>:<port>;`, Caddy: `reverse_proxy <private-ip>:<port>`, where `<port>` is the app's web port, 8741 by default) and list that IP. Requests from this machine itself (agent hooks, the local browser) keep working as before.
+- A signed-in remote browser can turn the mode off (never on) after entering the token again. On the machine, restarting with `SECUREVECTOR_REMOTE_ACCESS=off` also keeps it off.
+- Turning it on creates an access token. It is shown once: store it in your password manager. Only a salted hash is kept.
+- In the browser on the other machine, choose **Sign in for remote access** and paste the token. Approve and Revoke ask for the token again after 10 minutes. From another machine you can allow once or deny; calls held by a rule marked "approve on this device only" are approved on the machine itself.
+- If you set `SECUREVECTOR_INGRESS_TOKEN`, your proxy still sends it as before (Authorization or X-Api-Key); the remote session travels in its own header, so both work together.
+- Five wrong tokens in a minute lock that address for 15 minutes. Rotating the token or turning the mode off signs out every remote browser.
+- Launching, linking and typing into sessions work only on the machine itself in this release.
 
 ## Platforms
 

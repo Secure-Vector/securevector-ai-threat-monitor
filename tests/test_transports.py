@@ -32,6 +32,7 @@ async def run_sse_transport():
 
         # This should block and keep running
         await server.run("sse")
+        return None
 
     except KeyboardInterrupt:
         print("\nSSE server stopped by user")
@@ -58,6 +59,7 @@ async def run_stdio_transport():
 
         # This should block and keep running
         await server.run("stdio")
+        return None
 
     except KeyboardInterrupt:
         print("\nStdio server stopped by user")

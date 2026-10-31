@@ -4,7 +4,9 @@
  */
 
 const App = {
-    currentPage: 'terminals',
+    currentPage: 'agent-runs',
+    // Owner decision (6.1): the app opens on Observability > Runs.
+    DEFAULT_PAGE: 'agent-runs',
 
     pages: {
         guide: GettingStartedPage,
@@ -18,6 +20,9 @@ const App = {
         'agent-runs': AgentRunsPage,
         // Observability > Health: run health findings across runs.
         'run-health': RunHealthPage,
+        // Observability > Live grid: running sessions, large pinned tiles and
+        // a compact grid for hundreds (js/pages/live-grid.js).
+        'live-grid': LiveGridPage,
         'agent-timeline': AgentTimelinePage,
         'storylines': StorylinesPage,
         // Kept routable as an alias: opens Threat Monitor on the Blocked facet.
@@ -65,6 +70,8 @@ const App = {
         // into its own Cloud-section page. Always reachable (it's the funnel),
         // not enrollment-gated.
         governance:          GovernancePage,
+        // Agent Detection & Response: detect, harden, respond, pre-flight.
+        'detection-response': DetectionResponsePage,
         'mcp-policies':      McpPoliciesPage,
         // Cloud Activity (story #113) — full in/out visibility for enrolled
         // devices. Sidebar gates its visibility on enrollment; the page also
@@ -116,15 +123,32 @@ const App = {
         if (window.Community) Community.init();
         Sidebar.render();
         Header.render();
+        // Remote access mode: by a network address, know whether this
+        // browser is signed in before the first page draws its controls.
+        if (window.RemoteAccess) {
+            if (API.terminalsRemote && API.terminalsRemote()) await RemoteAccess.refresh();
+            else RemoteAccess.refresh();
+        }
         // The floating Guardian (replaces the retired TryItChat panel):
         // cost optimization first, threats/secrets/blocked actions alongside.
         if (window.GuardianAssistant) GuardianAssistant.mount();
+        // Security alerts are watched from the shell, whether or not the
+        // Guardian is shown (badge, system notification, catch-up).
+        if (window.EgressAlertWatch) EgressAlertWatch.start();
 
         // Handle browser back/forward
         window.addEventListener('popstate', (e) => {
             const page = e.state?.page || this.getPageFromURL();
             this.loadPage(page, false);
         });
+
+        // Deep link to the Agent Sessions settings panel: the URL is rewritten
+        // while the page loads, so the request is kept in storage first.
+        try {
+            if (/[?&]settings=1(&|$)/.test(String(window.location.search || '').replace(/^\?/, '?') + String(window.location.hash || ''))) {
+                sessionStorage.setItem('sv-sessions-settings', '1');
+            }
+        } catch (e) { /* storage unavailable */ }
 
         // Load initial page from URL or default to the session-first task board.
         let initialPage = this.getPageFromURL();
@@ -146,7 +170,7 @@ const App = {
      * redirected, and any explicit deep link wins.
      */
     async maybeAutoLaunchWizard(initialPage) {
-        if (initialPage !== 'terminals') return initialPage;
+        if (initialPage !== this.DEFAULT_PAGE) return initialPage;
         if (localStorage.getItem('sv-wizard-autolaunched')) return initialPage;
         try {
             const ctrl = new AbortController();
@@ -188,7 +212,7 @@ const App = {
      */
     getPageFromURL() {
         const path = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
-        return this.pages[path] ? path : 'terminals';
+        return this.pages[path] ? path : this.DEFAULT_PAGE;
     },
 
     /**

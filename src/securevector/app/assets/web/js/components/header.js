@@ -70,6 +70,13 @@ const Header = {
         const right = document.createElement('div');
         right.className = 'header-right';
 
+        // Remote access mode: the "Remote access on" badge and, by a network
+        // address, Sign in or Sign out (components/remote-access.js).
+        const remoteSlot = document.createElement('span');
+        remoteSlot.id = 'remote-access-slot';
+        remoteSlot.className = 'remote-access-slot';
+        right.appendChild(remoteSlot);
+
         // Guardian ML — moved out of the left nav (v5 IA): it's one global
         // on/off switch, not a destination, so it lives here as a status
         // control. Click opens an anchored card with the explainer + toggle.
@@ -96,6 +103,28 @@ const Header = {
         // the path to "point my agents at this" is one click from any page.
         const connectBtn = this.createConnectAgentsButton();
         right.appendChild(connectBtn);
+
+        // Phone widths: the right-side controls used to squeeze the page
+        // title to zero width. Keep the title; drop only the subtitle and the
+        // Connect Agents text (the plug icon and its tooltip stay).
+        if (this._narrowMq && this._narrowFn) {
+            try { this._narrowMq.removeEventListener('change', this._narrowFn); } catch (_) { /* old engine */ }
+        }
+        this._narrowMq = window.matchMedia ? window.matchMedia('(max-width: 600px)') : null;
+        this._narrowFn = () => {
+            const narrow = !!(this._narrowMq && this._narrowMq.matches);
+            headerSubtitleEl.style.display = narrow ? 'none' : '';
+            left.style.minWidth = narrow ? '72px' : '';
+            const connectLabel = connectBtn.querySelector('span');
+            if (connectLabel) connectLabel.style.display = narrow ? 'none' : '';
+            connectBtn.style.padding = narrow ? '0 7px' : '0 15px';
+            connectBtn.style.marginRight = narrow ? '4px' : '10px';
+            connectBtn.setAttribute('aria-label', 'Connect Agents');
+        };
+        this._narrowFn();
+        if (this._narrowMq) {
+            try { this._narrowMq.addEventListener('change', this._narrowFn); } catch (_) { /* old engine */ }
+        }
 
         // NOTE: the "AI Analysis" toggle was removed from the header — it is an
         // OPTIONAL, configure-once setting (reduce false positives via an LLM)
@@ -2022,11 +2051,12 @@ graph.add_edge("output_security", END)`,
         'tool-activity':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called: two tabs, one dataset' },
         'bill-of-tools':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called: two tabs, one dataset' },
         'redactions':      { title: 'Secret Detections',   subtitle: 'Redactions audit log: credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.' },
-        governance:        { title: 'Agent Governance',          subtitle: 'This device’s local protection posture: operational, not a legal/compliance assessment' },
+        governance:        { title: 'Agent Governance',          subtitle: 'What is enforced on this device, and what to fix next' },
+        'detection-response': { title: 'Agent Detection & Response', subtitle: 'Watches each agent session for behaviour unlike its earlier sessions and shows you which ones to look at.' },
         'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         'guardian-ml':     { title: 'Guardian ML',         subtitle: 'Local ML threat detection: runs offline alongside the regex rules' },
         costs:             { title: 'Cost & Tokens',       subtitle: 'Track LLM token spend per agent' },
-        terminals:         { title: 'Agent Sessions',         subtitle: 'Launch or return to governed harness work, with verdicts and approvals beside it' },
+        terminals:         { title: 'Agent Sessions',         subtitle: 'Launch agents and watch every tool call, with approvals beside it.' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
         'guide-connect-agents': { title: 'Connect Your Agents', subtitle: 'Point your existing agents at this engine: Framework SDKs or coding-agent plugins, local or self-host' },
@@ -2064,6 +2094,14 @@ graph.add_edge("output_security", END)`,
         if (hpt) hpt.textContent = info.title;
         const hps = document.getElementById('header-page-subtitle');
         if (hps) hps.textContent = info.subtitle;
+        this._subtitleWrap(hps, currentPage);
+    },
+
+    // Pages whose subtitle wraps under 1100px instead of clipping.
+    WRAP_SUBTITLE_PAGES: ['terminals', 'detection-response'],
+
+    _subtitleWrap(el, page) {
+        if (el && el.classList) el.classList.toggle('is-wrap', this.WRAP_SUBTITLE_PAGES.includes(page));
     },
 
     setPageInfo(title, subtitle) {
@@ -2075,6 +2113,7 @@ graph.add_edge("output_security", END)`,
             // Subtitle is clamped to one line — the full text survives as a
             // tooltip for the few pages whose description still runs long.
             hps.title = subtitle || '';
+            this._subtitleWrap(hps, window.Sidebar ? Sidebar.currentPage : '');
         }
     },
 };

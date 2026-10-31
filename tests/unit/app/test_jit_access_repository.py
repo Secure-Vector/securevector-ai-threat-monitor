@@ -154,3 +154,26 @@ async def test_reapprove_after_expiry_does_not_report_a_dead_grant(tmp_path):
     )
 
     assert await repo.approve_request(req["id"], "15m") is None
+
+
+@pytest.mark.asyncio
+async def test_hold_without_trace_id_gets_the_sessions_run_trace(tmp_path):
+    """A hook files a hold with the session id only; the request takes the
+    same per-run trace id the audit rows derive, so the hold joins its run
+    locally and in Fleet. No session id means no trace id, as before."""
+    from securevector.app.utils.trace_id import derive_trace_id
+
+    db = await _build_db(tmp_path)
+    repo = JitAccessRepository(db)
+    req = await repo.create_request(
+        tool_id="builtin.webfetch", rule_source="local", function_name="WebFetch",
+        runtime_kind="claude-code", session_id="976fad77-8bf4-4d5a-8359-6ab12316c014",
+    )
+    assert req["trace_id"] == derive_trace_id("claude-code", "976fad77-8bf4-4d5a-8359-6ab12316c014")
+    explicit = await repo.create_request(
+        tool_id="builtin.bash", rule_source="local", function_name="Bash",
+        runtime_kind="claude-code", session_id="s-2", trace_id="given",
+    )
+    assert explicit["trace_id"] == "given"
+    orphan = await repo.create_request(tool_id="builtin.read", rule_source="local")
+    assert orphan["trace_id"] is None

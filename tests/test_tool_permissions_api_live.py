@@ -16,7 +16,6 @@ Run: cd src && pytest ../tests/test_tool_permissions_api_live.py -v
 """
 
 import json
-import time
 from typing import Optional
 import pytest
 import requests

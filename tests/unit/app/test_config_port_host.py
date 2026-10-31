@@ -12,10 +12,9 @@ Validates that:
 Run: cd src && pytest ../tests/unit/app/test_config_port_host.py -v
 """
 
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 

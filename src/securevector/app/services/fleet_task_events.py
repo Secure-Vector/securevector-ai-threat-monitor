@@ -60,6 +60,11 @@ async def enqueue_task_event(payload: Mapping[str, Any]) -> int:
     return written
 
 
+# Live Runs passes this sink the governed session's id next to the payload
+# (6.1 cloud sync), so the cloud can join the task to its runs and held calls.
+enqueue_task_event.wants_session_id = True  # type: ignore[attr-defined]
+
+
 def install() -> None:
     """Make the fleet sink the Live Runs transport."""
     live_runs.set_sink(enqueue_task_event)

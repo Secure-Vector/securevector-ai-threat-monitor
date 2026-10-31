@@ -685,8 +685,8 @@ test('the pane styles are defined, including the gutters and the focus accent', 
 test('index.html loads the layout model before the page that uses it', () => {
   const html = read('index.html');
   assert.match(html, /terminals-layout\.js\?v=6/);
-  assert.match(html, /terminals\.js\?v=96/);
-  assert.match(html, /styles\.css\?v=469/);
+  assert.match(html, /terminals\.js\?v=134/);
+  assert.match(html, /styles\.css\?v=503/);
   assert.ok(html.indexOf('terminals-layout.js') < html.indexOf('pages/terminals.js'),
     'the model has to be defined by the time the page script runs');
 });
@@ -1633,10 +1633,10 @@ test('each pane renders its own status line and counts', async () => {
   Page._govCounts = { governed: 99, blocked: 9 };
   Page._renderPaneFoot();
 
-  assert.match(Page._panes.get(a).footEl.innerHTML, /7 governed · 2 blocked/,
+  assert.match(Page._panes.get(a).footEl.innerHTML, /7 calls · 2 blocked/,
     'a pane reports its own counts, not the focused pane\'s');
   assert.match(Page._panes.get(a).footEl.innerHTML, /terminals-foot-branch">main</);
-  assert.match(Page._panes.get(b).footEl.innerHTML, /0 governed · 0 blocked/,
+  assert.match(Page._panes.get(b).footEl.innerHTML, /0 calls · 0 blocked/,
     'a pane with no reading of its own borrows no other pane\'s counts');
   assert.ok(!Page._panes.get(b).footEl.innerHTML.includes('99 governed'));
   assert.ok(!Page._panes.get(b).footEl.innerHTML.includes('main'));

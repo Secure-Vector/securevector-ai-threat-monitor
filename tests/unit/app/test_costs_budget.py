@@ -16,8 +16,6 @@ Requires a running SecureVector instance on:
   - http://127.0.0.1:8742  (LLM proxy) — override with SV_PROXY_PORT
 """
 
-import json
-import time
 import uuid
 import httpx
 import pytest

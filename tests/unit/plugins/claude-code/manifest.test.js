@@ -129,7 +129,7 @@ test('hooks.json: PostToolUse matcher admits MCP tools AND every governable buil
 });
 
 
-test('hooks.json: declares PreToolUse + PostToolUse + SessionStart + UserPromptSubmit', () => {
+test('hooks.json: declares PreToolUse + PostToolUse + SessionStart + SessionEnd + UserPromptSubmit', () => {
   // Current scope: the temporary `Stop` diagnostic probe was retired and
   // `SessionStart` took its slot (session bootstrap — registers the run
   // with the local app). `UserPromptSubmit` scans incoming chat messages
@@ -139,8 +139,11 @@ test('hooks.json: declares PreToolUse + PostToolUse + SessionStart + UserPromptS
   const h = readJson('hooks/hooks.json');
   const events = Object.keys(h.hooks);
   assert.deepEqual(events.sort(), [
-    'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionStart', 'UserPromptSubmit',
+    'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionEnd', 'SessionStart', 'UserPromptSubmit',
   ]);
+  // The session-end marker rides SessionEnd, never Stop (Stop fires every turn).
+  assert.equal(h.hooks.Stop, undefined);
+  assert.match(h.hooks.SessionEnd[0].hooks[0].command, /hooks\/session-end\.js"?$/);
 });
 
 test('hooks.json: PostToolUseFailure audits failed calls through the same handler, every tool', () => {

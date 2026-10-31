@@ -2,7 +2,6 @@
 """Fire requests through the running multi-provider proxy to all 12 providers."""
 
 import asyncio
-import json
 import httpx
 
 PROXY = "http://127.0.0.1:8742"

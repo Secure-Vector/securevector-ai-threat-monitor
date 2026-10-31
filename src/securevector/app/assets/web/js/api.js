@@ -18,6 +18,14 @@ const API = {
             },
             ...options,
         };
+        // Remote access mode: a signed-in remote browser sends its session
+        // (sessionStorage only) on every API request.
+        const remoteAuth = this._remoteAuthHeader();
+        if (remoteAuth) {
+            config.headers = { ...(config.headers || {}), 'X-SV-Remote-Session': remoteAuth };
+            // A background poll does not keep a remote session alive.
+            if (this._pollDepth > 0) config.headers['X-SV-Poll'] = '1';
+        }
 
         try {
             const response = await fetch(url, config);
@@ -38,6 +46,63 @@ const API = {
         }
     },
 
+    // ==================== Remote access mode ====================
+
+    // {enabled, signedIn}, filled by RemoteAccess.refresh() from
+    // GET /api/remote-access (public fields only).
+    remote: { enabled: false, signedIn: false },
+    // >0 while a background poll runs (asPoll): its requests carry
+    // X-SV-Poll: 1, so they never refresh a remote session's idle time.
+    _pollDepth: 0,
+    async asPoll(fn) {
+        this._pollDepth++;
+        try { return await fn(); } finally { this._pollDepth--; }
+    },
+    _remoteAuthHeader() {
+        const ra = (typeof window !== 'undefined' && window.RemoteAccess) || null;
+        return ra && ra.authHeader ? ra.authHeader() : '';
+    },
+    /** Signed in for remote access from this browser. */
+    remoteSignedIn() {
+        const ra = (typeof window !== 'undefined' && window.RemoteAccess) || null;
+        return !!(ra && ra.signedIn && ra.signedIn());
+    },
+    /** Turn the mode on or off, rotate the token or change the addresses.
+     *  Answers only on this machine, with the UI token. */
+    async changeRemoteAccess(body) {
+        // From a signed-in remote browser only Off is offered, after the
+        // token is entered again (within 10 minutes).
+        if (this.remoteSignedIn()) {
+            await window.RemoteAccess.ensureFresh();
+            return this.request('/api/remote-access', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+            });
+        }
+        return this._retryUnconfirmed(async () => this.request('/api/remote-access', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-UI-Token': await this._getJitToken() },
+            body: JSON.stringify(body || {}),
+        }));
+    },
+    /** A decision from a signed-in remote browser: no UI token; approve
+     *  and revoke ask for the token again when the last entry is older
+     *  than 10 minutes (and once more if the server says so). */
+    async _remoteDecision(endpoint, body, fresh) {
+        const ra = window.RemoteAccess;
+        const call = () => this.request(endpoint, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}),
+        });
+        if (fresh) await ra.ensureFresh();
+        try {
+            return await call();
+        } catch (e) {
+            if (!fresh || String(e && e.message) !== ra.REAUTH_DETAIL) throw e;
+            ra.state.reauthAt = 0;
+            await ra.ensureFresh();
+            return call();
+        }
+    },
+
     // ==================== Health ====================
 
     async health() {
@@ -54,6 +119,12 @@ const API = {
     },
 
     // ==================== Threat Analytics ====================
+
+    /** One definition of a blocked threat for every dashboard count:
+     *  its action_taken contains "block" (blocked, block, auto_blocked). */
+    threatBlocked(t) {
+        return String((t && t.action_taken) || '').toLowerCase().includes('block');
+    },
 
     async getThreatAnalytics() {
         // Get dashboard summary from threat intel and rules
@@ -88,7 +159,10 @@ const API = {
             return {
                 total_threats: totalCount,  // Use actual total from API
                 critical_count: criticalCount,
-                blocked_count: items.filter(t => t.action_taken === 'blocked').length,
+                // Same definition as the dashboard posture sentence. Counted
+                // from this newest-N sample: no server total exists.
+                blocked_count: items.filter(t => this.threatBlocked(t)).length,
+                sample_size: items.length,
                 active_rules: activeRulesCount,
                 recent_threats: recentThreats,
                 threat_types: threatTypes,
@@ -164,7 +238,67 @@ const API = {
     },
 
     async getTrace(traceId) {
-        return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+        // Shared while in flight: several views opening one run fetch it once.
+        return this.shared(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+    },
+
+    // ---- trace tree view (paged, slim spans) ----
+    // A run with thousands of calls is megabytes in full. The span tree asks
+    // for one page at a time: getTraceTree(id) is the newest 200 spans with
+    // the run totals; { before: page.next_before } is the 200 older; { after:
+    // page.newest } is only what arrived since (page.gap: too many, reload).
+    // Spans in a page are oldest first, each cut to what a row needs
+    // (span._cut: the full text is at getTraceSpan(id, span.sk)). Export and
+    // copy use getTraceFull. Identical requests in flight share one fetch.
+    _inflight: new Map(),
+
+    /** One fetch per URL while it is in flight; every caller gets the answer. */
+    shared(endpoint, options) {
+        const key = endpoint;
+        const hit = this._inflight.get(key);
+        if (hit) return hit;
+        const p = this.request(endpoint, options).finally(() => this._inflight.delete(key));
+        this._inflight.set(key, p);
+        return p;
+    },
+
+    TRACE_PAGE: 200,
+
+    async getTraceTree(traceId, opts = {}) {
+        const q = new URLSearchParams({ view: 'tree', limit: String(opts.limit || this.TRACE_PAGE) });
+        if (opts.before) q.set('before', opts.before);
+        if (opts.after) q.set('after', opts.after);
+        // decision: block | error | waiting | log_only, over the whole run.
+        if (opts.decision) q.set('decision', opts.decision);
+        return this.shared(`/api/traces/${encodeURIComponent(traceId)}?${q}`).catch(() => null);
+    },
+
+    /** The run and span a span hash (or its start) names, or null. */
+    async lookupSpanHash(hash) {
+        return this.request(`/api/trace-spans/lookup?hash=${encodeURIComponent(hash)}`).catch(() => null);
+    },
+
+    /** Every span with every field, for export and copy. */
+    async getTraceFull(traceId) {
+        return this.shared(`/api/traces/${encodeURIComponent(traceId)}?view=full`).catch(() => null);
+    },
+
+    _spanCache: new Map(),
+    SPAN_CACHE_MS: 60000,
+    SPAN_CACHE_MAX: 200,
+
+    /** One span's full detail (the span panel, the copy command), cached
+     *  briefly per run and key. */
+    async getTraceSpan(traceId, key) {
+        const ck = `${traceId}|${key}`;
+        const hit = this._spanCache.get(ck);
+        if (hit && Date.now() - hit.at < this.SPAN_CACHE_MS) return hit.data;
+        const data = await this.shared(`/api/traces/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(key)}`).catch(() => null);
+        if (data && data.span) {
+            this._spanCache.set(ck, { at: Date.now(), data });
+            while (this._spanCache.size > this.SPAN_CACHE_MAX) this._spanCache.delete(this._spanCache.keys().next().value);
+        }
+        return data;
     },
 
     // Run health: one run's findings, and findings across runs in a window.
@@ -319,10 +453,7 @@ const API = {
     },
 
     async toggleRule(ruleId, enabled) {
-        return this.request(`/api/rules/${ruleId}/toggle`, {
-            method: 'POST',
-            body: JSON.stringify({ enabled }),
-        });
+        return this._jitDecision(`/api/rules/${ruleId}/toggle`, { enabled });
     },
 
     async generatePatterns(description) {
@@ -333,10 +464,7 @@ const API = {
     },
 
     async createRule(ruleData) {
-        return this.request('/api/rules/custom', {
-            method: 'POST',
-            body: JSON.stringify(ruleData),
-        });
+        return this._jitDecision('/api/rules/custom', ruleData);
     },
 
     async getCustomRulesCount() {
@@ -550,10 +678,7 @@ const API = {
         const body = { action };
         // null/undefined → omit (global, all runtimes); a slug scopes the rule.
         if (runtimeKind) body.runtime_kind = runtimeKind;
-        return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
-            method: 'PUT',
-            body: JSON.stringify(body),
-        });
+        return this._jitDecision(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, body, 'PUT');
     },
 
     async updateEssentialToolRateLimit(toolId, maxCalls, windowSeconds) {
@@ -567,9 +692,7 @@ const API = {
     },
 
     async deleteToolOverride(toolId) {
-        return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
-            method: 'DELETE',
-        });
+        return this._jitDecision(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {}, 'DELETE');
     },
 
     // ==================== JIT Access (requests + grants) ====================
@@ -580,17 +703,45 @@ const API = {
     _jitToken: null,
     async _getJitToken() {
         if (!this._jitToken) {
-            const r = await this.request('/api/jit/ui-token');
+            let r;
+            try {
+                r = await this._retryUnconfirmed(() => this.request('/api/jit/ui-token'));
+            } catch (e) {
+                // Opened by network address: approvals and session controls
+                // are hidden (RunTrace.controlsLocked), no reload or retry.
+                if (/answer only on this machine/i.test(String(e && e.message))) {
+                    this.terminalsRefused = true;
+                    throw e;
+                }
+                // The page was loaded before the app restarted: reload once.
+                if (/local web UI only/i.test(String(e && e.message))) this._reloadForUiToken();
+                throw e;
+            }
             this._jitToken = r.token;
+            try { window.sessionStorage.removeItem('sv_ui_token_reload'); } catch (_) { /* no storage */ }
         }
         return this._jitToken;
     },
-    async _jitDecision(endpoint, body) {
+    _reloadForUiToken() {
+        let reload = false;
+        try {
+            if (window.sessionStorage.getItem('sv_ui_token_reload') !== '1') {
+                window.sessionStorage.setItem('sv_ui_token_reload', '1');
+                reload = true;
+            }
+        } catch (_) { reload = false; }
+        if (reload) {
+            window.location.reload();
+            return;
+        }
+        throw new Error('Reload the page to approve.');
+    },
+    async _jitDecision(endpoint, body, method = 'POST') {
         // NB: request() replaces the whole headers object when options.headers
         // is set (the ...options spread wins), so Content-Type must be
         // restated here or FastAPI 422s on an unparseable body.
         const call = async () => this.request(endpoint, {
-            method: 'POST',
+            method,
             headers: {
                 'Content-Type': 'application/json',
                 'X-SV-UI-Token': await this._getJitToken(),
@@ -598,12 +749,24 @@ const API = {
             body: JSON.stringify(body || {}),
         });
         try {
-            return await call();
+            return await this._retryUnconfirmed(call);
         } catch (e) {
             // Retry once ONLY for a stale token (app restarted since the
             // token was cached) — any other failure surfaces immediately.
             if (!/UI token/i.test(String(e && e.message))) throw e;
             this._jitToken = null;
+            return this._retryUnconfirmed(call);
+        }
+    },
+    // The app answers 503 "Could not confirm who asked" when it could not
+    // tell, this once, that a person is asking. Try again once after a
+    // second; a second failure shows the message.
+    async _retryUnconfirmed(call) {
+        try {
+            return await call();
+        } catch (e) {
+            if (!/Could not confirm who asked/i.test(String(e && e.message))) throw e;
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             return call();
         }
     },
@@ -618,14 +781,17 @@ const API = {
     },
 
     async approveJitRequest(id, duration) {
+        if (this.remoteSignedIn()) return this._remoteDecision(`/api/jit/requests/${encodeURIComponent(id)}/approve`, { duration }, true);
         return this._jitDecision(`/api/jit/requests/${encodeURIComponent(id)}/approve`, { duration });
     },
 
     async denyJitRequest(id, reason = null) {
+        if (this.remoteSignedIn()) return this._remoteDecision(`/api/jit/requests/${encodeURIComponent(id)}/deny`, { reason }, false);
         return this._jitDecision(`/api/jit/requests/${encodeURIComponent(id)}/deny`, { reason });
     },
 
     async revokeJitGrant(id) {
+        if (this.remoteSignedIn()) return this._remoteDecision(`/api/jit/grants/${encodeURIComponent(id)}/revoke`, {}, true);
         return this._jitDecision(`/api/jit/grants/${encodeURIComponent(id)}/revoke`, {});
     },
 
@@ -639,10 +805,7 @@ const API = {
     },
 
     async createCustomTool(toolData) {
-        return this.request('/api/tool-permissions/custom', {
-            method: 'POST',
-            body: JSON.stringify(toolData),
-        });
+        return this._jitDecision('/api/tool-permissions/custom', toolData, 'POST');
     },
 
     /** Update a custom tool's label fields (name / description / risk).
@@ -651,17 +814,12 @@ const API = {
      * able to change what it is allowed to do. Partial body, so omitted
      * fields keep their current values. */
     async updateCustomTool(toolId, fields) {
-        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
-            method: 'PATCH',
-            body: JSON.stringify(fields),
-        });
+        return this._jitDecision(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, fields, 'PATCH');
     },
 
     async updateCustomToolPermission(toolId, defaultPermission) {
-        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
-            method: 'PUT',
-            body: JSON.stringify({ default_permission: defaultPermission }),
-        });
+        return this._jitDecision(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`,
+            { default_permission: defaultPermission }, 'PUT');
     },
 
     async updateCustomToolRateLimit(toolId, maxCalls, windowSeconds) {
@@ -675,9 +833,7 @@ const API = {
     },
 
     async deleteCustomTool(toolId) {
-        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
-            method: 'DELETE',
-        });
+        return this._jitDecision(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {}, 'DELETE');
     },
 
     // ==================== Tool Call Audit Log ====================
@@ -729,17 +885,11 @@ const API = {
     },
 
     async deleteToolCallAuditEntries(ids) {
-        return this.request('/api/tool-permissions/call-audit', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids }),
-        });
+        return this._jitDecision('/api/tool-permissions/call-audit', { ids }, 'DELETE');
     },
 
     async deleteRule(ruleId) {
-        return this.request(`/api/rules/custom/${encodeURIComponent(ruleId)}`, {
-            method: 'DELETE',
-        });
+        return this._jitDecision(`/api/rules/custom/${encodeURIComponent(ruleId)}`, {}, 'DELETE');
     },
 
     async getProxyStatus() {
@@ -971,14 +1121,23 @@ const API = {
         return this.request('/api/egress/presets').catch(() => null);
     },
     async patchEgressPolicy(patch) {
-        return this.request('/api/egress/policy', {
-            method: 'PATCH', body: JSON.stringify(patch || {}),
-        });
+        // Human-only, like a JIT decision: carries the per-run UI token.
+        return this._jitDecision('/api/egress/policy', patch || {}, 'PATCH');
+    },
+    // Session-scoped host approval and denylist edits: human-only, so they
+    // carry the same per-run UI token as JIT decisions.
+    async grantEgressHost(host, sessionId, duration) {
+        return this._jitDecision('/api/egress/grants', { host, session_id: sessionId, duration });
+    },
+    async addEgressDeniedHost(host) {
+        return this._jitDecision('/api/egress/denylist', { host });
+    },
+    async removeEgressDeniedHost(host) {
+        return this._jitDecision('/api/egress/denylist/remove', { host });
     },
     async promoteEgressHost(host) {
-        return this.request('/api/egress/promote', {
-            method: 'POST', body: JSON.stringify({ host }),
-        });
+        // Device-wide and permanent, so human-only: carries the UI token.
+        return this._jitDecision('/api/egress/promote', { host });
     },
     async getEgressBlastRadius(days = 30) {
         return this.request(`/api/egress/blast-radius?days=${days}`).catch(() => null);
@@ -1030,11 +1189,43 @@ const API = {
     // every write.
     _terminalsReady: false,
     _terminalsSessionPromise: null,
+    // True once the terminals API or the UI token route refused this page
+    // (they answer only on this machine, localhost). RunTrace.controlsLocked() reads it to hide
+    // approvals and session controls; reads elsewhere keep working.
+    terminalsRefused: false,
+    // The one short note every Agent Sessions surface shows when the app
+    // is opened by its network address, in place of the raw refusal.
+    TERMINALS_LOCAL_NOTE: 'Agent Sessions work only when the app is opened on this machine (localhost).',
+    // Opened by a network address (not localhost, 127.x or ::1): the same
+    // test as RunTrace.controlsLocked().
+    terminalsRemote() {
+        const loc = (typeof window !== 'undefined' && window.location) || null;
+        let h = String((loc && loc.hostname) || '').trim().toLowerCase();
+        if (!h) return false;
+        if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+        if (h === 'localhost' || h === '::1') return false;
+        const m = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+        return !(m && m.slice(1).every(o => Number(o) <= 255));
+    },
+    // Remote, or the terminals API already refused this page.
+    terminalsLocked() { return this.terminalsRemote() || !!this.terminalsRefused; },
+    _terminalsLocalError() {
+        const e = new Error(this.TERMINALS_LOCAL_NOTE);
+        e.terminalsLocal = true;
+        return e;
+    },
     async terminalsSession() {
+        // Opened remotely: never ask the terminals API (it answers only on
+        // this machine), so there is no request, retry or raw refusal.
+        if (this.terminalsRemote()) { this.terminalsRefused = true; throw this._terminalsLocalError(); }
         if (this._terminalsReady) return;
         if (!this._terminalsSessionPromise) {
             this._terminalsSessionPromise = this.request('/api/terminals/session').then(() => {
                 this._terminalsReady = true;
+                this.terminalsRefused = false;
+            }, (err) => {
+                if (this._terminalsIsAuthError(err)) this.terminalsRefused = true;
+                throw this._terminalsIsAuthError(err) ? this._terminalsLocalError() : err;
             }).finally(() => {
                 this._terminalsSessionPromise = null;
             });
@@ -1059,7 +1250,12 @@ const API = {
             // set; re-issue the session and retry exactly once.
             this._terminalsReady = false;
             await this.terminalsSession();
-            return this.request(endpoint, options);
+            try {
+                return await this.request(endpoint, options);
+            } catch (again) {
+                if (this._terminalsIsAuthError(again)) this.terminalsRefused = true;
+                throw this._terminalsIsAuthError(again) ? this._terminalsLocalError() : again;
+            }
         }
     },
     async _terminalsRead(endpoint) {
@@ -1071,6 +1267,31 @@ const API = {
             headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1' },
             body: JSON.stringify(body || {}),
         });
+    },
+    // Observability (6.0): coverage per runtime, running sessions, and one
+    // session's governance summary. Read only, under /api/observability with
+    // the same access as the Runs and trace reads, so they also load when
+    // the app is opened by its network address.
+    async getObservabilityCoverage() {
+        return this.request('/api/observability/coverage');
+    },
+    async getObservabilityLive(params = {}) {
+        const q = new URLSearchParams();
+        if (params.group) q.set('group', params.group);
+        if (params.limit) q.set('limit', params.limit);
+        const qs = q.toString();
+        const r = await this.request(`/api/observability/live${qs ? '?' + qs : ''}`);
+        // Every live read also refreshes the running count on the Live grid tab.
+        if (r && r.counters && window.ObsTabs && ObsTabs.setRunning) ObsTabs.setRunning(r.counters.running);
+        return r;
+    },
+    // Suspicious egress in the last 30 minutes, one per (session, host).
+    async getEgressAlerts(params = {}) {
+        const qs = params.since ? '?since=' + encodeURIComponent(params.since) : '';
+        return this.request(`/api/observability/egress-alerts${qs}`);
+    },
+    async getSessionGovernance(sessionId) {
+        return this.request(`/api/observability/sessions/${encodeURIComponent(sessionId)}/governance`);
     },
     async terminalsExecutors() {
         return this._terminalsRead('/api/terminals/executors');
@@ -1085,6 +1306,9 @@ const API = {
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(taskId)}/archive`, {});
     },
     async terminalsTasks() {
+        // Signed in for remote access: the session list answers the remote
+        // session (the one terminals read it accepts).
+        if (this.remoteSignedIn()) return this.request('/api/terminals/tasks');
         return this._terminalsRead('/api/terminals/tasks');
     },
     async terminalsTask(id) {
@@ -1093,8 +1317,36 @@ const API = {
     // `resumeSessionId` reopens an existing harness session instead of starting
     // a fresh one. Optional, and omitted by every existing call site: the host
     // refuses it for a harness that cannot reopen a session by id.
-    async terminalsLaunch(executorId, workspace, title, resumeSessionId) {
-        return this._terminalsWrite('/api/terminals/tasks', { executor_id: executorId, workspace, title: title || null, resume_session_id: resumeSessionId || null });
+    async terminalsLaunch(executorId, workspace, title, resumeSessionId, extra) {
+        const body = { executor_id: executorId, workspace, title: title || null, resume_session_id: resumeSessionId || null };
+        if (extra && extra.worktree) body.worktree = true;
+        if (extra && extra.from_task_id) body.from_task_id = extra.from_task_id;
+        return this._terminalsWrite('/api/terminals/tasks', body);
+    },
+    // Worktree isolation: can this folder host one, remove one, reveal one.
+    async terminalsGitRepo(folder) {
+        return this._terminalsRead(`/api/terminals/git-repo?folder=${encodeURIComponent(folder)}`);
+    },
+    async terminalsWorktreeOpen(id) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/worktree/open`, {});
+    },
+    // A 409 that carries the confirm object is an answer, not a failure: the
+    // person is asked in the card, then the call is repeated with confirm.
+    async terminalsWorktreeRemove(id, confirm, dirtySeen) {
+        await this.terminalsSession();
+        const url = `${this.baseUrl}/api/terminals/tasks/${encodeURIComponent(id)}/worktree/remove`;
+        const send = async () => fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1', 'X-SV-UI-Token': await this._getJitToken() },
+            body: JSON.stringify(confirm && Number.isInteger(dirtySeen) ? { confirm: true, dirty_seen: dirtySeen } : { confirm: !!confirm }),
+        });
+        let res = await send();
+        if (res.status === 403) { this._jitToken = null; res = await send(); }
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) return body;
+        const d = body && body.detail;
+        if (res.status === 409 && d && typeof d === 'object' && d.needs_confirm) return d;
+        throw new Error(typeof d === 'string' ? d : `HTTP ${res.status}`);
     },
     async terminalsLink(executorId, sessionId, workspace, title) {
         return this._terminalsWrite('/api/terminals/tasks/link', {
@@ -1108,7 +1360,16 @@ const API = {
         return this._terminalsRead('/api/terminals/sessions/unlinked');
     },
     async terminalsStop(id) {
+        if (this.remoteSignedIn()) {
+            return this.request(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+            });
+        }
         return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`);
+    },
+    // Stop from a step-up card: the audit records the origin as "rung".
+    async terminalsStopFromRung(id) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop?origin=rung`);
     },
     async terminalsStopAll() {
         return this._terminalsWrite('/api/terminals/stop-all');
@@ -1116,8 +1377,139 @@ const API = {
     async terminalsVerdicts(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/verdicts`);
     },
+    // Session Drift Score: observe only. The per-task read scores the session
+    // now; the batch read returns stored scores; feedback records "looks normal".
+    async terminalsDrift(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/drift`);
+    },
+    // Pre-flight checks (check_policy) for a task's sessions: counts only.
+    async terminalsPreflight(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/preflight`);
+    },
+    async terminalsDriftBatch(ids) {
+        return this._terminalsRead(`/api/terminals/drift?task_ids=${encodeURIComponent((ids || []).join(','))}`);
+    },
+    async terminalsDriftFeedback(id) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/drift/feedback`, { feedback: 'normal' });
+    },
+    // Response rungs: reads under the terminals token; writes also carry the
+    // per-run UI token, refetched once if the app restarted.
+    async terminalsRung(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/rung`);
+    },
+    async terminalsRungModes() {
+        return this._terminalsRead('/api/terminals/rungs/modes');
+    },
+    async terminalsRungHarness(harness) {
+        return this._terminalsRead(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`);
+    },
+    async _terminalsUiWrite(endpoint, body) {
+        if (this.terminalsRemote()) { this.terminalsRefused = true; throw this._terminalsLocalError(); }
+        const call = async () => this._terminalsCall(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1', 'X-SV-UI-Token': await this._getJitToken() },
+            body: JSON.stringify(body || {}),
+        });
+        try {
+            return await this._retryUnconfirmed(call);
+        } catch (e) {
+            if (!/UI token|HTTP 403/.test((e && e.message) || '')) throw e;
+            this._jitToken = null;
+            return this._retryUnconfirmed(call);
+        }
+    },
+    async terminalsRungRelease(id) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/rung/release`, {});
+    },
+    async terminalsRungFeedback(id, feedback) {
+        return this._terminalsUiWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/rung/feedback`, { feedback });
+    },
+    async terminalsRungMode(harness, body) {
+        return this._terminalsUiWrite(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`, body);
+    },
+    // "High: stop the session and alert": on needs the UI token only; off
+    // is a decision the app asks the person to confirm.
+    async terminalsStopSwitch(harness, on) {
+        return this._terminalsUiWrite(`/api/terminals/rungs/stop/${encodeURIComponent(harness)}`, { on: !!on });
+    },
+    // Governed delegation: reads under the terminals token, decisions with the UI token.
+    async terminalsDelegations(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/delegations`);
+    },
+    async terminalsDelegationRelease(id) {
+        return this._terminalsUiWrite(`/api/terminals/delegations/${encodeURIComponent(id)}/release`, {});
+    },
+    async terminalsDelegationDiscard(id) {
+        return this._terminalsUiWrite(`/api/terminals/delegations/${encodeURIComponent(id)}/discard`, {});
+    },
+    async getDelegationPolicy() {
+        return this.request('/api/settings/delegation');
+    },
+    async setDelegationPolicy(body) {
+        return this._jitDecision('/api/settings/delegation', body, 'PUT');
+    },
+    async getCloudApprovals() {
+        return this.request('/api/settings/cloud-approvals');
+    },
+    async setCloudApprovals(body) {
+        return this._jitDecision('/api/settings/cloud-approvals', body, 'PUT');
+    },
     async terminalsEvents(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);
+    },
+    // --- Agent Config Trust (setup trust), under the terminals token ------
+    async configTrustStatus(fresh) {
+        return this._terminalsRead(`/api/terminals/config-trust/status${fresh ? '?fresh=true' : ''}`);
+    },
+    async configTrustHarness(harness) {
+        return this._terminalsRead(`/api/terminals/config-trust/harness/${encodeURIComponent(harness)}`);
+    },
+    async configTrustSession(taskId) {
+        return this._terminalsRead(`/api/terminals/config-trust/sessions/${encodeURIComponent(taskId)}`);
+    },
+    async configTrustRepoCheck(harness, workspace) {
+        return this._terminalsWrite('/api/terminals/config-trust/repo-check', { harness, workspace });
+    },
+    async configTrustApprove(body) {
+        return this._terminalsWrite('/api/terminals/config-trust/pins', body);
+    },
+    // Approve all: one call, so the person confirms the whole batch once.
+    async configTrustApproveAll(items) {
+        return this._terminalsWrite('/api/terminals/config-trust/pins/batch', { items });
+    },
+    async configTrustProbe(body) {
+        return this._terminalsWrite('/api/terminals/config-trust/probe', body);
+    },
+    // Agent Detection & Response: one read for the page's tiles and list.
+    async detectionResponseSummary() {
+        return this._terminalsRead('/api/terminals/detection-response/summary');
+    },
+    // Response modes may not be served by this install. A missing route
+    // returns the page shell, so anything but JSON reads as null (shadow)
+    // without logging an API error.
+    async terminalsRungModes() {
+        await this.terminalsSession();
+        const r = await fetch('/api/terminals/rungs/modes', { headers: { 'X-SV-Terminals': '1' }, credentials: 'same-origin' });
+        if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) return null;
+        return r.json();
+    },
+    // Same read without the shared error log, for the entry points on Agent
+    // Sessions that hide themselves when the summary is unavailable.
+    async detectionResponseSummaryQuiet() {
+        // Shared by the sidebar badge and Agent Sessions: one read per 15 s.
+        const now = Date.now();
+        if (this._drQuiet && now - this._drQuiet.at < 15000) return this._drQuiet.p;
+        const p = this._detectionResponseSummaryRead();
+        this._drQuiet = { at: now, p };
+        return p;
+    },
+    async _detectionResponseSummaryRead() {
+        try {
+            await this.terminalsSession();
+            const r = await fetch('/api/terminals/detection-response/summary', { headers: { 'X-SV-Terminals': '1' }, credentials: 'same-origin' });
+            if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) return null;
+            return await r.json();
+        } catch (e) { return null; }
     },
     terminalsSocketUrl(id) {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1127,3 +1519,211 @@ const API = {
 
 // Make API globally available
 window.API = API;
+
+// Writes that change what agents may do, or that remove what was recorded,
+// come from a person in the app: the app asks for the per-run UI token on
+// them. Pages call some of these with fetch() directly, so the token is
+// added here, once, for same-origin writes to those paths. A 503 "Could not
+// confirm who asked" is tried again once after a second; a stale token
+// (the app restarted) is fetched again once.
+API.PERSON_WRITE_PATHS = [
+    /^\/api\/settings$/,
+    /^\/api\/settings\/llm$/,
+    /^\/api\/costs\/records$/,
+    /^\/api\/costs\/budget(\/agents\/[^/]+)?$/,
+    /^\/api\/costs\/run-limits(\/exempt)?$/,
+    /^\/api\/skill-permissions(\/[^/]+)*$/,
+    /^\/api\/threat-intel(\/[^/]+)?(\/disposition)?$/,
+    /^\/api\/rules\/sync\/apply$/,
+    /^\/api\/settings\/cloud\/(credentials|mode)$/,
+    /^\/api\/v1\/cloud-forwarding$/,
+    /^\/api\/siem-forwarders(\/[^/]+)?(\/reset-breaker)?$/,
+    /^\/api\/proxy\/(stop|revert)$/,
+    /^\/api\/terminals\/config-trust\/pins(\/batch)?$/,
+];
+API.needsPerson = function (input, init) {
+    const method = String((init && init.method) || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || typeof input !== 'string') return false;
+    let url;
+    try { url = new URL(input, window.location.href); } catch (e) { return false; }
+    if (url.origin !== window.location.origin) return false;
+    return API.PERSON_WRITE_PATHS.some((re) => re.test(url.pathname));
+};
+(function wrapFetchForPersonWrites() {
+    if (typeof window.fetch !== 'function') return;
+    const plainFetch = window.fetch.bind(window);
+    const detailOf = async (res) => {
+        try { return String((await res.clone().json()).detail || ''); } catch (e) { return ''; }
+    };
+    window.fetch = async function (input, init) {
+        if (!API.needsPerson(input, init)) {
+            const plain = await plainFetch(input, init);
+            const method = String((init && init.method) || 'GET').toUpperCase();
+            return method === 'GET' || method === 'HEAD' ? plain : API.confirmThen(plain);
+        }
+        const headers = new Headers((init && init.headers) || {});
+        if (headers.has('X-SV-UI-Token')) return plainFetch(input, init);
+        const send = async () => {
+            const h = new Headers(headers);
+            try { h.set('X-SV-UI-Token', await API._getJitToken()); } catch (e) { /* the app answers 403 */ }
+            return plainFetch(input, { ...init, headers: h });
+        };
+        let res = await send();
+        if (res.status === 403 && /UI token/i.test(await detailOf(res))) {
+            API._jitToken = null;
+            res = await send();
+        }
+        if (res.status === 503 && /Could not confirm who asked/i.test(await detailOf(res))) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            res = await send();
+        }
+        return API.confirmThen(res);
+    };
+})();
+
+// Native approvals: a decision route answers 202 with a confirmation id and
+// applies nothing until the person confirms on the computer (the desktop
+// shell's prompt, or a code shown on the computer in a browser). The
+// wrapper above hands every write through confirmThen, so callers see the
+// original route's final answer, or a 409 "Not confirmed".
+API.CONFIRM_POLL_MS = 1000;
+API._confirmResponse = function (status, body) {
+    const R = (typeof Response !== 'undefined') ? Response : window.Response;
+    if (status === 204) return new R(null, { status: 204 });
+    return new R(JSON.stringify(body == null ? {} : body), { status, headers: { 'Content-Type': 'application/json' } });
+};
+API.confirmThen = async function (res) {
+    if (!res || res.status !== 202) return res;
+    let info;
+    try { info = await res.clone().json(); } catch (e) { return res; }
+    if (info && !info.confirmation_id && info.detail && info.detail.confirmation_id) info = info.detail;
+    if (!info || !info.confirmation_id) return res;
+    const ui = API._confirmPanel(info);
+    let done = null;
+    try { done = await API._awaitConfirmation(info, ui); } catch (e) { done = null; }
+    if (!done) {
+        ui.fail();
+        return API._confirmResponse(409, { detail: 'Not confirmed' });
+    }
+    ui.close();
+    const result = done.result || {};
+    return API._confirmResponse(result.status_code || 200, result.body);
+};
+API._awaitConfirmation = function (info, ui) {
+    const url = `/api/confirmations/${encodeURIComponent(info.confirmation_id)}`;
+    const deadline = Date.now() + ((Number(info.expires_in) || 120) + 5) * 1000;
+    const headers = async () => ({ 'Content-Type': 'application/json', 'X-SV-UI-Token': await API._getJitToken() });
+    return new Promise((resolve) => {
+        let finished = false;
+        let timer = null;
+        const finish = (v) => {
+            if (finished) return;
+            finished = true;
+            if (timer) clearTimeout(timer);
+            resolve(v);
+        };
+        const poll = async () => {
+            if (finished) return;
+            try {
+                const r = await fetch(url, { headers: await headers() });
+                const v = await r.json().catch(() => ({}));
+                if (r.ok && v.status === 'confirmed') return finish(v);
+                if (v.status === 'denied' || v.status === 'expired' || r.status === 404) return finish(null);
+            } catch (e) { /* the next poll tries again */ }
+            if (Date.now() > deadline) return finish(null);
+            timer = setTimeout(poll, API.CONFIRM_POLL_MS);
+        };
+        // Cancel on the page denies it on the server too, so a prompt still
+        // open on the computer can no longer apply it.
+        ui.onCancel = async () => {
+            try { await fetch(`${url}/cancel`, { method: 'POST', headers: await headers(), body: '{}' }); } catch (e) { /* expires anyway */ }
+            finish(null);
+        };
+        ui.onCode = async (code) => {
+            if (finished) return;
+            try {
+                const r = await fetch(`${url}/code`, { method: 'POST', headers: await headers(), body: JSON.stringify({ code }) });
+                const v = await r.json().catch(() => ({}));
+                if (r.ok && v.status === 'confirmed') return finish(v);
+                if (r.status === 400) { ui.error(v.detail || 'Wrong code.'); return; }
+                if (r.status === 429 && v.detail) ui.error(String(v.detail));
+                finish(null);
+            } catch (e) { ui.error('Could not send the code, try again.'); }
+        };
+        poll();
+    });
+};
+API.confirmPrompt = function (info) {
+    if (info && info.method === 'code') return 'Enter the code shown on your computer';
+    const nav = (typeof navigator !== 'undefined' && navigator) || {};
+    const mac = /Mac/i.test(String(nav.platform || nav.userAgent || ''));
+    return mac ? 'Confirm on your Mac\u2026' : 'Confirm on your computer\u2026';
+};
+API._confirmPanel = function (info) {
+    const ui = { onCancel: null, onCode: null, el: null };
+    const doc = (typeof document !== 'undefined') ? document : null;
+    if (!doc || typeof doc.createElement !== 'function' || !doc.body) {
+        ui.fail = () => {}; ui.close = () => {}; ui.error = () => {};
+        return ui;
+    }
+    const el = doc.createElement('div');
+    el.className = 'sv-confirm';
+    el.setAttribute('role', 'alertdialog');
+    el.setAttribute('aria-live', 'assertive');
+    const title = doc.createElement('div');
+    title.className = 'sv-confirm-title';
+    title.textContent = API.confirmPrompt(info);
+    const summary = doc.createElement('div');
+    summary.className = 'sv-confirm-summary';
+    summary.textContent = String(info.summary || '');
+    const msg = doc.createElement('div');
+    msg.className = 'sv-confirm-msg';
+    el.appendChild(title);
+    el.appendChild(summary);
+    if (info.method === 'code') {
+        const form = doc.createElement('form');
+        form.className = 'sv-confirm-form';
+        const input = doc.createElement('input');
+        input.className = 'sv-confirm-code';
+        input.setAttribute('inputmode', 'numeric');
+        input.setAttribute('autocomplete', 'one-time-code');
+        input.setAttribute('maxlength', '6');
+        input.setAttribute('aria-label', 'Six-digit code');
+        const ok = doc.createElement('button');
+        ok.type = 'submit';
+        ok.className = 'btn btn-sm';
+        ok.textContent = 'Confirm';
+        form.onsubmit = (e) => {
+            if (e && e.preventDefault) e.preventDefault();
+            const code = String(input.value || '').replace(/\D/g, '');
+            if (code.length !== 6) { ui.error('Enter all six digits.'); return; }
+            msg.textContent = '';
+            if (ui.onCode) ui.onCode(code);
+        };
+        form.appendChild(input);
+        form.appendChild(ok);
+        el.appendChild(form);
+        setTimeout(() => { try { input.focus(); } catch (e) { /* not focusable */ } }, 0);
+    }
+    const cancel = doc.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-sm sv-confirm-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = () => { if (ui.onCancel) ui.onCancel(); };
+    el.appendChild(cancel);
+    el.appendChild(msg);
+    doc.body.appendChild(el);
+    ui.el = el;
+    const remove = () => { if (el.parentNode) el.parentNode.removeChild(el); };
+    ui.error = (text) => { msg.textContent = text; };
+    ui.close = remove;
+    ui.fail = () => {
+        title.textContent = 'Not confirmed';
+        el.classList.add('sv-confirm-failed');
+        const form = el.querySelector && el.querySelector('form');
+        if (form && form.parentNode) form.parentNode.removeChild(form);
+        if (cancel.parentNode) cancel.parentNode.removeChild(cancel);
+        setTimeout(remove, msg.textContent ? 8000 : 2500);
+    };
+    return ui;
+};

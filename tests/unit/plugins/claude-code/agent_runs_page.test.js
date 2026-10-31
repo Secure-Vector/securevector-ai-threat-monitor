@@ -119,3 +119,15 @@ test('an estimated model duration draws its bar ending at called_at', () => {
   assert.deepEqual(bar({ _pos: 0.1, _gap: 1, duration_ms: 5000, duration_estimated: true }), { left: 0, width: 10 });
   assert.match(P._timingHtml({ _pos: 0.6, _gap: 1, duration_ms: 2000, duration_estimated: true }, 'grey'), /Ended 60% through the trace/);
 });
+
+test('runs list session tree: 24px caret, guide from the caret, elbow on the last row, earlier runs on the guide', () => {
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /\.rl-caret-btn \{[^}]*width:24px; height:24px;/);
+  assert.match(src, /rl-sh-guide/);
+  assert.match(src, /\.rl-last > \.rl-guide \{ bottom:50%; \}/);
+  // Header and run rows share the same indent, so the numeric columns line up.
+  assert.match(src, /\.rl-row\.rl-child \{ padding-left:58px; \}/);
+  assert.match(src, /\.rl-table:not\(\.rl-flatlist\) \.rl-hd \{ padding-left:58px; \}/);
+  assert.match(src, /moreRow\.className = 'rl-morerow rl-last'/);
+  assert.match(src, /const lastRow = !moreRow && i === rows\.length - 1;\s*into\.appendChild\(this\._runRow\(r, false, true, lastRow\)\);/);
+});

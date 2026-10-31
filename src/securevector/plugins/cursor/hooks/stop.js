@@ -7,12 +7,10 @@
  *   { status: "completed"|"aborted"|"error", loop_count, conversation_id, ... }
  * stdout: { followup_message? } — we emit {} (never auto-continue the agent).
  *
- * Writes a `__session_end__` sentinel row so the SHA-256 hash-chained
- * tool_call_audit table shows session boundaries — forensic timelines pivot
- * on the `__session_start__` / `__session_end__` sentinels to reconstruct
- * what happened inside one session vs the next. Like Codex's Stop, Cursor's
- * stop fires per agent loop end rather than only at window close, so treat
- * these rows as turn-boundary markers.
+ * Writes a `__turn_end__` sentinel row: stop fires per agent loop, not at
+ * the end of the conversation, so the local app never reads it as the end
+ * of the session. The session end is `__session_end__`, written by the
+ * sessionEnd hook (hooks/session-end.js).
  *
  * Fire-and-forget; always exits 0.
  */
@@ -24,12 +22,12 @@ const { sessionIdFrom, readAllStdin } = require('../lib/decide.js');
 
 const RUNTIME_KIND = 'cursor';
 
-function buildSessionEndBody(event) {
+function buildTurnEndBody(event) {
   const sessionId = sessionIdFrom(event);
   const status = typeof event.status === 'string' ? event.status : 'completed';
   return {
-    tool_id: '__session_end__',
-    function_name: '__session_end__',
+    tool_id: '__turn_end__',
+    function_name: '__turn_end__',
     action: 'log_only',
     risk: null,
     reason: `SecureVector Guard: Cursor agent loop ended (${status})`,
@@ -52,7 +50,7 @@ async function main() {
 
   const baseUrl = resolveBaseUrl();
   try {
-    postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionEndBody(event));
+    postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildTurnEndBody(event));
   } catch { /* swallow */ }
 
   process.stdout.write(JSON.stringify({}));
@@ -62,4 +60,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { buildSessionEndBody, RUNTIME_KIND };
+module.exports = { buildTurnEndBody, RUNTIME_KIND };

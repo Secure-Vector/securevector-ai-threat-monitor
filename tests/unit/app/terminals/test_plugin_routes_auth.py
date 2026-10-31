@@ -164,6 +164,7 @@ def test_every_terminals_executor_has_a_live_session_guard_on_its_uninstall():
     """
     import inspect
 
+    from securevector.app.server.routes import hooks as hooks_openclaw
     from securevector.app.terminals.executors import EXECUTORS
 
     # Which module serves which harness. Asserted below to cover EXECUTORS in
@@ -173,9 +174,13 @@ def test_every_terminals_executor_has_a_live_session_guard_on_its_uninstall():
         "codex": hooks_codex,
         "copilot-cli": hooks_copilot_cli,
         "opencode": hooks_opencode,
+        "openclaw": hooks_openclaw,
     }
+    # GovRun's Guard is built into the harness and the Hermes Guard is a pip
+    # package: the app has no uninstall route for either, so nothing to strand.
+    NO_UNINSTALL_ROUTE = {"govrun", "hermes"}
 
-    missing = set(EXECUTORS) - set(BY_EXECUTOR)
+    missing = set(EXECUTORS) - set(BY_EXECUTOR) - NO_UNINSTALL_ROUTE
     assert not missing, (
         f"executor(s) {sorted(missing)} have no hooks module mapped here, so their "
         "uninstall is unchecked; map them and confirm the route guards live sessions"

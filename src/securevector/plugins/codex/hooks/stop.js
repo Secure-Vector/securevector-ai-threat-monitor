@@ -3,11 +3,10 @@
 /**
  * Stop hook handler for the SecureVector Guard plugin (Codex).
  *
- * Fires when the Codex CLI session ends. Writes a session-end audit
- * row so the SHA-256 hash-chained tool_call_audit table shows clean
- * session boundaries — forensic timelines can pivot on the
- * `__session_start__` / `__session_end__` sentinels to reconstruct
- * what happened inside one session vs the next.
+ * Fires at the end of every Codex turn (not at session end). Writes a
+ * `__turn_end__` audit row, a turn boundary the local app never reads as
+ * the end of the session. The session end is `__session_end__`, written
+ * by the SessionEnd hook (hooks/session-end.js).
  *
  * Fire-and-forget: never awaited, never propagates errors. Codex's
  * Stop hook output schema (`stop.command.output`) is `additionalProperties:
@@ -34,18 +33,13 @@ async function readAllStdin() {
   return buf;
 }
 
-function buildSessionEndBody(event) {
+function buildTurnEndBody(event) {
   // log_only is the closest existing action sentinel for "informational
   // row, no enforcement happened here". The `function_name` carries
-  // the lifecycle event semantics so forensic timelines can pivot on
-  // `__session_end__` directly. Note: Codex's Stop hook may fire on
-  // every model-response end rather than only at session close —
-  // treat these rows as "turn-boundary markers" rather than guaranteed
-  // session-lifecycle markers, and filter by adjacency to the
-  // matching `__session_start__` row to reconstruct true sessions.
+  // the lifecycle event: Stop fires per turn, so this is a turn marker.
   return {
-    tool_id: '__session_end__',
-    function_name: '__session_end__',
+    tool_id: '__turn_end__',
+    function_name: '__turn_end__',
     action: 'log_only',
     risk: null,
     reason: 'SecureVector Guard: Codex turn boundary',
@@ -73,7 +67,7 @@ async function main() {
   const baseUrl = resolveBaseUrl();
 
   try {
-    postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionEndBody(event));
+    postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildTurnEndBody(event));
   } catch { /* swallow */ }
 
   await postTerminalEvent({ hook_event_name: 'Stop', session_id: event.session_id });
@@ -85,4 +79,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { buildSessionEndBody, RUNTIME_KIND };
+module.exports = { buildTurnEndBody, RUNTIME_KIND };

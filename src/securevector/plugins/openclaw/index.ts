@@ -4,10 +4,18 @@
  * Real-time defense layers for OpenClaw agents:
  *
  *   Input Guard     message_received     Scan user messages for prompt injection, jailbreaks, social engineering
- *   Output Guard    tool_result_persist   Inspect tool results for credential leaks, PII, exfiltration payloads
- *   Tool Audit      after_tool_call       Record tool call decisions for audit trail
+ *   Output Guard    after_tool_call       Inspect tool results for credential leaks, PII, exfiltration payloads
+ *                   (tool_result_persist  is kept for older OpenClaw; one scan per tool call id)
+ *   Tool Audit      after_tool_call       Record one audit row per tool call (deduped by tool call id)
+ *                   (agent_end            is a fallback for OpenClaw versions without after_tool_call)
  *   Context Guard   before_agent_start    Inject threat-awareness directives into the agent system prompt
  *   Cost Tracker    llm_output            Record LLM token usage for cost tracking
+ *
+ * OpenClaw 2026.10 and later deliver some hooks (agent_end, llm_output) to a
+ * plugin it does not bundle only when the profile sets
+ *   plugins.entries.securevector-guard.hooks.allowConversationAccess = true
+ * `securevector-app --install-plugin openclaw` sets it. Without it, cost
+ * tracking stops; the tool audit and output scan still run on after_tool_call.
  *
  * All detection runs server-side (SecureVector API) — zero LLM tokens consumed for scanning.
  * Plugin is stateless; all state lives in the SecureVector backend.
@@ -36,6 +44,16 @@ class SVClient {
     this.baseUrl = url.replace(/\/+$/, "");
     this.headers = { "Content-Type": "application/json" };
     if (apiKey) this.headers["Authorization"] = `Bearer ${apiKey}`;
+    // Inside a session launched by Agent Sessions, the app hands the process
+    // its task id and hook token. Sending them lets the egress check bind a
+    // call to the session it claims; without them the call is still
+    // evaluated, just not bound (same wire shape as the Guard plugins).
+    const task = (process.env.SV_TERMINAL_TASK_ID || "").trim();
+    const token = (process.env.SV_TERMINAL_HOOK_TOKEN || "").trim();
+    if (task && token) {
+      this.headers["x-sv-terminal-task"] = task;
+      this.headers["x-sv-terminal-hook"] = token;
+    }
   }
 
   /** Send text to SecureVector for threat analysis. */
@@ -185,7 +203,7 @@ class SVClient {
       .replace(/password["']?\s*[:=]\s*["'][^"']+["']/gi, 'password: "[REDACTED]"');
     this.post("/api/tool-permissions/call-audit", {
       tool_id: toolName,
-      // The tool's own name — drives the tool node label on the Agent Map.
+      // The tool's own name: drives the tool node label on the Agent Map.
       // (Was mistakenly the sessionKey, which made the Map render the run's
       // session key instead of e.g. "memory_search".)
       function_name: toolName,
@@ -197,7 +215,7 @@ class SVClient {
       // Stamp the harness on every audit row so Tool Inventory's
       // "MCP server · via <harness>" column attributes correctly.
       runtime_kind: "openclaw",
-      // The run's session key — lets the backend derive the trace_id that
+      // The run's session key: lets the backend derive the trace_id that
       // groups this call into an OpenClaw run on the Agent Runs tab.
       session_id: sessionKey,
     }, 3_000).catch(() => {});
@@ -336,6 +354,44 @@ function extractUserMessage(event: any): string | null {
   return null;
 }
 
+/** Flatten a tool result (string, content blocks, or an object carrying
+ * either) into plain text for the output scan. */
+function toolResultText(result: any): string {
+  if (result == null) return "";
+  if (typeof result === "string") return result;
+  if (Array.isArray(result)) {
+    return result
+      .map((b: any) => (typeof b === "string" ? b : b?.text || (typeof b?.content === "string" ? b.content : "")))
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof result === "object") {
+    if (result.content != null) return toolResultText(result.content);
+    if (typeof result.text === "string") return result.text;
+    if (typeof result.output === "string") return result.output;
+    if (typeof result.stdout === "string") return result.stdout;
+  }
+  return "";
+}
+
+/** Process-wide id set that forgets its oldest entries past `cap`, so a
+ * long-running gateway does not grow it without bound. */
+function boundedSet(key: string, cap = 5000): { has(id: string): boolean; add(id: string): void } {
+  const g = globalThis as any;
+  if (!(g[key] instanceof Set)) g[key] = new Set<string>();
+  const set: Set<string> = g[key];
+  return {
+    has: (id: string) => set.has(id),
+    add: (id: string) => {
+      set.add(id);
+      if (set.size > cap) {
+        const first = set.values().next().value;
+        if (first !== undefined) set.delete(first);
+      }
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Plugin entry (OpenClaw plugin format)
 // ---------------------------------------------------------------------------
@@ -384,39 +440,97 @@ export default {
       }
     });
 
-    // ── Output Guard (tool_result_persist) ───────────────────────────
-    // NOTE: Known OpenClaw timing bug (#5513) — fires inconsistently.
-    // Kept registered for output scanning when it does fire.
+    // ── Shared state for the tool hooks ─────────────────────────────────
+    // Process-wide so plugin re-initialisation does not re-audit or re-scan.
+    //   audited  tool call ids already written to the audit trail
+    //   scanned  tool call ids whose result was already scanned
+    const audited = boundedSet("__sv_seen_tools__");
+    const scanned = boundedSet("__sv_scanned_tool_results__");
+    // Set once after_tool_call has fired in this process. From then on the
+    // agent_end fallback and id-less tool_result_persist events stand down,
+    // so one call is audited and scanned once.
+    const g = globalThis as any;
+    const afterToolCallLive = (): boolean => g.__sv_after_tool_call_live__ === true;
+
+    const scanOutput = (text: string, toolName: string | undefined, sessionKey: string): void => {
+      if (!text) return;
+      sv.analyze(text, "outbound", {
+        tool: toolName,
+        session: sessionKey,
+      }).then((result) => {
+        if (!result || !result.is_threat || result.risk_score < cfg.threshold) return;
+        console.warn(
+          `${tag} OUTPUT — data leakage in tool result: ` +
+          `${result.threat_type || "unknown"} (risk ${result.risk_score})`
+        );
+      }).catch(() => {});
+    };
+
+    const auditTool = async (toolName: string, args: string, sessionKey: string, blockMode: boolean): Promise<void> => {
+      // Tool permissions govern WHETHER the tool may run; egress governs
+      // WHERE it reaches. Consult egress only when the name-based verdict
+      // did not already block, so one call yields one decision.
+      let verdict = await sv.toolVerdict(toolName);
+      if (!verdict || verdict.action !== "block") {
+        const egress = await sv.egressVerdict(toolName, args);
+        if (egress) verdict = egress;
+      }
+      if (!verdict) return;
+      const auditVerdict = (!blockMode && verdict.action === "block")
+        ? { ...verdict, action: "log_only" as const, reason: `${verdict.reason} (audit only — enable proxy to block)` }
+        : verdict;
+      sv.recordToolAudit(toolName, auditVerdict, sessionKey, args);
+      if (verdict.action === "block") {
+        const mode = blockMode ? "BLOCKED" : "AUDIT (would block)";
+        console.warn(`${tag} TOOL ${mode} — ${toolName}: ${verdict.reason}`);
+      }
+    };
+
+    // ── Tool Audit + Output Guard (after_tool_call) ─────────────────────
+    // Fires once per tool call with the call's params and result, and needs
+    // no extra grant on OpenClaw 2026.10. One audit row per tool call id.
+    api.on("after_tool_call", async (event: any, ctx: any) => {
+      try {
+        g.__sv_after_tool_call_live__ = true;
+        const toolName = event?.toolName || ctx?.toolName;
+        if (!toolName) return;
+        const sessionKey = ctx?.sessionKey || ctx?.agentId || "openclaw-agent";
+        const callId = event?.toolCallId || ctx?.toolCallId || "";
+
+        // Output scan first: it does not wait on the audit lookups.
+        if (!callId || !scanned.has(callId)) {
+          if (callId) scanned.add(callId);
+          scanOutput(toolResultText(event?.result), toolName, sessionKey);
+        }
+
+        if (callId) {
+          if (audited.has(callId)) return;
+          audited.add(callId);
+        }
+        const rawArgs = event?.params ?? {};
+        const args = typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs);
+        const { blockMode } = await sv.getSettings();
+        await auditTool(toolName, args, sessionKey, blockMode);
+      } catch (err) {
+        console.warn(`${tag} tool-audit error:`, (err as Error).message);
+      }
+    });
+
+    // ── Output Guard fallback (tool_result_persist) ────────────────────
+    // Older OpenClaw versions: fires inconsistently (OpenClaw #5513), so it
+    // is kept only as a fallback. Skips a result after_tool_call scanned.
     api.on("tool_result_persist", (event: any, ctx: any) => {
       try {
         const toolName = event?.toolName || ctx?.toolName;
         const sessionKey = ctx?.sessionKey || ctx?.agentId || "openclaw-agent";
-
-        const msg = event?.message;
-        let text = "";
-        if (msg?.content) {
-          if (typeof msg.content === "string") {
-            text = msg.content;
-          } else if (Array.isArray(msg.content)) {
-            text = msg.content
-              .map((b: any) => b?.text || b?.content || "")
-              .filter(Boolean)
-              .join("\n");
-          }
+        const callId = event?.toolCallId || ctx?.toolCallId || "";
+        if (callId) {
+          if (scanned.has(callId)) return;
+          scanned.add(callId);
+        } else if (afterToolCallLive()) {
+          return;
         }
-
-        if (text) {
-          sv.analyze(text, "outbound", {
-            tool: toolName,
-            session: sessionKey,
-          }).then((result) => {
-            if (!result || !result.is_threat || result.risk_score < cfg.threshold) return;
-            console.warn(
-              `${tag} OUTPUT — data leakage in tool result: ` +
-              `${result.threat_type || "unknown"} (risk ${result.risk_score})`
-            );
-          }).catch(() => {});
-        }
+        scanOutput(toolResultText(event?.message), toolName, sessionKey);
       } catch (err) {
         console.warn(`${tag} output-guard error:`, (err as Error).message);
       }
@@ -455,20 +569,15 @@ export default {
       }
     });
 
-    // ── Tool Audit (agent_end) ──────────────────────────────────────────
-    // Fires after each agent turn with full conversation messages.
-    // Parses toolCall content blocks, deduplicates by tool name,
-    // checks each against SecureVector's permission database.
-    //
-    // Uses a process-wide Set to avoid re-auditing across multiple
-    // agent_end calls and plugin re-initializations.
-    if (!(globalThis as any).__sv_seen_tools__) {
-      (globalThis as any).__sv_seen_tools__ = new Set<string>();
-    }
-    const seenToolIds: Set<string> = (globalThis as any).__sv_seen_tools__;
-
+    // ── Tool Audit fallback (agent_end) ───────────────────────────────
+    // For OpenClaw versions that do not fire after_tool_call. Parses the
+    // turn's toolCall blocks and audits each tool once per turn. Stands down
+    // once after_tool_call has fired in this process, and skips any call id
+    // after_tool_call already audited, so a call is never counted twice.
+    // On OpenClaw 2026.10 this hook needs hooks.allowConversationAccess.
     api.on("agent_end", async (event: any, ctx: any) => {
       try {
+        if (afterToolCallLive()) return;
         const messages = event?.messages;
         if (!Array.isArray(messages)) return;
 
@@ -487,8 +596,8 @@ export default {
             const name = block?.name || block?.toolName;
             if (!isToolCall || !name) continue;
             const id = block?.id || block?.toolCallId || `${name}-pos${blockIdx}`;
-            if (seenToolIds.has(id)) continue;
-            seenToolIds.add(id);
+            if (audited.has(id)) continue;
+            audited.add(id);
             const rawArgs = block?.arguments || block?.input || block?.args || block?.parameters || {};
             const args = typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs);
             toolCalls.push({ name, id, args });
@@ -505,23 +614,7 @@ export default {
 
         const { blockMode } = await sv.getSettings();
         for (const [toolName, args] of byName) {
-          // Tool permissions govern WHETHER the tool may run; egress governs
-          // WHERE it reaches. Consult egress only when the name-based verdict
-          // did not already block, so one call yields one decision.
-          let verdict = await sv.toolVerdict(toolName);
-          if (!verdict || verdict.action !== "block") {
-            const egress = await sv.egressVerdict(toolName, args);
-            if (egress) verdict = egress;
-          }
-          if (!verdict) continue;
-          const auditVerdict = (!blockMode && verdict.action === "block")
-            ? { ...verdict, action: "log_only" as const, reason: `${verdict.reason} (audit only — enable proxy to block)` }
-            : verdict;
-          sv.recordToolAudit(toolName, auditVerdict, sessionKey, args);
-          if (verdict.action === "block") {
-            const mode = blockMode ? "BLOCKED" : "AUDIT (would block)";
-            console.warn(`${tag} TOOL ${mode} — ${toolName}: ${verdict.reason}`);
-          }
+          await auditTool(toolName, args, sessionKey, blockMode);
         }
 
         console.log(`${tag} Tool audit: ${toolCalls.length} call(s), ${byName.size} unique — [${[...byName.keys()].join(", ")}]`);
@@ -531,7 +624,9 @@ export default {
     });
 
     // ── Cost Tracker (llm_output) ──────────────────────────────────────
-    // NOTE: Not wired in OpenClaw. Kept for future compatibility.
+    // On OpenClaw 2026.10 this hook is delivered only when the profile sets
+    // plugins.entries.securevector-guard.hooks.allowConversationAccess = true
+    // (written by `securevector-app --install-plugin openclaw`).
     api.on("llm_output", (event: any, ctx: any) => {
       try {
         const usage = event?.usage;

@@ -13,24 +13,16 @@ import asyncio
 import csv
 import json
 import logging
-import os
 import sys
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, TextIO
+from typing import TextIO
 
-from .utils.exceptions import APIError, ConfigurationError, SecurityException
 from .utils.logger import get_logger
-from .utils.retry import API_RETRY_CONFIG, RetryConfig
-from .utils.telemetry import TelemetryCollector, get_telemetry_collector
+from .utils.telemetry import get_telemetry_collector
 
 from .async_client import AsyncSecureVectorClient
 from .client import SecureVectorClient
-from .models.config_models import OperationMode, SDKConfig
-from .models.policy_models import SecurityPolicy
-from .streaming import StreamingAnalyzer, analyze_large_text
-from .testing import MockBehavior, MockSecureVectorClient, create_test_prompts
+from .testing import MockSecureVectorClient, create_test_prompts
 
 
 class EnhancedCLI:

@@ -244,7 +244,7 @@ export const SecureVectorGuard = async ({ client }) => {
         const requestId = requestIdFor(input && input.callID);
         const args = (input && input.args) || null;
 
-        const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+        const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND, { sessionId });
         const match = pickMatch(candidates, overrides);
         const toolId = match ? match.tool_id : candidates[0];
         const reason = match && typeof match.reason === 'string' ? match.reason : null;

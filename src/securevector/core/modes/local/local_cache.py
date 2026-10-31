@@ -8,13 +8,12 @@ Licensed under the Apache License, Version 2.0
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from securevector.models.analysis_result import AnalysisResult
 from securevector.utils.logger import get_logger
 from securevector.utils.security import (
     constant_time_cache_lookup,
-    sanitize_output_for_logging,
     secure_cache_eviction,
     validate_cache_access_pattern,
 )

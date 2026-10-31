@@ -5,7 +5,68 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [6.1.0] - 2026-10-31
+
+### Added
+
+**Agent Sessions harnesses**
+- Agent Sessions launches and links GovRun, Hermes and OpenClaw sessions. Sessions launched from the app are marked ungoverned, since these Guards do not report to an app-started task.
+
+**Agent Sessions approvals**
+- A host blocked under Contained or Hardened can be approved for one session only (15 minutes, 1 hour or the rest of the session) from that session's Approval inbox or from the Egress section of its pane. Other sessions stay blocked for the same host; the grant expires on its own, is revoked when the task exits, and is audited with its scope, session id and actor.
+- The Egress section names the rule that fired for each blocked host, with the rule id and reason behind a Details toggle.
+- Denied destinations can be added and removed on the Agent Egress page.
+
+**Session score**
+- Each governed session gets a session score from 0 to 100 against what the same harness normally does in the same folder, with the top reasons in plain words on the session and in its summary. Observe only: it never changes a verdict.
+- "Looks normal" feedback on ended sessions.
+
+**Agent Config Trust**
+- Integrations opens with a scan of your agent setup per harness: MCP servers, hooks, rules files and mods, with items that need attention listed first.
+- Changes to that setup show as plain-words cards with a side-by-side view and Approve.
+- Launching a task shows the folder's trust state with its top reasons before the first prompt.
+- Optional, per-server check of an HTTP MCP server's tool list.
+
+**SecureVector MCP**
+- Two MCP tools for the agent itself: `check_policy` answers whether a tool call will be allowed before it is made (allow, deny, needs approval or indeterminate), and `session_burn` reports the session's tokens and estimated cost so far.
+- The Guard installers register the tools at user scope in each harness and remove them on uninstall, when the `mcp` extra is installed. An existing `securevector` entry is left unchanged. Claude Code sessions with the tools registered get one line at session start naming `check_policy` (set `SECUREVECTOR_MCP_GUIDANCE_LINE=0` to turn it off).
+- Every check is in the audit chain. Each call is still checked in full when it is made.
+- Agent Sessions shows a Pre-flight checks section under Context & cost, and the harness pages show whether the MCP tools are registered.
+
+**Guard**
+- The Guard plugins (Claude Code 5.4.0, Codex 5.4.0, Cursor 5.4.0, GitHub Copilot CLI 5.4.0, Antigravity 1.1.0, OpenCode 1.2.0, OpenClaw 1.2.0) send the task's hook token with each egress check, which binds the call to the session it names. A plugin from 6.0.0 still works: its calls keep their session counts and Egress list, but a host it had blocked cannot be approved for that session until the plugin is reinstalled from Integrations.
+
+**Agent Detection & Response**
+- The page leads with the score card, then the four counts, then Sessions to review in aligned columns; everything else sits in Details.
+- The Automatic actions count shows calls held, and calls that would have been held in test mode, over the last 7 days.
+- Two named rules act at call time: a credential file read followed by a network call, and outside content (web pages, MCP tool results, files outside the task folder) followed by a credential read or a network call. In test mode they record what would have been held; when automatic actions are On they hold the call until you approve it.
+- A per agent tool switch, "High: stop the session and alert", off by default. Turning it off needs your approval. Alerts carry the session id, agent tool, folder name, rule name and counts only.
+- SIEM forwarders receive a new `alert` event for those stops.
+- Fleet (Professional and Enterprise): the cloud panel shows held counts, rule matches and stopped sessions across devices.
+
+**Remote access mode**
+- Remote access mode (off by default): approve, deny, revoke and stop agent sessions from another machine over HTTPS with an access token. Launching, linking and typing into sessions stay on the machine itself.
+
+### Changed
+- OpenClaw Guard works with OpenClaw 2026.10: the tool audit and the tool output scan run on `after_tool_call`, one audit row per tool call. `securevector-app --install-plugin openclaw` sets `hooks.allowConversationAccess` for the Guard's entry so cost tracking keeps working; see docs/OPENCLAW.md.
+- Database schema 64.
+- Reliability and security improvements.
+- The Live grid opens every running session's panel, newest first.
+- Guard plugins Claude Code 5.4.2, Codex 5.4.1 and Cursor 5.4.1 send a session end marker from the harness's session-end hook. The Codex and Cursor stop hooks, which fire every turn, now send a turn marker that does not end the session.
+- Codex asks you to trust the SecureVector Guard hooks again after the Codex plugin updates, because its hook set changed.
+
+### Fixed
+
+- Sessions that send an end marker leave the Live grid and the running count at once; quiet shows after two minutes without a call.
+- Cost & Tokens prices Amazon Bedrock calls reported by plugins (for example Hermes and OpenClaw), including model ids with a region prefix, instead of showing $0.
+- The Live grid and session governance load when the app is opened by its network address; session controls still need localhost.
+- The Live grid tab says what its two counts are: sessions running and approvals waiting.
+- A held call filed by a harness hook carries its run's trace id, so it shows inside its run locally and in Fleet.
+- Cloud Connect accepts personal keys that start with `sk_` or `sk-` as well as `svpk_`.
+- Settings link to the Connect to Cloud and Remote access guides; the Agent Sessions and run details notes shown over a network address link to the Remote access guide.
+- A session row waiting for approval keeps its coverage chip whole, with Open details at the right edge.
+- Less text, more action: the Governance page reads as titled bullets and one-line notes; Settings has five cards (Guardian, Cloud and remote, Advanced, Display, Uninstall) with explanations behind disclosures and guide links.
+- Approvals and session controls answer only on this machine.
 
 ## [6.0.1] - 2026-10-08
 

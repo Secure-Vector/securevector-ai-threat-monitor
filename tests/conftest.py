@@ -10,6 +10,11 @@ import pytest
 # Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+# Native approvals hold every decision route until a person confirms on the
+# computer. Tests that are not about that apply directly; the native
+# approval tests turn it back on.
+os.environ.setdefault("SV_NATIVE_APPROVALS", "0")
+
 
 # ---------------------------------------------------------------------------
 # Home isolation (safety net for every test)
@@ -65,6 +70,11 @@ def _isolated_home(tmp_path_factory, monkeypatch):
         monkeypatch.setenv(var, str(home))
     monkeypatch.setenv("CLAUDE_HOME", str(home / ".claude"))
     monkeypatch.setenv("CODEX_HOME", str(home / ".codex"))
+    # Harness config roots the MCP registration writes under.
+    for var, sub in (("COPILOT_HOME", ".copilot"), ("CURSOR_HOME", ".cursor"),
+                     ("GEMINI_HOME", ".gemini"), ("XDG_CONFIG_HOME", ".config")):
+        monkeypatch.setenv(var, str(home / sub))
+    monkeypatch.delenv("OPENCODE_CONFIG", raising=False)
     monkeypatch.setattr(_pathlib.Path, "home", classmethod(lambda cls: cls(home)))
     for name in _HOME_MODULES:
         mod = sys.modules.get(name)

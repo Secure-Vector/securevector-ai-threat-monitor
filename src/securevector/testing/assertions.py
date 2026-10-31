@@ -5,7 +5,7 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from securevector.models.analysis_result import AnalysisResult
 

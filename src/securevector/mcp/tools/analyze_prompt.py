@@ -9,11 +9,10 @@ Licensed under the Apache License, Version 2.0
 """
 
 import time
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 try:
     from mcp.server.fastmcp import FastMCP, Context
-    from mcp.server.session import ServerSession
     from mcp import types
     MCP_AVAILABLE = True
 except ImportError:

@@ -486,6 +486,16 @@ def chat_with_protection(user_input):
         refNote.appendChild(backLink);
         container.appendChild(refNote);
 
+        // Setup trust: this harness's config files, MCP servers with per-tool
+        // state and, on Claude Code, the mods. Read-only; filled in async.
+        const trustHarness = this.currentIntegration;
+        if (window.ConfigTrust && ['claude-code', 'codex', 'copilot-cli', 'opencode', 'cursor', 'openclaw'].includes(trustHarness)) {
+            const trustHost = document.createElement('div');
+            trustHost.className = 'ct-host';
+            container.appendChild(trustHost);
+            ConfigTrust.mountHarness(trustHost, trustHarness);
+        }
+
         // Runtime posture: the page adapts to HOW this app runs. Endpoint mode =
         // this process is itself a self-hosted engine (container OR a configured
         // public URL), so local-desktop install steps don't apply — we lead with
@@ -605,6 +615,32 @@ def chat_with_protection(user_input):
             container.appendChild(localWrap);
             if (remoteSection) container.appendChild(remoteSection);
         }
+        this._showMcpTools(container, this.currentIntegration);
+    },
+
+    // The SecureVector MCP server (check_policy, session_burn) state beside a
+    // harness's Guard status: registered, not registered, not available on
+    // this install, or an existing entry left unchanged. Read-only.
+    MCP_TOOL_HARNESSES: ['claude-code', 'codex', 'copilot-cli', 'cursor', 'opencode', 'antigravity'],
+
+    async _showMcpTools(container, harness) {
+        if (!container || !this.MCP_TOOL_HARNESSES.includes(harness)) return;
+        let data = null;
+        try {
+            const r = await fetch('/api/policy/mcp-registration');
+            if (r.ok) data = await r.json();
+        } catch (e) { data = null; }
+        const pill = container.querySelector ? container.querySelector('#' + harness + '-plugin-status') : null;
+        if (!data || !data.harnesses || !pill || !pill.parentNode) return;
+        let line = container.querySelector('#' + harness + '-mcp-tools-status');
+        if (!line) {
+            line = document.createElement('span');
+            line.id = harness + '-mcp-tools-status';
+            line.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+            pill.parentNode.insertBefore(line, pill.nextSibling);
+        }
+        const st = data.harnesses[harness];
+        line.textContent = st && typeof st.text === 'string' ? st.text : 'MCP tools: not registered';
     },
 
     // Standalone "Option N · Title" header row — pairs the local install card with
@@ -1443,7 +1479,7 @@ def chat_with_protection(user_input):
         // --- Capabilities grid ---
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -1786,7 +1822,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2039,7 +2075,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v5.2)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2249,7 +2285,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.7)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2468,7 +2504,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v6.0)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -2753,7 +2789,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.6)';
+        featuresLabel.textContent = 'Capabilities';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -3002,37 +3038,28 @@ def chat_with_protection(user_input):
             installBtn.disabled = false;
         };
 
-        // Uninstall click handler
-        uninstallBtn.onclick = async () => {
-            uninstallBtn.disabled = true;
-            uninstallBtn.textContent = 'Uninstalling...';
-            try {
-                const res = await fetch('/api/hooks/uninstall', { method: 'POST' });
-                const result = await res.json();
-                resultArea.style.display = 'block';
-                if (result.status === 'removed') {
-                    resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
-                    resultArea.style.border = '1px solid var(--warning)';
-                    resultArea.style.color = 'var(--text-primary)';
-                    resultArea.textContent = result.message;
-                    installBtn.textContent = 'Install Plugin';
-                    uninstallBtn.style.display = 'none';
-                    statusText.textContent = 'Not installed';
-                } else {
-                    resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
-                    resultArea.style.border = '1px solid var(--error)';
-                    resultArea.style.color = 'var(--text-primary)';
-                    resultArea.textContent = result.message || 'Uninstall failed';
-                }
-            } catch {
-                resultArea.style.display = 'block';
-                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
-                resultArea.style.border = '1px solid var(--error)';
-                resultArea.textContent = 'Failed to connect to SecureVector server';
-            }
-            uninstallBtn.disabled = false;
-            uninstallBtn.textContent = 'Uninstall';
+        // The server refuses this while OpenClaw sessions on the board are
+        // live (HTTP 409); runPluginUninstall shows that refusal and offers the
+        // deliberate second click that goes ahead anyway.
+        const showOpenClawResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.style.background = kind === 'error' ? 'rgba(244, 67, 54, 0.1)' : 'rgba(255, 152, 0, 0.1)';
+            resultArea.style.border = kind === 'error' ? '1px solid var(--error)' : '1px solid var(--warning)';
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
         };
+        uninstallBtn.onclick = () => IntegrationPage.runPluginUninstall({
+            url: '/api/hooks/uninstall',
+            button: uninstallBtn,
+            resultArea,
+            showResult: showOpenClawResult,
+            onRemoved: (result) => {
+                showOpenClawResult('warning', result.message || 'Plugin removed.');
+                installBtn.textContent = 'Install Plugin';
+                uninstallBtn.style.display = 'none';
+                statusText.textContent = 'Not installed';
+            },
+        });
 
         // --- Feature status grid ---
         const featuresLabel = document.createElement('div');

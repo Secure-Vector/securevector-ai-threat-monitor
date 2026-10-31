@@ -35,7 +35,7 @@ async def main():
     print(f"   Mode: {async_client.config.mode.value}")
     
     # Using convenience function
-    async_client2 = create_async_client(mode="local")
+    create_async_client(mode="local")
     print("✅ Using create_async_client() convenience function")
     
     # Step 2: Basic async analysis
@@ -169,7 +169,7 @@ async def main():
     print("Concurrent processing:")
     start_time = time.time()
     concurrent_tasks = [async_client.analyze(prompt) for prompt in comparison_prompts]
-    concurrent_results = await asyncio.gather(*concurrent_tasks)
+    await asyncio.gather(*concurrent_tasks)
     concurrent_time = time.time() - start_time
     
     print(f"Results:")

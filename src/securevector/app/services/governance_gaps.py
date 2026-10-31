@@ -54,6 +54,9 @@ HARNESS_LABELS = {
     "cursor": "Cursor",
     "opencode": "OpenCode",
     "antigravity": "Antigravity",
+    "govrun": "GovRun",
+    "hermes": "Hermes",
+    "openclaw": "OpenClaw",
 }
 
 # Harnesses with their own setup guide page; the rest land on Connect Agents.
@@ -283,4 +286,7 @@ def plural(n: int, word: str, many: Optional[str] = None) -> str:
 
 def top_tools(by_tool: dict, k: int = 3) -> str:
     items = sorted(by_tool.items(), key=lambda kv: (-kv[1], kv[0]))[:k]
-    return ", ".join(f"{name} x{n}" if n > 1 else name for name, n in items)
+    # An MCP tool id such as mcp__plugin_x__browser_evaluate reads as its last
+    # segment; the full id is in the run's trace.
+    short = lambda name: str(name).rsplit("__", 1)[-1] if "__" in str(name) else str(name)
+    return ", ".join(f"{short(name)} x{n}" if n > 1 else short(name) for name, n in items)
