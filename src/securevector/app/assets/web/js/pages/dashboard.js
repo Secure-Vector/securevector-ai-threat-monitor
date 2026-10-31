@@ -1318,8 +1318,19 @@ const DashboardPage = {
             'border-radius:12px;padding:16px 20px;margin-bottom:16px;';
         container.appendChild(card);
         const fill = async () => {
-            const data = await API.getRunHealth({ window_days: 1, limit: 200 });
+            let data = await API.getRunHealth({ window_days: 1, limit: 200 });
             if (!data) { card.remove(); return; }
+            // Just after the app starts, recent runs are only checked from
+            // their tool calls (partial_runs). Ask for one warm-up pass, as
+            // the Health page does, so the card fills on the first load
+            // instead of after a refresh.
+            if (Number(data.partial_runs) > 0) {
+                card.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Needs attention</div>'
+                    + '<div style="font-size:12px;color:var(--text-secondary);">Checking recent runs\u2026</div>';
+                const warmed = await API.getRunHealth({ window_days: 1, limit: 200, warm: true });
+                if (!card.isConnected) return;
+                if (warmed) data = warmed;
+            }
             card.innerHTML = this._needsAttentionHtml(data);
             card.querySelectorAll('button.sv-dash-seeall').forEach(b => b.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(b.dataset.go); }));
             card.querySelectorAll('button.sv-health-open').forEach(b => {
