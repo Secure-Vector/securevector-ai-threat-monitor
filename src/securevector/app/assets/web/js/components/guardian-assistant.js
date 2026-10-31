@@ -767,7 +767,7 @@ const GuardianAssistant = {
         const hideRow = document.createElement('button');
         hideRow.type = 'button';
         hideRow.className = 'sv-ga-quiet';
-        hideRow.textContent = 'Hide the Guardian. Bring it back anytime under Help & Settings';
+        hideRow.textContent = 'Hide the Guardian. Bring it back in Settings, Display';
         hideRow.addEventListener('click', () => this.setHidden(true));
         body.appendChild(hideRow);
     },

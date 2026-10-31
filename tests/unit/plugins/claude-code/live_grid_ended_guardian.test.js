@@ -201,7 +201,7 @@ test('the server endpoint is wrapped and the versions are bumped', () => {
   assert.match(read('js/api.js'), /getEgressAlerts\(params = \{\}\) \{[\s\S]{0,200}observability\/egress-alerts\$\{qs\}/);
   const html = read('index.html');
   assert.match(html, /api\.js\?v=348/);
-  assert.match(html, /guardian-assistant\.js\?v=53/);
+  assert.match(html, /guardian-assistant\.js\?v=54/);
 });
 
 test('a session waiting for approval reads as waiting, never ended', () => {

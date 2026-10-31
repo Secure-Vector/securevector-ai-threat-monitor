@@ -211,7 +211,7 @@ test('the tour has one Review step with clean copy', () => {
   assert.equal((src.match(/nav: 'detection-response'/g) || []).length, 1);
   const i = src.indexOf("nav: 'detection-response'");
   const step = src.slice(i, src.indexOf('},', i));
-  for (const w of ['Agent Detection & Response', 'unusual sessions', 'config changes', 'automatic actions', 'permission checks', 'how are my agents behaving']) assert.ok(step.includes(w), w);
+  for (const w of ['Agent Detection & Response', 'drift score', 'unusual sessions', 'config changes', 'automatic actions', 'permission checks', 'how are my agents behaving']) assert.ok(step.toLowerCase().includes(w.toLowerCase()), w);
   assert.doesNotMatch(step, /—|–|firewall|Mission Control|GovRun|\bADR\b/i);
 });
 

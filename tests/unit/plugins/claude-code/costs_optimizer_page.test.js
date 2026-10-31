@@ -80,10 +80,13 @@ test('top banners are retired: the slot renders nothing and is removed', () => {
   assert.match(read('index.html'), /global-banners\.js\?v=24/);
 });
 
-test('tour includes an Optimizer step targeting Cost & Tokens', () => {
+test('tour follows the rail in order (6.1.0); the Optimizer is reached from Cost & Tokens, not the tour', () => {
   const src = read('js/components/tour.js');
-  assert.match(src, /nav: 'costs', go: 'costs', expand: 'agent-activity', sub: true/);
-  assert.match(src, /Cost \/ Token Optimizer/);
+  const rails = [...src.matchAll(/rail: '([a-z]+)'/g)].map(m => m[1]);
+  assert.deepStrictEqual([...new Set(rails)], ['visibility', 'tasks', 'detect', 'governance', 'policies', 'connect', 'more']);
+  assert.match(src, /go: 'live-grid'/);
+  assert.match(src, /sel: '\.nav-settings-pinned', go: 'settings'/);
+  assert.doesNotMatch(src, /Cost \/ Token Optimizer/);
 });
 
 test('API client exposes the optimizer endpoints with degrading reads', () => {
