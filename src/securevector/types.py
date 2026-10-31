@@ -40,12 +40,6 @@ except ImportError:
         ParamSpec = TypeVar
         NotRequired = Any
 
-# Forward references to avoid circular imports
-if TYPE_CHECKING:
-    from .async_client import AsyncSecureVectorClient
-    from .client import SecureVectorClient
-    from .models.analysis_result import AnalysisResult
-
 # Type variables
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -369,3 +363,12 @@ __all__ = [
     "P",
     "ClientT",
 ]
+
+
+# Forward references for type checkers only, placed after every definition in
+# this module so that importing securevector.types first never leaves a name
+# undefined when the client modules import back into it.
+if TYPE_CHECKING:
+    from .async_client import AsyncSecureVectorClient  # noqa: E402,F401
+    from .client import SecureVectorClient  # noqa: E402,F401
+    from .models.analysis_result import AnalysisResult  # noqa: E402,F401
