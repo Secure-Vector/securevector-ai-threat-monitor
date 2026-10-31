@@ -918,7 +918,7 @@ const DashboardPage = {
             + `, ${values.length} buckets, latest ${values[values.length - 1]}, peak ${peak}`;
         svg.setAttribute('aria-label', summary);
         const step = values.length > 1 ? (w - PAD * 2) / (values.length - 1) : 0;
-        const pts = values.map((v, i) => [PAD + i * step, H - PAD - (v / max) * (H - PAD * 2)]);
+        const pts = values.map((v, i) => [values.length > 1 ? PAD + i * step : w - PAD, H - PAD - (v / max) * (H - PAD * 2)]);
         const base = document.createElementNS(svgNS, 'line');
         base.setAttribute('x1', '0'); base.setAttribute('x2', String(w));
         base.setAttribute('y1', String(H - PAD)); base.setAttribute('y2', String(H - PAD));
@@ -979,7 +979,7 @@ const DashboardPage = {
             lblEl.style.cssText = 'font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; margin-top: 4px; letter-spacing: 0.3px; text-transform: uppercase;';
             lblEl.textContent = label + ' \u2192';
             cell.appendChild(lblEl);
-            cell.setAttribute('aria-label', label);
+
             // What the figure counts and where: source, device, window.
             if (sub) {
                 const subEl = document.createElement('div');
@@ -993,7 +993,7 @@ const DashboardPage = {
             // than a chart that happens to sit nearby, and so the strip's
             // baseline never shifts when one arrives late.
             const sparkEl = document.createElement('div');
-            sparkEl.style.cssText = 'height: 16px; margin-top: 7px;';
+            sparkEl.style.cssText = 'height: 16px; margin: 12px 0 8px;';
             cell.insertBefore(sparkEl, lblEl);
             cell.addEventListener('mouseenter', () => { cell.style.background = 'var(--bg-tertiary)'; cell.style.borderColor = 'var(--border-default)'; });
             cell.addEventListener('mouseleave', () => { cell.style.background = ''; cell.style.borderColor = 'transparent'; });
@@ -1004,6 +1004,8 @@ const DashboardPage = {
             cell.addEventListener('click', go);
             cell.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
             strip.appendChild(cell);
+            // The accessible name comes from the tile's own text (value,
+            // label, sub line), so a screen reader hears the number too.
             const setSub = (text) => {
                 let el = cell.querySelector('.stat-sub');
                 if (!el) { el = document.createElement('div'); el.className = 'stat-sub'; el.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;'; cell.appendChild(el); }
@@ -1093,19 +1095,26 @@ const DashboardPage = {
                 // Same source and sum as the sidebar Egress count, same window.
                 API.getEgressDestinations(days).catch(() => null),
             ]);
+            if (!strip.isConnected) return; // page switched mid-fetch
             // Runs, Agent Sessions and Detection & Response fill on their own,
             // so a slow terminals read never holds the other numbers.
-            API.getTraces({ window_days: days, limit: 500 }).then((t) => {
+            // health: 0 skips run-health scoring; the server caps the list at
+            // 500, so a full page reads as "500+".
+            API.getTraces({ window_days: days, limit: 500, health: 0 }).then((t) => {
                 if (!strip.isConnected) return;
-                runsStat.valEl.textContent = ((t && t.runs) || []).length.toLocaleString();
-            }).catch(() => { runsStat.valEl.textContent = 'Not recorded'; });
+                const nRuns = ((t && t.runs) || []).length;
+                runsStat.valEl.textContent = nRuns >= 500 ? '500+' : nRuns.toLocaleString();
+            }).catch(() => { runsStat.valEl.textContent = '\u2014'; });
             API.terminalsTasks().then((r) => {
                 if (!strip.isConnected) return;
                 const items = (r && r.items) || [];
-                const live = items.filter(x => !['done', 'stopped', 'archived', 'failed'].includes(x.status)).length;
+                // The store's running set (terminals/store.py RUNNING);
+                // interrupted tasks were left behind by a restart.
+                const RUNNING = ['starting', 'working', 'blocked', 'idle'];
+                const live = items.filter(x => RUNNING.includes(x.status)).length;
                 sessionsStat.valEl.textContent = live.toLocaleString();
                 sessionsStat.setSub('running now');
-            }).catch(() => { sessionsStat.valEl.textContent = '0'; });
+            }).catch(() => { sessionsStat.valEl.textContent = '\u2014'; });
             Promise.resolve(API.detectionResponseSummaryQuiet ? API.detectionResponseSummaryQuiet() : API.detectionResponseSummary()).then((d) => {
                 if (!strip.isConnected) return;
                 // The highest session score this week (the page's spotlight,
@@ -1124,7 +1133,6 @@ const DashboardPage = {
                 else if (band === 'watch') adrStat.valEl.style.color = '#f59e0b';
                 adrStat.setSub(score == null ? 'no scored sessions yet' : `${band} · ${n} to review`);
             }).catch(() => { adrStat.valEl.textContent = '\u2014'; adrStat.setSub('no scored sessions yet'); });
-            if (!strip.isConnected) return; // page switched mid-fetch
 
             if (agents) {
                 const n = (agents.harnesses || []).filter(h => h.plugin_connected).length +
