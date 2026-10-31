@@ -40,6 +40,11 @@ except ImportError:
         ParamSpec = TypeVar
         NotRequired = Any
 
+# Type-checker-only import; the client modules import this module, so the
+# client classes themselves are never imported here.
+if TYPE_CHECKING:
+    from .models.analysis_result import AnalysisResult
+
 # Type variables
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -242,8 +247,8 @@ BatchAnalysisFunction = Callable[[List[str]], List["AnalysisResult"]]
 AsyncBatchAnalysisFunction = Callable[[List[str]], Awaitable[List["AnalysisResult"]]]
 
 # Context manager types
-SyncClientContextManager = ContextManager["SecureVectorClient"]
-AsyncClientContextManager = AsyncContextManager["AsyncSecureVectorClient"]
+SyncClientContextManager = ContextManager["BaseSecureVectorClient"]
+AsyncClientContextManager = AsyncContextManager["AsyncBaseSecureVectorClient"]
 
 # Callback types for extensibility
 ThreatDetectionCallback = Callable[["AnalysisResult"], None]
@@ -363,12 +368,3 @@ __all__ = [
     "P",
     "ClientT",
 ]
-
-
-# Forward references for type checkers only, placed after every definition in
-# this module so that importing securevector.types first never leaves a name
-# undefined when the client modules import back into it.
-if TYPE_CHECKING:
-    from .async_client import AsyncSecureVectorClient  # noqa: E402,F401
-    from .client import SecureVectorClient  # noqa: E402,F401
-    from .models.analysis_result import AnalysisResult  # noqa: E402,F401

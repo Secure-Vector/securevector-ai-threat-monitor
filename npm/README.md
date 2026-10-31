@@ -59,8 +59,8 @@ is exactly `sv-monitor session list`.
 ## Versions
 
 The npm version and the PyPI version are the same number for the same product.
-`npm install @securevector/cli@6.0.0` gives you exactly what
-`pip install securevector-ai-monitor==6.0.0` gives you. The launcher pins that
+`npm install @securevector/cli@6.1.0` gives you exactly what
+`pip install securevector-ai-monitor==6.1.0` gives you. The launcher pins that
 exact version and never resolves `latest`.
 
 ## Uninstalling
