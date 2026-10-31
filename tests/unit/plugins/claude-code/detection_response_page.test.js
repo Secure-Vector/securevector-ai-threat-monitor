@@ -25,9 +25,9 @@ test('the page is routed, loaded and has its own rail entry', () => {
   assert.match(read('js/app.js'), /'detection-response': DetectionResponsePage,/);
   assert.match(read('index.html'), /js\/pages\/detection-response\.js\?v=\d+/);
   const sidebar = read('js/components/sidebar.js');
-  assert.match(sidebar, /id: 'detection-response', label: 'Agent Detection & Response', icon: 'search',\s*\n\s*tooltip: '/);
+  assert.match(sidebar, /id: 'detection-response', label: 'Agent Detection & Response', icon: 'radar',\s*\n\s*tooltip: '/);
   assert.doesNotMatch(sidebar, /items: \['governance', 'detection-response'\]/);
-  assert.match(sidebar, /\{ id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',/);
+  assert.match(sidebar, /\{ id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'radar', landing: 'detection-response',/);
   assert.match(sidebar, /items: \['detection-response'\]/);
 });
 

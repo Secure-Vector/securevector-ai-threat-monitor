@@ -31,7 +31,7 @@ const Sidebar = {
             { id: 'redactions', label: 'Secret Detections', count: 'secrets' },
           ] },
         { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'How protected this one device is right now, and the gaps to close' },
-        { id: 'detection-response', label: 'Agent Detection & Response', icon: 'search',
+        { id: 'detection-response', label: 'Agent Detection & Response', icon: 'radar',
           tooltip: 'Sessions that did something unusual, and agent config changes to check.' },
         { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'What your agents spend on model calls, per agent, model and session' },
         { id: 'egress', label: 'Agent Egress', icon: 'proxy', count: 'egress',
@@ -79,7 +79,7 @@ const Sidebar = {
           subtitle: 'See agent activity, threats, spend, and egress', items: ['dashboard', 'agent-runs', 'threats', 'costs', 'egress'] },
         { id: 'tasks', label: 'Agents', icon: 'terminal', landing: 'terminals',
           subtitle: 'Launch and return to governed agent sessions', items: ['terminals'] },
-        { id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',
+        { id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'radar', landing: 'detection-response',
           subtitle: 'Sessions that did something unusual, and agent config changes to check', items: ['detection-response'] },
         { id: 'governance', label: 'Governance', icon: 'gauge', landing: 'governance',
           subtitle: 'Review protection posture and approvals', items: ['governance'] },
@@ -2162,26 +2162,14 @@ const Sidebar = {
             });
         }
         // The flyout hangs off the PRODUCT RAIL, not off the context rows.
-        // Collapsed hides the context panel outright, so a flyout bound to
-        // those rows could never open and six of the twelve destinations had
-        // no mouse path at all. Hover or keyboard focus on a group button now
-        // lists that group's destinations; ArrowRight/ArrowDown steps into the
-        // list and Escape comes back out.
+        // Collapsed hides the context panel outright, so the flyout is how
+        // the other destinations stay reachable. It opens on intent only
+        // (6.1.0, the usual practice for an icon rail): a click (which also
+        // opens the group's landing), Enter, or ArrowRight/ArrowDown. Hover
+        // and focus never open it, so a cursor crossing the rail on its way
+        // somewhere else no longer pops a menu. Escape closes it.
         container.querySelectorAll('.product-rail-button').forEach(button => {
-            const open = () => {
-                if (container.classList.contains('collapsed')) this._flyoutShow(button);
-            };
-            button.addEventListener('mouseenter', open);
             button.addEventListener('mouseleave', () => this._flyoutHide());
-            // render()'s focus-restore programmatically focuses this same
-            // button after a click (Chromium already gave it native focus,
-            // and the restore repeats it once the rebuilt node replaces the
-            // old one). That restore is not a hover/keyboard request to see
-            // the flyout, so it is suppressed for that one call only.
-            button.addEventListener('focus', () => {
-                if (this._suppressFlyoutFocus) return;
-                open();
-            });
             button.addEventListener('blur', () => this._flyoutHide());
             button.addEventListener('keydown', (e) => {
                 if (e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
@@ -3152,6 +3140,14 @@ const Sidebar = {
             search: [
                 { tag: 'circle', attrs: { cx: '11', cy: '11', r: '7' } },
                 { tag: 'path', attrs: { d: 'M21 21l-4.5-4.5' } },
+            ],
+            // Detection & Response: a radar sweep with a contact, so it never
+            // reads as the search magnifier above it on the rail (6.1.0).
+            radar: [
+                { tag: 'circle', attrs: { cx: '12', cy: '12', r: '9' } },
+                { tag: 'circle', attrs: { cx: '12', cy: '12', r: '4.5' } },
+                { tag: 'path', attrs: { d: 'M12 12l6.4-6.4' } },
+                { tag: 'circle', attrs: { cx: '16.5', cy: '14.5', r: '1' } },
             ],
             // Guardian ML — a CPU/chip glyph signals "local ML model", keeping
             // it visually distinct from the two shields (Threats / MCP Policies)
