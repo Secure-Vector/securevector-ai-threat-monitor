@@ -884,7 +884,7 @@ def _transcript_usage(harness_session_id: str) -> Optional[dict]:
                     since = ts
                     break
     except OSError:
-        pass
+        pass  # unreadable transcript: leave the start time unknown
     return {"turns": turns, "input": inp, "output": out, "cache_write": cache_create,
             "cache_read": cache_read, "per_model": per_model, "since": since}
 

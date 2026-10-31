@@ -26,6 +26,15 @@ def _ts(seconds_ago: float) -> str:
     return (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _about(iso_value: str, seconds_ago: float) -> bool:
+    """True when an ISO time is within a second of "seconds_ago". Recomputing
+    the expected time in the assert can cross a second boundary on a slow
+    runner, so an exact match is flaky."""
+    got = datetime.fromisoformat(iso_value.replace("Z", "+00:00"))
+    want = datetime.fromisoformat(observability.iso(_ts(seconds_ago)).replace("Z", "+00:00"))
+    return abs((got - want).total_seconds()) <= 1
+
+
 class Seed:
     """Raw inserts, so each test states exactly the rows it reads."""
 
@@ -462,7 +471,7 @@ def test_an_end_marker_ends_the_session_at_once(obs):
     s.done()
     body, by = _live(client)
     assert by["run1"]["ended"] is True
-    assert by["run1"]["ended_at"] == observability.iso(_ts(30))
+    assert _about(by["run1"]["ended_at"], 30)
     assert by["live1"]["ended"] is False
     c = body["counters"]
     assert c["running"] == 1 and c["ended"] == 1
@@ -515,7 +524,7 @@ def test_a_row_landing_just_after_the_end_marker_does_not_reopen(obs):
     s.call("back", ago=20)                  # 10 s later: a resumed session
     s.done()
     body, by = _live(client)
-    assert by["late"]["ended"] is True and by["late"]["ended_at"] == observability.iso(_ts(30))
+    assert by["late"]["ended"] is True and _about(by["late"]["ended_at"], 30)
     assert by["back"]["ended"] is False
 
 

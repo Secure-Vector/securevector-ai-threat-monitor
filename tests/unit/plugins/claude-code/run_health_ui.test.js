@@ -391,13 +391,14 @@ test('Dashboard: Needs attention lists the top 5 by severity, escaped, linked to
     finding({ id: '6', severity: 'info' }), finding({ id: '7', severity: 'info' }),
   ];
   const top = D._needsAttentionItems({ findings: fs_ });
-  assert.deepStrictEqual(top.map(f => f.id), ['2', '4', '3', '1', '6']);
+  assert.deepStrictEqual(top.map(f => f.id), ['2', '4', '3']);
   const html = D._needsAttentionHtml({ findings: fs_.map(f => Object.assign({ trace_id: 't"x' }, f)) });
   assert.match(html, /Needs attention/);
   assert.match(html, /&lt;b&gt;high&lt;\/b&gt;/);
   assert.match(html, /data-trace-id="t&quot;x"[^>]*>Open run</);
   assert.match(D._needsAttentionHtml({ findings: [] }), /No loops, failing steps or waste/);
-  assert.match(src, /this\._renderNeedsAttentionCard\(container\);\s*\n\s*this\._renderOptimizerTile\(container\);/);
+  assert.match(src, /this\._renderNeedsAttentionCard\(container\);\s*\n\s*\/\/ Recent Threat Activity closes the page/);
+  assert.doesNotMatch(src, /this\._renderOptimizerTile\(container\);/, 'the optimizer tile left the dashboard in 6.1.0');
   assert.match(src, /API\.getRunHealth\(\{ window_days: 1, limit: 200 \}\)/);
 });
 

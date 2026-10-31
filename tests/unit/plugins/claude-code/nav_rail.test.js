@@ -17,7 +17,7 @@ function navItemsSource() {
 function productGroupsSource() {
   const src = read('js/components/sidebar.js');
   const start = src.indexOf('productGroups: [');
-  const end = src.indexOf("currentPage: 'agent-runs'", start);
+  const end = src.indexOf("currentPage: 'dashboard'", start);
   return src.slice(start, end);
 }
 
@@ -25,12 +25,12 @@ test('product rail order and contextual route mappings are stable', () => {
   const groups = productGroupsSource();
   const ids = [...groups.matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
   assert.deepStrictEqual(ids, ['visibility', 'tasks', 'detect', 'governance', 'policies', 'connect', 'more', 'settings']);
-  assert.match(groups, /id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',[\s\S]*?items: \['detection-response'\]/);
+  assert.match(groups, /id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'radar', landing: 'detection-response',[\s\S]*?items: \['detection-response'\]/);
   assert.match(groups, /id: 'settings', label: 'Settings', icon: 'settings', landing: 'settings', rail: false,[\s\S]*?items: \['settings'\]/);
   assert.match(groups, /id: 'tasks'[\s\S]*?landing: 'terminals',[\s\S]*?items: \['terminals'\]/);
   assert.match(groups, /id: 'visibility'[\s\S]*?items: \['dashboard', 'agent-runs', 'threats', 'costs', 'egress'\]/);
   // Visibility opens Runs (owner, 6.1); Dashboard stays a menu item until the Overview ships.
-  assert.match(groups, /id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'agent-runs',/);
+  assert.match(groups, /id: 'visibility', label: 'Visibility', icon: 'dashboard', landing: 'dashboard',/);
   assert.match(groups, /id: 'governance'[\s\S]*?items: \['governance'\]/);
   assert.doesNotMatch(groups, /extraPages: \['detection-response'\]/);
   assert.match(groups, /id: 'policies'[\s\S]*?items: \['policies'\]/);
@@ -59,9 +59,9 @@ test('Agent Tasks is first in the rail and root/fallback navigation opens Runs',
   }
   const sidebar = read('js/components/sidebar.js');
   const app = read('js/app.js');
-  assert.match(sidebar, /currentPage: 'agent-runs'/);
-  assert.match(app, /currentPage: 'agent-runs'/);
-  assert.match(app, /DEFAULT_PAGE: 'agent-runs'/);
+  assert.match(sidebar, /currentPage: 'dashboard'/);
+  assert.match(app, /currentPage: 'dashboard'/);
+  assert.match(app, /DEFAULT_PAGE: 'dashboard'/);
   assert.match(app, /return this\.pages\[path\] \? path : this\.DEFAULT_PAGE;/);
   assert.match(app, /initialPage = await this\.maybeAutoLaunchWizard\(initialPage\)/);
   assert.match(app, /if \(initialPage !== this\.DEFAULT_PAGE\) return initialPage;/);
@@ -158,8 +158,16 @@ test('views render under the active destination only and the flyout serves the i
   // never open, because collapsed hides the context panel outright — which is
   // also what stranded six of the twelve destinations.
   assert.match(src, /container\.querySelectorAll\('\.product-rail-button'\)\.forEach\(button => \{/);
-  assert.match(src, /if \(container\.classList\.contains\('collapsed'\)\) this\._flyoutShow\(button\);/);
-  assert.match(src, /if \(this\._suppressFlyoutFocus\) return;\s*\n\s*open\(\);/);
+  // Hover opens it after a pause (hover intent), so a cursor crossing the
+  // rail opens nothing; keyboard focus alone never opens it (6.1.0).
+  const init = src.slice(src.indexOf('    _flyoutInit(container) {'), src.indexOf('    _flyoutShow(button) {'));
+  assert.match(init, /const HOVER_INTENT_MS = 250;/);
+  assert.match(init, /button\.matches\(':hover'\) && container\.classList\.contains\('collapsed'\)\) this\._flyoutShow\(button\);/);
+  assert.doesNotMatch(init, /addEventListener\('focus'/);
+  // A menu flag left by a same-group click never opens on the next render.
+  assert.match(src, /if \(flyGroup && flyGroup === activeGroup\.id && container\.classList\.contains\('collapsed'\)\) \{/);
+  assert.match(init, /if \(e\.key !== 'ArrowRight' && e\.key !== 'ArrowDown'\) return;/);
+  assert.match(src, /this\._flyoutAfterRender = multi && !sameGroup \? group\.id : null;/);
   assert.match(src, /group\.items\s*\n\s*\.map\(id => this\.navItems\.find\(item => item\.id === id\)\)/);
   assert.doesNotMatch(src, /nav\.querySelectorAll\('\.nav-item\[data-page\]/,
     'no dead flyout path may be left on the context rows');
@@ -197,9 +205,9 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=211/);
+  assert.match(html, /sidebar\.js\?v=214/);
   assert.match(html, /styles\.css\?v=503/);
-  assert.match(html, /app\.js\?v=80/);
+  assert.match(html, /app\.js\?v=81/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -617,7 +625,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=211/);
+  assert.match(read('index.html'), /sidebar\.js\?v=214/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {

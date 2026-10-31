@@ -2043,7 +2043,7 @@ graph.add_edge("output_security", END)`,
     },
 
     PAGE_INFO: {
-        dashboard:         { title: 'Dashboard',           subtitle: 'Scanned requests, active threats, cost trends, and recent activity' },
+        dashboard:         { title: 'Dashboard',           subtitle: 'What needs you now. Click a number to open it.' },
         threats:           { title: 'Threat Monitor',      subtitle: 'All LLM requests analyzed for threats' },
         replay:            { title: 'Observability',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },

@@ -1,13 +1,13 @@
 /**
  * Tour — guided product walkthrough.
  *
- * A spotlight overlay that steps the user through the setup → operate flow:
- * install a plugin (or enable the proxy) → set tool permissions → cost settings
- * → rules → MCP policies → SIEM forwarding → skills → Observability.
+ * A spotlight overlay: Connect first, then the left rail in order: Dashboard,
+ * Runs and the Live grid, Agent Sessions, Detection & Response, Governance,
+ * Policies, Settings and the Guide.
  *
- * Each step drives the real sidebar: it navigates to the relevant page,
- * expands the owning nav section, then spotlights the matching nav item and
- * anchors an explainer card next to it. No third-party library — one dimmed
+ * Each step drives the real navigation: it opens the step's page, then
+ * spotlights the rail button that owns it and anchors a one-line card next
+ * to it. No third-party library — one dimmed
  * backdrop, a box-shadow "cutout" ring, and a card. Theme-aware via the same
  * CSS variables the rest of the app uses.
  */
@@ -26,89 +26,63 @@ const Tour = {
     PROXY_ONLY: 'n8n, Ollama, and any OpenAI-compatible app',
 
     steps() {
+        // Connect first (nothing shows until an agent reports), then one stop
+        // per rail button in rail order (6.1.0), plus Runs and the Live grid
+        // inside Visibility. Each step spotlights the rail button,
+        // which is always on screen, and opens its page. One short line each.
         return [
             {
-                nav: 'guide-connect-agents', go: 'guide-connect-agents',
-                badge: 'Set up', title: 'Connect your agents',
-                body: `Start here: <b>Connect Agents</b> is the front door. Pick your agent or harness ` +
-                    `(${this.PLUGIN_HARNESSES} ship a <b>native plugin</b>; ${this.SDK_FRAMEWORKS} use a ` +
-                    `<b>two-line SDK</b>), choose <b>where SecureVector runs</b> (this device or your cloud) and ` +
-                    `copy the commands. Not sure what you have? Let it <b>detect what's already on this device</b> ` +
-                    `and jump straight to the right steps.`,
+                rail: 'connect', go: 'guide-connect-agents',
+                badge: 'Start here', title: 'Connect your agents',
+                body: `Install the Guard plugin or SDK for your agent. Nothing shows until one is connected.`,
             },
             {
-                nav: 'integrations', go: 'proxy-claude-code', expand: 'integrations',
-                badge: 'Reference', title: 'Full per-agent reference',
-                body: `Need the detail? <b>Integrations</b> is the deep per-agent reference: install, verify, ` +
-                    `troubleshoot, and <b>self-host / auth</b> for a remote engine, plus <b>proxy-only</b> tools ` +
-                    `without a plugin or SDK (${this.PROXY_ONLY}). Connect Agents is the quick path; this is the manual.`,
+                rail: 'visibility', go: 'dashboard',
+                badge: 'Visibility', title: 'Dashboard',
+                body: `What needs you now. Each number opens the page that owns it.`,
             },
             {
-                nav: 'tool-permissions', go: 'tool-permissions',
-                badge: 'Configure', title: 'Set tool permissions',
-                body: `Decide what each agent may do: <b>allow</b>, <b>block</b>, or <b>log-only</b> per tool. ` +
-                    `By default every harness built-in tool is <b>allowed</b>: tighten the ones you don't want running.`,
+                rail: 'visibility', go: 'agent-runs',
+                badge: 'Visibility', title: 'Observability: Runs',
+                body: `Every agent run, <b>grouped by harness</b>. Open a run for its steps and decisions.`,
             },
             {
-                nav: 'cost-settings', go: 'cost-settings',
-                badge: 'Configure', title: 'Cost settings',
-                body: `Set dollar <b>budgets and pricing</b> for <b>proxy-based</b> agents. Claude Code and Codex ` +
-                    `run on your own subscription, so there's no per-call dollar cost: they're still tracked, ` +
-                    `but <b>Cost & Tokens shows token usage</b> for them instead of dollars.`,
+                rail: 'visibility', go: 'live-grid',
+                badge: 'Visibility', title: 'Live grid',
+                body: `What each running agent is doing <b>now</b>, with calls waiting on you first.`,
             },
             {
-                nav: 'costs', go: 'costs', expand: 'agent-activity', sub: true,
-                badge: 'Optimize', title: 'Cost / Token Optimizer',
-                body: `The <b>Optimizer</b> tab on Cost &amp; Tokens explains <b>why</b> sessions cost what they ` +
-                    `did: repeated context, cache misses, retry loops, duplicate requests. Every finding names ` +
-                    `its exact <b>session and turn</b>, links to the evidence in Traces, and states what to change.`,
+                rail: 'tasks', go: 'terminals',
+                badge: 'Agents', title: 'Agent Sessions',
+                body: `Launch Claude Code, Codex, Copilot CLI or OpenCode here. <b>Approvals</b> sit beside the terminal.`,
             },
             {
-                nav: 'rules', go: 'rules',
-                badge: 'Configure', title: 'Rules',
-                body: `The local rule engine auto-blocks or alerts on matches. Want curated cloud rule packs? ` +
-                    `Create an account, turn on <b>Cloud Connect</b>, sync the rules you like: then switch Cloud mode ` +
-                    `<b>back off</b> if you want all analysis to stay fully local.`,
+                nav: 'detection-response', rail: 'detect', go: 'detection-response',
+                badge: 'Detect', title: 'Agent Detection & Response',
+                body: `How are my agents behaving? A <b>drift score</b> per session, plus unusual sessions, ` +
+                    `config changes, automatic actions and permission checks.`,
             },
             {
-                nav: 'mcp-policies', go: 'mcp-policies',
-                badge: 'Cloud · optional', title: 'MCP Policies',
-                body: `Optional and cloud-enabled. Sync tool policies set by your <b>org admin</b> and manage ` +
-                    `<b>multiple devices</b> centrally. Skip it if you're running a single local install.`,
+                rail: 'governance', go: 'governance',
+                badge: 'Govern', title: 'Governance',
+                body: `What is enforced on this device, and the gaps to close.`,
             },
             {
-                nav: 'siem-export', go: 'siem-export',
-                badge: 'Connect', title: 'SIEM Forwarder',
-                body: `Forward <b>tool runs, threats, and metadata</b> to the SIEM of your choice: Splunk, Datadog, ` +
-                    `Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook.`,
+                rail: 'policies', go: 'policies',
+                badge: 'Policies', title: 'Policies',
+                body: `Tool permissions, egress, rules and MCP policies in one place.`,
             },
             {
-                nav: 'skill-scanner', go: 'skill-scanner',
-                badge: 'Optional', title: 'Skill Scanner',
-                body: `Optional <b>static analysis</b> of agent skills: no code is executed. It flags risky ` +
-                    `network / file / exec patterns before you trust a skill.`,
+                sel: '.nav-settings-pinned', go: 'settings',
+                badge: 'Settings', title: 'Settings',
+                body: `Cloud Connect, remote access, Guardian ML and the Guardian bot.`,
             },
             {
-                nav: 'agent-activity', go: 'agent-runs', expand: 'agent-activity',
-                badge: 'Operate', title: 'Watch your agents',
-                body: `Head to <b>Traces</b>: one trace per agent session. Open a trace to see its ` +
-                    `<b>runs</b> (each LLM call and tool call) and the enforcement verdict on each, with <b>replay</b> and the ` +
-                    `<b>Agent Map</b> (Tree · Radial · Mesh · Sankey) one tab away. Keep an eye on ` +
-                    `<b>Cost & Tokens</b>. Blocked actions and secret detections are facets of <b>Threat Monitor</b>.`,
-            },
-            {
-                nav: 'detection-response', go: 'detection-response',
-                badge: 'Operate', title: 'Agent Detection & Response',
-                body: `<b>Agent Detection & Response</b> answers one question: how are my agents behaving? ` +
-                    `It lists <b>unusual sessions</b>, <b>config changes</b>, <b>automatic actions</b> and <b>permission checks</b>.`,
-            },
-            {
-                nav: 'guide', go: 'guide', expand: 'guide',
+                rail: 'more', go: 'guide',
                 badgeSvg: '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" ' +
                     'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:-1px"><path d="M20 6 9 17l-5-5"/></svg>',
                 badge: 'All set', title: 'Open the Guide any time',
-                body: `That's the whole flow. The <b>Guide</b> has step-by-step docs for every harness plugin and ` +
-                    `feature: open it from here whenever you need the detail.`,
+                body: `Step-by-step docs for every harness and feature, under <b>More</b>.`,
             },
         ];
     },
@@ -222,6 +196,14 @@ const Tour = {
     },
 
     _target(step) {
+        // A custom selector first, then the rail button (always visible),
+        // then the panel row for steps that still name one.
+        if (step.sel) { const el = document.querySelector(step.sel); if (el) return el; }
+        if (step.rail) {
+            const el = document.querySelector(`.product-rail-button[data-product-group="${step.rail}"]`);
+            if (el) return el;
+        }
+        if (!step.nav) return null;
         const sel = step.sub
             ? `.nav-sub-item[data-page="${step.nav}"]`
             : `.nav-item[data-page="${step.nav}"]:not(.nav-sub-item)`;

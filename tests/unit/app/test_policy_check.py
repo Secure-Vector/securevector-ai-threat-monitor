@@ -34,7 +34,7 @@ from securevector.app.database.migrations import (
     run_migrations,
 )
 from securevector.app.database.repositories.egress import EgressRepository
-from securevector.app.database.repositories.policy_decisions import PolicyDecisionsRepository, iso
+from securevector.app.database.repositories.policy_decisions import PolicyDecisionsRepository
 from securevector.app.database.repositories.tool_permissions import ToolPermissionsRepository
 from securevector.app.server.routes import egress as egress_routes
 from securevector.app.server.routes import hooks_claude_code as cc_routes
@@ -1025,7 +1025,7 @@ class TestAttemptReports:
 class TestEnforcementContext:
     @pytest.mark.asyncio
     async def test_origin_and_endpoint_reach_the_engine(self, world, monkeypatch, _isolated_home):
-        import securevector.core.egress as eg
+        from securevector.core import egress as eg
 
         seen = {}
         real = eg.evaluate_tool_call

@@ -440,7 +440,9 @@ def _route_flow(client, repo, plain):
     assert r.json()["worktree_dirty"] is None
 
     client.post(f"/api/terminals/tasks/{tid}/stop", headers=AUTH)
-    deadline = time.monotonic() + 10
+    # The stop waits out the process's grace period before the worktree is
+    # kept; a loaded CI runner took just over 10 s, so allow 30.
+    deadline = time.monotonic() + 30
     while client.get(f"/api/terminals/tasks/{tid}", headers=AUTH).json()["worktree_state"] != "kept":
         assert time.monotonic() < deadline, "worktree never kept"
         time.sleep(0.02)

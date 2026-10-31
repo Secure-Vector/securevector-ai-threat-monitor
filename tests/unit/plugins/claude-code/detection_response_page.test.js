@@ -25,9 +25,9 @@ test('the page is routed, loaded and has its own rail entry', () => {
   assert.match(read('js/app.js'), /'detection-response': DetectionResponsePage,/);
   assert.match(read('index.html'), /js\/pages\/detection-response\.js\?v=\d+/);
   const sidebar = read('js/components/sidebar.js');
-  assert.match(sidebar, /id: 'detection-response', label: 'Agent Detection & Response', icon: 'search',\s*\n\s*tooltip: '/);
+  assert.match(sidebar, /id: 'detection-response', label: 'Agent Detection & Response', icon: 'radar',\s*\n\s*tooltip: '/);
   assert.doesNotMatch(sidebar, /items: \['governance', 'detection-response'\]/);
-  assert.match(sidebar, /\{ id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'search', landing: 'detection-response',/);
+  assert.match(sidebar, /\{ id: 'detect', label: 'Detection & Response', title: 'Agent Detection & Response', icon: 'radar', landing: 'detection-response',/);
   assert.match(sidebar, /items: \['detection-response'\]/);
 });
 
@@ -211,7 +211,7 @@ test('the tour has one Review step with clean copy', () => {
   assert.equal((src.match(/nav: 'detection-response'/g) || []).length, 1);
   const i = src.indexOf("nav: 'detection-response'");
   const step = src.slice(i, src.indexOf('},', i));
-  for (const w of ['Agent Detection & Response', 'unusual sessions', 'config changes', 'automatic actions', 'permission checks', 'how are my agents behaving']) assert.ok(step.includes(w), w);
+  for (const w of ['Agent Detection & Response', 'drift score', 'unusual sessions', 'config changes', 'automatic actions', 'permission checks', 'how are my agents behaving']) assert.ok(step.toLowerCase().includes(w.toLowerCase()), w);
   assert.doesNotMatch(step, /—|–|firewall|Mission Control|GovRun|\bADR\b/i);
 });
 
