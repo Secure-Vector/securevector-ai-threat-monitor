@@ -1,9 +1,9 @@
 /**
  * Tour — guided product walkthrough.
  *
- * A spotlight overlay that walks the left rail in order: Dashboard, Runs and
- * the Live grid, Agent Sessions, Detection & Response, Governance, Policies,
- * Connect, Settings and the Guide.
+ * A spotlight overlay: Connect first, then the left rail in order: Dashboard,
+ * Runs and the Live grid, Agent Sessions, Detection & Response, Governance,
+ * Policies, Settings and the Guide.
  *
  * Each step drives the real navigation: it opens the step's page, then
  * spotlights the rail button that owns it and anchors a one-line card next
@@ -26,13 +26,19 @@ const Tour = {
     PROXY_ONLY: 'n8n, Ollama, and any OpenAI-compatible app',
 
     steps() {
-        // One stop per rail button, in rail order (6.1.0), plus Runs and the
-        // Live grid inside Visibility. Each step spotlights the rail button,
+        // Connect first (nothing shows until an agent reports), then one stop
+        // per rail button in rail order (6.1.0), plus Runs and the Live grid
+        // inside Visibility. Each step spotlights the rail button,
         // which is always on screen, and opens its page. One short line each.
         return [
             {
+                rail: 'connect', go: 'guide-connect-agents',
+                badge: 'Start here', title: 'Connect your agents',
+                body: `Install the Guard plugin or SDK for your agent. Nothing shows until one is connected.`,
+            },
+            {
                 rail: 'visibility', go: 'dashboard',
-                badge: 'Start here', title: 'Dashboard',
+                badge: 'Visibility', title: 'Dashboard',
                 body: `What needs you now. Each number opens the page that owns it.`,
             },
             {
@@ -65,11 +71,6 @@ const Tour = {
                 rail: 'policies', go: 'policies',
                 badge: 'Policies', title: 'Policies',
                 body: `Tool permissions, egress, rules and MCP policies in one place.`,
-            },
-            {
-                rail: 'connect', go: 'guide-connect-agents',
-                badge: 'Connect', title: 'Connect your agents',
-                body: `Install the Guard plugin or SDK for your agent, and forward events to your SIEM.`,
             },
             {
                 sel: '.nav-settings-pinned', go: 'settings',
