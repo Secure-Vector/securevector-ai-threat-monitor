@@ -200,7 +200,7 @@ test('a security alert outranks a tip already on screen and Review opens the Liv
 test('the server endpoint is wrapped and the versions are bumped', () => {
   assert.match(read('js/api.js'), /getEgressAlerts\(params = \{\}\) \{[\s\S]{0,200}observability\/egress-alerts\$\{qs\}/);
   const html = read('index.html');
-  assert.match(html, /api\.js\?v=348/);
+  assert.match(html, /api\.js\?v=349/);
   assert.match(html, /guardian-assistant\.js\?v=54/);
 });
 

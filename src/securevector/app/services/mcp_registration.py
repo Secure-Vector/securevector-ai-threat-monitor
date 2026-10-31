@@ -197,7 +197,7 @@ def _atomic_write(path: Path, text: str) -> None:
         try:
             os.unlink(tmp)
         except OSError:
-            pass
+            pass  # the temp file is already gone; the original error is re-raised below
         raise
 
 

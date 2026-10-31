@@ -1397,9 +1397,6 @@ const API = {
     async terminalsRung(id) {
         return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/rung`);
     },
-    async terminalsRungModes() {
-        return this._terminalsRead('/api/terminals/rungs/modes');
-    },
     async terminalsRungHarness(harness) {
         return this._terminalsRead(`/api/terminals/rungs/modes/${encodeURIComponent(harness)}`);
     },
