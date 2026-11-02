@@ -1295,7 +1295,7 @@ def _stored_generation(g: dict) -> dict:
         "input_tokens": tokens_in,
         "output_tokens": int(g.get("output_tokens") or 0),
         "cache_read_tokens": cached,
-        "cache_creation_tokens": 0,
+        "cache_creation_tokens": int(g.get("input_cache_write_tokens") or 0),
         "stop_reason": g.get("finish_reason"),
         "finish_reason": g.get("finish_reason"),
         "called_at": g.get("started_at"),

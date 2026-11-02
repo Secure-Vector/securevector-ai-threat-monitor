@@ -14,6 +14,10 @@
 #   effective_date     - ISO date this pricing became effective (omitted when unknown)
 #   verified_at        - ISO date last verified from official source
 #   source_url         - official pricing page URL
+#   cache_read_per_million  - optional: USD per 1M cache-read input tokens
+#   cache_write_per_million - optional: USD per 1M 5-minute cache-write input tokens
+#     When omitted, Claude models (on any provider) price reads at 0.1x and
+#     writes at 1.25x the input rate; other providers use their cache discount.
 
 providers:
   - provider: openai
@@ -248,7 +252,55 @@ providers:
   - provider: anthropic
     display_name: "Anthropic"
     source_url: "https://platform.claude.com/docs/en/about-claude/pricing"
+    # Bedrock and Vertex ids (us./eu./apac./global. prefixes, anthropic.,
+    # -vN:M and date suffixes) price from these entries. Bedrock regional and
+    # multi-region endpoints carry a 10% premium over global on current
+    # models; that premium is not applied.
     models:
+      - model_id: claude-fable-5-1
+        display_name: "Claude Fable 5.1"
+        input_per_million: 10.0
+        output_per_million: 50.0
+        cache_read_per_million: 0.25
+        cache_write_per_million: 12.5
+        verified_at: "2026-11-02"
+
+      - model_id: claude-mythos-5-1
+        display_name: "Claude Mythos 5.1"
+        input_per_million: 10.0
+        output_per_million: 50.0
+        cache_read_per_million: 0.25
+        cache_write_per_million: 12.5
+        verified_at: "2026-11-02"
+
+      - model_id: claude-opus-5-5
+        display_name: "Claude Opus 5.5"
+        input_per_million: 4.0
+        output_per_million: 20.0
+        cache_read_per_million: 0.2
+        cache_write_per_million: 5.0
+        verified_at: "2026-11-02"
+
+      - model_id: claude-sonnet-5-5
+        display_name: "Claude Sonnet 5.5"
+        input_per_million: 2.0
+        output_per_million: 10.0
+        cache_read_per_million: 0.1
+        cache_write_per_million: 2.5
+        verified_at: "2026-11-02"
+
+      # Haiku 5.5 is tiered: these are the rates for prompts up to 100,000
+      # tokens. Above that: input 0.50, cache write 0.625, cache read 0.05,
+      # output 2.50 (not applied).
+      - model_id: claude-haiku-5-5
+        display_name: "Claude Haiku 5.5"
+        input_per_million: 0.1
+        output_per_million: 0.5
+        cache_read_per_million: 0.01
+        cache_write_per_million: 0.125
+        effective_date: "2026-10-07"
+        verified_at: "2026-11-02"
+
       - model_id: claude-fable-5
         display_name: "Claude Fable 5"
         input_per_million: 10.0
@@ -281,6 +333,8 @@ providers:
         display_name: "Claude Opus 4.8"
         input_per_million: 5.0
         output_per_million: 25.0
+        cache_read_per_million: 0.5
+        cache_write_per_million: 6.25
         effective_date: "2026-05-01"
         verified_at: "2026-08-19"
 
@@ -288,6 +342,8 @@ providers:
         display_name: "Claude Opus 4.7"
         input_per_million: 5.0
         output_per_million: 25.0
+        cache_read_per_million: 0.5
+        cache_write_per_million: 6.25
         effective_date: "2026-03-01"
         verified_at: "2026-08-19"
 
@@ -295,6 +351,8 @@ providers:
         display_name: "Claude Opus 4.6"
         input_per_million: 5.0
         output_per_million: 25.0
+        cache_read_per_million: 0.5
+        cache_write_per_million: 6.25
         effective_date: "2026-01-01"
         verified_at: "2026-08-19"
 
@@ -302,6 +360,8 @@ providers:
         display_name: "Claude Opus 4.5"
         input_per_million: 5.0
         output_per_million: 25.0
+        cache_read_per_million: 0.5
+        cache_write_per_million: 6.25
         effective_date: "2025-11-01"
         verified_at: "2026-08-19"
 
@@ -309,6 +369,8 @@ providers:
         display_name: "Claude Opus 4.1"
         input_per_million: 15.0
         output_per_million: 75.0
+        cache_read_per_million: 1.5
+        cache_write_per_million: 18.75
         effective_date: "2025-08-05"
         verified_at: "2026-08-19"
 
@@ -316,6 +378,8 @@ providers:
         display_name: "Claude Opus 4"
         input_per_million: 15.0
         output_per_million: 75.0
+        cache_read_per_million: 1.5
+        cache_write_per_million: 18.75
         effective_date: "2025-05-14"
         verified_at: "2026-08-19"
 
@@ -323,6 +387,8 @@ providers:
         display_name: "Claude Sonnet 4.6"
         input_per_million: 3.0
         output_per_million: 15.0
+        cache_read_per_million: 0.3
+        cache_write_per_million: 3.75
         effective_date: "2026-01-01"
         verified_at: "2026-08-19"
 
@@ -330,6 +396,8 @@ providers:
         display_name: "Claude Sonnet 4.5"
         input_per_million: 3.0
         output_per_million: 15.0
+        cache_read_per_million: 0.3
+        cache_write_per_million: 3.75
         effective_date: "2025-11-01"
         verified_at: "2026-08-19"
 
@@ -337,6 +405,8 @@ providers:
         display_name: "Claude Sonnet 4"
         input_per_million: 3.0
         output_per_million: 15.0
+        cache_read_per_million: 0.3
+        cache_write_per_million: 3.75
         effective_date: "2025-05-14"
         verified_at: "2026-08-19"
 
@@ -344,6 +414,8 @@ providers:
         display_name: "Claude Haiku 4.5"
         input_per_million: 1.0
         output_per_million: 5.0
+        cache_read_per_million: 0.1
+        cache_write_per_million: 1.25
         effective_date: "2025-11-01"
         verified_at: "2026-08-19"
 
@@ -351,6 +423,8 @@ providers:
         display_name: "Claude Haiku 3.5"
         input_per_million: 0.8
         output_per_million: 4.0
+        cache_read_per_million: 0.08
+        cache_write_per_million: 1.0
         effective_date: "2024-10-22"
         verified_at: "2026-08-19"
 

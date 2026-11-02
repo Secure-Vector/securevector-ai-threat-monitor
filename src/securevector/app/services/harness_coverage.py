@@ -28,7 +28,8 @@ copilot-cli
 opencode
   enforced=before_call   P/opencode/index.js:138,199 (tool.execute.before throws); ask is audited and allowed
   egress_visible=True    P/opencode/lib/decide.js:142,177-189, lib/client.js:169
-  token_data=False       R/traces.py:404 (R/hooks_opencode.py:702 is a device total)
+  token_data=True        P/opencode/index.js:354-364 (message.updated -> /api/costs/track),
+                         lib/client.js costRecordFromMessage
   session_id_sent=True   P/opencode/index.js:141,155,178
   approvals=True         P/opencode/index.js:178, lib/decide.js:183
 cursor
@@ -91,7 +92,7 @@ COVERAGE: dict = {
         "unchecked": [CHILD_NET, FAIL_OPEN],
     },
     "opencode": {
-        "enforced": "before_call", "egress_visible": True, "token_data": False,
+        "enforced": "before_call", "egress_visible": True, "token_data": True,
         "session_id_sent": True, "approvals": True,
         "unchecked": ["rules set to ask are allowed without asking", CHILD_NET, FAIL_OPEN],
     },

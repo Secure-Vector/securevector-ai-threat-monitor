@@ -142,7 +142,7 @@ def test_coverage_values_and_labels():
     unknown = harness_coverage.coverage("something-else")
     assert unknown["enforced"] == "none" and unknown["level"] == "not_enforced"
     tokens = {k for k, v in harness_coverage.COVERAGE.items() if v["token_data"]}
-    assert {"claude-code", "codex"} <= tokens
+    assert {"claude-code", "codex", "openclaw", "opencode"} <= tokens
 
 
 @pytest.mark.parametrize("path", ["/coverage", "/live", "/sessions/sa/governance"])
@@ -274,7 +274,7 @@ def test_migration_v66_adds_the_time_indexes_and_is_idempotent(tmp_path):
             "SELECT name FROM sqlite_master WHERE type = 'index'"))}
         assert {"idx_tool_call_audit_called_at", "idx_cost_records_recorded_at"} <= names
         v = asyncio.run(db.fetch_one("SELECT MAX(version) AS v FROM schema_version"))
-        assert v["v"] == CURRENT_SCHEMA_VERSION == 67
+        assert v["v"] == CURRENT_SCHEMA_VERSION == 68
         plan = asyncio.run(db.fetch_all(
             "EXPLAIN QUERY PLAN SELECT session_id FROM tool_call_audit WHERE called_at >= '2026-01-01' "
             "AND session_id IS NOT NULL UNION SELECT session_id FROM llm_cost_records "

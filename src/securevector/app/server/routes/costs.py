@@ -21,10 +21,10 @@ from fastapi import APIRouter, HTTPException, Header, Query, Request
 
 from securevector.app.services import decisions
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from securevector.app.database.connection import get_database
-from securevector.app.database.repositories.costs import CostsRepository
+from securevector.app.database.repositories.costs import CostsRepository, compute_cost
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ class AgentSummaryResponse(BaseModel):
     first_seen: Optional[str] = None
     last_seen: Optional[str] = None
     has_unknown_pricing: bool = False
+    total_cache_read_tokens: int = 0
+    total_cache_write_tokens: int = 0
 
 
 class CostSummaryResponse(BaseModel):
@@ -65,6 +67,7 @@ class CostRecordResponse(BaseModel):
     input_tokens: int
     output_tokens: int
     input_cached_tokens: int = 0
+    input_cache_write_tokens: int = 0
     input_cost_usd: float
     output_cost_usd: float
     total_cost_usd: float
@@ -165,14 +168,26 @@ class BudgetStatusResponse(BaseModel):
     run_exempted: bool = False
 
 
+_TOKEN_MAX = 10**12
+
+
 class RecordCostRequest(BaseModel):
     """Accept token usage from external sources (e.g. OpenClaw plugin)."""
     agent_id: str = "openclaw-agent"
     provider: str
     model_id: str
-    input_tokens: int = Field(0, ge=0)
-    output_tokens: int = Field(0, ge=0)
-    input_cached_tokens: int = Field(0, ge=0)
+    input_tokens: StrictInt = Field(0, ge=0, le=_TOKEN_MAX)
+    output_tokens: StrictInt = Field(0, ge=0, le=_TOKEN_MAX)
+    input_cached_tokens: StrictInt = Field(0, ge=0, le=_TOKEN_MAX)
+    # 5-minute cache writes (Anthropic cache_creation_input_tokens, Bedrock
+    # cacheWriteInputTokens, OpenCode tokens.cache.write).
+    input_cache_write_tokens: StrictInt = Field(0, ge=0, le=_TOKEN_MAX)
+    # Whether input_tokens already counts the cached tokens. Omitted: the
+    # provider's own convention (OpenAI and Gemini yes, Anthropic and Bedrock no).
+    input_includes_cached: Optional[bool] = None
+    session_id: Optional[str] = Field(None, max_length=200)
+    # Sender's id for this call; a repeat for the same agent is not recorded twice.
+    request_id: Optional[str] = Field(None, max_length=200)
 
 
 # --- Endpoints ---
@@ -189,19 +204,19 @@ async def record_cost(request: RecordCostRequest) -> dict:
 
         # Look up pricing: exact first, then the same fallbacks traced calls
         # use, so dated variants and Bedrock ids price instead of showing $0.
-        rate_in, rate_out = await repo.resolve_rates(request.provider, request.model_id)
-        pricing_known = rate_in is not None and rate_out is not None
+        card = await repo.resolve_rate_card(request.provider, request.model_id)
+        rate_in, rate_out = (card.input, card.output) if card else (None, None)
+        pricing_known = card is not None
         input_cost = 0.0
         output_cost = 0.0
 
         if pricing_known:
-            # Cache discount rates by provider
-            cache_discounts = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
-            cache_rate = cache_discounts.get(request.provider, 1.0)
-            uncached = max(0, request.input_tokens - request.input_cached_tokens)
-            input_cost = (uncached / 1_000_000) * rate_in
-            input_cost += (request.input_cached_tokens / 1_000_000) * rate_in * cache_rate
-            output_cost = (request.output_tokens / 1_000_000) * rate_out
+            input_cost, output_cost = compute_cost(
+                request.provider, request.model_id, card,
+                request.input_tokens, request.output_tokens,
+                request.input_cached_tokens, request.input_cache_write_tokens,
+                includes_cached=request.input_includes_cached,
+            )
 
         total_cost = input_cost + output_cost
 
@@ -212,6 +227,9 @@ async def record_cost(request: RecordCostRequest) -> dict:
             input_tokens=request.input_tokens,
             output_tokens=request.output_tokens,
             input_cached_tokens=request.input_cached_tokens,
+            input_cache_write_tokens=request.input_cache_write_tokens,
+            session_id=request.session_id,
+            request_id=request.request_id,
             input_cost_usd=round(input_cost, 8),
             output_cost_usd=round(output_cost, 8),
             total_cost_usd=round(total_cost, 8),
@@ -400,6 +418,8 @@ async def get_cost_summary(
                     first_seen=a.first_seen,
                     last_seen=a.last_seen,
                     has_unknown_pricing=a.has_unknown_pricing,
+                    total_cache_read_tokens=a.total_cache_read_tokens,
+                    total_cache_write_tokens=a.total_cache_write_tokens,
                 )
                 for a in agents
             ],
@@ -410,6 +430,8 @@ async def get_cost_summary(
                 "monthly_cost_usd": round(monthly_spend, 4),
                 "total_input_tokens": total_input,
                 "total_output_tokens": total_output,
+                "total_cache_read_tokens": sum(a.total_cache_read_tokens for a in agents),
+                "total_cache_write_tokens": sum(a.total_cache_write_tokens for a in agents),
             },
             period={"start": period_start, "end": period_end},
             cost_tracking_enabled=True,
@@ -455,6 +477,7 @@ async def list_cost_records(
                     input_tokens=r.input_tokens,
                     output_tokens=r.output_tokens,
                     input_cached_tokens=r.input_cached_tokens,
+                    input_cache_write_tokens=r.input_cache_write_tokens,
                     input_cost_usd=r.input_cost_usd,
                     output_cost_usd=r.output_cost_usd,
                     total_cost_usd=r.total_cost_usd,
@@ -729,6 +752,8 @@ async def sync_pricing_from_source(force_local: bool = False) -> SyncResponse:
                     effective_date=model.get("effective_date"),
                     verified_at=model.get("verified_at", now_str),
                     source_url=provider_entry.get("source_url"),
+                    cache_read_per_million=model.get("cache_read_per_million"),
+                    cache_write_per_million=model.get("cache_write_per_million"),
                 )
                 updated += 1
                 if abs(new_input - old_input) > 0.001 or abs(new_output - old_output) > 0.001:

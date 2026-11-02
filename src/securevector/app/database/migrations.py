@@ -214,6 +214,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         65: migrate_to_v65,
         66: migrate_to_v66,
         67: migrate_to_v67,
+        68: migrate_to_v68,
     }
 
     if version in migrations:
@@ -658,6 +659,14 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
         logger.warning(f"Failed to read model_pricing.yml: {e}")
         return 0
 
+    # Cache rate columns arrive with v68; a load during an older migration
+    # step writes the base rates only.
+    try:
+        cur = await (await db.connect()).execute("PRAGMA table_info(model_pricing)")
+        has_cache_cols = "cache_read_per_million" in {row[1] for row in await cur.fetchall()}
+    except Exception:  # noqa: BLE001
+        has_cache_cols = False
+
     loaded_count = 0
     for provider_entry in data.get("providers", []):
         provider = provider_entry.get("provider", "")
@@ -676,6 +685,10 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
             effective_date = model.get("effective_date")
             verified_at = model.get("verified_at")
             source_url = provider_entry.get("source_url")
+            cache_read = model.get("cache_read_per_million")
+            cache_write = model.get("cache_write_per_million")
+            cache_read = float(cache_read) if cache_read is not None else None
+            cache_write = float(cache_write) if cache_write is not None else None
 
             try:
                 # Upsert — if YAML has newer prices for an existing model, update them.
@@ -698,6 +711,12 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
                     (pricing_id, provider, model_id, display_name, input_per_million,
                      output_per_million, effective_date, verified_at, source_url),
                 )
+                if has_cache_cols:
+                    await db.execute(
+                        "UPDATE model_pricing SET cache_read_per_million = ?, "
+                        "cache_write_per_million = ? WHERE id = ?",
+                        (cache_read, cache_write, pricing_id),
+                    )
                 loaded_count += 1
             except Exception as e:
                 logger.warning(f"Failed to upsert pricing for {pricing_id}: {e}")
@@ -2167,6 +2186,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_egress_host_time_index(db)
     await ensure_cloud_approval_storage(db)
     await ensure_remote_access_column(db)
+    await ensure_cache_cost_columns(db)
     await cleanup_old_policy_decisions(db)
     await cleanup_old_response_holds(db)
 
@@ -3797,6 +3817,41 @@ async def migrate_to_v67(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v67: host and time index for egress alerts")
+
+
+async def ensure_cache_cost_columns(db: DatabaseConnection) -> None:
+    """Cache write tokens on cost records and per-model cache rates on the
+    pricing table. Nullable, so older rows and older pricing files keep
+    working. Idempotent."""
+    conn = await db.connect()
+    for table, column, decl in (
+        ("llm_cost_records", "input_cache_write_tokens", "INTEGER DEFAULT 0"),
+        ("model_pricing", "cache_read_per_million", "REAL"),
+        ("model_pricing", "cache_write_per_million", "REAL"),
+    ):
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in await cur.fetchall()}
+        if cols and column not in cols:
+            await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    cur = await conn.execute("PRAGMA table_info(llm_cost_records)")
+    if {"agent_id", "request_id"} <= {row[1] for row in await cur.fetchall()}:
+        # One cost record per (agent, request): duplicate sends are skipped.
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_llm_cost_records_agent_request "
+            "ON llm_cost_records (agent_id, request_id)")
+    await conn.commit()
+
+
+async def migrate_to_v68(db: DatabaseConnection) -> None:
+    """v67 -> v68: cache write tokens and cache rates for cost records. Idempotent."""
+    await ensure_cache_cost_columns(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (68, CURRENT_TIMESTAMP, 'Cache write tokens and cache rates')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v68: cache write tokens and cache rates")
 
 
 _GOVERNANCE_OUTBOX_KINDS = ("egress", "approval_request", "harness_coverage")

@@ -820,8 +820,8 @@ class SVClient {
   }
 
   /** Fire-and-forget: record LLM token usage for cost tracking. */
-  recordCost(provider: string, modelId: string, inputTokens: number, outputTokens: number, cachedTokens: number, agentId: string): void {
-    if (inputTokens === 0 && outputTokens === 0) return;
+  recordCost(provider: string, modelId: string, inputTokens: number, outputTokens: number, cachedTokens: number, agentId: string, cacheWriteTokens: number = 0): void {
+    if (inputTokens === 0 && outputTokens === 0 && cachedTokens === 0 && cacheWriteTokens === 0) return;
     this.post("/api/costs/track", {
       agent_id: agentId,
       provider,
@@ -829,6 +829,9 @@ class SVClient {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       input_cached_tokens: cachedTokens,
+      // OpenClaw's usage.input never includes cache reads or writes.
+      input_cache_write_tokens: cacheWriteTokens,
+      input_includes_cached: false,
     }, 3_000).catch(() => {});
   }
 
@@ -1318,9 +1321,10 @@ export default {
         const inputTokens = usage.input || 0;
         const outputTokens = usage.output || 0;
         const cachedTokens = usage.cacheRead || 0;
+        const cacheWriteTokens = usage.cacheWrite || 0;
         const agentId = ctx?.sessionKey || ctx?.agentId || event?.sessionId || "openclaw-agent";
 
-        sv.recordCost(provider, modelId, inputTokens, outputTokens, cachedTokens, agentId);
+        sv.recordCost(provider, modelId, inputTokens, outputTokens, cachedTokens, agentId, cacheWriteTokens);
       } catch (err) {
         console.warn(`${tag} cost-tracker error:`, (err as Error).message);
       }

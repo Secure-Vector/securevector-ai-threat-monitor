@@ -12,13 +12,22 @@ import time
 from typing import Optional
 
 from securevector.app.database.connection import DatabaseConnection
-from securevector.app.database.repositories.costs import CostsRepository
+from securevector.app.database.repositories.costs import (
+    CostsRepository,
+    compute_cost,
+    lookup_rate_card,
+    model_id_candidates,
+    pricing_table,
+)
 
 logger = logging.getLogger(__name__)
 
-# Cache discount rates: what fraction of the full input rate applies to cached tokens.
+# Cache discount rates: what fraction of the full input rate applies to cached tokens
+# when the pricing table has no explicit cache rate for the model.
 # OpenAI: 50% (0.5x), Anthropic cache_read: ~10% (0.1x), Gemini: ~25% (0.25x)
 # Sources: provider pricing pages. Others have no cache discount (1.0x = full rate).
+# Claude models on any provider (Bedrock, Vertex) use the Anthropic rule; see
+# repositories/costs.py compute_cost.
 CACHE_DISCOUNT: dict[str, float] = {
     "openai": 0.5,
     "anthropic": 0.1,
@@ -75,7 +84,7 @@ class CostRecorder:
     def __init__(self, db: DatabaseConnection):
         self._db = db
         self._repo = CostsRepository(db)
-        self._pricing_cache: dict[str, tuple[float, float]] = {}  # "{provider}/{model_id}" → (input_rate, output_rate)
+        self._pricing_cache: dict = {}  # (provider, model_id) → RateCard
         self._cache_loaded = False
         self._cache_loaded_at: float = 0.0
         self._cache_ttl: float = 300.0  # Refresh pricing cache every 5 minutes
@@ -86,10 +95,7 @@ class CostRecorder:
             return
         try:
             entries = await self._repo.list_pricing()
-            self._pricing_cache = {
-                f"{e.provider}/{e.model_id}": (e.input_per_million, e.output_per_million)
-                for e in entries
-            }
+            self._pricing_cache = pricing_table(entries)
             self._cache_loaded = True
             self._cache_loaded_at = time.monotonic()
             logger.debug(f"Loaded {len(self._pricing_cache)} pricing entries into cache")
@@ -105,28 +111,46 @@ class CostRecorder:
         """Map versioned model IDs to canonical pricing keys."""
         if not model_id:
             return model_id
-        return MODEL_ID_ALIASES.get(model_id, model_id)
+        if model_id in MODEL_ID_ALIASES:
+            return MODEL_ID_ALIASES[model_id]
+        # Bedrock / Vertex forms (``us.anthropic.claude-...-v1:0``) are
+        # resolved by lookup_rate_card, which tries every reduced form.
+        for cand in model_id_candidates(model_id)[1:]:
+            if cand in MODEL_ID_ALIASES:
+                return MODEL_ID_ALIASES[cand]
+        return model_id
 
     def extract_tokens(
         self, response_body: bytes, provider: str
     ) -> tuple[str, int, int, int]:
-        """
-        Extract (model_id, input_tokens, output_tokens, input_cached_tokens) from a provider response body.
+        """(model_id, input_tokens, output_tokens, input_cached_tokens); see extract_usage."""
+        model_id, input_tokens, output_tokens, cached, _write = self.extract_usage(response_body, provider)
+        return model_id, input_tokens, output_tokens, cached
 
-        Returns ("", 0, 0, 0) on any parse error — never raises.
+    def extract_usage(
+        self, response_body: bytes, provider: str
+    ) -> tuple[str, int, int, int, int]:
+        """
+        Extract (model_id, input_tokens, output_tokens, input_cached_tokens,
+        cache_write_tokens) from a provider response body.
+
+        Returns ("", 0, 0, 0, 0) on any parse error — never raises.
 
         Provider response formats:
         - OpenAI/Groq/Mistral/Cohere: usage.prompt_tokens + usage.completion_tokens + model
           Cached: usage.prompt_tokens_details.cached_tokens (Chat) or usage.input_tokens_details.cached_tokens (Responses API)
         - Anthropic: usage.input_tokens + usage.output_tokens + model
-          Cached: usage.cache_read_input_tokens
+          Cached: usage.cache_read_input_tokens; writes: usage.cache_creation_input_tokens
+          (input_tokens excludes both)
+        - Bedrock Converse: usage.inputTokens + usage.outputTokens
+          Cached: usage.cacheReadInputTokens; writes: usage.cacheWriteInputTokens
         - Gemini: usageMetadata.promptTokenCount + usageMetadata.candidatesTokenCount + modelVersion
           Cached: usageMetadata.cachedContentTokenCount
         - Ollama: prompt_eval_count + eval_count + model (no cache)
         """
         try:
             if not response_body:
-                return "", 0, 0, 0
+                return "", 0, 0, 0, 0
 
             data = json.loads(response_body)
 
@@ -143,8 +167,21 @@ class CostRecorder:
                 model_id = data.get("model", "")
                 input_tokens = int(usage.get("input_tokens", 0))
                 output_tokens = int(usage.get("output_tokens", 0))
-                input_cached_tokens = int(usage.get("cache_read_input_tokens", 0))
-                return model_id, input_tokens, output_tokens, input_cached_tokens
+                input_cached_tokens = int(usage.get("cache_read_input_tokens") or 0)
+                cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+                return model_id, input_tokens, output_tokens, input_cached_tokens, cache_write
+
+            # Bedrock Converse format (camelCase usage)
+            usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+            if "inputTokens" in usage or "outputTokens" in usage:
+                model_id = data.get("modelId", data.get("model", ""))
+                return (
+                    model_id,
+                    int(usage.get("inputTokens") or 0),
+                    int(usage.get("outputTokens") or 0),
+                    int(usage.get("cacheReadInputTokens") or 0),
+                    int(usage.get("cacheWriteInputTokens") or 0),
+                )
 
             # Gemini format
             if provider == "gemini":
@@ -153,14 +190,14 @@ class CostRecorder:
                 input_tokens = int(metadata.get("promptTokenCount", 0))
                 output_tokens = int(metadata.get("candidatesTokenCount", 0))
                 input_cached_tokens = int(metadata.get("cachedContentTokenCount", 0))
-                return model_id, input_tokens, output_tokens, input_cached_tokens
+                return model_id, input_tokens, output_tokens, input_cached_tokens, 0
 
             # Ollama format
             if provider == "ollama":
                 model_id = data.get("model", "")
                 input_tokens = int(data.get("prompt_eval_count", 0))
                 output_tokens = int(data.get("eval_count", 0))
-                return model_id, input_tokens, output_tokens, 0
+                return model_id, input_tokens, output_tokens, 0, 0
 
             # OpenAI-compatible (openai, groq, mistral, cohere, and default)
             # Handles both Chat Completions (prompt_tokens/completion_tokens)
@@ -177,11 +214,11 @@ class CostRecorder:
             # Responses API uses input_tokens_details.cached_tokens
             prompt_details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
             input_cached_tokens = int(prompt_details.get("cached_tokens", 0))
-            return model_id, input_tokens, output_tokens, input_cached_tokens
+            return model_id, input_tokens, output_tokens, input_cached_tokens, 0
 
         except Exception as e:
             logger.debug(f"Token extraction failed for provider={provider}: {e}")
-            return "", 0, 0, 0
+            return "", 0, 0, 0, 0
 
     async def record(
         self,
@@ -199,7 +236,8 @@ class CostRecorder:
         try:
             await self._ensure_cache()
 
-            model_id, input_tokens, output_tokens, input_cached_tokens = self.extract_tokens(response_body, provider)
+            model_id, input_tokens, output_tokens, input_cached_tokens, cache_write_tokens = \
+                self.extract_usage(response_body, provider)
 
             if not model_id and input_tokens == 0 and output_tokens == 0:
                 # Nothing to record
@@ -207,31 +245,18 @@ class CostRecorder:
 
             # Normalize model ID for pricing lookup
             canonical_id = self._normalize_model_id(model_id)
-            cache_key = f"{provider}/{canonical_id}"
+            card = lookup_rate_card(provider, canonical_id, self._pricing_cache)
+            pricing_known = card is not None
+            rate_input: Optional[float] = card.input if card else None
+            rate_output: Optional[float] = card.output if card else None
 
-            rate_input: Optional[float] = None
-            rate_output: Optional[float] = None
-            pricing_known = False
-
-            if cache_key in self._pricing_cache:
-                rate_input, rate_output = self._pricing_cache[cache_key]
-                pricing_known = True
-            else:
-                # Try without provider prefix (some Groq models use bare model IDs)
-                for key, rates in self._pricing_cache.items():
-                    if key.endswith(f"/{canonical_id}"):
-                        rate_input, rate_output = rates
-                        pricing_known = True
-                        break
-
-            # Calculate costs (rates are per million tokens).
-            # Cached tokens are billed at a provider-specific discount.
-            if pricing_known and rate_input is not None and rate_output is not None:
-                cache_rate = CACHE_DISCOUNT.get(provider, 1.0)
-                uncached_tokens = max(0, input_tokens - input_cached_tokens)
-                input_cost = (uncached_tokens / 1_000_000) * rate_input
-                input_cost += (input_cached_tokens / 1_000_000) * rate_input * cache_rate
-                output_cost = (output_tokens / 1_000_000) * rate_output
+            # Calculate costs (rates are per million tokens). Cache reads and
+            # writes use the model's cache rates, else the provider rule.
+            if card is not None:
+                input_cost, output_cost = compute_cost(
+                    provider, model_id or canonical_id, card,
+                    input_tokens, output_tokens, input_cached_tokens, cache_write_tokens,
+                )
             else:
                 input_cost = 0.0
                 output_cost = 0.0
@@ -245,6 +270,7 @@ class CostRecorder:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 input_cached_tokens=input_cached_tokens,
+                input_cache_write_tokens=cache_write_tokens,
                 input_cost_usd=round(input_cost, 8),
                 output_cost_usd=round(output_cost, 8),
                 total_cost_usd=round(total_cost, 8),

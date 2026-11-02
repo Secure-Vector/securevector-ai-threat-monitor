@@ -7,6 +7,7 @@ Provides CRUD operations for:
 """
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +23,184 @@ BEDROCK_PROVIDERS = ("bedrock", "aws", "amazon-bedrock", "amazon_bedrock")
 BEDROCK_REGION_PREFIXES = ("us", "eu", "apac", "global", "us-gov", "jp", "au", "ca")
 
 logger = logging.getLogger(__name__)
+
+# Providers that serve Claude models under their own name. Their usage
+# reports ``input_tokens`` WITHOUT the cached tokens (Anthropic convention);
+# OpenAI and Gemini report cached tokens INSIDE the prompt count.
+VERTEX_PROVIDERS = ("vertex", "vertex-ai", "vertex_ai", "google-vertex", "google-vertex-anthropic", "anthropic-vertex")
+
+# Cached-token multipliers on the input rate, used when a model has no
+# explicit cache rates in the pricing table.
+CACHE_READ_FALLBACK = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
+# Anthropic: a 5-minute cache write is 1.25x the input rate, a read 0.1x.
+ANTHROPIC_CACHE_WRITE_MULTIPLIER = 1.25
+
+_BEDROCK_VERSION_SUFFIX = re.compile(r"-v\d+:\d+(?::\d+k)?$")
+_DATE_SUFFIX = re.compile(r"[-@](?:\d{8}|latest)$")
+# What may follow a pricing key in a longer id of the same model: a date
+# (``-20251001``, ``-2024-08-06``), a Google ``-001`` version, ``@``, ``:`` or a
+# ``-vN`` version.
+_VARIANT_SUFFIX = re.compile(r"(?:-\d{8}(?!\d)|-\d{3}(?!\d)|-\d{4}-\d{2}-\d{2}(?!\d)|@|:|-v\d)")
+
+
+@dataclass
+class RateCard:
+    """USD per 1M tokens for one model. Cache rates are None when unknown."""
+
+    input: float
+    output: float
+    cache_read: Optional[float] = None
+    cache_write: Optional[float] = None
+
+
+def is_claude_model(model_id: Optional[str]) -> bool:
+    return "claude" in (model_id or "").lower()
+
+
+def is_anthropic_family(provider: Optional[str], model_id: Optional[str]) -> bool:
+    """Anthropic itself, or a Claude model served by Bedrock, Vertex or a proxy."""
+    return (provider or "").lower() == "anthropic" or is_claude_model(model_id)
+
+
+def input_includes_cached(provider: Optional[str], model_id: Optional[str]) -> bool:
+    """Whether a provider's ``input_tokens`` already counts the cached tokens.
+
+    Anthropic, Bedrock (Converse reports ``inputTokens`` apart from
+    ``cacheReadInputTokens``) and Claude on Vertex count them apart.
+    """
+    p = (provider or "").lower()
+    if p == "anthropic" or p in BEDROCK_PROVIDERS:
+        return False
+    if p in VERTEX_PROVIDERS and is_claude_model(model_id):
+        return False
+    return True
+
+
+def model_id_candidates(model_id: Optional[str]) -> list[str]:
+    """Pricing keys to try for a model id, most specific first.
+
+    ``us.anthropic.claude-haiku-4-5-20251001-v1:0`` (Bedrock, any region or
+    ``global.`` prefix), ``anthropic.claude-opus-5-5``, ``anthropic/claude-x``
+    and Vertex ``claude-x@20250805`` all reduce to the first-party id.
+    """
+    mid = (model_id or "").strip()
+    out: list[str] = []
+
+    def add(v: str) -> None:
+        if v and v not in out:
+            out.append(v)
+
+    add(mid)
+    if mid.lower().startswith("anthropic/"):
+        mid = mid[len("anthropic/"):]
+        add(mid)
+    parts = mid.split(".")
+    if len(parts) > 1 and parts[0].lower() in BEDROCK_REGION_PREFIXES:
+        parts = parts[1:]
+    if len(parts) > 1 and parts[0].lower() == "anthropic":
+        parts = parts[1:]
+    mid = ".".join(parts)
+    add(mid)
+    mid = _BEDROCK_VERSION_SUFFIX.sub("", mid)
+    add(mid)
+    if "@" in mid:
+        add(mid.replace("@", "-"))
+    add(_DATE_SUFFIX.sub("", mid))
+    return out
+
+
+def lookup_rate_card(provider: Optional[str], model_id: Optional[str], table: dict) -> Optional[RateCard]:
+    """Find a model's rates in ``table`` keyed ``(provider, model_id)``.
+
+    Exact provider first, then any provider, for each candidate id; then the
+    longest pricing key the id starts with, when what follows the key is only
+    a date, ``@``, ``:`` or a ``-vN`` version (``claude-opus-5-6`` does not
+    price as ``claude-opus-5``). A provider with its own keys, and Ollama,
+    only prefix-match their own keys.
+    """
+    if not model_id or not table:
+        return None
+    by_model: dict = {}
+    for (prov, mid), card in table.items():
+        by_model.setdefault(mid, card)
+    cands = model_id_candidates(model_id)
+    for cand in cands:
+        if provider and (provider, cand) in table:
+            return table[(provider, cand)]
+        if cand in by_model:
+            return by_model[cand]
+    bares = list(cands)
+    if (provider or "") in BEDROCK_PROVIDERS:
+        # Other Bedrock vendors (``meta.``, ``amazon.``) carry a vendor prefix.
+        for c in cands:
+            parts = c.split(".")
+            if len(parts) > 1:
+                bares.append(".".join(parts[1:]))
+    own = {mid: card for (prov, mid), card in table.items() if prov == provider}
+    pool = own if (own or (provider or "").lower() == "ollama") else by_model
+    best = None
+    for bare in bares:
+        for mid, card in pool.items():
+            if bare.startswith(mid) and (len(bare) == len(mid) or _VARIANT_SUFFIX.match(bare, len(mid))):
+                if best is None or len(mid) > len(best[0]):
+                    best = (mid, card)
+    return best[1] if best else None
+
+
+def compute_cost(
+    provider: Optional[str],
+    model_id: Optional[str],
+    card: RateCard,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    includes_cached: Optional[bool] = None,
+) -> tuple[float, float]:
+    """(input_cost_usd, output_cost_usd). Input cost covers cache reads and writes.
+
+    ``includes_cached`` overrides the provider convention when the sender
+    knows how its ``input_tokens`` were counted.
+    """
+    if includes_cached is None:
+        includes_cached = input_includes_cached(provider, model_id)
+    read = int(cache_read_tokens or 0)
+    write = int(cache_write_tokens or 0)
+    uncached = int(input_tokens or 0)
+    if includes_cached:
+        uncached = max(0, uncached - read - write)
+    claude = is_anthropic_family(provider, model_id)
+    if card.cache_read is not None:
+        read_rate = card.cache_read
+    else:
+        read_rate = card.input * (CACHE_READ_FALLBACK["anthropic"] if claude
+                                  else CACHE_READ_FALLBACK.get((provider or "").lower(), 1.0))
+    if card.cache_write is not None:
+        write_rate = card.cache_write
+    else:
+        write_rate = card.input * (ANTHROPIC_CACHE_WRITE_MULTIPLIER if claude else 1.0)
+    input_cost = (uncached * card.input + read * read_rate + write * write_rate) / 1_000_000
+    output_cost = (int(output_tokens or 0) * card.output) / 1_000_000
+    return input_cost, output_cost
+
+
+def pricing_table(rows) -> dict:
+    """``{(provider, model_id): RateCard}`` from model_pricing rows or ModelPricing entries."""
+    table: dict = {}
+    for r in rows:
+        get = (lambda k, r=r: getattr(r, k, None)) if not hasattr(r, "keys") else \
+            (lambda k, r=r: r[k] if k in r.keys() else None)
+        try:
+            card = RateCard(
+                input=float(get("input_per_million") or 0.0),
+                output=float(get("output_per_million") or 0.0),
+                cache_read=None if get("cache_read_per_million") is None else float(get("cache_read_per_million")),
+                cache_write=None if get("cache_write_per_million") is None else float(get("cache_write_per_million")),
+            )
+        except (TypeError, ValueError):
+            continue
+        table[(str(get("provider")), str(get("model_id")))] = card
+    return table
 
 
 @dataclass
@@ -43,6 +222,7 @@ class CostRecord:
     rate_output: Optional[float]
     pricing_known: bool
     recorded_at: datetime
+    input_cache_write_tokens: int = 0
 
 
 @dataclass
@@ -59,6 +239,8 @@ class ModelPricing:
     verified_at: Optional[str]
     source_url: Optional[str]
     updated_at: datetime
+    cache_read_per_million: Optional[float] = None
+    cache_write_per_million: Optional[float] = None
 
 
 @dataclass
@@ -75,6 +257,8 @@ class AgentCostSummary:
     first_seen: Optional[str]
     last_seen: Optional[str]
     has_unknown_pricing: bool
+    total_cache_read_tokens: int = 0
+    total_cache_write_tokens: int = 0
 
 
 class CostsRepository:
@@ -99,12 +283,23 @@ class CostsRepository:
         request_id: Optional[str] = None,
         input_cached_tokens: int = 0,
         session_id: Optional[str] = None,
+        input_cache_write_tokens: int = 0,
     ) -> CostRecord:
         """Record a single LLM request's cost.
 
         ``session_id`` (v45) is the proxy's stable per-conversation id — it
         turns "spend today" into "spend this run" for the per-run ceilings.
+
+        A record with a ``request_id`` already stored for the same agent is
+        not written again; the stored record is returned instead.
         """
+        if request_id:
+            existing = await self.db.fetch_one(
+                "SELECT * FROM llm_cost_records WHERE agent_id = ? AND request_id = ? LIMIT 1",
+                (agent_id, request_id),
+            )
+            if existing:
+                return self._row_to_cost_record(existing)
         record_id = str(uuid.uuid4())
         now = datetime.utcnow()
 
@@ -114,15 +309,16 @@ class CostsRepository:
             (id, agent_id, provider, model_id, request_id,
              input_tokens, output_tokens, input_cached_tokens,
              input_cost_usd, output_cost_usd, total_cost_usd,
-             rate_input, rate_output, pricing_known, recorded_at, session_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             rate_input, rate_output, pricing_known, recorded_at, session_id,
+             input_cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id, agent_id, provider, model_id, request_id,
                 input_tokens, output_tokens, input_cached_tokens,
                 input_cost_usd, output_cost_usd, total_cost_usd,
                 rate_input, rate_output, 1 if pricing_known else 0,
-                now.isoformat(), session_id,
+                now.isoformat(), session_id, int(input_cache_write_tokens or 0),
             ),
         )
 
@@ -142,6 +338,7 @@ class CostsRepository:
             rate_output=rate_output,
             pricing_known=pricing_known,
             recorded_at=now,
+            input_cache_write_tokens=int(input_cache_write_tokens or 0),
         )
 
     async def get_agent_summaries(
@@ -170,6 +367,8 @@ class CostsRepository:
                 COUNT(*) as total_requests,
                 SUM(input_tokens) as total_input_tokens,
                 SUM(output_tokens) as total_output_tokens,
+                SUM(input_cached_tokens) as total_cache_read_tokens,
+                SUM(input_cache_write_tokens) as total_cache_write_tokens,
                 SUM(total_cost_usd) as total_cost_usd,
                 GROUP_CONCAT(DISTINCT provider) as providers_used,
                 GROUP_CONCAT(DISTINCT model_id) as models_used,
@@ -201,6 +400,8 @@ class CostsRepository:
                     first_seen=row["first_seen"],
                     last_seen=row["last_seen"],
                     has_unknown_pricing=(row["unknown_count"] or 0) > 0,
+                    total_cache_read_tokens=row["total_cache_read_tokens"] or 0,
+                    total_cache_write_tokens=row["total_cache_write_tokens"] or 0,
                 )
             )
         return results
@@ -363,6 +564,8 @@ class CostsRepository:
         effective_date: Optional[str] = None,
         verified_at: Optional[str] = None,
         source_url: Optional[str] = None,
+        cache_read_per_million: Optional[float] = None,
+        cache_write_per_million: Optional[float] = None,
     ) -> None:
         """Upsert a pricing entry (used by sync)."""
         pricing_id = f"{provider}/{model_id}"
@@ -370,11 +573,14 @@ class CostsRepository:
             """
             INSERT INTO model_pricing
             (id, provider, model_id, display_name, input_per_million, output_per_million,
-             effective_date, verified_at, source_url, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             effective_date, verified_at, source_url, updated_at,
+             cache_read_per_million, cache_write_per_million)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 input_per_million = excluded.input_per_million,
                 output_per_million = excluded.output_per_million,
+                cache_read_per_million = excluded.cache_read_per_million,
+                cache_write_per_million = excluded.cache_write_per_million,
                 effective_date = COALESCE(excluded.effective_date, effective_date),
                 verified_at = excluded.verified_at,
                 source_url = COALESCE(excluded.source_url, source_url),
@@ -384,6 +590,7 @@ class CostsRepository:
                 pricing_id, provider, model_id, display_name,
                 input_per_million, output_per_million,
                 effective_date, verified_at, source_url,
+                cache_read_per_million, cache_write_per_million,
             ),
         )
 
@@ -514,40 +721,22 @@ class CostsRepository:
 
     CACHE_DISCOUNT = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
 
-    async def resolve_rates(self, provider: Optional[str], model_id: str) -> tuple[Optional[float], Optional[float]]:
-        """(input_per_million, output_per_million) for a model, or (None, None).
+    async def resolve_rate_card(self, provider: Optional[str], model_id: str) -> Optional[RateCard]:
+        """Full rates (input, output, cache read, cache write) for a model, or None.
 
-        Exact ``provider/model`` first, then any provider with that model id,
-        then a prefix match so dated variants (``gpt-4o-2024-08-06``) and
-        Bedrock ids (``anthropic.claude-3-5-sonnet-20241022-v2:0``) still price.
+        Region-prefixed Bedrock ids, ``anthropic.`` ids, ``-vN:M`` and date
+        suffixes resolve to the first-party pricing key
+        (see ``model_id_candidates``).
         """
         if not model_id:
-            return None, None
-        if provider:
-            exact = await self.get_pricing(provider, model_id)
-            if exact:
-                return exact.input_per_million, exact.output_per_million
-        rows = await self.db.fetch_all("SELECT model_id, input_per_million, output_per_million FROM model_pricing")
-        by_model = {}
-        for r in rows or []:
-            by_model[str(r["model_id"])] = (float(r["input_per_million"]), float(r["output_per_million"]))
-        if model_id in by_model:
-            return by_model[model_id]
-        bare = model_id
-        if provider in BEDROCK_PROVIDERS:
-            # Bedrock ids carry an optional region prefix and a vendor:
-            # ``us.anthropic.claude-haiku-4-5-20251001-v1:0``. Drop both.
-            parts = bare.split(".")
-            if parts[0] in BEDROCK_REGION_PREFIXES:
-                parts = parts[1:]
-            if len(parts) > 1:
-                parts = parts[1:]
-            bare = ".".join(parts)
-        best = None
-        for mid, rates in by_model.items():
-            if bare.startswith(mid) and (best is None or len(mid) > len(best[0])):
-                best = (mid, rates)
-        return best[1] if best else (None, None)
+            return None
+        rows = await self.db.fetch_all("SELECT * FROM model_pricing")
+        return lookup_rate_card(provider, model_id, pricing_table(rows or []))
+
+    async def resolve_rates(self, provider: Optional[str], model_id: str) -> tuple[Optional[float], Optional[float]]:
+        """(input_per_million, output_per_million) for a model, or (None, None)."""
+        card = await self.resolve_rate_card(provider, model_id)
+        return (card.input, card.output) if card else (None, None)
 
     async def record_generation(
         self,
@@ -561,6 +750,7 @@ class CostsRepository:
         input_tokens: int = 0,
         output_tokens: int = 0,
         input_cached_tokens: int = 0,
+        input_cache_write_tokens: int = 0,
         started_at: Optional[str] = None,
         duration_ms: Optional[int] = None,
         parent_span_id: Optional[str] = None,
@@ -582,13 +772,13 @@ class CostsRepository:
         # transcript import, proxy). None stays None: the "not stored" marker.
         input_preview, _ = sanitize_trace_text(input_preview, direction="outgoing")
         output_preview, _ = sanitize_trace_text(output_preview, direction="llm_response")
-        rate_in, rate_out = await self.resolve_rates(provider, model_id)
-        pricing_known = rate_in is not None and rate_out is not None
+        card = await self.resolve_rate_card(provider, model_id)
+        rate_in, rate_out = (card.input, card.output) if card else (None, None)
+        pricing_known = card is not None
         if pricing_known:
-            cache_rate = self.CACHE_DISCOUNT.get(provider or "", 1.0)
-            uncached = max(0, int(input_tokens) - int(input_cached_tokens))
-            input_cost = (uncached / 1_000_000) * rate_in + (int(input_cached_tokens) / 1_000_000) * rate_in * cache_rate
-            output_cost = (int(output_tokens) / 1_000_000) * rate_out
+            input_cost, output_cost = compute_cost(
+                provider, model_id, card, int(input_tokens), int(output_tokens),
+                int(input_cached_tokens), int(input_cache_write_tokens or 0))
         else:
             input_cost = output_cost = 0.0
         total = round(input_cost + output_cost, 8)
@@ -606,6 +796,7 @@ class CostsRepository:
                 """
                 UPDATE llm_cost_records SET
                     provider = ?, model_id = ?, input_tokens = ?, output_tokens = ?, input_cached_tokens = ?,
+                    input_cache_write_tokens = ?,
                     input_cost_usd = ?, output_cost_usd = ?, total_cost_usd = ?, rate_input = ?, rate_output = ?,
                     pricing_known = ?, started_at = ?, duration_ms = ?, parent_span_id = ?, request_id = ?,
                     input_preview = ?, output_preview = ?, finish_reason = ?,
@@ -613,6 +804,7 @@ class CostsRepository:
                 WHERE id = ?
                 """,
                 (provider or "unknown", model_id, int(input_tokens), int(output_tokens), int(input_cached_tokens),
+                 int(input_cache_write_tokens or 0),
                  round(input_cost, 8), round(output_cost, 8), total, rate_in, rate_out,
                  1 if pricing_known else 0, started, duration_ms, parent_span_id, request_id,
                  input_preview, output_preview, finish_reason,
@@ -633,8 +825,8 @@ class CostsRepository:
                  rate_input, rate_output, pricing_known, recorded_at, session_id,
                  trace_id, span_id, parent_span_id, runtime_kind, turn_index, started_at, duration_ms,
                  input_preview, output_preview, finish_reason,
-                 verdict_action, verdict_risk, verdict_reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 verdict_action, verdict_risk, verdict_reason, input_cache_write_tokens)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (record_id, agent_id or runtime_kind, provider or "unknown", model_id, request_id,
                  int(input_tokens), int(output_tokens), int(input_cached_tokens),
@@ -642,7 +834,7 @@ class CostsRepository:
                  rate_in, rate_out, 1 if pricing_known else 0, now, session_id,
                  trace_id, span_id, parent_span_id, runtime_kind, turn_index, started, duration_ms,
                  input_preview, output_preview, finish_reason,
-                 verdict_action, verdict_risk, verdict_reason),
+                 verdict_action, verdict_risk, verdict_reason, int(input_cache_write_tokens or 0)),
             )
         return {"id": record_id, "total_cost_usd": total, "pricing_known": pricing_known}
 
@@ -651,7 +843,8 @@ class CostsRepository:
         rows = await self.db.fetch_all(
             """
             SELECT id, span_id, parent_span_id, request_id, session_id, runtime_kind, provider, model_id,
-                   input_tokens, output_tokens, input_cached_tokens, total_cost_usd, pricing_known,
+                   input_tokens, output_tokens, input_cached_tokens, input_cache_write_tokens,
+                   total_cost_usd, pricing_known,
                    COALESCE(started_at, recorded_at) AS started_at, duration_ms, turn_index,
                    input_preview, output_preview, finish_reason,
                    verdict_action, verdict_risk, verdict_reason
@@ -835,6 +1028,8 @@ class CostsRepository:
             rate_output=row["rate_output"],
             pricing_known=bool(row["pricing_known"]),
             recorded_at=recorded_at,
+            input_cache_write_tokens=(row["input_cache_write_tokens"] or 0)
+            if "input_cache_write_tokens" in row.keys() else 0,
         )
 
     def _row_to_pricing(self, row) -> ModelPricing:
@@ -856,4 +1051,8 @@ class CostsRepository:
             verified_at=row["verified_at"],
             source_url=row["source_url"],
             updated_at=updated_at,
+            cache_read_per_million=row["cache_read_per_million"]
+            if "cache_read_per_million" in row.keys() else None,
+            cache_write_per_million=row["cache_write_per_million"]
+            if "cache_write_per_million" in row.keys() else None,
         )
