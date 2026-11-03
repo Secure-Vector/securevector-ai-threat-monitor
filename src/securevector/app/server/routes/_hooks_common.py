@@ -160,3 +160,39 @@ def stage_files(
         _atomic_write(dst, content.encode("utf-8"))
         written.append(filename)
     return written
+
+
+def staged_is_current(
+    *,
+    staging_dir: Path,
+    source_dir: Path,
+    files: list[str],
+    substitutions: dict[str, str],
+) -> bool:
+    """Return True when every file ``stage_files`` would write is already
+    present in ``staging_dir`` with exactly the same bytes.
+
+    Read-only. Source files that are missing are skipped, as in
+    ``stage_files``. Binary files are compared byte for byte.
+    """
+    for filename in files:
+        src = source_dir / filename
+        if not src.is_file():
+            continue
+        dst = staging_dir / filename
+        if not dst.is_file():
+            return False
+        try:
+            expected = src.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            expected_bytes = src.read_bytes()
+        else:
+            for needle, replacement in substitutions.items():
+                expected = expected.replace(needle, replacement)
+            expected_bytes = expected.encode("utf-8")
+        try:
+            if dst.read_bytes() != expected_bytes:
+                return False
+        except OSError:
+            return False
+    return True

@@ -162,3 +162,66 @@ def test_stage_files_copies_binary_assets_byte_for_byte(tmp_path):
     assert (staging / "logo.ico").read_bytes() == blob
     # Text file alongside it still gets the substitution.
     assert (staging / "client.js").read_text() == 'const u = "http://127.0.0.1:9000";'
+
+
+# --- staged_is_current ----------------------------------------------------
+
+
+def _staged_case(tmp_path):
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / "a.ts").write_text("url=http://localhost:8741")
+    (src / "logo.bin").write_bytes(b"\xff\xfe\x00http://localhost:8741")
+    return src, dst
+
+
+def test_staged_is_current_true_after_stage_files(tmp_path):
+    src, dst = _staged_case(tmp_path)
+    subs = {"http://localhost:8741": "http://127.0.0.1:9"}
+    files = ["a.ts", "logo.bin"]
+    _hooks_common.stage_files(staging_dir=dst, source_dir=src, files=files, substitutions=subs)
+    assert _hooks_common.staged_is_current(
+        staging_dir=dst, source_dir=src, files=files, substitutions=subs
+    )
+
+
+def test_staged_is_current_false_on_substitution_mismatch(tmp_path):
+    src, dst = _staged_case(tmp_path)
+    files = ["a.ts"]
+    _hooks_common.stage_files(
+        staging_dir=dst, source_dir=src, files=files,
+        substitutions={"http://localhost:8741": "http://127.0.0.1:9"},
+    )
+    assert not _hooks_common.staged_is_current(
+        staging_dir=dst, source_dir=src, files=files,
+        substitutions={"http://localhost:8741": "http://127.0.0.1:10"},
+    )
+
+
+def test_staged_is_current_false_when_missing_or_changed(tmp_path):
+    src, dst = _staged_case(tmp_path)
+    files = ["a.ts"]
+    assert not _hooks_common.staged_is_current(
+        staging_dir=dst, source_dir=src, files=files, substitutions={}
+    )
+    (dst / "a.ts").write_text("stale")
+    assert not _hooks_common.staged_is_current(
+        staging_dir=dst, source_dir=src, files=files, substitutions={}
+    )
+    assert (dst / "a.ts").read_text() == "stale"  # read-only
+
+
+def test_staged_is_current_compares_binary_bytes(tmp_path):
+    src, dst = _staged_case(tmp_path)
+    (dst / "logo.bin").write_bytes(b"\xff\xfe\x00http://localhost:8741")
+    subs = {"http://localhost:8741": "http://127.0.0.1:9"}
+    assert _hooks_common.staged_is_current(
+        staging_dir=dst, source_dir=src, files=["logo.bin"], substitutions=subs
+    )
+    (dst / "logo.bin").write_bytes(b"\xff\xfe\x01")
+    assert not _hooks_common.staged_is_current(
+        staging_dir=dst, source_dir=src, files=["logo.bin"], substitutions=subs
+    )
+

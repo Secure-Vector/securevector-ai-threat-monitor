@@ -67,16 +67,21 @@ def _resolve_sv_url() -> str:
     return _hooks_common.resolve_sv_url()
 
 
+def _plugin_substitutions(sv_url: str) -> dict[str, str]:
+    """URL substitutions applied to the staged plugin files."""
+    return {
+        "http://localhost:8741": sv_url,
+        "http://localhost:8000": sv_url,
+    }
+
+
 def _stage_plugin_files(sv_url: str, source_dir: Path = None) -> list[str]:
     """Copy plugin files to the OpenClaw staging dir with URL substitution; thin wrapper."""
     return _hooks_common.stage_files(
         staging_dir=STAGING_DIR,
         source_dir=source_dir or BUNDLED_PLUGIN_DIR,
         files=PLUGIN_FILES,
-        substitutions={
-            "http://localhost:8741": sv_url,
-            "http://localhost:8000": sv_url,
-        },
+        substitutions=_plugin_substitutions(sv_url),
     )
 
 
@@ -458,10 +463,18 @@ async def install_plugin(request: Optional[InstallRequest] = None):
             "files_written": [],
         }
 
-    # Check if already installed — only short-circuit if files are also present
+    # Check if already installed — only short-circuit if the staged files are
+    # also present and match the bundled version (an upgrade restages them)
     already_registered = _is_plugin_installed_via_cli()
     files_present = (STAGING_DIR / "openclaw.plugin.json").is_file() and (STAGING_DIR / "index.ts").is_file()
-    if already_registered and files_present and not force:
+    sv_url = _resolve_sv_url()
+    files_current = files_present and _hooks_common.staged_is_current(
+        staging_dir=STAGING_DIR,
+        source_dir=plugin_source_dir,
+        files=PLUGIN_FILES,
+        substitutions=_plugin_substitutions(sv_url),
+    )
+    if already_registered and files_current and not force:
         # An install from before 6.1.0 lacks the hook grant OpenClaw 2026.10
         # needs; add it without a reinstall.
         _ensure_conversation_access()
@@ -493,7 +506,6 @@ async def install_plugin(request: Optional[InstallRequest] = None):
         _cleanup_stale_config_entry()
 
         # Stage plugin files with correct SecureVector URL
-        sv_url = _resolve_sv_url()
         files_written = _stage_plugin_files(sv_url, source_dir=plugin_source_dir)
 
         if not files_written:
