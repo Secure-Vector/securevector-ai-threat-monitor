@@ -34,5 +34,5 @@ test('the one-click block posts to the hermes install route and reads its status
 });
 
 test('index.html loads the bumped guide-connect-agents build', () => {
-  assert.match(read('index.html'), /js\/pages\/guide-connect-agents\.js\?v=72"/);
+  assert.match(read('index.html'), /js\/pages\/guide-connect-agents\.js\?v=73"/);
 });

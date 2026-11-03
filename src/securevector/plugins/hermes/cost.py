@@ -170,6 +170,7 @@ def build_record(kwargs: dict) -> Optional[dict]:
     provider = canon_provider(kwargs.get("provider"))
     record = {
         "agent_id": AGENT_ID,
+        "runtime_kind": AGENT_ID,
         "provider": provider,
         "model_id": model,
         "input_tokens": int(total),
@@ -232,7 +233,7 @@ def _callback_module(cb: Any) -> str:
     return mod or ""
 
 
-def _sdk_hooks_from_registry() -> Optional[bool]:
+def _sdk_hooks_from_registry(hook_name: str = "post_api_request") -> Optional[bool]:
     """True/False when Hermes's hook registry can be read
     (``PluginManager._hooks`` in hermes_cli/plugins.py), None when it cannot."""
     try:
@@ -241,7 +242,7 @@ def _sdk_hooks_from_registry() -> Optional[bool]:
         hooks = getattr(get_plugin_manager(), "_hooks", None)
         if not isinstance(hooks, dict):
             return None
-        callbacks = hooks.get("post_api_request") or []
+        callbacks = hooks.get(hook_name) or []
         return any(_callback_module(cb).startswith(_SDK_PREFIX) for cb in callbacks)
     except Exception:
         return None
@@ -254,6 +255,11 @@ def _sdk_tracks_cost() -> bool:
     found = _sdk_hooks_from_registry()
     if found is not None:
         return found
+    return _sdk_plugin_enabled()
+
+
+def _sdk_plugin_enabled() -> bool:
+    """Without a readable registry: whether the SDK plugin is loaded and on."""
     if _SDK_PREFIX + ".plugin" not in sys.modules:
         return False
     try:

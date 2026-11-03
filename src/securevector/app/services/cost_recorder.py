@@ -19,6 +19,7 @@ from securevector.app.database.repositories.costs import (
     lookup_rate_card,
     model_id_candidates,
     pricing_table,
+    stored_input,
 )
 
 logger = logging.getLogger(__name__)
@@ -267,7 +268,9 @@ class CostRecorder:
                 agent_id=agent_id,
                 provider=provider,
                 model_id=model_id or canonical_id,
-                input_tokens=input_tokens,
+                # The uncached part, as every cost row stores it.
+                input_tokens=stored_input(provider, model_id or canonical_id, input_tokens,
+                                          input_cached_tokens, cache_write_tokens),
                 output_tokens=output_tokens,
                 input_cached_tokens=input_cached_tokens,
                 input_cache_write_tokens=cache_write_tokens,
@@ -279,6 +282,8 @@ class CostRecorder:
                 pricing_known=pricing_known,
                 request_id=request_id,
                 session_id=session_id,
+                # Tags proxy rows so later corrections can find them.
+                runtime_kind="llm-proxy",
             )
 
         except Exception as e:

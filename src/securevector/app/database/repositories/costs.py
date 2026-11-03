@@ -11,7 +11,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from securevector.app.utils.trace_text import sanitize_trace_text
 from securevector.app.database.connection import DatabaseConnection
@@ -74,6 +74,29 @@ def input_includes_cached(provider: Optional[str], model_id: Optional[str]) -> b
     if p in VERTEX_PROVIDERS and is_claude_model(model_id):
         return False
     return True
+
+
+def provider_known(provider: Optional[str]) -> bool:
+    return (provider or "").strip().lower() not in ("", "unknown")
+
+
+def stored_input(provider: Optional[str], model_id: Optional[str], input_tokens: Any,
+                 cache_read_tokens: Any = 0, cache_write_tokens: Any = 0,
+                 includes_cached: Optional[bool] = None) -> int:
+    """``input_tokens`` as stored: the uncached part, for every provider.
+
+    Cache reads and writes are kept in their own columns, so every token sum
+    adds them once. ``includes_cached`` overrides the provider convention. A
+    missing or unknown provider has no known convention: stored as sent.
+    """
+    if includes_cached is None:
+        if not provider_known(provider):
+            return int(input_tokens or 0)
+        includes_cached = input_includes_cached(provider, model_id)
+    n = int(input_tokens or 0)
+    if includes_cached:
+        n = max(0, n - int(cache_read_tokens or 0) - int(cache_write_tokens or 0))
+    return n
 
 
 # Bedrock and Vertex regional / multi-region endpoints price Claude 4.5 and
@@ -358,6 +381,7 @@ class CostsRepository:
         input_cached_tokens: int = 0,
         session_id: Optional[str] = None,
         input_cache_write_tokens: int = 0,
+        runtime_kind: Optional[str] = None,
     ) -> CostRecord:
         """Record a single LLM request's cost.
 
@@ -384,8 +408,8 @@ class CostsRepository:
              input_tokens, output_tokens, input_cached_tokens,
              input_cost_usd, output_cost_usd, total_cost_usd,
              rate_input, rate_output, pricing_known, recorded_at, session_id,
-             input_cache_write_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             input_cache_write_tokens, runtime_kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id, agent_id, provider, model_id, request_id,
@@ -393,6 +417,7 @@ class CostsRepository:
                 input_cost_usd, output_cost_usd, total_cost_usd,
                 rate_input, rate_output, 1 if pricing_known else 0,
                 now.isoformat(), session_id, int(input_cache_write_tokens or 0),
+                runtime_kind or None,
             ),
         )
 
@@ -747,7 +772,8 @@ class CostsRepository:
         tracks usage limits, not just fresh input."""
         row = await self.db.fetch_one(
             "SELECT COALESCE(SUM(total_cost_usd), 0.0) AS spend, "
-            "COALESCE(SUM(input_tokens + input_cached_tokens + output_tokens), 0) AS tokens, "
+            "COALESCE(SUM(input_tokens + input_cached_tokens + COALESCE(input_cache_write_tokens, 0) "
+            "+ output_tokens), 0) AS tokens, "
             "COUNT(*) AS requests "
             "FROM llm_cost_records WHERE session_id = ?",
             (session_id,),
@@ -774,7 +800,8 @@ class CostsRepository:
         rows = await self.db.fetch_all(
             "SELECT session_id, "
             "COALESCE(SUM(total_cost_usd), 0.0) AS spend, "
-            "COALESCE(SUM(input_tokens + input_cached_tokens + output_tokens), 0) AS tokens, "
+            "COALESCE(SUM(input_tokens + input_cached_tokens + COALESCE(input_cache_write_tokens, 0) "
+            "+ output_tokens), 0) AS tokens, "
             "COUNT(*) AS requests "
             f"FROM llm_cost_records WHERE session_id IN ({placeholders}) "
             "GROUP BY session_id",
@@ -856,6 +883,8 @@ class CostsRepository:
         else:
             input_cost = output_cost = 0.0
         total = round(input_cost + output_cost, 8)
+        input_tokens = stored_input(provider, model_id, input_tokens, input_cached_tokens,
+                                    input_cache_write_tokens)
         now = datetime.utcnow().isoformat()
         started = started_at or now
 
@@ -942,7 +971,8 @@ class CostsRepository:
                 MAX(runtime_kind) AS runtime_kind,
                 MAX(session_id) AS session_id,
                 COUNT(*) AS generations,
-                SUM(input_tokens + input_cached_tokens + output_tokens) AS tokens,
+                SUM(input_tokens + input_cached_tokens + COALESCE(input_cache_write_tokens, 0)
+                    + output_tokens) AS tokens,
                 SUM(total_cost_usd) AS cost,
                 MAX(total_cost_usd) AS max_turn_cost,
                 MIN(COALESCE(started_at, recorded_at)) AS started_at,

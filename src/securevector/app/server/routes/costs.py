@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StrictInt
 
 from securevector.app.database.connection import get_database
-from securevector.app.database.repositories.costs import CostsRepository, compute_cost, effective_rates
+from securevector.app.database.repositories.costs import CostsRepository, compute_cost, effective_rates, stored_input
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +188,8 @@ class RecordCostRequest(BaseModel):
     session_id: Optional[str] = Field(None, max_length=200)
     # Sender's id for this call; a repeat for the same agent is not recorded twice.
     request_id: Optional[str] = Field(None, max_length=200)
+    # The harness that made the call (e.g. "hermes"), so the session shows it.
+    runtime_kind: Optional[str] = Field(None, max_length=40)
 
 
 # --- Endpoints ---
@@ -220,16 +222,25 @@ async def record_cost(request: RecordCostRequest) -> dict:
 
         total_cost = input_cost + output_cost
 
+        # Stored input is the uncached part for every provider and sender,
+        # so the token columns and sums read the same everywhere.
+        input_tokens = stored_input(
+            request.provider, request.model_id, request.input_tokens,
+            request.input_cached_tokens, request.input_cache_write_tokens,
+            includes_cached=request.input_includes_cached,
+        )
+
         record = await repo.record_cost(
             agent_id=request.agent_id,
             provider=request.provider,
             model_id=request.model_id,
-            input_tokens=request.input_tokens,
+            input_tokens=input_tokens,
             output_tokens=request.output_tokens,
             input_cached_tokens=request.input_cached_tokens,
             input_cache_write_tokens=request.input_cache_write_tokens,
             session_id=request.session_id,
             request_id=request.request_id,
+            runtime_kind=request.runtime_kind,
             input_cost_usd=round(input_cost, 8),
             output_cost_usd=round(output_cost, 8),
             total_cost_usd=round(total_cost, 8),
@@ -942,7 +953,14 @@ async def get_budget_status(
                 )
                 app_settings = await SettingsRepository(db).get()
                 usage = await repo.get_run_usage(session_id)
-                exempted = await has_run_exemption(db, "openclaw", session_id)
+                # The run's own harness when its cost rows name one.
+                kind_row = await db.fetch_one(
+                    "SELECT MAX(runtime_kind) AS kind FROM llm_cost_records WHERE session_id = ? "
+                    "AND runtime_kind IS NOT NULL AND runtime_kind != 'llm-proxy'",
+                    (session_id,),
+                )
+                run_kind = (kind_row["kind"] if kind_row else None) or "openclaw"
+                exempted = await has_run_exemption(db, run_kind, session_id)
                 reason = None
                 over_run = False
                 if not exempted:

@@ -57,7 +57,8 @@ govrun
                          route or plugin here, so SecureVector only sees what it records)
   egress_visible=False, token_data=False, session_id_sent=False, approvals=False: no evidence in this repo
 hermes
-  enforced=after_call    R/tool_permissions.py:332-338,684-693 (decided by the external Hermes SDK)
+  enforced=after_call    R/tool_permissions.py:332-338,684-693 (decided by the external Hermes SDK);
+                         P/hermes/audit.py records each call after it ran (post_tool_call), observe only
   token_data=True        P/hermes/cost.py (post_api_request -> /api/costs/track, one record per API
                          call), installed by R/hooks_hermes.py install_plugin
   session_id_sent=True   P/hermes/cost.py build_record (Hermes session_id on each cost record)

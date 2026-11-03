@@ -215,6 +215,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         66: migrate_to_v66,
         67: migrate_to_v67,
         68: migrate_to_v68,
+        69: migrate_to_v69,
     }
 
     if version in migrations:
@@ -3852,6 +3853,51 @@ async def migrate_to_v68(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v68: cache write tokens and cache rates")
+
+
+async def migrate_to_v69(db: DatabaseConnection) -> None:
+    """v68 -> v69: stored ``input_tokens`` is the uncached part for every
+    provider. Only rows known to hold the full prompt drop their cache reads
+    and writes from ``input_tokens``, once:
+
+    - Hermes plugin records (``agent_id = 'hermes'``, sent with
+      ``input_includes_cached`` set, any provider);
+    - proxy recorder rows (``runtime_kind = 'llm-proxy'``) and OTLP generation
+      rows (``span_id`` set), stored as the provider reported them, where that
+      provider's input counts the cache (OpenAI, Gemini and others).
+
+    Every other ``/costs/track`` row (OpenClaw, OpenCode, the SDKs) was sent
+    uncached and is left alone. Costs are unchanged. One transaction; runs
+    once."""
+    from securevector.app.database.repositories.costs import input_includes_cached, provider_known
+
+    cache = "(COALESCE(input_cached_tokens, 0) + COALESCE(input_cache_write_tokens, 0))"
+    full = f"{cache} > 0 AND input_tokens >= {cache}"
+    not_openclaw = "COALESCE(agent_id, '') != 'openclaw-agent' AND COALESCE(agent_id, '') NOT LIKE 'agent:%'"
+    reported = (f"(span_id IS NOT NULL OR runtime_kind = 'llm-proxy') AND COALESCE(agent_id, '') != 'hermes' "
+                f"AND {not_openclaw}")
+    async with db.transaction() as conn:
+        cur = await conn.execute("SELECT 1 FROM schema_version WHERE version = 69")
+        if await cur.fetchone() is not None:
+            return
+        await conn.execute(
+            f"UPDATE llm_cost_records SET input_tokens = input_tokens - {cache} "
+            f"WHERE agent_id = 'hermes' AND span_id IS NULL AND {full}"
+        )
+        cur = await conn.execute(f"SELECT DISTINCT provider, model_id FROM llm_cost_records WHERE {full} AND {reported}")
+        for provider, model_id in await cur.fetchall():
+            if not provider_known(provider) or not input_includes_cached(provider, model_id):
+                continue
+            await conn.execute(
+                f"UPDATE llm_cost_records SET input_tokens = input_tokens - {cache} "
+                f"WHERE provider IS ? AND model_id IS ? AND {full} AND {reported}",
+                (provider, model_id),
+            )
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+            "VALUES (69, CURRENT_TIMESTAMP, 'Uncached input tokens for every provider')"
+        )
+    logger.info("Applied migration v69: uncached input tokens for every provider")
 
 
 _GOVERNANCE_OUTBOX_KINDS = ("egress", "approval_request", "harness_coverage")

@@ -149,12 +149,47 @@ def test_refuses_a_symlinked_config(client, home, tmp_path):
     assert real.read_text() == "model: x\n"
 
 
-def test_refuses_hermes_home_outside_the_user_home(client, home, tmp_path, monkeypatch):
+def test_installs_into_hermes_home_outside_the_user_home(client, home, tmp_path, monkeypatch):
+    # HERMES_HOME is where Hermes itself loads plugins from, wherever it is.
     monkeypatch.setattr(mod.Path, "home", staticmethod(lambda: tmp_path / "user"))
     (tmp_path / "user").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    opt_home = tmp_path / "opt" / "x" / "homes" / "hermes"
+    opt_home.mkdir(parents=True)
+    monkeypatch.setenv("HERMES_HOME", str(opt_home))
+    body = _install(client)
+    assert body["ok"] is True
+    assert body["install_path"] == str(opt_home / "plugins" / "securevector")
+    assert (opt_home / "plugins" / "securevector" / "plugin.yaml").is_file()
+    assert _cfg(opt_home)["plugins"]["enabled"] == ["securevector"]
+    assert not (tmp_path / "user" / ".hermes").exists()
+    assert mod._hermes_state_db() == opt_home / "state.db"
+
+
+def test_hermes_home_resolution_matches_hermes(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", "   ")
+    assert mod._hermes_home() == home  # blank falls back to the default
+    monkeypatch.setenv("HERMES_HOME", f"  {tmp_path / 'h'}  ")
+    assert mod._hermes_home() == tmp_path / "h"
+    assert mod._allowed_roots() == [(tmp_path / "h").resolve()]
+
+
+def test_install_with_hermes_home_never_writes_outside_it(client, home, tmp_path, monkeypatch):
+    other = tmp_path / "other-home"
+    other.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(other))
+    with pytest.raises(mod.HTTPException):
+        mod._check_target(home / "config.yaml")
+
+
+def test_refuses_a_symlinked_hermes_home_from_the_env(client, home, tmp_path, monkeypatch):
+    real = tmp_path / "real-opt"
+    real.mkdir()
+    link = tmp_path / "opt-link"
+    os.symlink(real, link)
+    monkeypatch.setenv("HERMES_HOME", str(link))
     r = client.post("/api/hooks/hermes/install", headers=PAGE_HEADERS)
-    assert r.status_code == 400
+    assert r.status_code == 400 and "symlinked Hermes home" in r.json()["detail"]
+    assert list(real.iterdir()) == []
 
 
 def test_inline_plugins_mapping_is_not_rewritten(client, home):

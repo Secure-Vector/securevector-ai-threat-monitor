@@ -147,6 +147,7 @@ async def test_proxy_recorder_reads_anthropic_cache_fields(db):
     expected = (100 * 2.0 + 50_000 * 0.10 + 2_000 * 2.5 + 10 * 10.0) / 1e6
     assert row["total_cost_usd"] == pytest.approx(expected, abs=1e-8)
     assert row["input_cache_write_tokens"] == 2_000
+    assert row["runtime_kind"] == "llm-proxy"
 
 
 @pytest.mark.asyncio
@@ -174,6 +175,170 @@ async def test_opencode_message_record_prices(db, monkeypatch):
     assert out["total_cost_usd"] == pytest.approx((10 * 2 + 200 * 10 + 40_000 * 0.1 + 1_000 * 2.5) / 1e6)
     row = await db.fetch_one("SELECT session_id FROM llm_cost_records WHERE id = ?", (out["id"],))
     assert row["session_id"] == "ses_1"
+
+
+@pytest.mark.asyncio
+async def test_includes_cached_record_stores_the_uncached_input(db, monkeypatch):
+    # The Hermes plugin sends the full prompt with input_includes_cached set.
+    # The cost matches the uncached form; the stored input is the uncached part.
+    out = await _track(db, monkeypatch, agent_id="hermes", provider="anthropic",
+                       model_id="claude-sonnet-5-5", input_tokens=41_010, output_tokens=200,
+                       input_cached_tokens=40_000, input_cache_write_tokens=1_000,
+                       input_includes_cached=True, session_id="ses_h", runtime_kind="hermes")
+    assert out["total_cost_usd"] == pytest.approx((10 * 2 + 200 * 10 + 40_000 * 0.1 + 1_000 * 2.5) / 1e6)
+    row = await db.fetch_one(
+        "SELECT input_tokens, input_cached_tokens, input_cache_write_tokens FROM llm_cost_records WHERE id = ?",
+        (out["id"],))
+    assert (row["input_tokens"], row["input_cached_tokens"], row["input_cache_write_tokens"]) == (10, 40_000, 1_000)
+    kind = await db.fetch_one("SELECT runtime_kind FROM llm_cost_records WHERE id = ?", (out["id"],))
+    assert kind["runtime_kind"] == "hermes"
+
+
+@pytest.mark.asyncio
+async def test_omitted_includes_cached_follows_the_provider_convention(db, monkeypatch):
+    # OpenAI counts the cache inside input: stored input is the uncached part.
+    out = await _track(db, monkeypatch, agent_id="x", provider="openai", model_id="gpt-4o",
+                       input_tokens=1_000, output_tokens=10, input_cached_tokens=400)
+    row = await db.fetch_one("SELECT input_tokens FROM llm_cost_records WHERE id = ?", (out["id"],))
+    assert row["input_tokens"] == 600
+    # Anthropic counts it apart: stored as sent.
+    out = await _track(db, monkeypatch, agent_id="y", provider="anthropic", model_id="claude-sonnet-5-5",
+                       input_tokens=1_000, output_tokens=10, input_cached_tokens=400)
+    row = await db.fetch_one("SELECT input_tokens FROM llm_cost_records WHERE id = ?", (out["id"],))
+    assert row["input_tokens"] == 1_000
+
+
+async def _expected(db, provider, model, inp, out, read, write=0):
+    from securevector.app.database.repositories.costs import CostsRepository
+    card = await CostsRepository(db).resolve_rate_card(provider, model)
+    assert card is not None, (provider, model)
+    ic, oc = compute_cost(provider, model, card, inp, out, read, write)
+    return round(ic + oc, 8)
+
+
+CACHED_ROWS = [
+    # (provider, proxy body, model, full prompt, output, cache read)
+    ("openai", {"model": "gpt-4o", "usage": {"prompt_tokens": 10_000, "completion_tokens": 50,
+                                            "prompt_tokens_details": {"cached_tokens": 8_000}}},
+     "gpt-4o", 10_000, 50, 8_000),
+    ("gemini", {"modelVersion": "gemini-2.5-pro", "usageMetadata": {
+        "promptTokenCount": 20_000, "candidatesTokenCount": 70, "cachedContentTokenCount": 15_000}},
+     "gemini-2.5-pro", 20_000, 70, 15_000),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider, body, model, full, out, read", CACHED_ROWS)
+async def test_cached_rows_store_uncached_input_and_count_tokens_once(db, monkeypatch, provider, body, model,
+                                                                     full, out, read):
+    from securevector.app.database.repositories.costs import CostsRepository
+    from securevector.app.services import observability
+
+    expected = await _expected(db, provider, model, full, out, read)
+    # The proxy recorder and /costs/track with the flag omitted.
+    await CostRecorder(db).record(provider, "proxy-agent", json.dumps(body).encode(), session_id="s-proxy")
+    await _track(db, monkeypatch, agent_id="track-agent", provider=provider, model_id=model,
+                 input_tokens=full, output_tokens=out, input_cached_tokens=read, session_id="s-track")
+    for agent, sid in (("proxy-agent", "s-proxy"), ("track-agent", "s-track")):
+        row = await db.fetch_one("SELECT * FROM llm_cost_records WHERE agent_id = ?", (agent,))
+        assert row["input_tokens"] == full - read  # Cost & Tokens "Input" column
+        assert row["input_cached_tokens"] == read  # "Cache Read" column
+        assert row["total_cost_usd"] == pytest.approx(expected, abs=1e-8)  # cost unchanged
+        usage = await CostsRepository(db).get_run_usage(sid)
+        assert usage["tokens"] == full + out  # cache counted once
+    summaries = {a.agent_id: a for a in await CostsRepository(db).get_agent_summaries()}
+    assert summaries["proxy-agent"].total_input_tokens == full - read
+    live = await observability.live_sessions(db)
+    by = {x["session_id"]: x for x in live["sessions"]}
+    assert by["s-proxy"]["tokens"] == by["s-track"]["tokens"] == full + out
+
+
+@pytest.mark.asyncio
+async def test_generation_rows_store_uncached_input(db):
+    from securevector.app.database.repositories.costs import CostsRepository
+    repo = CostsRepository(db)
+    expected = await _expected(db, "openai", "gpt-4o", 10_000, 50, 8_000)
+    out = await repo.record_generation(trace_id="t1", span_id="g1", session_id="s-gen", runtime_kind="sdk",
+                                       provider="openai", model_id="gpt-4o", input_tokens=10_000,
+                                       output_tokens=50, input_cached_tokens=8_000)
+    assert out["total_cost_usd"] == pytest.approx(expected, abs=1e-8)
+    row = await db.fetch_one("SELECT input_tokens FROM llm_cost_records WHERE id = ?", (out["id"],))
+    assert row["input_tokens"] == 2_000
+
+
+V69_ROWS = [  # (id, agent, provider, model, input, read, write, runtime_kind, span_id) before v69
+    ("hermes", "hermes", "anthropic", "claude-sonnet-5-5", 41_010, 40_000, 1_000, None, None),
+    ("proxy_openai", "local-agent", "openai", "gpt-4o", 10_000, 8_000, 0, "llm-proxy", None),
+    ("otlp_gemini", "sdk", "gemini", "gemini-2.5-pro", 20_000, 15_000, 0, "langchain", "span-1"),
+    ("proxy_claude", "local-agent", "anthropic", "claude-sonnet-5-5", 100, 50_000, 2_000, "llm-proxy", None),
+    ("openclaw_openai", "openclaw-agent", "openai", "gpt-4o", 9_000, 4_000, 0, "llm-proxy", None),
+    ("openclaw_agent", "agent:main", "openai", "gpt-4o", 9_000, 4_000, 0, None, None),
+    ("track_openai", "x", "openai", "gpt-4o", 9_000, 4_000, 0, None, None),
+    ("opencode", "opencode", "openai", "gpt-4o", 10, 4_000, 0, None, None),
+    ("unknown", "local-agent", "unknown", "m", 9_000, 4_000, 0, "llm-proxy", None),
+    ("no_cache", "local-agent", "openai", "gpt-4o", 500, 0, 0, "llm-proxy", None),
+]
+V69_AFTER = {"hermes": 10, "proxy_openai": 2_000, "otlp_gemini": 5_000, "proxy_claude": 100,
+             "openclaw_openai": 9_000, "openclaw_agent": 9_000, "track_openai": 9_000, "opencode": 10,
+             "unknown": 9_000, "no_cache": 500}
+
+
+async def _v69_seed(db):
+    for rid, agent, prov, model, inp, read, write, kind, span in V69_ROWS:
+        await db.execute(
+            "INSERT INTO llm_cost_records (id, agent_id, provider, model_id, input_tokens, output_tokens, "
+            "input_cached_tokens, input_cache_write_tokens, input_cost_usd, output_cost_usd, total_cost_usd, "
+            "pricing_known, recorded_at, runtime_kind, span_id, trace_id) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0.5, 0.25, 0.75, 1, '2026-10-01', ?, ?, ?)",
+            (rid, agent, prov, model, inp, read, write, kind, span, "t-1" if span else None))
+    await db.execute("DELETE FROM schema_version WHERE version = 69")
+
+
+async def _v69_inputs(db):
+    rows = await db.fetch_all("SELECT id, input_tokens, total_cost_usd FROM llm_cost_records")
+    assert all(r["total_cost_usd"] == 0.75 for r in rows)  # costs never change
+    return {r["id"]: r["input_tokens"] for r in rows}
+
+
+@pytest.mark.asyncio
+async def test_v69_strips_only_full_prompt_rows_once(db):
+    from securevector.app.database.migrations import migrate_to_v69
+
+    await _v69_seed(db)
+    await migrate_to_v69(db)
+    assert await _v69_inputs(db) == V69_AFTER
+    await migrate_to_v69(db)  # a second run changes nothing
+    assert await _v69_inputs(db) == V69_AFTER
+    assert await db.fetch_one("SELECT 1 FROM schema_version WHERE version = 69")
+
+
+@pytest.mark.asyncio
+async def test_v69_failure_mid_way_leaves_no_partial_strip(db, monkeypatch):
+    from securevector.app.database import migrations
+    from securevector.app.database.repositories import costs as costs_repo
+
+    await _v69_seed(db)
+    before = await _v69_inputs(db)
+
+    def boom(*a, **k):
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(costs_repo, "input_includes_cached", boom)  # after the Hermes UPDATE ran
+    with pytest.raises(RuntimeError):
+        await migrations.migrate_to_v69(db)
+    assert await _v69_inputs(db) == before
+    assert await db.fetch_one("SELECT 1 FROM schema_version WHERE version = 69") is None
+    monkeypatch.undo()
+    await migrations.migrate_to_v69(db)
+    assert await _v69_inputs(db) == V69_AFTER
+
+
+def test_unknown_provider_input_is_stored_as_sent():
+    from securevector.app.database.repositories.costs import stored_input
+    assert stored_input(None, "m", 9_000, 4_000) == 9_000
+    assert stored_input("unknown", "m", 9_000, 4_000) == 9_000
+    assert stored_input("unknown", "m", 9_000, 4_000, includes_cached=True) == 5_000
+    assert stored_input("openai", "gpt-4o", 9_000, 4_000) == 5_000
 
 
 def test_openclaw_plugin_sends_cache_writes_in_both_copies():

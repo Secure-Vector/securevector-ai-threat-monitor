@@ -50,7 +50,7 @@ def _kwargs_018():
 def test_payload_from_the_022_sample():
     rec = hcost.build_record(_kwargs_022())
     assert rec == {
-        "agent_id": "hermes", "provider": "bedrock",
+        "agent_id": "hermes", "runtime_kind": "hermes", "provider": "bedrock",
         "model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         "input_tokens": 159180, "output_tokens": 2190,
         "input_cached_tokens": 136688, "input_cache_write_tokens": 22451,
@@ -108,7 +108,7 @@ def test_request_id_falls_back_to_turn_and_counter_and_is_truncated():
     assert len(long["request_id"]) == 200 and len(long["session_id"]) == 200
 
 
-def test_register_adds_only_post_api_request():
+def test_register_adds_the_cost_audit_and_session_hooks():
     seen = []
 
     class Ctx:
@@ -116,8 +116,12 @@ def test_register_adds_only_post_api_request():
             seen.append((name, cb))
 
     hplugin.register(Ctx())
-    assert [n for n, _ in seen] == ["post_api_request"]
+    assert [n for n, _ in seen] == [
+        "post_api_request", "post_tool_call", "on_session_start", "on_session_end", "on_session_finalize",
+    ]
     assert seen[0][1] is hcost.on_post_api_request
+    # post_llm_call covers the same calls once per turn; never registered.
+    assert "post_llm_call" not in [n for n, _ in seen]
 
 
 @pytest.fixture

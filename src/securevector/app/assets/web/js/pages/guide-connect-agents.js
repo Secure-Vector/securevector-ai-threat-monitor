@@ -771,6 +771,8 @@ const GuideConnectAgentsPage = {
         // (registry-backed). OpenClaw uses a different path. Returns one of
         // 'enabled' | 'installed' | 'absent' (best-effort; 'absent' on error).
         const guardStatus = async (slug) => {
+            // GovRun's audit sink is built in: no plugin to install.
+            if (slug === 'govrun') return 'builtin';
             try {
                 const url = slug === 'openclaw' ? '/api/hooks/status' : '/api/hooks/' + slug + '/status';
                 const st = await fetch(url).then(r => r.json());
@@ -830,6 +832,7 @@ const GuideConnectAgentsPage = {
                 if (present) {
                     guardStatus(h.slug).then(state => {
                         if (state === 'enabled') { badge.textContent = '✓ Guard'; badge.style.color = '#10b981'; badge.style.borderColor = 'color-mix(in srgb, #10b981 50%, transparent)'; badge.style.cursor = 'default'; }
+                        else if (state === 'builtin') { badge.textContent = 'Built in'; badge.style.cursor = 'default'; }
                         else if (state === 'installed') { badge.textContent = 'Guard · off'; badge.style.color = 'var(--warning)'; badge.style.borderColor = 'color-mix(in srgb, #f59e0b 50%, transparent)'; }
                         else { badge.textContent = 'Install →'; badge.style.color = ACCENT; badge.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 50%, transparent)'; badge.style.cursor = 'pointer'; badge.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
                     });
@@ -862,7 +865,7 @@ const GuideConnectAgentsPage = {
                     });
                 }
 
-                if (present) { row.title = 'Open the ' + h.label + ' install page'; name.style.cursor = 'pointer'; name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
+                if (present && h.slug !== 'govrun') { row.title = 'Open the ' + h.label + ' install page'; name.style.cursor = 'pointer'; name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
                 wrap.appendChild(row);
             });
 

@@ -30,6 +30,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -49,9 +50,7 @@ router = APIRouter(prefix="/hooks/hermes", tags=["Hooks"])
 
 def _hermes_state_db() -> Path:
     """Resolve Hermes's state DB, honoring the HERMES_HOME override."""
-    home = os.environ.get("HERMES_HOME")
-    base = Path(home).expanduser() if home else (Path.home() / ".hermes")
-    return base / "state.db"
+    return _hermes_home() / "state.db"
 
 
 def _epoch_to_iso(epoch: float | None) -> str | None:
@@ -239,14 +238,22 @@ from . import _hooks_common  # noqa: E402
 from ._plugin_guard import require_local_origin  # noqa: E402
 
 PLUGIN_NAME = "securevector"
-PLUGIN_FILES = ["plugin.yaml", "__init__.py", "cost.py", "README.md"]
+PLUGIN_FILES = ["plugin.yaml", "__init__.py", "cost.py", "audit.py", "README.md"]
 # Bundled plugin source: src/securevector/app/server/routes/<this> -> up 4 -> securevector/
 BUNDLED_PLUGIN_DIR = Path(__file__).parent.parent.parent.parent / "plugins" / "hermes"
 
 
 def _hermes_home() -> Path:
-    home = os.environ.get("HERMES_HOME")
-    return Path(home).expanduser() if home else (Path.home() / ".hermes")
+    """The Hermes home as Hermes resolves it (``get_hermes_home`` in
+    hermes_constants.py): a non-empty ``HERMES_HOME``, else the platform
+    default."""
+    home = (os.environ.get("HERMES_HOME") or "").strip()
+    if home:
+        return Path(home).expanduser()
+    if sys.platform == "win32":
+        local = (os.environ.get("LOCALAPPDATA") or "").strip()
+        return (Path(local) if local else Path.home() / "AppData" / "Local") / "hermes"
+    return Path.home() / ".hermes"
 
 
 def _plugin_dir() -> Path:
@@ -262,19 +269,15 @@ def _hermes_detected() -> bool:
 
 
 def _allowed_roots() -> list[Path]:
-    """``~/.hermes``, plus ``$HERMES_HOME`` when it sits inside the user's home.
-    A symlinked Hermes home is refused: it could point anywhere."""
-    default = Path.home() / ".hermes"
-    env = os.environ.get("HERMES_HOME")
-    for root in (default, Path(env).expanduser() if env else None):
-        if root is not None and root.is_symlink():
-            raise HTTPException(status_code=400, detail=f"Refusing a symlinked Hermes home at {root}")
-    roots = [default.resolve(strict=False)]
-    if env:
-        resolved = Path(env).expanduser().resolve(strict=False)
-        if resolved.is_relative_to(Path.home().resolve(strict=False)):
-            roots.append(resolved)
-    return roots
+    """The Hermes home that Hermes itself uses (``$HERMES_HOME`` or the
+    default). A symlinked Hermes home is refused: it could point anywhere."""
+    # Any HERMES_HOME is accepted on purpose (for example a path under /opt):
+    # the environment the app runs in is trusted, as Hermes trusts it. The
+    # symlinked-root refusal below still applies.
+    root = _hermes_home()
+    if root.is_symlink():
+        raise HTTPException(status_code=400, detail=f"Refusing a symlinked Hermes home at {root}")
+    return [root.resolve(strict=False)]
 
 
 def _check_target(path: Path) -> None:
@@ -285,7 +288,7 @@ def _check_target(path: Path) -> None:
     if not any(resolved.is_relative_to(root) for root in _allowed_roots()):
         raise HTTPException(
             status_code=400,
-            detail=f"Refusing to write outside the Hermes home (~/.hermes): resolved {resolved} (was {path})",
+            detail=f"Refusing to write outside the Hermes home ({_hermes_home()}): resolved {resolved} (was {path})",
         )
 
 
