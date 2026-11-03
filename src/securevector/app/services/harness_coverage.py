@@ -49,8 +49,9 @@ openclaw
   enforced=after_call    P/openclaw/index.ts:492 (after_tool_call only), :469-482 (block recorded as log_only
                          unless the proxy blocks)
   egress_visible=True    P/openclaw/index.ts:177-180 (evaluated after the call, recorded only)
-  token_data=True        P/openclaw/index.ts:630-646 (llm_output -> /api/costs/track, :146)
-  session_id_sent=True   P/openclaw/index.ts:220
+  token_data=True        P/openclaw/index.ts:643-666 (llm_output -> /api/costs/track, :146; one row per
+                         run attempt, usage summed over its model calls)
+  session_id_sent=True   P/openclaw/index.ts:229 (audit), :151 (cost)
   approvals=False        no /api/jit/requests call; policy fetched with no runtime (index.ts:93)
 govrun
   enforced=after_call    app/terminals/executors.py:139-144 (reports through its own Guard; no hook

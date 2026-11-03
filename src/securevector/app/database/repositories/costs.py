@@ -76,6 +76,21 @@ def input_includes_cached(provider: Optional[str], model_id: Optional[str]) -> b
     return True
 
 
+# OpenClaw plugin rows sent before 6.2.0 carry the run's session key
+# ("agent:<id>:...") or "openclaw-agent" as agent_id. They are read as
+# "openclaw", the agent id the plugin sends now, so they group with it.
+OPENCLAW_AGENT_ID = "openclaw"
+AGENT_KEY_SQL = (
+    "(CASE WHEN (agent_id = 'openclaw-agent' OR agent_id LIKE 'agent:%') "
+    "AND COALESCE(runtime_kind, '') IN ('', 'openclaw') THEN 'openclaw' ELSE agent_id END)"
+)
+
+
+def agent_filter(agent_id: str) -> str:
+    """SQL condition (one ``?``) matching cost rows of ``agent_id``."""
+    return f"{AGENT_KEY_SQL} = ?" if agent_id == OPENCLAW_AGENT_ID else "agent_id = ?"
+
+
 def provider_known(provider: Optional[str]) -> bool:
     return (provider or "").strip().lower() not in ("", "unknown")
 
@@ -462,7 +477,7 @@ class CostsRepository:
         rows = await self.db.fetch_all(
             f"""
             SELECT
-                agent_id,
+                {AGENT_KEY_SQL} AS agent_id,
                 COUNT(*) as total_requests,
                 SUM(input_tokens) as total_input_tokens,
                 SUM(output_tokens) as total_output_tokens,
@@ -476,7 +491,7 @@ class CostsRepository:
                 SUM(CASE WHEN pricing_known = 0 THEN 1 ELSE 0 END) as unknown_count
             FROM llm_cost_records
             {where}
-            GROUP BY agent_id
+            GROUP BY {AGENT_KEY_SQL}
             ORDER BY total_cost_usd DESC
             LIMIT ?
             """,
@@ -519,7 +534,7 @@ class CostsRepository:
         params: list = []
 
         if agent_id:
-            conditions.append("agent_id = ?")
+            conditions.append(agent_filter(agent_id))
             params.append(agent_id)
         if provider:
             conditions.append("provider = ?")
@@ -570,11 +585,11 @@ class CostsRepository:
         )
 
         top_agent_row = await self.db.fetch_one(
-            """
-            SELECT agent_id, SUM(total_cost_usd) as cost
+            f"""
+            SELECT {AGENT_KEY_SQL} AS agent_id, SUM(total_cost_usd) as cost
             FROM llm_cost_records
             WHERE recorded_at >= ?
-            GROUP BY agent_id
+            GROUP BY {AGENT_KEY_SQL}
             ORDER BY cost DESC
             LIMIT 1
             """,
@@ -755,7 +770,7 @@ class CostsRepository:
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         if agent_id:
             row = await self.db.fetch_one(
-                "SELECT COALESCE(SUM(total_cost_usd), 0.0) as total FROM llm_cost_records WHERE agent_id = ? AND recorded_at >= ?",
+                f"SELECT COALESCE(SUM(total_cost_usd), 0.0) as total FROM llm_cost_records WHERE {agent_filter(agent_id)} AND recorded_at >= ?",
                 (agent_id, today_start.isoformat()),
             )
         else:
@@ -1015,7 +1030,7 @@ class CostsRepository:
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         if agent_id:
             row = await self.db.fetch_one(
-                "SELECT COALESCE(SUM(total_cost_usd), 0.0) as total FROM llm_cost_records WHERE agent_id = ? AND recorded_at >= ?",
+                f"SELECT COALESCE(SUM(total_cost_usd), 0.0) as total FROM llm_cost_records WHERE {agent_filter(agent_id)} AND recorded_at >= ?",
                 (agent_id, month_start.isoformat()),
             )
         else:
@@ -1086,7 +1101,7 @@ class CostsRepository:
         """Delete cost records, optionally filtered by agent_id. Returns deleted count."""
         if agent_id:
             cursor = await self.db.execute(
-                "DELETE FROM llm_cost_records WHERE agent_id = ?", (agent_id,)
+                f"DELETE FROM llm_cost_records WHERE {agent_filter(agent_id)}", (agent_id,)
             )
         else:
             cursor = await self.db.execute("DELETE FROM llm_cost_records")

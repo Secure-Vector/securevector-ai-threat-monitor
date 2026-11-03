@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Approvals list stays available while the database is busy, and an approval is asked only for a real permission prompt.
 - Rule labels attach only to the call they belong to.
 - Esc closes the collapsed rail menu.
+- OpenClaw cost records carry the agent id `openclaw`, the session and a request id; older OpenClaw cost rows are grouped under `openclaw`. A budget set on an older per-session OpenClaw id no longer sees new spend.
 
 ## [6.1.0] - 2026-10-31
 
