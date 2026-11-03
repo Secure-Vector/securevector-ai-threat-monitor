@@ -298,10 +298,17 @@ async def list_requests(
         db = get_database()
         repo = JitAccessRepository(db)
         # Opportunistic housekeeping: stale pending requests expire on read so
-        # the queue the human sees never contains day-old asks.
-        await repo.expire_stale_requests()
-        from securevector.app.services import response_rungs
-        await response_rungs.expire_holds(db)
+        # the queue the human sees never contains day-old asks. A busy
+        # database skips it; the read below leaves lapsed requests out.
+        try:
+            await repo.expire_stale_requests()
+            from securevector.app.services import response_rungs
+            await response_rungs.expire_holds(db)
+        except Exception as e:  # noqa: BLE001 - the list is still served
+            if any(w in str(e).lower() for w in ("locked", "busy", "within a transaction")):
+                logger.debug("JIT expiry skipped, database busy", exc_info=True)
+            else:
+                logger.warning(f"JIT expiry failed: {e}")
         items = await repo.list_requests(status=status)
         return {"items": items, "pending": await repo.pending_count()}
     except Exception as e:

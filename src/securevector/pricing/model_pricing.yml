@@ -253,9 +253,13 @@ providers:
     display_name: "Anthropic"
     source_url: "https://platform.claude.com/docs/en/about-claude/pricing"
     # Bedrock and Vertex ids (us./eu./apac./global. prefixes, anthropic.,
-    # -vN:M and date suffixes) price from these entries. Bedrock regional and
-    # multi-region endpoints carry a 10% premium over global on current
-    # models; that premium is not applied.
+    # -vN:M and date suffixes) price from these entries. Rates here are the
+    # first-party (global) rates. Bedrock and Vertex regional and multi-region
+    # endpoints carry a 10% premium over global for Claude Sonnet 4.5, Haiku
+    # 4.5, Opus 4.5 and later; costs apply it (1.1x on every rate) to Bedrock
+    # ids with a geographic prefix (us., eu., apac., jp., au.) or none, never
+    # to global. ids. Vertex ids do not name the endpoint, so Vertex is priced
+    # at global rates unless the record says a regional endpoint was used.
     models:
       - model_id: claude-fable-5-1
         display_name: "Claude Fable 5.1"

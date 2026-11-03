@@ -46,8 +46,9 @@ async def test_bedrock_haiku_box_mix_prices_cache_reads_at_a_tenth(db, monkeypat
     out = await _track(db, monkeypatch, agent_id="agent:main:x", provider="amazon-bedrock",
                        model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0", **BOX)
     assert out["pricing_known"] is True
-    assert out["total_cost_usd"] == pytest.approx(BOX_USD, abs=1e-6)
-    assert 0.50 < out["total_cost_usd"] < 0.51  # was $3.40 at 1.0x cache rate
+    # us. is a regional Bedrock endpoint: 1.1x on Haiku 4.5.
+    assert out["total_cost_usd"] == pytest.approx(1.1 * BOX_USD, abs=1e-6)
+    assert 0.55 < out["total_cost_usd"] < 0.56  # was $3.74 at 1.0x cache rate
 
 
 @pytest.mark.asyncio
@@ -78,21 +79,23 @@ NEW = {
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model", sorted(NEW))
-@pytest.mark.parametrize("form,provider", [
-    ("{m}", "anthropic"),
-    ("anthropic.{m}", "amazon-bedrock"),
-    ("us.anthropic.{m}-v1:0", "bedrock"),
-    ("eu.anthropic.{m}-20261001-v1:0", "amazon-bedrock"),
-    ("global.anthropic.{m}-v1:0", "amazon-bedrock"),
-    ("{m}@20261001", "vertex"),
+# Bedrock regional and in-region ids carry the 10% regional-endpoint premium;
+# global, first-party and Vertex (endpoint not on the record) do not.
+@pytest.mark.parametrize("form,provider,premium", [
+    ("{m}", "anthropic", 1.0),
+    ("anthropic.{m}", "amazon-bedrock", 1.1),
+    ("us.anthropic.{m}-v1:0", "bedrock", 1.1),
+    ("eu.anthropic.{m}-20261001-v1:0", "amazon-bedrock", 1.1),
+    ("global.anthropic.{m}-v1:0", "amazon-bedrock", 1.0),
+    ("{m}@20261001", "vertex", 1.0),
 ])
-async def test_new_models_price_in_every_id_form(db, model, form, provider):
+async def test_new_models_price_in_every_id_form(db, model, form, provider, premium):
     inp, write, read, outp = NEW[model]
     card = await CostsRepository(db).resolve_rate_card(provider, form.format(m=model))
     assert card is not None
     assert (card.input, card.cache_write, card.cache_read, card.output) == (inp, write, read, outp)
     ic, oc = compute_cost(provider, form.format(m=model), card, 1_000_000, 1_000_000, 1_000_000, 1_000_000)
-    assert ic + oc == pytest.approx(inp + write + read + outp)
+    assert ic + oc == pytest.approx(premium * (inp + write + read + outp))
 
 
 def test_model_id_candidates_reduce_to_first_party():
@@ -155,7 +158,8 @@ async def test_proxy_recorder_reads_bedrock_converse_usage(db):
     await rec.record("amazon-bedrock", "b1", body)
     row = await db.fetch_one("SELECT * FROM llm_cost_records WHERE agent_id = 'b1'")
     assert row["pricing_known"] == 1
-    assert row["total_cost_usd"] == pytest.approx(BOX_USD, abs=1e-6)
+    # us. is a regional Bedrock endpoint: 1.1x on Haiku 4.5.
+    assert row["total_cost_usd"] == pytest.approx(1.1 * BOX_USD, abs=1e-6)
 
 
 # --- harness senders --------------------------------------------------------
@@ -306,3 +310,28 @@ async def test_short_number_or_word_after_a_key_stays_unpriced(db, monkeypatch, 
     out = await _track(db, monkeypatch, provider=provider, model_id=model_id,
                        input_tokens=1, output_tokens=1)
     assert out["pricing_known"] is False
+
+
+# --- stored rates carry the regional-endpoint premium -----------------------
+
+@pytest.mark.asyncio
+async def test_stored_rates_on_a_regional_bedrock_row_are_effective_rates(db, monkeypatch):
+    out = await _track(db, monkeypatch, agent_id="rate-check", provider="amazon-bedrock",
+                       model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                       input_tokens=1_000_000, output_tokens=1_000_000)
+    row = await db.fetch_one("SELECT rate_input, rate_output, total_cost_usd FROM llm_cost_records "
+                             "WHERE id = ?", (out["id"],))
+    assert row["rate_input"] == pytest.approx(1.1)
+    assert row["rate_output"] == pytest.approx(5.5)
+    # tokens x stored rate == stored cost
+    assert row["total_cost_usd"] == pytest.approx(row["rate_input"] + row["rate_output"])
+
+
+def test_optimizer_rates_include_the_regional_premium():
+    from securevector.app.services.cost_optimizer import _rates_for
+    pricing = {"claude-haiku-4-5": ("anthropic", 1.0, 5.0)}
+    us = _rates_for("us.anthropic.claude-haiku-4-5-20251001-v1:0", pricing)
+    assert (us["in_rate"], us["out_rate"]) == (pytest.approx(1.1), pytest.approx(5.5))
+    glob = _rates_for("global.anthropic.claude-haiku-4-5-20251001-v1:0", pricing)
+    assert (glob["in_rate"], glob["out_rate"]) == (1.0, 5.0)
+    assert _rates_for("claude-haiku-4-5", pricing)["in_rate"] == 1.0

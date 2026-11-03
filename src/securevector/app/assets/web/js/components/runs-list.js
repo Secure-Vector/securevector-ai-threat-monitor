@@ -122,6 +122,11 @@ const RunsList = {
     isNewest(r, ctx) { return !!ctx && ctx.newest[this._sessionKey(r)] === r.trace_id; },
 
     isRunning(r, ctx) {
+        // The server's word that a run or its session ended wins over the
+        // recent-activity window below.
+        if (r && r.ended === true) return false;
+        const ls = ctx && ctx.live && r.session_id ? ctx.live[r.session_id] : null;
+        if (ls && ls.ended) return false;
         // A session's newest run runs while its live row does; an ended
         // session (end marker, or ten quiet minutes) stops at once. A
         // session missing from the live list (cut at its limit) falls back
@@ -388,6 +393,18 @@ const RunsList = {
         const s = state || {};
         if (this.GROUP_MODES.includes(s.groupMode)) return s.groupMode;
         return s.groupBySession === false ? 'none' : 'harness';
+    },
+
+    /** The session row's count line: "N runs · M calls · $X". The cost
+     *  part shows only when the session cost something. */
+    sessionSummary(runs) {
+        const list = runs || [];
+        const n = list.length;
+        const calls = list.reduce((a, r) => a + Number((r && (r.tool_call_count != null ? r.tool_call_count : r.spans)) || 0), 0);
+        const cost = list.reduce((a, r) => a + Number((r && r.cost) || 0), 0);
+        let text = `${n} run${n === 1 ? '' : 's'} · ${calls} call${calls === 1 ? '' : 's'}`;
+        if (cost > 0) text += cost < 0.005 ? ' · <$0.01' : ` · $${cost.toFixed(2)}`;
+        return text;
     },
 
     /** Distinct sessions with a running run among `runs`. */
@@ -665,6 +682,23 @@ const RunsList = {
         }
         const gi = this.groupBySession(ordered || []).findIndex(g => g.runs.some(r => r.trace_id === traceId));
         return gi < 0 ? -1 : Math.floor(gi / size);
+    },
+
+    /** The run a link names (?run=<trace_id>), or null. */
+    runParam(search) {
+        try {
+            const v = new URLSearchParams(String(search || '')).get('run');
+            return v && v.length <= 256 ? v : null;
+        } catch (e) { return null; }
+    },
+
+    /** `href` with ?run= set to `traceId`, or removed when it is empty.
+     *  Returns the path, query and hash, ready for history.replaceState. */
+    runHref(href, traceId) {
+        const u = new URL(String(href));
+        if (traceId) u.searchParams.set('run', traceId);
+        else u.searchParams.delete('run');
+        return u.pathname + u.search + u.hash;
     },
 
     /** One-shot handoff between pages: read a pending target and clear it,

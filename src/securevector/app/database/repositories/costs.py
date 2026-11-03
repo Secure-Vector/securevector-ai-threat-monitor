@@ -76,6 +76,76 @@ def input_includes_cached(provider: Optional[str], model_id: Optional[str]) -> b
     return True
 
 
+# Bedrock and Vertex regional / multi-region endpoints price Claude 4.5 and
+# later models at 1.1x the global rate; the first-party API is global.
+REGIONAL_ENDPOINT_PREMIUM = 1.1
+_PREMIUM_FROM_VERSION = (4, 5)
+_CLAUDE_VERSION = re.compile(r"claude-(?:[a-z]+-)?(\d{1,2})(?:[-.](\d{1,2})(?!\d))?")
+
+
+def claude_version(model_id: Optional[str]) -> Optional[tuple[int, int]]:
+    """(major, minor) of a Claude model id, or None for a non-Claude id.
+
+    ``claude-haiku-4-5-20251001`` is (4, 5), ``claude-sonnet-4-20250514`` is
+    (4, 0), ``claude-3-5-sonnet-20241022`` is (3, 5).
+    """
+    m = _CLAUDE_VERSION.search((model_id or "").lower())
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2) or 0)
+
+
+def _bedrock_endpoint(model_id: str) -> Optional[str]:
+    """"global" or "regional" for a Bedrock Claude id, None if not Bedrock-shaped."""
+    parts = model_id.strip().lower().split(".")
+    if len(parts) > 2 and parts[1] == "anthropic":
+        return "global" if parts[0] == "global" else "regional"
+    if len(parts) > 1 and parts[0] == "anthropic":
+        return "regional"  # in-region id, no geographic prefix
+    return None
+
+
+def regional_premium(
+    provider: Optional[str], model_id: Optional[str], endpoint: Optional[str] = None
+) -> float:
+    """Rate multiplier for the endpoint a Claude call went through.
+
+    1.1 for a Claude 4.5 or later model on a Bedrock or Vertex regional or
+    multi-region endpoint, else 1.0. Bedrock reads the endpoint from the id
+    prefix (``global.`` is global; ``us.``, ``eu.``, ``apac.``, ``jp.``,
+    ``au.`` or no prefix is regional). Vertex ids do not carry it, so Vertex
+    gets the premium only when ``endpoint`` says the call was regional.
+    """
+    mid = (model_id or "").strip()
+    ver = claude_version(mid)
+    if ver is None or ver < _PREMIUM_FROM_VERSION:
+        return 1.0
+    p = (provider or "").lower()
+    ep = (endpoint or "").strip().lower() or None
+    bedrock_ep = _bedrock_endpoint(mid)
+    if p in BEDROCK_PROVIDERS or (bedrock_ep and p in ("", "anthropic")):
+        where = ep or bedrock_ep
+    elif p in VERTEX_PROVIDERS:
+        where = ep
+    else:
+        return 1.0
+    if where and where != "global":
+        return REGIONAL_ENDPOINT_PREMIUM
+    return 1.0
+
+
+def effective_rates(
+    provider: Optional[str], model_id: Optional[str], card: Optional[RateCard],
+    endpoint: Optional[str] = None,
+) -> tuple[Optional[float], Optional[float]]:
+    """(input, output) USD per 1M with the endpoint premium applied, so a
+    stored row's tokens x rate matches its cost. (None, None) without a card."""
+    if card is None:
+        return None, None
+    k = regional_premium(provider, model_id, endpoint)
+    return card.input * k, card.output * k
+
+
 def model_id_candidates(model_id: Optional[str]) -> list[str]:
     """Pricing keys to try for a model id, most specific first.
 
@@ -156,11 +226,14 @@ def compute_cost(
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
     includes_cached: Optional[bool] = None,
+    endpoint: Optional[str] = None,
 ) -> tuple[float, float]:
     """(input_cost_usd, output_cost_usd). Input cost covers cache reads and writes.
 
     ``includes_cached`` overrides the provider convention when the sender
-    knows how its ``input_tokens`` were counted.
+    knows how its ``input_tokens`` were counted. ``endpoint`` ("global",
+    "regional", "multi-region" or a region name) names the endpoint when the
+    record carries it; see ``regional_premium``.
     """
     if includes_cached is None:
         includes_cached = input_includes_cached(provider, model_id)
@@ -179,8 +252,9 @@ def compute_cost(
         write_rate = card.cache_write
     else:
         write_rate = card.input * (ANTHROPIC_CACHE_WRITE_MULTIPLIER if claude else 1.0)
-    input_cost = (uncached * card.input + read * read_rate + write * write_rate) / 1_000_000
-    output_cost = (int(output_tokens or 0) * card.output) / 1_000_000
+    k = regional_premium(provider, model_id, endpoint)
+    input_cost = k * (uncached * card.input + read * read_rate + write * write_rate) / 1_000_000
+    output_cost = k * (int(output_tokens or 0) * card.output) / 1_000_000
     return input_cost, output_cost
 
 
@@ -773,7 +847,7 @@ class CostsRepository:
         input_preview, _ = sanitize_trace_text(input_preview, direction="outgoing")
         output_preview, _ = sanitize_trace_text(output_preview, direction="llm_response")
         card = await self.resolve_rate_card(provider, model_id)
-        rate_in, rate_out = (card.input, card.output) if card else (None, None)
+        rate_in, rate_out = effective_rates(provider, model_id, card)
         pricing_known = card is not None
         if pricing_known:
             input_cost, output_cost = compute_cost(

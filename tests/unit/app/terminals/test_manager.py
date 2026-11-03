@@ -561,6 +561,35 @@ def test_status_from_hook_notification_without_permission_is_ignored():
     ) == (None, None)
 
 
+def test_status_from_hook_trust_dialog_is_not_a_permission_prompt():
+    for event in (
+        {"hook_event_name": "Notification", "notification_type": "idle_prompt",
+         "message": "Claude needs your permission to continue"},
+        {"hook_event_name": "Notification",
+         "message": "Do you trust the files in this folder? Claude needs permission to work here"},
+        {"hook_event_name": "Notification", "notification_type": "elicitation_dialog",
+         "message": "permission requested by server"},
+    ):
+        assert status_from_hook(event) == (None, None), event
+    # An older build without a type still reports a tool permission prompt.
+    assert status_from_hook(
+        {"hook_event_name": "Notification", "message": "Claude needs your permission to use Bash"}
+    )[0] == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_a_submitted_line_clears_a_permission_block(tmp_path):
+    m, ws = await _manager(tmp_path)
+    task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+    tid = task["id"]
+    await m.handle_hook_event(tid, m.hook_token(tid), {
+        "hook_event_name": "Notification", "notification_type": "permission_prompt",
+        "message": "Claude needs your permission to use Bash"})
+    assert (await m.store.get_task(tid))["status"] == "blocked"
+    await m.input(tid, b"1\r")
+    assert (await m.store.get_task(tid))["status"] == "working"
+
+
 def test_status_from_hook_stop_is_idle():
     assert status_from_hook({"hook_event_name": "Stop"}) == ("idle", "Waiting for input")
 

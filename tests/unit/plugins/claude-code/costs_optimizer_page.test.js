@@ -70,14 +70,65 @@ test('traces waterfall annotates optimizer turns and consumes the gen jump', () 
   assert.match(src, /cost-optimizer\/report/);
 });
 
-test('top banners are retired: the slot renders nothing and is removed', () => {
+test('top banners stay retired except the one-line what\'s-new pointer', () => {
   const src = read('js/components/global-banners.js');
-  for (const gone of ['_buildWhatsNew', '_buildGuardianNotice', '_buildEnrolledBanner', 'Cost / Token Optimizer']) {
+  for (const gone of ['_buildWhatsNew', '_buildGuardianNotice', '_buildEnrolledBanner', 'Cost / Token Optimizer', "'5.2.0'"]) {
     assert.ok(!src.includes(gone), gone + ' should be gone');
   }
-  assert.match(src, /if \(slot\) slot\.remove\(\);/);
+  assert.match(src, /if \(old\) old\.remove\(\);/);
   assert.match(src, /KEY_WHATS_NEW: 'sv-whats-new-acked'/, 'welcome screen still acks the key');
-  assert.match(read('index.html'), /global-banners\.js\?v=24/);
+  assert.match(src, /fetch\('\/health'\)/, 'version comes from the running app');
+  assert.match(read('index.html'), /global-banners\.js\?v=26/);
+});
+
+test('what\'s new: upgraders see it until dismissed, never on a fresh install', () => {
+  const vm = require('node:vm');
+  const store = {};
+  const localStorage = {
+    getItem: (k) => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+  };
+  const window = {};
+  vm.runInNewContext(read('js/components/global-banners.js'), { window, localStorage, console });
+  const G = window.GlobalBanners;
+  assert.equal(G.parseVersion('6.2.0'), '6.2.0');
+  assert.equal(G.parseVersion('6.2.0rc1'), '6.2.0');
+  assert.equal(G.parseVersion('dev'), null);
+  // One docs page per minor version.
+  assert.equal(G.releaseNotesUrl('6.1.0'), 'https://docs.securevector.io/release-6-1-0');
+  assert.equal(G.releaseNotesUrl('6.1.3'), 'https://docs.securevector.io/release-6-1-0');
+
+  // Fresh install: the welcome screen acks the sentinel, then the first
+  // render records the running version without showing anything.
+  store[G.KEY_WHATS_NEW] = G.WHATS_NEW_VERSION;
+  store['sv-welcome-seen-v2'] = 'true';
+  assert.equal(G.shouldShowWhatsNew('6.2.0'), false);
+  assert.equal(store[G.KEY_WHATS_NEW], '6.2.0');
+
+  // Upgrade: shown on every view until dismissed, then never again.
+  assert.equal(G.shouldShowWhatsNew('6.3.0'), true);
+  assert.equal(G.shouldShowWhatsNew('6.3.0'), true);
+  assert.equal(store[G.KEY_WHATS_NEW], '6.2.0');
+  G.markWhatsNewSeen('6.3.0');
+  assert.equal(G.shouldShowWhatsNew('6.3.0'), false);
+
+  // Upgrader from a build that stored the old fixed key.
+  store[G.KEY_WHATS_NEW] = '5.2.0';
+  assert.equal(G.shouldShowWhatsNew('6.2.0'), true);
+
+  // Still on the first-launch welcome: nothing, nothing recorded.
+  delete store['sv-welcome-seen-v2'];
+  delete store[G.KEY_WHATS_NEW];
+  assert.equal(G.shouldShowWhatsNew('6.2.0'), false);
+  assert.equal(store[G.KEY_WHATS_NEW], undefined);
+  assert.equal(G.shouldShowWhatsNew(null), false);
+
+  // Storage that throws (private mode) never breaks the check.
+  const throwing = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+  const w2 = {};
+  vm.runInNewContext(read('js/components/global-banners.js'), { window: w2, localStorage: throwing, console });
+  assert.equal(w2.GlobalBanners.shouldShowWhatsNew('6.2.0'), false);
+  w2.GlobalBanners.markWhatsNewSeen('6.2.0');
 });
 
 test('tour starts at Connect, then follows the rail in order (6.1.0); the Optimizer is reached from Cost & Tokens, not the tour', () => {

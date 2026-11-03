@@ -206,7 +206,10 @@ const DashboardPage = {
             return t.is_threat && d && d.getTime() >= cutoff;
         });
         const blocked = inRange.filter(t => API.threatBlocked(t));
-        const allowedThrough = inRange.length - blocked.length;
+        // A record carrying a severity cap (model-only hit on file output) is
+        // listed for review, not counted as a threat allowed through.
+        const capped = inRange.filter(t => ((t.metadata || {}).severity_cap) && !blocked.includes(t));
+        const allowedThrough = inRange.length - blocked.length - capped.length;
         const latest = inRange[0];
 
         const rel = (d) => {
@@ -224,9 +227,13 @@ const DashboardPage = {
         } else if (allowedThrough > 0) {
             tone = 'alert';
             sentence = `${allowedThrough} threat${allowedThrough === 1 ? '' : 's'} allowed through in the ${rangeLabel}. Review now`;
+        } else if (!blocked.length) {
+            tone = 'warn';
+            sentence = `${capped.length} detection${capped.length === 1 ? '' : 's'} to review in the ${rangeLabel}`;
         } else {
             sentence = `${blocked.length} threat${blocked.length === 1 ? '' : 's'} caught in the ${rangeLabel}` +
-                (latest && parse(latest.created_at) ? ` — last ${rel(parse(latest.created_at))}, blocked` : '');
+                (latest && parse(latest.created_at) ? ` — last ${rel(parse(latest.created_at))}, blocked` : '') +
+                (capped.length ? ` · ${capped.length} to review` : '');
         }
 
         const colors = { ok: 'var(--accent-primary, #5eadb8)', warn: '#f59e0b', alert: '#ef4444' };
@@ -1043,7 +1050,7 @@ const DashboardPage = {
             return t.is_threat && d && d.getTime() >= cutoff;
         });
         const blocked = inRange.filter(t => API.threatBlocked(t)).length;
-        const critical = inRange.filter(t => t.risk_score >= 80).length;
+        const critical = inRange.filter(t => API.threatSeverity(t) === 'critical').length;
 
         // Calendar days across the window, oldest first. The daily tool-call
         // endpoint keys on local calendar dates, so the sparklines use the
@@ -1131,7 +1138,7 @@ const DashboardPage = {
                 adrStat.valEl.textContent = score == null ? '\u2014' : String(Math.round(score));
                 if (band === 'high') adrStat.valEl.style.color = 'var(--danger, #ef4444)';
                 else if (band === 'watch') adrStat.valEl.style.color = '#f59e0b';
-                adrStat.setSub(score == null ? 'no scored sessions yet' : `${band} · ${n} to review`);
+                adrStat.setSub(score == null ? 'no scored sessions yet' : `${band === 'high' ? 'High' : band === 'watch' ? 'Watch' : 'Low'} · ${n} to review`);
             }).catch(() => { adrStat.valEl.textContent = '\u2014'; adrStat.setSub('no scored sessions yet'); });
 
             if (agents) {
@@ -1198,7 +1205,7 @@ const DashboardPage = {
             if (threatWindow && threatWindow.items && threatWindow.total <= threatWindow.items.length) {
                 const perDay = new Map(dayKeys.map(k => [k, 0]));
                 threatWindow.items
-                    .filter(t => t.is_threat && t.risk_score >= 80)
+                    .filter(t => t.is_threat && API.threatSeverity(t) === 'critical')
                     .forEach(t => {
                         const d = parseTs(t.created_at);
                         if (!d) return;

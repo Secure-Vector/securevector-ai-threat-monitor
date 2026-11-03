@@ -126,6 +126,16 @@ const AgentRunsPage = {
 
     _isLive(ts) { return ts ? (Date.now() - this._ms(ts)) < this._LIVE_MS : false; },
 
+    /** A run is live while it was active lately, unless the server says
+     *  it ended (an ended flag on the run or its session's live row). */
+    _runLive(r) {
+        if (!r || r.ended === true) return false;
+        const sid = r.session_id;
+        const rows = (this._liveData && this._liveData.sessions) || [];
+        if (sid && rows.some(s => s && s.session_id === sid && s.ended)) return false;
+        return this._isLive(r.ended_at);
+    },
+
     _liveBadge(title) {
         return `<span class="ar-live" title="${title || 'Activity in the last 2 minutes'}">live</span>`;
     },
@@ -490,6 +500,9 @@ const AgentRunsPage = {
         this._injectStyle();
 
         if (!this.filters) this.filters = RunsList.emptyFilters();
+        // A run link (?run=<trace_id>) opens that run in place.
+        const linkRun = RunsList.runParam(window.location.search);
+        if (linkRun && !this._pendingTrace && !this._pendingWait) this._pendingRunLink = linkRun;
         // A Map agent-node drill arrives as a runtime filter: it becomes the
         // Harness filter. A plain visit leaves the list filters as they were.
         if (this.runtimeFilter) { this.filters.harness = [this.runtimeFilter]; this.pageIdx = 0; }
@@ -1756,6 +1769,7 @@ const AgentRunsPage = {
         if (list) list.innerHTML = '<div class="ar-empty">Loading sessions…</div>';
         const wantTrace = this._pendingTrace; this._pendingTrace = null;
         const wantWait = RunsList.takeOnce(this, '_pendingWait');
+        const wantLink = RunsList.takeOnce(this, '_pendingRunLink');
         const [data] = await Promise.all([
             API.getTraces({ window_days: this.windowDays }),
             this._loadListExtras(true),
@@ -1782,6 +1796,33 @@ const AgentRunsPage = {
             this._pendingTrace = wantWait.traceId;
             this._pendingReq = wantWait.reqId || null;
             return this.loadData();
+        } else if (wantLink && this.runs.some(r => r.trace_id === wantLink)) {
+            // A run link: the run opens in place on the list.
+            this._linkPrevRange = null;
+            this._showList();
+            this._jumpToWaiting([wantLink], null, null, { link: true });
+        } else if (wantLink && this.windowDays < 90) {
+            // Older than the current window: widen to 90 days and retry once.
+            this._linkPrevRange = { windowDays: this.windowDays, range: this.range };
+            this.windowDays = 90;
+            this.range = '90d';
+            const bar = document.getElementById('agent-runs-toolbar');
+            if (bar) this._buildToolbar(bar);
+            this._pendingRunLink = wantLink;
+            return this.loadData();
+        } else if (wantLink) {
+            if (window.Toast) Toast.error('Run not found');
+            this._syncRunParam();
+            // Not there even at 90 days: back to the range the page had.
+            const prev = RunsList.takeOnce(this, '_linkPrevRange');
+            if (prev) {
+                this.windowDays = prev.windowDays;
+                this.range = prev.range;
+                const bar = document.getElementById('agent-runs-toolbar');
+                if (bar) this._buildToolbar(bar);
+                return this.loadData();
+            }
+            this._showList();
         } else if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
             // A deep link ("See full run") asked for the whole run. A health
             // link asked for the steps and their findings instead.
@@ -1852,7 +1893,7 @@ const AgentRunsPage = {
 
     /** Does a run belong to the given triage view? */
     _viewMatch(r, v) {
-        if (v === 'live') return this._isLive(r.ended_at);
+        if (v === 'live') return this._runLive(r);
         if (v === 'flagged') return (r.blocked || 0) + (r.detections || 0) + (r.secrets || 0) > 0;
         if (v === 'blocked') return (r.blocked || 0) > 0;
         if (v === 'detected') return (r.detections || 0) > 0;
@@ -2444,7 +2485,6 @@ const AgentRunsPage = {
         const first = g.runs[0];
         const running = all.some(r => RL.isRunning(r, ctx));
         const started = Math.min(...all.map(r => RL.ms(r.started_at) || RL.ms(r.ended_at)).filter(Boolean));
-        const cost = sessRuns.reduce((a, r) => a + Number(r.cost || 0), 0);
         const cov = RL.coverageFor(first.runtime_kind, ctx);
         const closed = RL.sessionClosed(this._openSessions, g, this.selected);
         const head = document.createElement('div');
@@ -2473,7 +2513,7 @@ const AgentRunsPage = {
         head.insertAdjacentHTML('beforeend',
             `<span class="rl-sub">${this._esc(this._hostText(first))}</span>` +
             (started && isFinite(started) ? `<span class="rl-sub">session started ${this._esc(this._clock(started))}</span>` : '') +
-            `<span class="rl-sub">${sessRuns.length} run${sessRuns.length === 1 ? '' : 's'} · ${cost > 0 ? '$' + cost.toFixed(2) : '—'}</span>`);
+            `<span class="rl-sub">${this._esc(RL.sessionSummary(sessRuns))}</span>`);
         const waitN = sessRuns.reduce((a, r) => a + Number(r.waiting || 0), 0);
         if (waitN > 0) {
             const wb = document.createElement('button');
@@ -2894,7 +2934,19 @@ const AgentRunsPage = {
         // A run that collapses goes back to all spans.
         RunsList.pruneSpanFilters(this._spanFilter || {}, this._openRuns);
         if (res.opened) this._inlineFetch(traceId, false);
+        this._syncRunParam();
         this._renderRunsKeep();
+    },
+
+    /** Keep ?run= on the URL in step with the open runs: the latest opened
+     *  run, or no param once every run is closed. */
+    _syncRunParam() {
+        try {
+            const open = this._openRuns || [];
+            const next = RunsList.runHref(window.location.href, open.length ? open[open.length - 1] : null);
+            const cur = window.location.pathname + window.location.search + window.location.hash;
+            if (next !== cur) history.replaceState(history.state, '', next);
+        } catch (e) { /* history unavailable */ }
     },
 
     /** A run row's blocked or error badge: open the run in place (when
@@ -3277,14 +3329,16 @@ const AgentRunsPage = {
      *  centred, with focus on Deny. Several waiting: the one that expires
      *  soonest. Not in the span tree yet: the full trace via Details with
      *  the request preselected. `reqId` pins one request (Live grid). */
-    async _jumpToWaiting(traceIds, sessionKey, reqId) {
+    async _jumpToWaiting(traceIds, sessionKey, reqId, opts) {
         const RL = RunsList;
+        // A run link opens the run in place and stops there.
+        const link = !!(opts && opts.link);
         // Jump token: with quick repeated clicks only the latest jump reveals.
         const seq = this._jumpSeq = (this._jumpSeq || 0) + 1;
         const runs = (this.runs || []).filter(r => traceIds.includes(r.trace_id));
-        let pick = reqId ? null : RL.soonestWaiting((this._pending && this._pending.items) || [], traceIds, this._ctx);
+        let pick = (reqId || link) ? null : RL.soonestWaiting((this._pending && this._pending.items) || [], traceIds, this._ctx);
         let traceId = pick ? pick.traceId : null;
-        if (reqId) traceId = traceIds[0];
+        if (reqId || link) traceId = traceIds[0];
         if (!traceId) { const r = RL.soonestWaitingRun(runs); traceId = r ? r.trace_id : traceIds[0]; }
         const wantReq = reqId || (pick && pick.req.id) || null;
         const r = (this.runs || []).find(x => x.trace_id === traceId);
@@ -3318,9 +3372,15 @@ const AgentRunsPage = {
         }
         // The waiting call must show: a span filter on this run clears.
         if (this._spanFilter) delete this._spanFilter[traceId];
+        this._syncRunParam();
         this._renderRunsKeep();
         await this._inlineFetch(traceId, false);
         if (seq !== this._jumpSeq) return;
+        if (link) {
+            const row = [...document.querySelectorAll('.rl-row')].find(c => c.dataset.trace === traceId);
+            if (row) { try { row.scrollIntoView({ block: 'center' }); } catch (_) { /* layout not ready */ } }
+            return;
+        }
         const e = this._inline[traceId];
         if (!e || !e.trace || !(this._openRuns || []).includes(traceId)) return toDetails();
         const path = RL.waitPath(this._inlineTree(r, e), wantReq);
@@ -3465,7 +3525,7 @@ const AgentRunsPage = {
         head.innerHTML = `<span class="ar-run-dot" style="background:${color}"></span>` +
             `<span class="ar-det-title">${this._esc(this._agentLabel(named))}</span>` +
             `<span class="ar-run-sub">${this._esc(trace.runtime_kind)}</span>` +
-            (this._isLive(trace.ended_at) ? this._liveBadge('This session is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
+            (this._runLive(trace) ? this._liveBadge('This session is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
             `<span class="ar-det-eyebrow" title="One trace per runtime session, with model and tool spans.">SESSION TRACE</span>` +
             (taskId ? '<button type="button" class="ar-terminal-open">Open Terminal task ↗</button>' : '') +
             `<button type="button" class="ar-det-x" title="Close this session trace">×</button>`;
@@ -3524,7 +3584,7 @@ const AgentRunsPage = {
         const sessionRuns = sid ? (this.runs || []).filter(r => r.session_id === sid)
             .sort((a, b) => (ms(a.started_at) || ms(a.ended_at)) - (ms(b.started_at) || ms(b.ended_at))) : [];
         const pos = sessionRuns.findIndex(r => r.trace_id === trace.trace_id);
-        const status = listed && RL ? RL.status(listed, ctx) : (this._isLive(trace.ended_at) ? 'running' : 'ok');
+        const status = listed && RL ? RL.status(listed, ctx) : (this._runLive(trace) ? 'running' : 'ok');
         const started = ms(trace.started_at), ended = ms(trace.ended_at);
         const durationMs = status === 'running' && started ? Date.now() - started : (started && ended >= started ? ended - started : null);
         const live = sid && this._liveData && (this._liveData.sessions || []).some(s => s && s.session_id === sid);
@@ -4749,7 +4809,9 @@ const AgentRunsPage = {
             ? '<span class="ar-det-fp">likely FP · ML disagrees</span>'
             : s.ml_agreement === 'ml_uncertain'
                 ? '<span class="ar-det-fp uncertain">ML uncertain</span>'
-                : '';
+                : s.ml_agreement === 'ml_only'
+                    ? '<span class="ar-det-fp uncertain">ML only</span>'
+                    : '';
         // Deep-link affordance — click the detection to see WHAT was detected on
         // its own page (Threat Monitor for threats, Secret Detections for secrets).
         const rid = s.request_id || '';

@@ -109,6 +109,11 @@
             return String(n);
         },
 
+        /** Display word for a score band; the stored values stay calm / watch / high. */
+        bandWord(b) {
+            return b === 'high' ? 'High' : b === 'watch' ? 'Watch' : b === 'calm' ? 'Low' : (b || '');
+        },
+
         fmtUsd(v) {
             if (v == null || !Number.isFinite(Number(v))) return '';
             const n = Number(v);
@@ -224,9 +229,10 @@
         },
 
         /** Match the session's approval requests to the trace's blocked tool
-         *  spans (same tool or host, within SAME_CALL_MS). Returns
-         *  { bySpan: Map(key -> request), orphans: [waiting requests with no span] }.
-         *  Only waiting requests of this run become orphans. */
+         *  spans (same tool or host, within SAME_CALL_MS, and the same call
+         *  by fingerprint or arguments). Returns
+         *  { bySpan: Map(key -> request), orphans: [requests with no span of their own] }.
+         *  Unmatched requests of this run become orphans. */
         matchRequests(trace, requests, opts = {}) {
             const out = { bySpan: new Map(), orphans: [] };
             const sid = trace && trace.session_id;
@@ -263,13 +269,26 @@
                 });
                 left = next;
             });
-            // Pass 3: time alone, only when nothing matched by content.
+            // Pass 3, time alone, narrow: only when one side has nothing to
+            // compare and exactly one blocked call of that tool is in reach.
+            // Anything still unmatched joins as its own row, never dropped.
+            const bare = (x, fp, pv) => !(x && x[fp]) && !this._norm(x && x[pv]);
             left.forEach(r => {
-                const hit = near(r)[0];
+                const cands = near(r);
+                const hit = cands.length === 1
+                    && (bare(r, 'call_fingerprint', 'call_preview') || bare(cands[0].s, 'call_fingerprint', 'args_preview'))
+                    ? cands[0] : null;
                 if (hit) take(r, hit);
-                else if (r.status === 'pending' && (r.trace_id === trace.trace_id || opts.newest)) out.orphans.push(r);
+                else if (r.trace_id === trace.trace_id || opts.newest) out.orphans.push(r);
             });
             return out;
+        },
+
+        /** The action a request row with no call of its own shows: waiting
+         *  is held, approved is allowed, anything else is blocked. */
+        orphanAction(r) {
+            const st = r && r.status;
+            return st === 'pending' ? 'hold' : st === 'approved' ? 'allow' : 'block';
         },
 
         /** Keys of blocked tool spans that follow another block to a different
@@ -466,7 +485,7 @@
             });
             match.orphans.forEach(r => {
                 const s = { span_kind: 'tool_call', tool_id: r.tool_id, function_name: r.function_name,
-                    args_preview: r.call_preview, called_at: r.requested_at, action: 'hold', _request: true };
+                    args_preview: r.call_preview, called_at: r.requested_at, action: this.orphanAction(r), _request: true };
                 const n = { key: 'req:' + r.id, kind: 'tool', span: s, children: [], req: r, grant: null, repeat: false };
                 const at = this.ms(r.requested_at);
                 const owner = turns.filter(g => at != null && (this.ms(g.span.called_at) || 0) <= at).pop();
@@ -683,7 +702,7 @@
                 sc && typeof sc.score === 'number'
                     ? { key: 'score', label: 'Score', value: String(sc.score), filter: 'held',
                         tone: sc.score >= 70 ? 'bad' : null,
-                        parts: [{ t: sc.band || sc.status || '' }].filter(p => p.t),
+                        parts: [{ t: this.bandWord(sc.band) || sc.status || '' }].filter(p => p.t),
                         title: 'How unusual this session is next to your usual sessions, 0 to 100. 70 or more needs review.' }
                     : { key: 'score', label: 'Score', value: 'no score', filter: 'held', muted: true,
                         parts: [{ t: cov.enforced === 'before_call' ? 'not scored yet' : 'not enforced' }],
@@ -765,6 +784,17 @@
                 .forEach(m => add(m.replace(/^[\s@'"=\/]/, '')));
             (t.match(/\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS|URL)[A-Z0-9_]*\b/g) || []).forEach(add);
             return out.slice(0, 8);
+        },
+
+        /** The rule line for a tool span: its own request's rule, or its
+         *  detection rules. A span that ran (not blocked or held) never
+         *  carries a block rule label. */
+        spanRule(req, span) {
+            const s = span || {};
+            const ran = !s._request && s.action !== 'block' && s.action !== 'hold';
+            if (req && !ran) return this.ruleText(req, s);
+            return Array.isArray(s.detection_rules) && s.detection_rules.length
+                ? { name: s.detection_rules.join(', '), id: '', version: '', source: '' } : null;
         },
 
         ruleText(req, span) {
@@ -973,8 +1003,7 @@
             const cmd = this.previewText(rawCmd);
             // A held call names the rule that held it; a plain block names
             // its detection rules when it has any, and its reason below.
-            const rule = req ? this.ruleText(req, s)
-                : (Array.isArray(s.detection_rules) && s.detection_rules.length ? { name: s.detection_rules.join(', '), id: '', version: '', source: '' } : null);
+            const rule = this.spanRule(req, s);
             const names = this.dataNames(cmd);
             const host = this.hostOf(req && req.tool_id) || this.hostOf(cmd);
             const cov = ctx.coverage || null;
@@ -1146,11 +1175,11 @@
             const cov = gov.coverage || ctx.coverage || {};
             const scored = sc && typeof sc.score === 'number';
             const scParts = scored
-                ? [{ t: String(sc.score), tone: sc.score >= 70 ? 'bad' : null }].concat(sc.band ? [{ t: sc.band }] : [])
+                ? [{ t: String(sc.score), tone: sc.score >= 70 ? 'bad' : null }].concat(sc.band ? [{ t: this.bandWord(sc.band) }] : [])
                 : [{ t: cov.enforced === 'before_call' ? 'no score yet' : 'no score: not enforced' }];
             const scoreBody = this._dl([
                 ['Score', scored
-                    ? `${sc.score}${sc.band ? ' ' + e(sc.band) : ''}${Array.isArray(sc.reasons) && sc.reasons.length ? ' · ' + e(sc.reasons.join(', ')) : ''}`
+                    ? `${sc.score}${sc.band ? ' ' + e(this.bandWord(sc.band)) : ''}${Array.isArray(sc.reasons) && sc.reasons.length ? ' · ' + e(sc.reasons.join(', ')) : ''}`
                     : `no score${cov.enforced === 'before_call' ? ' yet' : ': not enforced'}`],
             ]) + `<p class="rt-scope">${scored ? 'How unusual this session is next to your usual sessions, 0 to 100. 70 or more needs review.'
                 : cov.enforced === 'before_call' ? 'This session has no score yet.' : 'Calls here are recorded after they run, so the session is not scored.'}</p>`;
@@ -1252,8 +1281,7 @@
                     const t = (String(this.previewText((n.req && n.req.call_preview) || s.args_preview || '')).replace(/\s+/g, ' ').trim());
                     target = t.length > this.EXPORT_TARGET_CAP ? t.slice(0, this.EXPORT_TARGET_CAP) + '…' : t;
                     data = this.dataNames(this.previewText((n.req && n.req.call_preview) || s.args_preview || '')).join(' ');
-                    const r = n.req ? this.ruleText(n.req, s)
-                        : (Array.isArray(s.detection_rules) && s.detection_rules.length ? { name: s.detection_rules.join(', '), id: '' } : null);
+                    const r = this.spanRule(n.req, s);
                     if (r) rule = r.id && r.id !== r.name ? `${r.name} (${r.id})` : r.name;
                 }
                 rows.push({

@@ -73,6 +73,46 @@ _ML_VETO_EXEMPT_RULES = frozenset({
 # literal attacks anyway.
 _ML_MIN_TEXT_CHARS = 20
 _ML_MIN_TEXT_WORDS = 4
+# Severity ceiling for a model-only hit on file-read tool output.
+_ML_ONLY_FILE_READ_SEVERITY = "medium"
+# Tool names whose output is file content (Claude Code, OpenClaw, Codex,
+# OpenCode, Cursor and similar harnesses), compared lowercased.
+_FILE_READ_TOOLS = frozenset({
+    "read", "read_file", "readfile", "view", "view_file", "cat", "open_file",
+    "notebookread", "read_notebook", "get_file_contents", "file_read", "fs_read",
+})
+_SOURCE_CODE_LINE = re.compile(
+    r"^\s*(def |class |import |from \S+ import |async def |function |const |let |"
+    r"var |export |public |private |#include|package |fn |func |return\b|@\w+)",
+)
+
+
+_NON_FILE_TOOL_HINTS = ("fetch", "web", "browser", "search", "http", "url")
+
+
+def _is_file_read_output(metadata: dict, text: str, direction: str) -> bool:
+    """True when the scanned text is tool output from a file read.
+
+    With a tool name, only a file-read tool counts (never an MCP tool or a
+    fetch / web / browser / search tool). Without one, an llm_response scan
+    counts when the text is plainly source code.
+    """
+    if direction not in ("llm_response", "incoming"):
+        return False
+    md = metadata if isinstance(metadata, dict) else {}
+    tool = md.get("tool_name") or md.get("tool") or ""
+    name = tool.strip().lower() if isinstance(tool, str) else ""
+    if name:
+        if name.startswith("mcp__") or any(h in name for h in _NON_FILE_TOOL_HINTS):
+            return False
+        return name in _FILE_READ_TOOLS
+    if direction != "llm_response":
+        return False
+    lines = [ln for ln in (text or "").splitlines() if ln.strip()]
+    if len(lines) < 3:
+        return False
+    code_lines = sum(1 for ln in lines if _SOURCE_CODE_LINE.match(ln))
+    return code_lines >= 2 and code_lines * 5 >= len(lines)
 
 
 def _ml_enabled() -> bool:
@@ -895,8 +935,10 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
             if ml_malicious_score is not None:
                 has_ml_rule = any(getattr(r, "source", None) == "model" for r in matched_rules)
                 has_regex_rule = any(getattr(r, "source", None) != "model" for r in matched_rules)
-                if has_ml_rule:
+                if has_ml_rule and has_regex_rule:
                     ml_agreement = "corroborated"  # ML cleared its bar — agrees with the rules
+                elif has_ml_rule:
+                    ml_agreement = "ml_only"  # model hit with no rule behind it
                 elif has_regex_rule and ml_malicious_score < _ML_DISAGREE_BAR:
                     ml_agreement = "ml_disagrees"  # rule fired, model confidently benign → likely FP
                 elif has_regex_rule:
@@ -906,6 +948,15 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 augmented_metadata["ml_malicious_score"] = ml_malicious_score
                 if ml_agreement:
                     augmented_metadata["ml_agreement"] = ml_agreement
+                # A model-only hit on file-read tool output (or text that is
+                # plainly source code) is shown at medium at most. risk_score
+                # and is_threat stay as the detector returned them; consumers
+                # read metadata.severity_cap to rank the record.
+                if ml_agreement == "ml_only" and _is_file_read_output(
+                    augmented_metadata, request.text, direction
+                ):
+                    augmented_metadata["severity_cap"] = _ML_ONLY_FILE_READ_SEVERITY
+                    augmented_metadata["severity_cap_reason"] = "ml_only_file_read"
 
             record = await threat_intel_repo.create(
                 text=text_to_store,

@@ -235,7 +235,45 @@ def _build_locations() -> tuple:
             paths.setdefault(_location_key(pat), set()).update(_path_fragments(pat))
     out = [(key, "path", tuple(sorted(frags))) for key, frags in sorted(paths.items())]
     out += [(f"${name}", "env", (name,)) for name, cls, _ in ENV_VAR_PERMISSIONS if cls == "dangerous"]
+    # An environment file by name alone (.env, .envrc, .env.local, prod.env), in any
+    # path form; its contents are never looked at.
+    out.append((ENV_FILE_KEY, "envfile", (".env",)))
     return tuple(out)
+
+
+ENV_FILE_KEY = ".env"
+# A file named .env, .envrc, .env.<suffix> or <name>.env, at a path boundary.
+_ENV_FILE_RE = re.compile(
+    r"(?:^|[\s\"'`=/\\:(<])(\.envrc|\.env(?:\.[\w-]+)*|[\w-][\w.-]*\.env)(?=$|[\s\"'`),;|&>\\])",
+    re.IGNORECASE,
+)
+# Committed templates hold no values: no signal.
+_ENV_TEMPLATES = ("example", "sample", "template")
+# A shell command that reads or copies the file right before the name.
+_SHELL_FILE_CMD_RE = re.compile(
+    r"(?:^|[\s;|&(`\"'])(?:cat|source|\.|less|more|head|tail|grep|cp|mv|scp|base64|xxd)"
+    r"(?:\s+-{1,2}[\w=-]+)*(?:\s+[^\s;|&()]+)*?\s+[\"']?[\w./~-]*$"
+)
+# Code that names the environment object, not a file.
+_ENV_CODE = frozenset({"process.env", "meta.env", "import.meta.env", "this.env", "self.env", "os.env", "sys.env"})
+
+
+def env_file_named(text: Optional[str]) -> bool:
+    """True when the text names an environment file other than a template."""
+    text = str(text or "")
+    for m in _ENV_FILE_RE.finditer(text):
+        name = m.group(1).lower()
+        if name in _ENV_CODE:
+            continue
+        # `<identifier>.env` then ) , ; or . reads as code (c.env, Bun.env),
+        # unless a shell file command names it ($(cat prod.env)).
+        if (not name.startswith(".") and m.end() < len(text) and text[m.end()] in "),;."
+                and not _SHELL_FILE_CMD_RE.search(text[:m.start(1)])):
+            continue
+        if any(part in _ENV_TEMPLATES for part in name.split(".")):
+            continue
+        return True
+    return False
 
 
 # (location key, kind, fragments). Built once from the policy defaults; the
@@ -258,6 +296,9 @@ def location_matches(preview: Optional[str]) -> set:
     for key, kind, frags in _LOCATIONS:
         if kind == "path":
             if any(f in low for f in frags):
+                found.add(key)
+        elif kind == "envfile":
+            if ".env" in low and env_file_named(text):
                 found.add(key)
         elif frags[0] in text and _ENV_RE[key].search(text):
             found.add(key)

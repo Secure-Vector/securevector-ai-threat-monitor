@@ -69,7 +69,7 @@ test('a review row shows harness, folder, score, band, config mark, reason and i
   assert.match(row, /is-focused/);
   assert.match(row, /<strong>Claude Code<\/strong><span class="dr-row-folder" title="app">app</);
   // Score column: the number in the band colour, the band word under it.
-  assert.match(row, /<div class="dr-row-scorecell"><span class="dr-row-score is-high"[^>]*>82<\/span><span class="dr-band is-high">high</);
+  assert.match(row, /<div class="dr-row-scorecell"><span class="dr-row-score is-high"[^>]*>82<\/span><span class="dr-band is-high">High</);
   assert.ok(row.indexOf('dr-row-scorecell') < row.indexOf('dr-row-open') && row.indexOf('dr-row-open') < row.indexOf('dr-row-when')
     && row.indexOf('dr-row-when') < row.indexOf('dr-row-actions'), 'score, session, when, actions');
   assert.match(row, /dr-setup is-amber">Agent config changed \(2\)</);
@@ -85,7 +85,7 @@ test('a review row shows harness, folder, score, band, config mark, reason and i
   const running = P._rowHtml({ task_id: 't2', score: 50, band: 'watch', ended: false, setup_state: 'pinned' }, false);
   assert.doesNotMatch(running, /Looks normal|Review config change|Agent config/);
   assert.match(running, /class="dr-row-open" data-dr-open="t2"/);
-  assert.match(running, /dr-band is-watch">worth a look</);
+  assert.match(running, /dr-band is-watch">Watch</);
 });
 
 const P_plain = () => { const P = loadPage(); return (t, h) => P._plainReason(t, h); };
@@ -308,7 +308,7 @@ test('fleet row copy rules and cache pins', () => {
   const src = read('js/pages/detection-response.js');
   const block = src.slice(src.indexOf('_fleetHtml(cloud)'), src.indexOf('_bindFleet(slot)'));
   assert.doesNotMatch(block, /—|–|firewall|Mission Control|GovRun|\bADR\b|banner/i);
-  assert.match(read('index.html'), /detection-response\.js\?v=28/);
+  assert.match(read('index.html'), /detection-response\.js\?v=29/);
   assert.match(read('index.html'), /styles\.css\?v=503/);
 });
 
@@ -323,7 +323,7 @@ test('plain-language pass: Review label and heading, Launch first, one card stat
   const el = fakeSummary();
   const { T } = loadSessions({}, el);
   const facts = T._factsHtml({ id: 'x', tool_calls: 41, blocked_calls: 0, drift_score: 10, drift_band: 'calm', setup_state: 'changed' });
-  assert.match(facts, /title="41 calls · 0 blocked · unusual activity low"/);
+  assert.match(facts, /title="41 calls · 0 blocked · unusual activity Low"/);
   assert.doesNotMatch(facts, /governed|setup|rung/);
   assert.equal(T._guardState({ governed_at_launch: false }).label, 'not monitored');
   assert.equal(T._guardState({}).label, 'checked');
@@ -389,7 +389,7 @@ test('spotlight: sparkline has N points and highlights the last; watch and low c
   assert.match(mid, /<polyline class="dr-spark-rise" fill="none" points="[^"]+"/);
   assert.equal(mid.match(/<li>/g).length, 2);
   assert.equal(P._sparkHtml({ recent_scores: [{ score: 5 }] }), '');
-  assert.match(P.BAND_RANGE.watch, /Worth a look \u00b7 40 to 69/);
+  assert.match(P.BAND_RANGE.watch, /Watch \u00b7 40 to 69/);
   assert.match(P.BAND_RANGE.calm, /Low \u00b7 below 40/);
 });
 
@@ -404,20 +404,20 @@ test('spotlight: empty state; the list now includes the spotlight session', () =
   // the highest listed score honestly while retaining the pending breakdown.
   const cfgOnly = P._spotlightHtml({ spotlight: null, detect: { to_review: 2 }, sessions: [{ task_id: 'x', score: 8, band: 'calm', setup_state: 'changed' }, { task_id: 'y', score: null, band: null, setup_state: 'changed' }], harden: { changes: 2 } });
   assert.match(cfgOnly, /2 sessions need a look\. 2 config changes to approve\./);
-  assert.match(cfgOnly, /Highest listed session: <span class="dr-top-score is-calm">8<\/span>, low\./);
+  assert.match(cfgOnly, /Highest listed session: <span class="dr-top-score is-calm">8<\/span>, Low\./);
   assert.match(cfgOnly, /not enough same-folder history to show a trend yet/);
   assert.doesNotMatch(cfgOnly, /No scored sessions yet|trend.*up|trend.*down/i);
   const invalidSpotlight = P._spotlightHtml({ spotlight: { score: null }, sessions: [{ score: 17, band: 'calm' }] });
-  assert.match(invalidSpotlight, /Highest listed session: <span class="dr-top-score is-calm">17<\/span>, low\./);
+  assert.match(invalidSpotlight, /Highest listed session: <span class="dr-top-score is-calm">17<\/span>, Low\./);
   assert.match(invalidSpotlight, /not enough same-folder history to show a trend yet/);
   const unusual = P._spotlightHtml({ spotlight: null, detect: { to_review: 2 }, sessions: [{ task_id: 'x', score: 80, band: 'high' }, { task_id: 'y', band: null }], harden: { changes: 1 } });
   assert.match(unusual, /2 sessions need a look\. 1 config change to approve\./);
-  assert.match(unusual, /Highest listed session: <span class="dr-top-score is-high">80<\/span>, high\./);
+  assert.match(unusual, /Highest listed session: <span class="dr-top-score is-high">80<\/span>, High\./);
   assert.doesNotMatch(cfgOnly, /dr-spot-card/);
   assert.match(P._spotlightHtml({ spotlight: null, sessions: [], detect: { to_review: 0 }, harden: { changes: 3 } }), /3 config changes to approve\./);
   const calm = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 25, features: [] }), sessions: [{ task_id: 'a', band: 'watch', score: 50 }, { task_id: 'b', band: 'high', score: 90 }], detect: { to_review: 2 }, harden: { changes: 17 } });
   assert.match(calm, /2 sessions need a look\. 17 config changes to approve\./);
-  assert.match(calm, /Highest score this week: 25, low\. Claude Code in billing-api\./);
+  assert.match(calm, /Highest score this week: 25, Low\. Claude Code in billing-api\./);
   assert.match(calm, /dr-spot-score is-calm">25</);
   assert.match(calm, /Low \u00b7 below 40/);
   assert.match(calm, /No signal stood out\./);
@@ -485,12 +485,12 @@ test('calm spotlight subline skips "No rule had to fire"; chart and subline shar
 test('fallback headline uses the band word; no Looks normal when not in the review list; no-rule sentence needs known zero blocks', () => {
   const P = loadPage();
   const mk = (o) => P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { ended_at: SPOT.computed_at }, o), detect: {}, harden: {} });
-  assert.match(mk({ to_review: false, band: 'calm', score: 20 }), /Highest score this week: 20, low\./);
+  assert.match(mk({ to_review: false, band: 'calm', score: 20 }), /Highest score this week: 20, Low\./);
   // Actions live on the rows only: the spotlight under Details has none.
   assert.doesNotMatch(mk({ to_review: false, band: 'calm' }), /data-dr-normal|data-dr-open|dr-spot-actions/);
   assert.doesNotMatch(mk({ to_review: true }), /data-dr-normal|data-dr-open|dr-spot-actions/);
   const normal = P._spotlightHtml({ spotlight: Object.assign({}, SPOT, { to_review: false, band: 'calm', score: 20 }), detect: { marked_normal: 2 }, harden: {} });
-  assert.match(normal, /Highest score this week, not counting sessions marked normal: 20, low\./);
+  assert.match(normal, /Highest score this week, not counting sessions marked normal: 20, Low\./);
   assert.doesNotMatch(mk({ had_blocks: null }), /No rule had to fire/);
   assert.match(mk({ had_blocks: false }), /No rule had to fire/);
   assert.match(P._reasonHtml({ reason: 'A', setup_texts: ['A', 'B', 'C'] }), /<button type="button" class="dr-more" data-dr-more aria-expanded="false">, \+2 more<\/button>/);

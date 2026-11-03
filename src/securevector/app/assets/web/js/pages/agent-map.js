@@ -1337,7 +1337,9 @@ const AgentMapPage = {
                 ? ' <span style="font:700 10px sans-serif;color:#f59e0b;background:rgba(245,158,11,0.16);padding:1px 6px;border-radius:10px;">likely FP · ML disagrees</span>'
                 : node.ml_agreement === 'ml_uncertain'
                     ? ' <span style="font:700 10px sans-serif;color:#7d8590;background:rgba(125,133,144,0.16);padding:1px 6px;border-radius:10px;">ML uncertain</span>'
-                    : '';
+                    : node.ml_agreement === 'ml_only'
+                        ? ' <span style="font:700 10px sans-serif;color:#7d8590;background:rgba(125,133,144,0.16);padding:1px 6px;border-radius:10px;">ML only</span>'
+                        : '';
             return `<span>${icon} ${what}</span><b>${DetectionLabel.htmlFromFields(node.detection_source, node.ml_score, node.detection_rules)}${fp}</b>`;
         };
 

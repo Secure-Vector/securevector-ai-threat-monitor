@@ -185,14 +185,27 @@ def _rates_for(model: str, pricing: dict) -> Optional[dict]:
     output_per_million). Returns None for unpriced models — dollar figures are
     then omitted (never guessed); token figures don't need pricing.
     """
+    from securevector.app.database.repositories.costs import (
+        model_id_candidates,
+        regional_premium,
+    )
+
     row = pricing.get(model or "")
+    if not row:
+        # Bedrock / Vertex ids price from the first-party key.
+        for cand in model_id_candidates(model):
+            row = pricing.get(cand)
+            if row:
+                break
     if not row:
         return None
     provider, in_rate, out_rate = row
+    # Effective rates: the regional-endpoint premium is part of the price.
+    k = regional_premium(None, model)
     return {
         "provider": provider,
-        "in_rate": float(in_rate),
-        "out_rate": float(out_rate),
+        "in_rate": float(in_rate) * k,
+        "out_rate": float(out_rate) * k,
         "read_discount": CACHE_READ_DISCOUNT.get(provider, 1.0),
         "write_premium": CACHE_WRITE_PREMIUM.get(provider, 1.0),
     }

@@ -222,6 +222,7 @@ async def _collect_runs(window_days: int, limit: int) -> list:
             "runtime_kind": r.get("runtime_kind") or "unknown",
             "session_id": r.get("session_id"),
             "spans": int(r.get("spans") or 0),
+            "tool_call_count": int(r.get("spans") or 0),
             "blocked": blocked,
             "log_only": int(r.get("logged") or 0),
             "detections": int(det.get("detections") or 0),
@@ -246,6 +247,7 @@ async def _collect_runs(window_days: int, limit: int) -> list:
             "runtime_kind": g.get("runtime_kind") or "unknown",
             "session_id": g.get("session_id"),
             "spans": 0,
+            "tool_call_count": 0,
             "blocked": 0,
             "log_only": 0,
             "detections": 0,
@@ -767,8 +769,8 @@ async def _build_trace(trace_id: str, generations: Optional[list] = None):
             "detection_source": det.get("source") if det else None,
             "ml_score": det.get("ml_score") if det else None,
             "detection_rules": det.get("rules") if det else None,
-            # Mechanism 1 FP-triage tier (corroborated / ml_uncertain /
-            # ml_disagrees) so SOC can deprioritise likely-FPs in Traces, not
+            # Mechanism 1 FP-triage tier (corroborated / ml_only /
+            # ml_uncertain / ml_disagrees) so SOC can deprioritise likely-FPs in Traces, not
             # only on the Threats page.
             "ml_agreement": det.get("ml_agreement") if det else None,
             "span_id": r.get("span_id"),

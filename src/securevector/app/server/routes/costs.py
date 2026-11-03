@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StrictInt
 
 from securevector.app.database.connection import get_database
-from securevector.app.database.repositories.costs import CostsRepository, compute_cost
+from securevector.app.database.repositories.costs import CostsRepository, compute_cost, effective_rates
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ async def record_cost(request: RecordCostRequest) -> dict:
         # Look up pricing: exact first, then the same fallbacks traced calls
         # use, so dated variants and Bedrock ids price instead of showing $0.
         card = await repo.resolve_rate_card(request.provider, request.model_id)
-        rate_in, rate_out = (card.input, card.output) if card else (None, None)
+        rate_in, rate_out = effective_rates(request.provider, request.model_id, card)
         pricing_known = card is not None
         input_cost = 0.0
         output_cost = 0.0

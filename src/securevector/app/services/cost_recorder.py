@@ -15,6 +15,7 @@ from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.repositories.costs import (
     CostsRepository,
     compute_cost,
+    effective_rates,
     lookup_rate_card,
     model_id_candidates,
     pricing_table,
@@ -247,8 +248,7 @@ class CostRecorder:
             canonical_id = self._normalize_model_id(model_id)
             card = lookup_rate_card(provider, canonical_id, self._pricing_cache)
             pricing_known = card is not None
-            rate_input: Optional[float] = card.input if card else None
-            rate_output: Optional[float] = card.output if card else None
+            rate_input, rate_output = effective_rates(provider, model_id or canonical_id, card)
 
             # Calculate costs (rates are per million tokens). Cache reads and
             # writes use the model's cache rates, else the provider rule.

@@ -207,7 +207,7 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(html, /pages\/policies\.js\?v=\d+/);
   assert.match(html, /sidebar\.js\?v=215/);
   assert.match(html, /styles\.css\?v=503/);
-  assert.match(html, /app\.js\?v=81/);
+  assert.match(html, /app\.js\?v=82/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 

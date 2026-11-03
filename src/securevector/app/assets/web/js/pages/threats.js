@@ -674,7 +674,7 @@ const ThreatsPage = {
         const pageNote = paged ? 'on this page · ' : '';
         const llmReviewed = threats.filter(t => t.llm_reviewed).length;
         const totalTokens = threats.reduce((sum, t) => sum + (t.llm_tokens_used || 0), 0);
-        const highRisk = threats.filter(t => t.risk_score >= 60).length;
+        const highRisk = threats.filter(t => ['high', 'critical'].includes(API.threatSeverity(t))).length;
         const clearedTotal = (this.cleared && this.cleared.total) || 0;
         const stat = (v, label, det, cls) =>
             `<div class="tm-stat${cls ? ' ' + cls : ''}"><div class="tm-stat-v">${v}</div>` +
@@ -764,7 +764,7 @@ const ThreatsPage = {
                     const row = document.createElement('div');
                     row.style.cssText = 'display: flex; align-items: center; gap: 8px;';
                     const badge = document.createElement('span');
-                    badge.className = 'risk-badge risk-' + self.getRiskLevel(threat.risk_score);
+                    badge.className = 'risk-badge risk-' + API.threatSeverity(threat);
                     badge.textContent = (threat.risk_score || 0) + '%';
                     badge.title = 'Rule-driven risk score: 70%+ reads high (red), 40–69% medium (amber), under 40 low (green).';
                     row.appendChild(badge);
@@ -926,6 +926,7 @@ const ThreatsPage = {
         const modelOnly = rules.length > 0 && rules.every(
             r => r.source === 'model' || r.rule_id === 'sv_guardian_model'
         );
+        if (agree === 'corroborated' && modelOnly) agree = 'ml_only';
         return (agree || score !== null) ? { agree, score, modelOnly } : null;
     },
 
@@ -1009,7 +1010,7 @@ const ThreatsPage = {
         riskMain.className = 'threat-detail-risk-main';
 
         const riskBadge = document.createElement('span');
-        riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
+        riskBadge.className = 'risk-badge risk-' + API.threatSeverity(threat);
         // When an ML number sits next to it, label the rule score explicitly so
         // "Rule risk 90%" vs "ML-adjusted 12%" reads as a contrast, not a glitch.
         riskBadge.textContent = (ml ? 'Rule risk ' : '') + (threat.risk_score || 0) + '%' + (ml ? '' : ' Risk');
@@ -1047,14 +1048,9 @@ const ThreatsPage = {
                 corroborated: { cls: 'mlassess-ok',   icon: '✓', text: 'ML corroborated this detection' },
                 ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain, worth a review' },
                 ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive: ML disagrees' },
+                ml_only:      { cls: 'mlassess-warn', icon: '⚠', text: 'ML model is the only detector, no independent rule matched' },
             };
-            let t = TIER[ml.agree];
-            // A model-only detection cannot corroborate itself: swap the green
-            // check for an honest caution so the analyst knows no independent
-            // rule fired on this content.
-            if (ml.agree === 'corroborated' && ml.modelOnly) {
-                t = { cls: 'mlassess-warn', icon: '⚠', text: 'ML model is the only detector, no independent rule matched' };
-            }
+            const t = TIER[ml.agree];
             if (t) {
                 const assess = document.createElement('div');
                 assess.className = 'ml-assessment ' + t.cls + ' threat-detail-ml-badge';

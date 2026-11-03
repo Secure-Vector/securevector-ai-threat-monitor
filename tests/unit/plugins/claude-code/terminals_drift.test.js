@@ -44,11 +44,11 @@ const SCORED = {
 test('facts line appends the drift number, coloured by band only above calm', () => {
   const Page = loadPage();
   const watch = Page._factsHtml(Object.assign({}, TASK, { tool_calls: 31, blocked_calls: 0, drift_score: 62, drift_band: 'watch' }));
-  assert.match(watch, /terminals-task-drift is-watch[^>]*>unusual activity worth a look</);
+  assert.match(watch, /terminals-task-drift is-watch[^>]*>unusual activity Watch</);
   const high = Page._factsHtml(Object.assign({}, TASK, { drift_score: 81, drift_band: 'high' }));
-  assert.match(high, /is-high[^>]*>unusual activity high</);
+  assert.match(high, /is-high[^>]*>unusual activity High</);
   const calm = Page._factsHtml(Object.assign({}, TASK, { drift_score: 12, drift_band: 'calm' }));
-  assert.match(calm, /terminals-task-drift is-calm[^>]*>unusual activity low</);
+  assert.match(calm, /terminals-task-drift is-calm[^>]*>unusual activity Low</);
   assert.doesNotMatch(Page._factsHtml(Object.assign({}, TASK, { tool_calls: 3 })), /drift/);
 });
 
@@ -57,7 +57,7 @@ test('summary row shows number, band word and the top three features in plain wo
   const s = Page._summaryBuild(TASK, { drift: SCORED });
   const html = Page._summaryHtml(s);
   assert.match(html, /<dt>Unusual activity<\/dt>/);
-  assert.match(html, /terminals-drift-band is-watch">62, worth a look<\/span>: tools this session has not used here before \(4 of 31 calls\), hosts new for this folder \(3\), errors right after a blocked call \(2\)/);
+  assert.match(html, /terminals-drift-band is-watch">62, Watch<\/span>: tools this session has not used here before \(4 of 31 calls\), hosts new for this folder \(3\), errors right after a blocked call \(2\)/);
   assert.match(html, /data-drift-normal[^>]*>Looks normal</);
   // The row sits after Agent Health and before Approvals, per the design.
   assert.ok(!html.includes('—'));
@@ -85,7 +85,7 @@ test('partial score and a session already marked normal', () => {
 test('a running session gets no "Looks normal" action', () => {
   const Page = loadPage();
   const html = Page._summaryHtml(Page._summaryBuild(TASK, { drift: Object.assign({}, SCORED, { ended: false }) }));
-  assert.match(html, /62, worth a look/);
+  assert.match(html, /62, Watch/);
   assert.doesNotMatch(html, /Looks normal|data-drift-normal/);
   // Without the route's flag, the task row decides.
   const viaTask = Page._summaryHtml(Page._summaryBuild(TASK, { drift: Object.assign({}, SCORED, { ended: undefined }) }));
@@ -114,7 +114,7 @@ test('Looks normal posts feedback once and changes no verdict', async () => {
     querySelector: (sel) => (sel === '[data-drift-normal]' ? link : null),
   };
   await Page._summaryFill(host, TASK);
-  assert.match(host.innerHTML, /62, worth a look/);
+  assert.match(host.innerHTML, /62, Watch/);
   await link.onclick({ preventDefault() {} });
   assert.deepStrictEqual(calls, ['abc12345']);
   assert.match(link.outerHTML, /Marked normal/);
@@ -136,7 +136,7 @@ test('summary: rows for status, tool calls, unusual activity, config, worth a lo
   const quiet = Page._summaryHtml(mk({}));
   assert.match(quiet, /<dt>Status<\/dt><dd>Finished in 1h 41m\. Nothing unusual\.<\/dd>/);
   assert.match(quiet, /<dt>Tool calls<\/dt><dd>40 calls \u00b7 40 allowed \u00b7 0 blocked<\/dd>/);
-  assert.match(quiet, /<dt>Unusual activity<\/dt>[\s\S]*Drift Score 15 of 100\. Compared with this agent's own recent sessions in this folder\.[\s\S]*low<\/span> \(15 of 100\)/);
+  assert.match(quiet, /<dt>Unusual activity<\/dt>[\s\S]*Drift Score 15 of 100\. Compared with this agent's own recent sessions in this folder\.[\s\S]*Low<\/span> \(15 of 100\)/);
   assert.doesNotMatch(quiet, /terminals-summary-fact|<dt>Worth a look/);
   assert.match(quiet, /<button type="button" class="terminals-summary-toggle" data-summary-toggle aria-expanded="false"[^>]*>[\s\S]*Show details/);
   assert.match(quiet, /data-summary-details id="[^"]+" hidden>/);

@@ -197,6 +197,17 @@ const LiveGridPage = {
      *  held (after=). The full run is never fetched here; an opened call
      *  loads its own full detail (RunTrace.hydrate). */
     async _detailOf(sid) {
+        // One session's failure never holds the others: it keeps what it
+        // had, or shows an error with a Retry.
+        try { return await this._detailFetch(sid); } catch (e) {
+            console.debug('Live grid: session details did not load', sid, e);
+            const prev = this.details && this.details[sid];
+            if (prev && !prev.error) return [sid, prev];
+            return [sid, { gov: null, spans: [], traceId: null, trace: null, error: true }];
+        }
+    },
+
+    async _detailFetch(sid) {
         const gov = await API.getSessionGovernance(sid).catch(() => null);
         const tid = gov && gov.runs && (gov.runs.trace_ids || [])[0];
         if (!this._traces) this._traces = {};
@@ -505,7 +516,8 @@ const LiveGridPage = {
         const M = this.M();
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
         set('lg-n-pinned', this.pins.length);
-        set('lg-n-all', (this.data && this.data.counters && this.data.counters.running) || all.length);
+        // The same filtered list the grid renders, so the count and the tiles agree.
+        set('lg-n-all', M.runningShown(all, this.st));
         const opts = (id, key, values, label) => {
             const el = document.getElementById(id);
             if (!el || document.activeElement === el) return;
@@ -577,6 +589,11 @@ const LiveGridPage = {
         if (act !== 'det-h') this._focusDet = null;
         if (act === 'det-h') {
             // The panel heading only takes focus.
+        } else if (act === 'retry') {
+            // Fetch again now when the tile is open, else on the next poll.
+            delete this._stamps[sid];
+            if (this._open.includes(sid)) this._loadOne(sid);
+            else this.refresh({ force: true });
         } else if (act === 'call') {
             this._det = this.M().detToggle(this._det, sid, b.dataset.key);
             this.paint();

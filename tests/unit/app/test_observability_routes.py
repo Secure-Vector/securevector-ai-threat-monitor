@@ -540,6 +540,18 @@ def test_a_running_terminal_task_stays_live_with_an_end_marker(obs):
     assert body["counters"]["running"] == 1
 
 
+def test_an_exited_terminal_task_ends_its_session_at_the_end_marker(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.task("t-gone", "gone-task", ws, status="done")
+    s.call("gone-task", ago=20)
+    s.call("gone-task", "log_only", ago=10, tool="__session_end__")
+    s.done()
+    body, by = _live(client)
+    assert by["gone-task"]["ended"] is True and _about(by["gone-task"]["ended_at"], 10)
+    assert body["counters"]["running"] == 0
+
+
 def test_turn_markers_are_not_activity_for_quiet_or_the_ten_minute_rule(obs):
     client, ws, db = obs
     s = Seed(db.db_path)
