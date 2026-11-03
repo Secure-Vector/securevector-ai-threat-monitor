@@ -29,7 +29,7 @@ const GuideConnectAgentsPage = {
             wire: 'from langchain.agents import create_agent  # langgraph-backed\nfrom securevector_sdk_langgraph import secure_middleware\n\n# requires langchain>=1.0 · observe = log-only (default); mode="enforce" blocks\nagent = create_agent(model, tools, middleware=[secure_middleware(mode="observe")])' },
         { id: 'crewai', route: 'A', label: 'CrewAI', guide: 'guide-frameworks', integration: 'proxy-crewai', pkg: 'securevector-sdk-crewai',
             wire: 'from crewai import Agent\nfrom securevector_sdk_crewai import secure_tools\n\n# observe = log-only (default); mode="enforce" blocks\nagent = Agent(role="Researcher", goal="...", backstory="...", tools=secure_tools(my_tools, mode="observe"))' },
-        { id: 'hermes', route: 'A', label: 'Hermes', guide: 'guide-frameworks', integration: 'proxy-hermes', pkg: 'securevector-sdk-hermes',
+        { id: 'hermes', route: 'A', label: 'Hermes', guide: 'guide-frameworks', integration: 'proxy-hermes', pkg: 'securevector-sdk-hermes', installSlug: 'hermes',
             wire: '# Zero-config: the SDK registers a Hermes plugin (hermes_agent.plugins\n# entry point): auto-attached when hermes starts (CLI, gateway, ACP).\nhermes                                # observe = log-only (default)\nSECUREVECTOR_SDK_MODE=enforce hermes  # blocks denied tools\n\n# Library embeddings: from securevector_sdk_hermes import install; install(mode="enforce")' },
         { id: 'claude-code', route: 'B', label: 'Claude Code', guide: 'guide-claude-code', integration: 'proxy-claude-code', slug: 'claude-code' },
         { id: 'codex', route: 'B', label: 'Codex', guide: 'guide-codex', integration: 'proxy-codex', slug: 'codex' },
@@ -369,8 +369,11 @@ const GuideConnectAgentsPage = {
             // options on this device, deliberately duplicated: a button for
             // the guided path, the command below for people who live in a
             // terminal. Self-host stays command-only (the plugin installs on
-            // a machine this app cannot reach).
-            if (!selfHost && selected.route === 'B') {
+            // a machine this app cannot reach). Hermes (route A) also has a
+            // directory plugin for cost tracking; the pip SDK stays as the
+            // alternative below it.
+            const plugSlug = selected.route === 'B' ? selected.slug : selected.installSlug;
+            if (!selfHost && plugSlug) {
                 const oneClick = document.createElement('div');
                 oneClick.style.cssText = 'display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 2px 0 12px;';
                 const installBtn = document.createElement('button');
@@ -382,13 +385,16 @@ const GuideConnectAgentsPage = {
                 oneClick.appendChild(installBtn); oneClick.appendChild(resultLine);
                 // Reflect current state so the label reads Install / Reinstall
                 // exactly like the Integrations page.
-                guardStatus(selected.slug).then(st => { if (st !== 'absent') installBtn.textContent = 'Reinstall Plugin'; });
+                guardStatus(plugSlug).then(st => {
+                    if (st !== 'absent') installBtn.textContent = 'Reinstall Plugin';
+                    if (selected.route !== 'B' && !resultLine.textContent) resultLine.textContent = st === 'enabled' ? 'Installed: tracks cost per API call.' : (st === 'installed' ? 'Installed, not enabled.' : 'Not installed: tracks cost per API call.');
+                });
                 installBtn.addEventListener('click', async () => {
                     installBtn.disabled = true;
                     const prev = installBtn.textContent;
                     installBtn.textContent = prev === 'Reinstall Plugin' ? 'Reinstalling...' : 'Installing...';
                     try {
-                        const url = selected.slug === 'openclaw' ? '/api/hooks/install' : '/api/hooks/' + selected.slug + '/install';
+                        const url = plugSlug === 'openclaw' ? '/api/hooks/install' : '/api/hooks/' + plugSlug + '/install';
                         const res = await fetch(url, { method: 'POST' });
                         const r = await res.json();
                         if (r && r.ok) {
@@ -402,7 +408,7 @@ const GuideConnectAgentsPage = {
                             runDetection(); // refresh the coverage rail badges
                         } else {
                             resultLine.style.color = 'var(--error)';
-                            resultLine.textContent = 'Install failed: use the command below, or the full setup page.';
+                            resultLine.textContent = (selected.route !== 'B' && r && (r.next_step || (typeof r.detail === 'string' && r.detail))) || 'Install failed: use the command below, or the full setup page.';
                             installBtn.textContent = prev;
                         }
                     } catch (_) {
@@ -415,7 +421,7 @@ const GuideConnectAgentsPage = {
                 panel.appendChild(oneClick);
                 const orLabel = document.createElement('div');
                 orLabel.style.cssText = 'font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); margin: 0 0 2px;';
-                orLabel.textContent = 'Or run it yourself';
+                orLabel.textContent = selected.route === 'B' ? 'Or run it yourself' : 'Or use the pip SDK';
                 panel.appendChild(orLabel);
             }
 

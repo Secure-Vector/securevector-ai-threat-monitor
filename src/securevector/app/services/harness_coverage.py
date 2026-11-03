@@ -57,9 +57,11 @@ govrun
                          route or plugin here, so SecureVector only sees what it records)
   egress_visible=False, token_data=False, session_id_sent=False, approvals=False: no evidence in this repo
 hermes
-  enforced=after_call    R/tool_permissions.py:332-338,684-693 (decided by the external Hermes SDK);
-                         R/hooks_hermes.py:199 is a device token total only
-  egress_visible=False, token_data=False, session_id_sent=False, approvals=False: no evidence in this repo
+  enforced=after_call    R/tool_permissions.py:332-338,684-693 (decided by the external Hermes SDK)
+  token_data=True        P/hermes/cost.py (post_api_request -> /api/costs/track, one record per API
+                         call), installed by R/hooks_hermes.py install_plugin
+  session_id_sent=True   P/hermes/cost.py build_record (Hermes session_id on each cost record)
+  egress_visible=False, approvals=False: no evidence in this repo
 
 Common to every plugin: hosts are checked only when they can be read from the
 tool input or the MCP endpoint, so network opened by child processes is not
@@ -119,8 +121,8 @@ COVERAGE: dict = {
                       "network not checked"],
     },
     "hermes": {
-        "enforced": "after_call", "egress_visible": False, "token_data": False,
-        "session_id_sent": False, "approvals": False,
+        "enforced": "after_call", "egress_visible": False, "token_data": True,
+        "session_id_sent": True, "approvals": False,
         "unchecked": ["decisions made by the Hermes SDK, not by SecureVector",
                       "MCP tools not in the tool list", NO_APPROVALS, "network not checked"],
     },

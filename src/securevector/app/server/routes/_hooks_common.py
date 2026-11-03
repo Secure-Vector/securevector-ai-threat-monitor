@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -83,6 +84,30 @@ def ensure_bundled_dir(
     return bundled_dir
 
 
+def _atomic_write(dst: Path, data: bytes) -> None:
+    """Write ``data`` to ``dst`` via a temp file in the same folder and a
+    rename, so a reader never sees a half-written file and an existing
+    symlink at ``dst`` is replaced rather than followed."""
+    mode = 0o644
+    if dst.is_file() and not dst.is_symlink():
+        mode = dst.stat().st_mode & 0o777  # keep an existing file's mode
+    fd, tmp = tempfile.mkstemp(prefix="." + dst.name + ".", suffix=".tmp", dir=str(dst.parent))
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        try:
+            os.chmod(tmp, mode)
+        except OSError:
+            pass
+        os.replace(tmp, dst)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def stage_files(
     *,
     staging_dir: Path,
@@ -114,6 +139,12 @@ def stage_files(
         if not src.is_file():
             logger.warning("Plugin file not found: %s", src)
             continue
+        # A symlinked folder would send the write elsewhere: refuse it. A
+        # symlinked destination file is replaced by our real file below
+        # (os.replace swaps the link itself, never its target).
+        if dst.parent != staging_dir and dst.parent.is_symlink():
+            logger.warning("Refusing to write plugin file through a symlinked folder: %s", dst)
+            continue
         # Create any nested parent directories the file path requires
         # (e.g. .claude-plugin/, hooks/, lib/ under the staging root).
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -121,11 +152,11 @@ def stage_files(
             content = src.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             # Binary asset (image, etc.) — copy verbatim, no substitution.
-            shutil.copyfile(src, dst)
+            _atomic_write(dst, src.read_bytes())
             written.append(filename)
             continue
         for needle, replacement in substitutions.items():
             content = content.replace(needle, replacement)
-        dst.write_text(content, encoding="utf-8")
+        _atomic_write(dst, content.encode("utf-8"))
         written.append(filename)
     return written

@@ -1,0 +1,7 @@
+name: securevector
+version: "1.0.0"
+description: "SecureVector cost tracking: posts token usage for each model API call to the local SecureVector app."
+author: SecureVector
+kind: standalone
+provides_hooks:
+  - post_api_request

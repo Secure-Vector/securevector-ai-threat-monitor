@@ -161,6 +161,8 @@ setup(
             # Antigravity plugin: both plugin.json and hooks.json sit at the
             # tree root (no dot-dir), so the recursive glob covers everything.
             "plugins/antigravity/**/*",
+            # Hermes directory plugin: plugin.yaml is the manifest Hermes reads.
+            "plugins/hermes/*",
         ],
         "": ["NOTICE"],
     },
