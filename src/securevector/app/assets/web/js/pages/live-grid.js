@@ -209,6 +209,7 @@ const LiveGridPage = {
 
     async _detailFetch(sid) {
         const gov = await API.getSessionGovernance(sid).catch(() => null);
+        if (!gov) throw new Error('governance did not load');
         const tid = gov && gov.runs && (gov.runs.trace_ids || [])[0];
         if (!this._traces) this._traces = {};
         const cur = this._traces[sid];
@@ -220,6 +221,8 @@ const LiveGridPage = {
                 else if (pg === null) trace = cur; // a failed poll keeps what was there
             }
             if (!trace) trace = await API.getTraceTree(tid);
+            if (!trace && cur && cur.trace_id === tid) trace = cur; // keep what was there
+            if (!trace) throw new Error('trace did not load');
         }
         if (trace) this._traces[sid] = trace; else delete this._traces[sid];
         return [sid, { gov, spans: (trace && trace.spans) || [], traceId: tid || null, trace: trace || null }];

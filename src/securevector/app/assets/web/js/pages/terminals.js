@@ -3631,7 +3631,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     _summaryHeadline(s, n) {
         const dur = s.duration_seconds !== null ? this._elapsed(s.started_at, s.ended_at) : '';
-        const tail = n === 0 ? 'Nothing unusual' : `${n} ${n === 1 ? 'thing' : 'things'} worth a look`;
+        const tail = n === 0 ? 'Nothing unusual' : `${n} to review`;
         if (this._RUNNING_STATUSES.includes(s.status) && !s.ended_at) return `Running${dur ? ' for ' + dur : ''}. ${n === 0 ? 'Nothing unusual so far' : tail}.`;
         const lead = s.status === 'failed' ? 'Stopped' : s.status === 'interrupted' ? 'Interrupted' : 'Finished';
         return `${lead}${dur ? (lead === 'Finished' ? ' in ' : ' after ') + dur : ''}. ${tail}.`;
@@ -3660,7 +3660,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (worth.length) {
             const shown = worth.slice(0, 3);
             const more = worth.length - shown.length;
-            out.push(row('Worth a look', `<ul class="terminals-summary-list">${shown.map(w => `<li>${this._esc(w.text)}</li>`).join('')}</ul>${more > 0 ? `<a href="#" class="terminals-summary-all" data-summary-more>and ${more} more</a> ` : ''}<button type="button" class="btn btn-sm" data-summary-export aria-label="Export evidence as JSON">Export evidence</button>`));
+            out.push(row('To review', `<ul class="terminals-summary-list">${shown.map(w => `<li>${this._esc(w.text)}</li>`).join('')}</ul>${more > 0 ? `<a href="#" class="terminals-summary-all" data-summary-more>and ${more} more</a> ` : ''}<button type="button" class="btn btn-sm" data-summary-export aria-label="Export evidence as JSON">Export evidence</button>`));
         }
         return out.join('');
     },

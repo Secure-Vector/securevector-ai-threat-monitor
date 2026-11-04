@@ -204,7 +204,8 @@ def _post(url: str, body: dict) -> None:
             return
         headers = {"Content-Type": "application/json"}
         api_key = (os.environ.get("SECUREVECTOR_API_KEY") or "").strip()
-        if api_key:
+        # The key goes over https, or to the local app only.
+        if api_key and (parsed.scheme == "https" or (parsed.hostname or "") in _LOOPBACK):
             headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(
             url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST",

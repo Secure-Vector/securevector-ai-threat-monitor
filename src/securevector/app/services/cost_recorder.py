@@ -24,18 +24,6 @@ from securevector.app.database.repositories.costs import (
 
 logger = logging.getLogger(__name__)
 
-# Cache discount rates: what fraction of the full input rate applies to cached tokens
-# when the pricing table has no explicit cache rate for the model.
-# OpenAI: 50% (0.5x), Anthropic cache_read: ~10% (0.1x), Gemini: ~25% (0.25x)
-# Sources: provider pricing pages. Others have no cache discount (1.0x = full rate).
-# Claude models on any provider (Bedrock, Vertex) use the Anthropic rule; see
-# repositories/costs.py compute_cost.
-CACHE_DISCOUNT: dict[str, float] = {
-    "openai": 0.5,
-    "anthropic": 0.1,
-    "gemini": 0.25,
-}
-
 # Map versioned model IDs to canonical pricing keys.
 # Add entries here when providers release versioned variants.
 MODEL_ID_ALIASES: dict[str, str] = {

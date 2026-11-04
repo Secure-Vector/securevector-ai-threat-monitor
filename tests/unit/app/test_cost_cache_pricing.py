@@ -313,6 +313,28 @@ async def test_v69_strips_only_full_prompt_rows_once(db):
 
 
 @pytest.mark.asyncio
+async def test_v69_strips_untagged_6_1_proxy_rows(db):
+    from securevector.app.database.migrations import migrate_to_v69
+
+    rows = [  # (id, agent, provider, model, input, read, session_id)
+        ("proxy_61", "local-agent", "openai", "gpt-4o", 10_000, 8_000, "sess-1"),
+        ("proxy_61_claude", "local-agent", "anthropic", "claude-sonnet-5-5", 100, 8_000, "sess-1"),
+        ("openclaw_61", "openclaw-agent", "openai", "gpt-4o", 9_000, 4_000, "sess-2"),
+        ("track_61", "x", "openai", "gpt-4o", 9_000, 4_000, None),
+    ]
+    for rid, agent, prov, model, inp, read, sid in rows:
+        await db.execute(
+            "INSERT INTO llm_cost_records (id, agent_id, provider, model_id, input_tokens, output_tokens, "
+            "input_cached_tokens, input_cost_usd, output_cost_usd, total_cost_usd, pricing_known, "
+            "recorded_at, session_id) VALUES (?, ?, ?, ?, ?, 1, ?, 0.5, 0.25, 0.75, 1, '2026-10-01', ?)",
+            (rid, agent, prov, model, inp, read, sid))
+    await db.execute("DELETE FROM schema_version WHERE version = 69")
+    await migrate_to_v69(db)
+    assert await _v69_inputs(db) == {"proxy_61": 2_000, "proxy_61_claude": 100,
+                                     "openclaw_61": 9_000, "track_61": 9_000}
+
+
+@pytest.mark.asyncio
 async def test_v69_failure_mid_way_leaves_no_partial_strip(db, monkeypatch):
     from securevector.app.database import migrations
     from securevector.app.database.repositories import costs as costs_repo
@@ -500,3 +522,53 @@ def test_optimizer_rates_include_the_regional_premium():
     glob = _rates_for("global.anthropic.claude-haiku-4-5-20251001-v1:0", pricing)
     assert (glob["in_rate"], glob["out_rate"]) == (1.0, 5.0)
     assert _rates_for("claude-haiku-4-5", pricing)["in_rate"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_policy_check_estimate_matches_the_stored_cost(db, monkeypatch):
+    from securevector.app.services import policy_check
+
+    usage = {"turns": 3, "input": 1_200, "output": 4_000, "cache_read": 250_000, "cache_create": 9_000}
+    total, by_model = await policy_check._estimate_cost(db, {"claude-fable-5-1": usage})
+    out = await _track(db, monkeypatch, agent_id="pc", provider="anthropic", model_id="claude-fable-5-1",
+                       input_tokens=1_200, output_tokens=4_000, input_cached_tokens=250_000,
+                       input_cache_write_tokens=9_000)
+    row = await db.fetch_one("SELECT total_cost_usd FROM llm_cost_records WHERE id = ?", (out["id"],))
+    assert total == pytest.approx(row["total_cost_usd"], rel=1e-6)
+    # Fable 5.1 reads cost $0.25/M, not a tenth of the input rate.
+    assert total == pytest.approx((1_200 * 10 + 4_000 * 50 + 250_000 * 0.25 + 9_000 * 12.5) / 1e6)
+    assert by_model[0]["cost_usd"] == pytest.approx(total)
+
+
+def test_optimizer_cache_rates_include_the_regional_premium():
+    from securevector.app.services.cost_optimizer import _rates_for, analyze_session
+
+    pricing = {"claude-haiku-4-5": ("anthropic", 1.0, 5.0, 0.1, 1.25)}
+    model = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    r = _rates_for(model, pricing)
+    assert r["in_rate"] * r["read_discount"] == pytest.approx(0.11)
+    assert r["in_rate"] * r["write_premium"] == pytest.approx(1.375)
+    gen = {"model": model, "input_tokens": 1_000, "cache_read_tokens": 100_000,
+           "cache_creation_tokens": 2_000, "output_tokens": 500, "called_at": None,
+           "tools_called": [], "tool_results": []}
+    card = RateCard(input=1.0, output=5.0, cache_read=0.1, cache_write=1.25)
+    in_cost, out_cost = compute_cost("anthropic", model, card, 1_000, 500, 100_000, 2_000)
+    assert analyze_session([gen], pricing)["observed"]["est_cost_usd"] == pytest.approx(in_cost + out_cost)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("agent_id", "a" * 201), ("provider", "p" * 201), ("model_id", "m" * 201),
+    ("runtime_kind", "Hermes"), ("runtime_kind", "x" * 41), ("runtime_kind", "a b"), ("runtime_kind", ""),
+])
+def test_track_request_bounds_its_text_fields(field, value):
+    from pydantic import ValidationError
+
+    body = {"provider": "openai", "model_id": "gpt-4o", field: value}
+    with pytest.raises(ValidationError):
+        costs_routes.RecordCostRequest(**body)
+
+
+def test_track_request_accepts_a_harness_name():
+    req = costs_routes.RecordCostRequest(provider="p" * 200, model_id="gpt-4o", runtime_kind="claude-code_2")
+    assert req.runtime_kind == "claude-code_2" and costs_routes.RecordCostRequest(
+        provider="openai", model_id="gpt-4o").runtime_kind is None

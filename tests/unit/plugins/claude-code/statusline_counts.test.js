@@ -66,3 +66,12 @@ test('fast fetches share one deadline', () => {
   const main = src.slice(src.indexOf('async function statuslineMain'));
   assert.doesNotMatch(main.slice(0, main.indexOf('writeLiveCache(')), /getJson\([^)]*FAST_TIMEOUT_MS\)/);
 });
+
+test('egress blocks are left out when the daily endpoint failed', () => {
+  const egress = { destinations: [{ host: 'a.example', blocked: 4 }] };
+  const stats = { total: 10, allowed: 8, blocked: 2 };
+  assert.deepEqual(SL.summarizeCounts(null, egress, stats, NOW), { total: 10, allowed: 8, blocked: 2, window: 'all' });
+  assert.equal(SL.summarizeCounts(null, egress, null, NOW), null);
+  const line = plain(SL.buildLine(SL.summarizeCounts(null, egress, stats, NOW), null, null));
+  assert.doesNotMatch(line, /7d/);
+});

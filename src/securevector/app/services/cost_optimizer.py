@@ -69,12 +69,8 @@ ACTIVE_SESSION_SECONDS = 300
 # reference turns beyond it must say so (acceptance #5).
 TRACE_VIEW_CAP = 1500
 
-# --- cache economics (list-price conventions; provider-conditional) ---------
-# Read discount: fraction of the input rate a cache read costs.
-CACHE_READ_DISCOUNT = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
-# Write premium: multiple of the input rate a cache write costs (5-min TTL
-# convention). OpenAI-style automatic caching has no write premium.
-CACHE_WRITE_PREMIUM = {"anthropic": 1.25}
+# --- cache economics --------------------------------------------------------
+# Cache read and write rates come from each model's rate card (see _rates_for).
 # Providers' minimum cacheable prefix (tokens) — below it a miss is not waste.
 MIN_CACHEABLE_PREFIX = 1024
 # Default cache TTL: an inter-turn gap longer than this makes the miss
@@ -182,12 +178,16 @@ def _rates_for(model: str, pricing: dict) -> Optional[dict]:
     """model -> {provider, in_rate, out_rate, read_discount, write_premium}.
 
     ``pricing`` maps model_id -> (provider, input_per_million,
-    output_per_million). Returns None for unpriced models — dollar figures are
-    then omitted (never guessed); token figures don't need pricing.
+    output_per_million[, cache_read_per_million, cache_write_per_million]).
+    Returns None for unpriced models — dollar figures are then omitted (never
+    guessed); token figures don't need pricing. ``read_discount`` and
+    ``write_premium`` are the cache rates as fractions of the input rate.
     """
     from securevector.app.database.repositories.costs import (
+        RateCard,
+        compute_cost,
+        effective_rates,
         model_id_candidates,
-        regional_premium,
     )
 
     row = pricing.get(model or "")
@@ -199,15 +199,26 @@ def _rates_for(model: str, pricing: dict) -> Optional[dict]:
                 break
     if not row:
         return None
-    provider, in_rate, out_rate = row
+    provider, in_rate, out_rate = row[0], row[1], row[2]
+    read_rate = row[3] if len(row) > 3 else None
+    write_rate = row[4] if len(row) > 4 else None
+    card = RateCard(
+        input=float(in_rate), output=float(out_rate),
+        cache_read=None if read_rate is None else float(read_rate),
+        cache_write=None if write_rate is None else float(write_rate),
+    )
     # Effective rates: the regional-endpoint premium is part of the price.
-    k = regional_premium(None, model)
+    eff_in, eff_out = effective_rates(provider, model, card)
+    read_cost, _ = compute_cost(provider, model, card, 0, 0, cache_read_tokens=1_000_000,
+                                includes_cached=False)
+    write_cost, _ = compute_cost(provider, model, card, 0, 0, cache_write_tokens=1_000_000,
+                                 includes_cached=False)
     return {
         "provider": provider,
-        "in_rate": float(in_rate) * k,
-        "out_rate": float(out_rate) * k,
-        "read_discount": CACHE_READ_DISCOUNT.get(provider, 1.0),
-        "write_premium": CACHE_WRITE_PREMIUM.get(provider, 1.0),
+        "in_rate": eff_in,
+        "out_rate": eff_out,
+        "read_discount": read_cost / eff_in if eff_in else 1.0,
+        "write_premium": write_cost / eff_in if eff_in else 1.0,
     }
 
 
@@ -1432,7 +1443,8 @@ class CostOptimizerService:
                 repo = CostsRepository(db)
                 for p in await repo.list_pricing():
                     pricing[p.model_id] = (
-                        p.provider, p.input_per_million, p.output_per_million
+                        p.provider, p.input_per_million, p.output_per_million,
+                        p.cache_read_per_million, p.cache_write_per_million,
                     )
                 _, total_records = await repo.list_records(page=1, page_size=1)
                 proxy_metered_seen = total_records > 0

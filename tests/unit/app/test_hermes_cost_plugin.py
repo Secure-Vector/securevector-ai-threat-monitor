@@ -353,3 +353,17 @@ async def test_hermes_provider_slugs_price_in_the_app(db, monkeypatch, slug, mod
         r = await c.post("/api/costs/track", json=body)
     assert r.status_code == 200, r.text
     assert r.json()["pricing_known"] is True and r.json()["total_cost_usd"] > 0
+
+
+@pytest.mark.parametrize("url, sent", [
+    ("http://127.0.0.1:9999", True), ("http://localhost:9999", True), ("http://[::1]:9999", True),
+    ("https://engine.example.com", True), ("http://engine.example.com", False),
+])
+def test_api_key_goes_only_over_https_or_loopback(captured, monkeypatch, url, sent):
+    monkeypatch.setenv("SECUREVECTOR_API_KEY", "k-123")
+    hcost._post(url + "/api/costs/track", {"x": 1})
+    assert len(captured) == 1
+    req, _ = captured[0]
+    assert (req.get_header("Authorization") == "Bearer k-123") is sent
+    if not sent:
+        assert req.get_header("Authorization") is None

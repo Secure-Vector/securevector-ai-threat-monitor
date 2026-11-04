@@ -173,9 +173,9 @@ _TOKEN_MAX = 10**12
 
 class RecordCostRequest(BaseModel):
     """Accept token usage from external sources (e.g. OpenClaw plugin)."""
-    agent_id: str = "openclaw-agent"
-    provider: str
-    model_id: str
+    agent_id: str = Field("openclaw-agent", max_length=200)
+    provider: str = Field(..., max_length=200)
+    model_id: str = Field(..., max_length=200)
     input_tokens: StrictInt = Field(0, ge=0, le=_TOKEN_MAX)
     output_tokens: StrictInt = Field(0, ge=0, le=_TOKEN_MAX)
     input_cached_tokens: StrictInt = Field(0, ge=0, le=_TOKEN_MAX)
@@ -189,7 +189,7 @@ class RecordCostRequest(BaseModel):
     # Sender's id for this call; a repeat for the same agent is not recorded twice.
     request_id: Optional[str] = Field(None, max_length=200)
     # The harness that made the call (e.g. "hermes"), so the session shows it.
-    runtime_kind: Optional[str] = Field(None, max_length=40)
+    runtime_kind: Optional[str] = Field(None, pattern=r"^[a-z0-9_-]{1,40}$")
 
 
 # --- Endpoints ---
@@ -953,10 +953,11 @@ async def get_budget_status(
                 )
                 app_settings = await SettingsRepository(db).get()
                 usage = await repo.get_run_usage(session_id)
-                # The run's own harness when its cost rows name one.
+                # The run's own harness when its cost rows name one: the latest row's.
                 kind_row = await db.fetch_one(
-                    "SELECT MAX(runtime_kind) AS kind FROM llm_cost_records WHERE session_id = ? "
-                    "AND runtime_kind IS NOT NULL AND runtime_kind != 'llm-proxy'",
+                    "SELECT runtime_kind AS kind FROM llm_cost_records WHERE session_id = ? "
+                    "AND runtime_kind IS NOT NULL AND runtime_kind != 'llm-proxy' "
+                    "ORDER BY recorded_at DESC, rowid DESC LIMIT 1",
                     (session_id,),
                 )
                 run_kind = (kind_row["kind"] if kind_row else None) or "openclaw"

@@ -39,7 +39,7 @@ function loadPlugin() {
 
   const handlers = {};
   sandbox.module.exports.register({ config: {}, on: (name, fn) => { handlers[name] = fn; } });
-  return { handlers, posts };
+  return { handlers, posts, sandbox };
 }
 
 const flush = () => new Promise((r) => setImmediate(r));
@@ -125,4 +125,18 @@ test('a long runId keeps its attempt suffix', async () => {
   await flush();
   const ids = costs(posts).map((p) => p.body.request_id);
   assert.deepEqual(ids, ['r'.repeat(190) + ':1', 'r'.repeat(190) + ':2']);
+});
+
+test('a run in use is not evicted when the cap is reached', async () => {
+  const { handlers, posts, sandbox } = loadPlugin();
+  handlers.llm_output(event(), ctx);
+  const runs = sandbox.__sv_cost_runs__;
+  for (let i = 0; runs.size < 5000; i++) runs.set(`old-${i}`, new Map());
+  handlers.llm_output(event(), ctx); // repeated delivery: run-1 is now the newest
+  handlers.llm_output(event({ runId: 'run-new' }), { ...ctx, runId: 'run-new' });
+  assert.ok(runs.has('run-1'));
+  assert.ok(!runs.has('old-0'));
+  handlers.llm_output(event({ model: 'fallback-model' }), ctx);
+  await flush();
+  assert.deepEqual(costs(posts).map((p) => p.body.request_id), ['run-1:1', 'run-1:1', 'run-new:1', 'run-1:2']);
 });

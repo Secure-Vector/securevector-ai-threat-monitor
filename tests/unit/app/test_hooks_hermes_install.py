@@ -285,3 +285,45 @@ def test_staged_plugin_points_at_the_app_url(client, home, monkeypatch):
     _install(client)
     src = (home / "plugins" / "securevector" / "cost.py").read_text()
     assert 'DEFAULT_ENDPOINT = "http://127.0.0.1:9123"' in src
+
+
+def test_install_leaves_a_foreign_folder_named_like_ours(client, home):
+    foreign = home / "plugins" / "securevector"
+    foreign.mkdir(parents=True)
+    (foreign / "plugin.yaml").write_text("name: someone-else\n")
+    (foreign / "main.py").write_text("keep")
+    r = client.post("/api/hooks/hermes/install", headers=PAGE_HEADERS)
+    assert r.status_code == 409
+    assert (foreign / "plugin.yaml").read_text() == "name: someone-else\n"
+    assert sorted(p.name for p in foreign.iterdir()) == ["main.py", "plugin.yaml"]
+    assert not (home / "config.yaml").exists()
+
+
+def test_install_leaves_an_unknown_folder_without_a_manifest(client, home):
+    foreign = home / "plugins" / "securevector"
+    foreign.mkdir(parents=True)
+    (foreign / "notes.txt").write_text("keep")
+    assert client.post("/api/hooks/hermes/install", headers=PAGE_HEADERS).status_code == 409
+    assert client.post("/api/hooks/hermes/uninstall", headers=PAGE_HEADERS).status_code == 409
+    assert (foreign / "notes.txt").read_text() == "keep"
+
+
+def test_a_partial_install_is_ours(client, home):
+    partial = home / "plugins" / "securevector"
+    partial.mkdir(parents=True)
+    (partial / "cost.py").write_text("old")
+    _install(client)
+    assert sorted(p.name for p in partial.iterdir()) == sorted(mod.PLUGIN_FILES)
+    (partial / "plugin.yaml").unlink()
+    r = client.post("/api/hooks/hermes/uninstall", headers=PAGE_HEADERS)
+    assert r.status_code == 200 and not partial.exists()
+
+
+def test_backup_skips_a_symlinked_backup_path(home, tmp_path):
+    cfg = home / "config.yaml"
+    cfg.write_text("plugins: {}\n")
+    elsewhere = tmp_path / "elsewhere.yaml"
+    backup = home / "config.yaml.before-securevector"
+    os.symlink(elsewhere, backup)  # dangling: exists() is False
+    mod._backup_once(cfg)
+    assert not elsewhere.exists() and backup.is_symlink()

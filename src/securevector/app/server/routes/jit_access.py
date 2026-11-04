@@ -380,6 +380,8 @@ async def approve_request(
         except ValueError as ve:
             raise HTTPException(status_code=422, detail=str(ve))
         if grant is None:
+            if await repo.is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             raise HTTPException(status_code=404, detail="No such pending request")
         if changed:
             await decisions.audit_request(db, "allow", pending)
@@ -424,6 +426,8 @@ async def deny_request(
             return {"denied": True, "delegation": out}
         ok = await JitAccessRepository(db).deny_request(request_id, body.reason)
         if not ok:
+            if await JitAccessRepository(db).is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             raise HTTPException(status_code=404, detail="No such pending request")
         await decisions.audit_request(db, "deny", pending, reason=body.reason)
         return {"denied": True}

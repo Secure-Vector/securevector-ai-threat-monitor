@@ -835,8 +835,6 @@ class CostsRepository:
     # Generation spans (model-run tracing, v46)                            #
     # ------------------------------------------------------------------ #
 
-    CACHE_DISCOUNT = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
-
     async def resolve_rate_card(self, provider: Optional[str], model_id: str) -> Optional[RateCard]:
         """Full rates (input, output, cache read, cache write) for a model, or None.
 

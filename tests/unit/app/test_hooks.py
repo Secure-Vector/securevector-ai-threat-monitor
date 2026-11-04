@@ -113,7 +113,7 @@ class TestRegisterPluginInConfig:
         config = json.loads(config_path.read_text())
         assert config["plugins"]["entries"][PLUGIN_NAME] == {"enabled": True}
         # The install record carries the bundled OpenClaw plugin version.
-        assert config["plugins"]["installs"][PLUGIN_NAME]["version"] == "1.2.0"
+        assert config["plugins"]["installs"][PLUGIN_NAME]["version"] == "1.3.0"
         assert config["plugins"]["installs"][PLUGIN_NAME]["sourcePath"] == "/new/path"
 
     def test_creates_backup(self, openclaw_dir):

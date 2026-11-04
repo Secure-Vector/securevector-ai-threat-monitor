@@ -3862,7 +3862,8 @@ async def migrate_to_v69(db: DatabaseConnection) -> None:
 
     - Hermes plugin records (``agent_id = 'hermes'``, sent with
       ``input_includes_cached`` set, any provider);
-    - proxy recorder rows (``runtime_kind = 'llm-proxy'``) and OTLP generation
+    - proxy recorder rows (``runtime_kind = 'llm-proxy'``, or untagged with a
+      ``session_id`` from 6.0/6.1) and OTLP generation
       rows (``span_id`` set), stored as the provider reported them, where that
       provider's input counts the cache (OpenAI, Gemini and others).
 
@@ -3874,7 +3875,11 @@ async def migrate_to_v69(db: DatabaseConnection) -> None:
     cache = "(COALESCE(input_cached_tokens, 0) + COALESCE(input_cache_write_tokens, 0))"
     full = f"{cache} > 0 AND input_tokens >= {cache}"
     not_openclaw = "COALESCE(agent_id, '') != 'openclaw-agent' AND COALESCE(agent_id, '') NOT LIKE 'agent:%'"
-    reported = (f"(span_id IS NOT NULL OR runtime_kind = 'llm-proxy') AND COALESCE(agent_id, '') != 'hermes' "
+    # Before 6.2 only the proxy recorder set session_id on /costs/track rows,
+    # and 6.0/6.1 proxy rows were stored with runtime_kind NULL.
+    untagged_proxy = "(runtime_kind IS NULL AND span_id IS NULL AND session_id IS NOT NULL)"
+    reported = (f"(span_id IS NOT NULL OR runtime_kind = 'llm-proxy' OR {untagged_proxy}) "
+                f"AND COALESCE(agent_id, '') != 'hermes' "
                 f"AND {not_openclaw}")
     async with db.transaction() as conn:
         cur = await conn.execute("SELECT 1 FROM schema_version WHERE version = 69")

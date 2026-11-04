@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Input tokens mean the uncached part for every provider, so the token columns agree across harnesses and cached tokens are counted once in totals. Existing records are updated once on upgrade; costs are unchanged.
 - Guardian labels a model-only match as ML only.
+- Model-only detections on file-read output are shown at medium at most and listed on the Dashboard as "to review".
 - The statusline counts match the Dashboard, with the band words Low, Watch and High.
 - The What's new line follows the app version.
 - Terminal text is 14px.

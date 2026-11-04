@@ -890,19 +890,20 @@ def _transcript_usage(harness_session_id: str) -> Optional[dict]:
 
 
 async def _estimate_cost(db, per_model: dict) -> tuple:
-    from securevector.app.database.repositories.costs import CostsRepository
-    from securevector.app.services.cost_optimizer import CACHE_WRITE_PREMIUM
+    from securevector.app.database.repositories.costs import CostsRepository, compute_cost
 
     repo = CostsRepository(db)
     total, by_model = 0.0, []
-    read_rate = CostsRepository.CACHE_DISCOUNT.get("anthropic", 1.0)
-    write_rate = CACHE_WRITE_PREMIUM.get("anthropic", 1.0)
     for model, mu in sorted(per_model.items()):
-        rin, rout = await repo.resolve_rates("anthropic", model)
+        card = await repo.resolve_rate_card("anthropic", model)
         cost = None
-        if rin is not None and rout is not None:
-            cost = (mu["input"] * rin + mu["output"] * rout + mu["cache_read"] * rin * read_rate
-                    + mu["cache_create"] * rin * write_rate) / 1_000_000
+        if card is not None:
+            in_cost, out_cost = compute_cost(
+                "anthropic", model, card, mu["input"], mu["output"],
+                cache_read_tokens=mu["cache_read"], cache_write_tokens=mu["cache_create"],
+                includes_cached=False,
+            )
+            cost = in_cost + out_cost
             total += cost
         by_model.append({
             "model": str(model)[:80], "calls": mu["turns"], "input": mu["input"], "output": mu["output"],

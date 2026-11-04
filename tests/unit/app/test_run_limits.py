@@ -324,6 +324,27 @@ def test_exemption_uses_the_runs_own_harness(tmp_path, monkeypatch):
         _asyncio.run(db.disconnect())
 
 
+def test_exemption_uses_the_latest_rows_harness(tmp_path, monkeypatch):
+    async def seed(db):
+        await SettingsRepository(db).update(run_max_cost_usd=1.0)
+        await _record(db, SESSION, 1.0, 100)
+        await db.execute("UPDATE llm_cost_records SET runtime_kind = 'zz-old', recorded_at = '2026-10-01T00:00:00' "
+                         "WHERE session_id = ?", (SESSION,))
+        await _record(db, SESSION, 1.0, 100)
+        await db.execute("UPDATE llm_cost_records SET runtime_kind = 'hermes', recorded_at = '2026-10-02T00:00:00' "
+                         "WHERE session_id = ? AND runtime_kind IS NULL", (SESSION,))
+        await create_run_exemption(db, "hermes", SESSION)
+
+    db = _setup_db(tmp_path, seed)
+    try:
+        with _budget_client(db, monkeypatch) as client:
+            res = client.get("/api/costs/budget-status",
+                             params={"agent_id": "hermes", "session_id": SESSION}).json()
+        assert res["run_exempted"] is True and res["over_run_limit"] is False
+    finally:
+        _asyncio.run(db.disconnect())
+
+
 def test_budget_status_without_session_is_unchanged(tmp_path, monkeypatch):
     async def seed(db):
         pass

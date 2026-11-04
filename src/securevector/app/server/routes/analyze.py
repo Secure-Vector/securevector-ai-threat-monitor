@@ -79,7 +79,7 @@ _ML_ONLY_FILE_READ_SEVERITY = "medium"
 # OpenCode, Cursor and similar harnesses), compared lowercased.
 _FILE_READ_TOOLS = frozenset({
     "read", "read_file", "readfile", "view", "view_file", "cat", "open_file",
-    "notebookread", "read_notebook", "get_file_contents", "file_read", "fs_read",
+    "notebookread", "read_notebook", "file_read", "fs_read",
 })
 _SOURCE_CODE_LINE = re.compile(
     r"^\s*(def |class |import |from \S+ import |async def |function |const |let |"
@@ -277,6 +277,9 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
     # Don't mutate request.metadata — FastAPI keeps that reference for the
     # response cycle.
     augmented_metadata = dict(request.metadata or {})
+    # These keys are set by the server only.
+    for key in ("severity_cap", "severity_cap_reason", "ml_agreement"):
+        augmented_metadata.pop(key, None)
     augmented_metadata["direction"] = direction
     if is_idpi_scan:
         augmented_metadata.setdefault("scan_type", "incoming_context")

@@ -642,15 +642,19 @@ export default {
     // cost row per attempt. Attempts of one run share runId: each run keeps
     // its own counter, and an attempt is keyed by its model and usage, so a
     // repeated delivery reuses its id (stored once) and a new attempt gets
-    // the next number. The oldest run is dropped past the cap, never a part
-    // of one, so a live run never hands out an id twice.
+    // the next number. Each use moves the run to the newest end, and the
+    // least recently used run is dropped past the cap, never a part of one,
+    // so a live run never hands out an id twice.
     const g2 = globalThis as any;
     if (!(g2.__sv_cost_runs__ instanceof Map)) g2.__sv_cost_runs__ = new Map();
     const costRuns: Map<string, Map<string, number>> = g2.__sv_cost_runs__;
     const COST_RUNS_CAP = 5000;
     const attemptId = (runId: string, key: string): string => {
       let attempts = costRuns.get(runId);
-      if (!attempts) {
+      if (attempts) {
+        costRuns.delete(runId);
+        costRuns.set(runId, attempts);
+      } else {
         attempts = new Map<string, number>();
         costRuns.set(runId, attempts);
         if (costRuns.size > COST_RUNS_CAP) {

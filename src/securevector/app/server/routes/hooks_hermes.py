@@ -298,7 +298,7 @@ def _backup_once(path: Path) -> None:
     if not path.is_file():
         return
     backup = path.with_suffix(path.suffix + ".before-securevector")
-    if backup.exists():
+    if backup.is_symlink() or backup.exists():
         return
     try:
         shutil.copy2(path, backup)
@@ -597,6 +597,8 @@ async def install_plugin():
     target = _plugin_dir()
     for path in (target.parent, target, _config_file()):
         _check_target(path)
+    if target.is_dir() and not _folder_is_ours(target):
+        raise HTTPException(status_code=409, detail=f"{target} is not the SecureVector plugin; left in place")
     _hooks_common.ensure_bundled_dir(BUNDLED_PLUGIN_DIR, PLUGIN_FILES)
     sv_url = _hooks_common.resolve_sv_url()
     files = _hooks_common.stage_files(
@@ -632,6 +634,24 @@ async def uninstall_plugin():
     return await _uninstall_plugin()
 
 
+def _folder_is_ours(target: Path) -> bool:
+    """Our plugin folder: its plugin.yaml names us, or it holds only files
+    from PLUGIN_FILES (a partial install)."""
+    manifest = target / "plugin.yaml"
+    try:
+        if _load_yaml(manifest.read_text(encoding="utf-8")).get("name") == PLUGIN_NAME:
+            return True
+    except Exception:
+        pass
+    if manifest.exists() or manifest.is_symlink():
+        return False
+    try:
+        entries = list(target.iterdir())
+    except OSError:
+        return False
+    return all(e.name in PLUGIN_FILES and not e.is_symlink() and e.is_file() for e in entries)
+
+
 async def _uninstall_plugin():
     """Remove our enable entry and our plugin folder, nothing else. Idempotent.
     Ownership of the folder is checked first, so a foreign plugin named like
@@ -642,12 +662,7 @@ async def _uninstall_plugin():
     remove_dir = False
     if target.is_dir():
         _check_target(target)
-        manifest = target / "plugin.yaml"
-        try:
-            ours = _load_yaml(manifest.read_text(encoding="utf-8")).get("name") == PLUGIN_NAME
-        except Exception:
-            ours = False
-        if not ours:
+        if not _folder_is_ours(target):
             raise HTTPException(status_code=409, detail=f"{target} is not the SecureVector plugin; left in place")
         remove_dir = True
     cfg = _config_file()

@@ -108,6 +108,17 @@ def _atomic_write(dst: Path, data: bytes) -> None:
         raise
 
 
+def _symlink_between(root: Path, dst: Path) -> bool:
+    """True when any folder from ``root`` (exclusive) down to ``dst``'s
+    parent is a symlink."""
+    parent = dst.parent
+    while parent != root and root in parent.parents:
+        if parent.is_symlink():
+            return True
+        parent = parent.parent
+    return False
+
+
 def stage_files(
     *,
     staging_dir: Path,
@@ -142,7 +153,7 @@ def stage_files(
         # A symlinked folder would send the write elsewhere: refuse it. A
         # symlinked destination file is replaced by our real file below
         # (os.replace swaps the link itself, never its target).
-        if dst.parent != staging_dir and dst.parent.is_symlink():
+        if _symlink_between(staging_dir, dst):
             logger.warning("Refusing to write plugin file through a symlinked folder: %s", dst)
             continue
         # Create any nested parent directories the file path requires
@@ -180,7 +191,7 @@ def staged_is_current(
         if not src.is_file():
             continue
         dst = staging_dir / filename
-        if not dst.is_file():
+        if dst.is_symlink() or not dst.is_file():
             return False
         try:
             expected = src.read_text(encoding="utf-8")

@@ -137,22 +137,22 @@ test('summary: rows for status, tool calls, unusual activity, config, worth a lo
   assert.match(quiet, /<dt>Status<\/dt><dd>Finished in 1h 41m\. Nothing unusual\.<\/dd>/);
   assert.match(quiet, /<dt>Tool calls<\/dt><dd>40 calls \u00b7 40 allowed \u00b7 0 blocked<\/dd>/);
   assert.match(quiet, /<dt>Unusual activity<\/dt>[\s\S]*Drift Score 15 of 100\. Compared with this agent's own recent sessions in this folder\.[\s\S]*Low<\/span> \(15 of 100\)/);
-  assert.doesNotMatch(quiet, /terminals-summary-fact|<dt>Worth a look/);
+  assert.doesNotMatch(quiet, /terminals-summary-fact|<dt>To review/);
   assert.match(quiet, /<button type="button" class="terminals-summary-toggle" data-summary-toggle aria-expanded="false"[^>]*>[\s\S]*Show details/);
   assert.match(quiet, /data-summary-details id="[^"]+" hidden>/);
   const busy = Page._summaryHtml(mk({ tool_calls: { allowed: 10, flagged: 1, blocked: 2, failed: 0 },
     findings: [{ category: 'x', title: 'Repeated the same Bash call 6 times' }, { category: 'x', title: 'Slow step' }, { category: 'x', title: 'Another' }], findings_total: 3 }));
-  assert.match(busy, /Finished in 1h 41m\. 4 things worth a look\./);
+  assert.match(busy, /Finished in 1h 41m\. 4 to review\./);
   assert.match(busy, /13 calls \u00b7 10 allowed \u00b7 2 blocked \u00b7 1 other/);
-  assert.match(busy, /<dt>Worth a look<\/dt>/);
+  assert.match(busy, /<dt>To review<\/dt>/);
   assert.match(busy, /and 1 more/);
   assert.match(busy, /Export evidence/);
   const running = Page._summaryHtml(mk({ status: 'working', ended_at: null }));
   assert.match(running, /Running for .*Nothing unusual so far\./);
   const many = Page._summaryHtml(mk({ setup: { state: 'changed', changes: Array.from({ length: 12 }, (_, i) => ({ text: `Mod p${i} changed (manifest or files).` })).concat([{ text: 'Hooks changed in ~/.x/settings.json.' }]) } }));
-  assert.match(many, /Finished in 1h 41m\. 1 thing worth a look\./);
+  assert.match(many, /Finished in 1h 41m\. 1 to review\./);
   assert.match(many, /Config changed: 12 plugins and 1 settings file\./);
-  assert.ok(many.indexOf('Worth a look') > many.indexOf('<dt>Config</dt>'));
+  assert.ok(many.indexOf('To review') > many.indexOf('<dt>Config</dt>'));
 });
 
 test('summary: one line per sub-agent, markdown stripped, file names only, held opens Details', () => {

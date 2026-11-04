@@ -113,7 +113,8 @@ function localDayKey(d) {
  *   stats  — GET /api/tool-permissions/call-audit/stats (fallback only,
  *            for an app without the daily endpoint)
  * Returns { total, allowed, blocked, window } or null when nothing was
- * fetched; window is "7d", or "all" for the all-time fallback.
+ * fetched; window is "7d", or "all" for the all-time fallback. Egress blocks
+ * are 7-day counts, so they are added only to the daily counts.
  */
 function summarizeCounts(daily, egress, stats, now = Date.now(), days = COUNT_WINDOW_DAYS) {
   const egressBlocked = egress && Array.isArray(egress.destinations)
@@ -138,12 +139,11 @@ function summarizeCounts(daily, egress, stats, now = Date.now(), days = COUNT_WI
     toolBlocked = Number(stats.blocked) || 0;
     window = 'all';
   }
-  if (total === null && !egress) return null;
-  total = total || 0;
+  if (total === null) return null;
   return {
     total,
     allowed: Math.max(0, total - toolBlocked),
-    blocked: toolBlocked + egressBlocked,
+    blocked: toolBlocked + (window === '7d' ? egressBlocked : 0),
     window,
   };
 }

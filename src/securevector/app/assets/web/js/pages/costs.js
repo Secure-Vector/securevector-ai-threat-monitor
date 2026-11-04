@@ -555,8 +555,8 @@ const CostsPage = {
                 { key: 'total_requests', label: 'Requests', sortable: true, render: v => (v || 0).toLocaleString() },
                 { key: 'total_input_tokens', label: 'Input Tokens', sortable: true, render: v => self._fmtTokens(v) },
                 { key: 'total_output_tokens', label: 'Output Tokens', sortable: true, render: v => self._fmtTokens(v) },
-                { key: 'total_cache_read_tokens', label: 'Cache Read', sortable: true, render: v => self._fmtTokens(v || 0) },
-                { key: 'total_cache_write_tokens', label: 'Cache Write', sortable: true, render: v => self._fmtTokens(v || 0) },
+                { key: 'total_cache_read_tokens', label: 'Cache read', sortable: true, render: v => self._fmtTokens(v || 0) },
+                { key: 'total_cache_write_tokens', label: 'Cache write', sortable: true, render: v => self._fmtTokens(v || 0) },
                 { key: 'total_cost_usd', label: 'Total Cost', sortable: true, render: v => {
                     const s = document.createElement('strong'); s.textContent = `$${(v || 0).toFixed(6)}`; return s;
                 }},
@@ -807,8 +807,8 @@ const CostsPage = {
                 { key: 'provider', label: 'Provider', sortable: true },
                 { key: 'model_id', label: 'Model', sortable: true },
                 { key: 'input_tokens', label: 'Input', sortable: true, render: v => (v || 0).toLocaleString() },
-                { key: 'input_cached_tokens', label: 'Cache Read', sortable: true, render: v => (v > 0 ? v.toLocaleString() : '—') },
-                { key: 'input_cache_write_tokens', label: 'Cache Write', sortable: true, render: v => (v > 0 ? v.toLocaleString() : '—') },
+                { key: 'input_cached_tokens', label: 'Cache read', sortable: true, render: v => (v > 0 ? v.toLocaleString() : '—') },
+                { key: 'input_cache_write_tokens', label: 'Cache write', sortable: true, render: v => (v > 0 ? v.toLocaleString() : '—') },
                 { key: 'output_tokens', label: 'Output', sortable: true, render: v => (v || 0).toLocaleString() },
                 { key: 'total_cost_usd', label: 'Cost', sortable: true, render: v => `$${(v || 0).toFixed(6)}` },
                 { key: 'pricing_known', label: 'Pricing', render: v => {

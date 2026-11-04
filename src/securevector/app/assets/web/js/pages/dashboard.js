@@ -1838,7 +1838,7 @@ const DashboardPage = {
             const riskCell = document.createElement('div');
             riskCell.className = 'activity-cell';
             const riskBadge = document.createElement('span');
-            riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
+            riskBadge.className = 'risk-badge risk-' + API.threatSeverity(threat);
             riskBadge.textContent = (threat.risk_score || 0) + '%';
             riskCell.appendChild(riskBadge);
             row.appendChild(riskCell);
@@ -1890,13 +1890,6 @@ const DashboardPage = {
         } catch (e) {
             return '-';
         }
-    },
-
-    getRiskLevel(score) {
-        if (score >= 80) return 'critical';
-        if (score >= 60) return 'high';
-        if (score >= 40) return 'medium';
-        return 'low';
     },
 
     toggleAutoRefresh() {

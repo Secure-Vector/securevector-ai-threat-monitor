@@ -225,3 +225,30 @@ def test_staged_is_current_compares_binary_bytes(tmp_path):
         staging_dir=dst, source_dir=src, files=["logo.bin"], substitutions=subs
     )
 
+
+
+def test_stage_files_refuses_a_symlinked_folder_at_any_depth(tmp_path):
+    src = tmp_path / "src"
+    (src / "a" / "b").mkdir(parents=True)
+    (src / "a" / "b" / "f.js").write_text("x")
+    (src / "top.js").write_text("y")
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    outside = tmp_path / "outside"
+    (outside / "b").mkdir(parents=True)
+    (dst / "a").symlink_to(outside, target_is_directory=True)
+    written = _hooks_common.stage_files(staging_dir=dst, source_dir=src, files=["a/b/f.js", "top.js"],
+                                        substitutions={})
+    assert written == ["top.js"]
+    assert not (outside / "b" / "f.js").exists()
+
+
+def test_staged_is_current_false_when_the_destination_is_a_symlink(tmp_path):
+    src, dst = _staged_case(tmp_path)
+    files = ["a.ts"]
+    _hooks_common.stage_files(staging_dir=dst, source_dir=src, files=files, substitutions={})
+    real = tmp_path / "real.ts"
+    real.write_bytes((dst / "a.ts").read_bytes())
+    (dst / "a.ts").unlink()
+    (dst / "a.ts").symlink_to(real)
+    assert not _hooks_common.staged_is_current(staging_dir=dst, source_dir=src, files=files, substitutions={})

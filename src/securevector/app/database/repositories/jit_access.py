@@ -144,6 +144,15 @@ class JitAccessRepository:
             hold = ""
         return f"COALESCE((requested_at < datetime('now', '-{int(older_than_hours)} hours'){hold}), 0)"
 
+    async def is_lapsed(self, request_id: str) -> bool:
+        """True when the request expired or is pending past its limit."""
+        row = await self.db.fetch_one(
+            f"SELECT (status = 'expired' OR (status = 'pending' AND {self._lapsed_sql()})) AS gone "
+            "FROM jit_access_requests WHERE id = ?",
+            (request_id,),
+        )
+        return bool(row and row["gone"])
+
     async def list_requests(
         self, status: Optional[str] = None, limit: int = 100
     ) -> list[dict]:
@@ -271,7 +280,7 @@ class JitAccessRepository:
             cur = await self.db.execute(
                 "UPDATE jit_access_requests SET status = 'approved', "
                 "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user' "
-                "WHERE id = ? AND status = 'pending'",
+                f"WHERE id = ? AND status = 'pending' AND NOT {self._lapsed_sql()}",
                 (request_id,),
             )
         else:
@@ -342,7 +351,7 @@ class JitAccessRepository:
         cur = await self.db.execute(
             "UPDATE jit_access_requests SET status = 'denied', "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user', "
-            "deny_reason = ? WHERE id = ? AND status = 'pending'",
+            f"deny_reason = ? WHERE id = ? AND status = 'pending' AND NOT {self._lapsed_sql()}",
             ((reason or "").strip()[:200] or None, request_id),
         )
         # True only when this call moved the request out of pending.
@@ -637,7 +646,8 @@ class JitAccessRepository:
         cur = await self.db.execute(
             "UPDATE jit_access_requests SET status = ?, "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user', "
-            "deny_reason = ? WHERE id = ? AND status = 'pending' AND rule_source = 'delegate'",
+            "deny_reason = ? WHERE id = ? AND status = 'pending' AND rule_source = 'delegate' "
+            f"AND NOT {self._lapsed_sql()}",
             (status, None if approve else ((reason or "").strip()[:200] or None), request_id),
         )
         return bool(getattr(cur, "rowcount", 0))

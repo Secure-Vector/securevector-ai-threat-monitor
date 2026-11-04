@@ -141,6 +141,20 @@ test('one session failing leaves the others loaded and itself in an error state'
   assert.notEqual(kept.error, true);
 });
 
+test('a fetch that returns null shows the error state with Retry', async () => {
+  const API = {
+    getSessionGovernance: async (sid) => (sid === 'nogov' ? null : { runs: { trace_ids: ['t-' + sid] } }),
+    getTraceTree: async () => null, // API.getTraceTree turns a failure into null
+    getJitRequests: async () => ({ items: [] }),
+  };
+  const page = loadLivePage(API);
+  page.details = {};
+  for (const sid of ['notrace', 'nogov']) {
+    const [, d] = await page._detailOf(sid);
+    assert.equal(d.error, true, sid);
+  }
+});
+
 // -- 9. terminal text size ---------------------------------------------------
 
 test('terminal text is 14px and refits after construction and font load', () => {

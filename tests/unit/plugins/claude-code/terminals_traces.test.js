@@ -107,10 +107,10 @@ test('styles.css gives the Terminals page a mono terminal look', () => {
 test('index.html pins the bumped cache versions', () => {
   const html = read('index.html');
   assert.match(html, /styles\.css\?v=503/);
-  assert.match(html, /terminals\.js\?v=136/);
+  assert.match(html, /terminals\.js\?v=137/);
   assert.match(html, /agent-runs\.js\?v=412/);
   assert.match(html, /live-grid-model\.js\?v=17/);
-  assert.match(html, /pages\/live-grid\.js\?v=17/);
+  assert.match(html, /pages\/live-grid\.js\?v=18/);
 });
 
 test('terminals.js coerces run counters with Number() before interpolating', () => {
