@@ -547,6 +547,11 @@ class HermesStatusResponse(BaseModel):
     install_path: str
     config_file: str
     files_present: list[str]
+    # Update awareness: whether the staged files match this app's bundle.
+    files_current: bool = False
+    update_available: bool = False
+    installed_version: Optional[str] = None
+    bundled_version: Optional[str] = None
 
 
 class HermesInstallResponse(BaseModel):
@@ -562,6 +567,31 @@ class HermesInstallResponse(BaseModel):
 
 class HermesUninstallResponse(BaseModel):
     ok: bool
+
+
+def _update_state() -> dict:
+    """Update fields for /status: the plugin folder compared
+    with the bundle, using the installer's URL."""
+    sv_url = _hooks_common.resolve_sv_url()
+    manifest = "plugin.yaml"
+
+    def _installed_version():
+        for root in (_plugin_dir(),):
+            if root is not None and (root / manifest).is_file():
+                return _hooks_common.read_manifest_version(root / manifest)
+        return None
+
+    return _hooks_common.update_state(
+        staging_dir=_plugin_dir(),
+        source_dir=BUNDLED_PLUGIN_DIR,
+        files=PLUGIN_FILES,
+        substitutions={"http://127.0.0.1:8741": sv_url, "http://localhost:8741": sv_url},
+        bundled_version=_hooks_common.read_manifest_version(BUNDLED_PLUGIN_DIR / manifest),
+        installed_version_reader=_installed_version,
+        copies=(),
+        # Installed means the folder is complete and Hermes has it enabled.
+        installed=all((_plugin_dir() / f).is_file() for f in PLUGIN_FILES) and _enable_state() == (True, False),
+    )
 
 
 @router.get("/status", response_model=HermesStatusResponse)
@@ -581,6 +611,7 @@ async def plugin_status():
         install_path=str(target),
         config_file=str(_config_file()),
         files_present=files_present,
+        **_hooks_common.status_fields(_update_state()),
     )
 
 

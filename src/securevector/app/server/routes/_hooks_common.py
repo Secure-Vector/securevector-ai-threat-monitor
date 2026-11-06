@@ -207,3 +207,90 @@ def staged_is_current(
         except OSError:
             return False
     return True
+
+
+def read_manifest_version(path: Path) -> Optional[str]:
+    """Return the ``version`` field of a plugin manifest, or None.
+
+    JSON manifests (plugin.json, package.json) are parsed; YAML manifests
+    (plugin.yaml) are read for a top-level ``version:`` line. Missing or
+    unreadable files give None, as do files over 64 KB and any version that
+    is not a short plain token (letters, digits, ``.``, ``+``, ``-``, ``_``).
+    """
+    import re
+    try:
+        if path.stat().st_size > 64 * 1024:
+            return None
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    value = None
+    if path.suffix in (".yaml", ".yml"):
+        for line in text.splitlines():
+            if line.startswith("version:"):
+                value = line.split(":", 1)[1].split("#", 1)[0].strip().strip("'\"")
+                break
+    else:
+        try:
+            import json
+            value = json.loads(text).get("version")
+        except (ValueError, AttributeError):
+            return None
+    if isinstance(value, str) and re.fullmatch(r"[\w.+-]{1,32}", value, re.ASCII):
+        return value
+    return None
+
+
+def update_state(
+    *,
+    staging_dir: Path,
+    source_dir: Path,
+    files: list[str],
+    substitutions: dict[str, str],
+    bundled_version: Optional[str],
+    installed_version_reader: Callable[[], Optional[str]],
+    installed: Optional[bool] = None,
+    copies: tuple = (),
+) -> dict:
+    """Return the update fields every plugin status route reports.
+
+    ``installed`` defaults to "every file is present in ``staging_dir``";
+    a route with its own notion of installed passes it in. ``copies`` are
+    further directories the harness loads a copy of the staged files from,
+    each a path or a ``(path, extra_substitutions)`` pair for a copy the
+    installer rewrites further; each one that exists must also match.
+    ``update_available`` is installed and not current.
+    """
+    if installed is None:
+        installed = all((staging_dir / f).is_file() for f in files)
+    files_current = False
+    installed_version: Optional[str] = None
+    if installed:
+        files_current = staged_is_current(
+            staging_dir=staging_dir, source_dir=source_dir,
+            files=files, substitutions=substitutions,
+        )
+        for copy in copies:
+            copy_dir, extra = copy if isinstance(copy, tuple) else (copy, {})
+            if files_current and copy_dir is not None and Path(copy_dir).is_dir():
+                files_current = staged_is_current(
+                    staging_dir=Path(copy_dir), source_dir=source_dir,
+                    files=files, substitutions={**substitutions, **(extra or {})},
+                )
+        try:
+            installed_version = installed_version_reader()
+        except Exception:
+            installed_version = None
+    return {
+        "installed": bool(installed),
+        "files_current": files_current,
+        "update_available": bool(installed) and not files_current,
+        "installed_version": installed_version,
+        "bundled_version": bundled_version,
+    }
+
+
+def status_fields(state: dict) -> dict:
+    """The ``update_state`` fields a status route adds to its own response
+    (each route keeps its own ``installed``)."""
+    return {k: v for k, v in state.items() if k != "installed"}

@@ -418,6 +418,31 @@ class InstallRequest(BaseModel):
     force: bool = False
 
 
+def _update_state(installed: Optional[bool] = None) -> dict:
+    """Update fields for /status: staged files (the linked install) compared
+    with the bundle, using the installer's URL."""
+    if installed is None:
+        installed = (
+            (STAGING_DIR / "openclaw.plugin.json").is_file()
+            and (STAGING_DIR / "index.ts").is_file()
+            and _is_plugin_installed_via_cli()
+        )
+    try:
+        source_dir = _ensure_bundled_plugin_dir()
+    except Exception:
+        source_dir = BUNDLED_PLUGIN_DIR
+    manifest = "openclaw.plugin.json"
+    return _hooks_common.update_state(
+        staging_dir=STAGING_DIR,
+        source_dir=source_dir,
+        files=PLUGIN_FILES,
+        substitutions=_plugin_substitutions(_resolve_sv_url()),
+        bundled_version=_hooks_common.read_manifest_version(source_dir / manifest),
+        installed_version_reader=lambda: _hooks_common.read_manifest_version(STAGING_DIR / manifest),
+        installed=installed,
+    )
+
+
 @router.get("/status")
 async def plugin_status():
     """Check if the SecureVector plugin is installed."""
@@ -442,6 +467,7 @@ async def plugin_status():
         },
         "registered": registered,
         "openclaw_detected": openclaw_detected,
+        **_hooks_common.status_fields(_update_state(files_present and registered)),
     }
 
 

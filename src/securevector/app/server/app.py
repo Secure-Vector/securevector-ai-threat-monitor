@@ -225,6 +225,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not refresh MCP registrations: {_e}")
 
+    # Name installed plugins whose files differ from this app's bundle. Log
+    # only: nothing is updated automatically.
+    try:
+        import asyncio as _asyncio
+
+        from securevector.app.server.routes import hooks_updates as _hooks_updates
+        _asyncio.get_running_loop().run_in_executor(None, _hooks_updates.log_stale_plugins)
+    except Exception as _e:
+        logger.debug(f"Could not check plugin updates: {_e}")
+
     # Agent Task lifecycle events -> fleet destination. Installed before the
     # task board restores so startup "interrupted" transitions are queued
     # too. Metadata only, and a no-op on a device that is not enrolled.
@@ -554,6 +564,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         hooks_cursor,
         hooks_antigravity,
         hooks_hermes,
+        hooks_updates,
         skill_scans,
         skill_permissions,
         siem_forwarders,
@@ -614,6 +625,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(hooks_cursor.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_antigravity.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_hermes.router, prefix="/api", tags=["Hooks"])
+    app.include_router(hooks_updates.router, prefix="/api", tags=["Hooks"])
     app.include_router(skill_scans.router, prefix="/api", tags=["Skill Scanner"])
     app.include_router(skill_permissions.router, prefix="/api", tags=["Skill Permissions"])
     app.include_router(siem_forwarders.router, prefix="/api", tags=["SIEM Forwarders"])

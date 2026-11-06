@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bedrock regional endpoints are priced with the 10% premium for Claude 4.5 and later.
 - OpenCode records one cost per finished reply.
 
+**Plugins**
+- Connect Agents and `securevector-app --update-plugins` update installed plugins that are out of date.
+
 ### Changed
 - Input tokens mean the uncached part for every provider, so the token columns agree across harnesses and cached tokens are counted once in totals. Existing records are updated once on upgrade; costs are unchanged.
 - Guardian labels a model-only match as ML only.

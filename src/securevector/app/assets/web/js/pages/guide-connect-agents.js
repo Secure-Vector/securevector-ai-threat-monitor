@@ -84,6 +84,21 @@ const GuideConnectAgentsPage = {
     // Two-column layout styles (main flow + sticky detection rail). Injected
     // once; collapses to a single column below 960px so the detection rail
     // drops beneath the flow on narrow viewports instead of squeezing it.
+    /** One status line for an installed plugin, or null when not installed:
+     *  "Installed 1.2.0" or "Installed 1.2.0, 1.3.0 available". */
+    versionLine(st) {
+        if (!st || st.installed !== true) return null;
+        const line = st.installed_version ? 'Installed ' + st.installed_version : 'Installed';
+        if (st.update_available !== true) return line;
+        return line + ', ' + (st.bundled_version ? st.bundled_version + ' available' : 'update available');
+    },
+
+    /** Number of plugins with an update, from GET /api/hooks/status-all. */
+    updateCount(all) {
+        if (!all || !Array.isArray(all.plugins)) return 0;
+        return all.plugins.filter(p => p && p.update_available === true).length;
+    },
+
     _injectColsStyle() {
         if (document.getElementById('ca-cols-style')) return;
         const st = document.createElement('style');
@@ -194,6 +209,44 @@ const GuideConnectAgentsPage = {
         lede.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px; font-size: 14px; line-height: 1.5;';
         lede.textContent = 'See what is connected and covered on this device, then connect more: the guided one-click way or by copying commands.';
         root.appendChild(lede);
+
+        // Plugin updates: one Update all button, shown only when an installed
+        // plugin differs from the one this app version ships.
+        const updAll = document.createElement('div');
+        updAll.className = 'ca-update-all';
+        updAll.style.cssText = 'display:none; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px; font-size:13px; color:var(--text-secondary);';
+        const updAllMsg = document.createElement('span');
+        const updAllBtn = document.createElement('button');
+        updAllBtn.type = 'button';
+        updAllBtn.className = 'btn btn-sm btn-primary';
+        updAllBtn.textContent = 'Update all';
+        updAll.appendChild(updAllMsg); updAll.appendChild(updAllBtn);
+        root.appendChild(updAll);
+        // One status-all fetch per page open, shared by this row and the cards.
+        let statusAll = null;
+        const loadStatusAll = (fresh) => {
+            if (fresh || !statusAll) statusAll = fetch('/api/hooks/status-all').then(r => r.json()).catch(() => null);
+            return statusAll;
+        };
+        const refreshUpdAll = async (fresh) => {
+            if (endpointMode) return;
+            const n = this.updateCount(await loadStatusAll(fresh));
+            updAllMsg.textContent = 'Plugin updates available (' + n + ')';
+            updAll.style.display = n > 0 ? 'flex' : 'none';
+        };
+        updAllBtn.addEventListener('click', async () => {
+            updAllBtn.disabled = true;
+            updAllBtn.textContent = 'Updating...';
+            let ok = false;
+            try { const r = await fetch('/api/hooks/update-plugins', { method: 'POST' }).then(x => x.json()); ok = !!(r && r.ok); } catch (_) { ok = false; }
+            updAllBtn.disabled = false;
+            updAllBtn.textContent = 'Update all';
+            await refreshUpdAll(true);
+            if (!ok) { updAllMsg.textContent = 'Some updates failed. Try again or update each plugin below.'; updAll.style.display = 'flex'; }
+            if (selected) renderPanel();
+            if (window.GlobalBanners) GlobalBanners.refreshPluginUpdates();
+        });
+        refreshUpdAll();
 
         // Your agent setup: what every harness on this device is configured
         // with, risky items first, before anything changes. Read-only.
@@ -383,6 +436,42 @@ const GuideConnectAgentsPage = {
                 const resultLine = document.createElement('span');
                 resultLine.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
                 oneClick.appendChild(installBtn); oneClick.appendChild(resultLine);
+                // Installed version, and an Update button when this app ships newer files.
+                const verLine = document.createElement('span');
+                verLine.className = 'ca-plugin-version';
+                verLine.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+                const updateBtn = document.createElement('button');
+                updateBtn.type = 'button';
+                updateBtn.className = 'btn btn-sm btn-secondary';
+                updateBtn.textContent = 'Update';
+                updateBtn.style.display = 'none';
+                oneClick.appendChild(verLine); oneClick.appendChild(updateBtn);
+                const statusUrl = plugSlug === 'openclaw' ? '/api/hooks/status' : '/api/hooks/' + plugSlug + '/status';
+                const installUrl = plugSlug === 'openclaw' ? '/api/hooks/install' : '/api/hooks/' + plugSlug + '/install';
+                // From the shared status-all result; after this card's own
+                // install or update, from its status route.
+                const showVersion = async (fromRoute) => {
+                    let st = null;
+                    if (fromRoute) {
+                        try { st = await fetch(statusUrl).then(r => r.json()); } catch (_) { st = null; }
+                    } else {
+                        const all = await loadStatusAll();
+                        st = (all && Array.isArray(all.plugins)) ? (all.plugins.find(p => p && p.runtime === plugSlug) || null) : null;
+                    }
+                    verLine.textContent = this.versionLine(st) || '';
+                    updateBtn.style.display = st && st.installed === true && st.update_available === true ? '' : 'none';
+                };
+                showVersion();
+                updateBtn.addEventListener('click', async () => {
+                    updateBtn.disabled = true;
+                    updateBtn.textContent = 'Updating...';
+                    try { await fetch(installUrl, { method: 'POST' }); } catch (_) { /* the refresh below shows the state */ }
+                    updateBtn.disabled = false;
+                    updateBtn.textContent = 'Update';
+                    await showVersion(true);
+                    refreshUpdAll(true);
+                    if (window.GlobalBanners) GlobalBanners.refreshPluginUpdates();
+                });
                 // Reflect current state so the label reads Install / Reinstall
                 // exactly like the Integrations page.
                 guardStatus(plugSlug).then(st => {
@@ -406,6 +495,8 @@ const GuideConnectAgentsPage = {
                                     : 'Staged: finish with the command below, or the full setup page.');
                             installBtn.textContent = 'Reinstall Plugin';
                             runDetection(); // refresh the coverage rail badges
+                            showVersion(true);
+                            refreshUpdAll(true);
                         } else {
                             resultLine.style.color = 'var(--error)';
                             resultLine.textContent = (selected.route !== 'B' && r && (r.next_step || (typeof r.detail === 'string' && r.detail))) || 'Install failed: use the command below, or the full setup page.';

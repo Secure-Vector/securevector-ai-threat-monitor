@@ -78,7 +78,7 @@ test('top banners stay retired except the one-line what\'s-new pointer', () => {
   assert.match(src, /if \(old\) old\.remove\(\);/);
   assert.match(src, /KEY_WHATS_NEW: 'sv-whats-new-acked'/, 'welcome screen still acks the key');
   assert.match(src, /fetch\('\/health'\)/, 'version comes from the running app');
-  assert.match(read('index.html'), /global-banners\.js\?v=26/);
+  assert.match(read('index.html'), /global-banners\.js\?v=27/);
 });
 
 test('what\'s new: upgraders see it until dismissed, never on a fresh install', () => {

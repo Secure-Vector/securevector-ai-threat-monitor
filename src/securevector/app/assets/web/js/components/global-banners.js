@@ -9,6 +9,10 @@
  * The one line left is the what's-new pointer: after an upgrade it names
  * the running version (from /health) and links its release notes on the
  * docs site until the user dismisses it. A fresh install never sees it.
+ *
+ * A second line says when installed plugins differ from the ones this app
+ * version ships, links to Connect Agents, and stays dismissed for that
+ * app version.
  */
 
 const GlobalBanners = {
@@ -19,6 +23,11 @@ const GlobalBanners = {
     KEY_GUARDIAN_NOTICE: 'sv-guardian-notice-acked',
     KEY_ENROLLED: 'sv-enrolled-banner-acked',
     DOCS_BASE: 'https://docs.securevector.io',
+    KEY_PLUGIN_UPDATES: 'sv-plugin-updates-dismissed',
+    PLUGIN_CHECK_MS: 60000,
+
+    _pluginCheck: null,
+    _pluginCheckAt: 0,
 
     _versionPromise: null,
 
@@ -73,7 +82,77 @@ const GlobalBanners = {
         if (version) this._set(this.KEY_WHATS_NEW, version);
     },
 
+    /** Number of installed plugins with an update, from one status-all call.
+     *  Cached for a minute so page changes do not repeat it. */
+    pluginUpdateCount(fresh) {
+        const now = Date.now();
+        if (fresh || !this._pluginCheck || now - this._pluginCheckAt > this.PLUGIN_CHECK_MS) {
+            this._pluginCheckAt = now;
+            this._pluginCheck = fetch('/api/hooks/status-all')
+                .then(r => (r.ok ? r.json() : null))
+                .then(d => (d && Array.isArray(d.plugins) ? d.plugins.filter(p => p && p.update_available === true).length : 0))
+                .catch(() => 0);
+        }
+        return this._pluginCheck;
+    },
+
+    /** Show the plugin line when any update exists and it was not dismissed
+     *  for this app version. */
+    shouldShowPluginUpdates(count, version) {
+        if (!count || count < 1) return false;
+        return this._get(this.KEY_PLUGIN_UPDATES) !== String(version || 'unknown');
+    },
+
+    markPluginUpdatesSeen(version) {
+        this._set(this.KEY_PLUGIN_UPDATES, String(version || 'unknown'));
+    },
+
+    /** Re-check now (after an update) and redraw the plugin line. */
+    refreshPluginUpdates() {
+        return this.renderPluginUpdates(true);
+    },
+
+    async renderPluginUpdates(fresh) {
+        const old = document.getElementById('sv-plugin-updates');
+        if (old) old.remove();
+        if (document.querySelector('.modal-overlay')) return;
+        const [version, count] = await Promise.all([this.appVersion(), this.pluginUpdateCount(fresh)]);
+        if (!this.shouldShowPluginUpdates(count, version)) return;
+        const content = document.getElementById('page-content');
+        if (!content || !content.parentNode || document.getElementById('sv-plugin-updates')) return;
+
+        const slot = document.createElement('div');
+        slot.id = 'sv-plugin-updates';
+        slot.setAttribute('role', 'status');
+        slot.style.cssText = 'display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:8px 12px;'
+            + 'border:1px solid var(--border-default);border-radius:8px;background:var(--bg-secondary);'
+            + 'font-size:13px;color:var(--text-secondary);';
+        const text = document.createElement('span');
+        text.style.cssText = 'flex:1;min-width:0;';
+        text.textContent = `Plugin updates available (${count}). `;
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = 'Update';
+        link.style.color = 'var(--accent-primary)';
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            slot.remove();
+            if (window.Sidebar) window.Sidebar.navigate('guide-connect-agents');
+        });
+        text.appendChild(link);
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'btn btn-sm btn-secondary';
+        close.setAttribute('aria-label', 'Dismiss');
+        close.textContent = '\u00d7';
+        close.addEventListener('click', () => { this.markPluginUpdatesSeen(version); slot.remove(); });
+        slot.appendChild(text);
+        slot.appendChild(close);
+        content.parentNode.insertBefore(slot, content);
+    },
+
     async render() {
+        this.renderPluginUpdates();
         const old = document.getElementById('sv-global-banners');
         if (old) old.remove();
         if (document.querySelector('.modal-overlay')) return;
