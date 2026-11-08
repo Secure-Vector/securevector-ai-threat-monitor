@@ -369,6 +369,8 @@ async def approve_request(
         # A delegation request launches its task on approval; no grant.
         pending = await repo.get_request(request_id)
         if pending and pending.get("rule_source") == "delegate":
+            if await repo.is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             from securevector.app.services import delegation
             manager = getattr(getattr(request.app, "state", None), "terminal_manager", None)
             out = await delegation.approve(db, manager, request_id)
@@ -418,6 +420,8 @@ async def deny_request(
         db = get_database()
         pending = await JitAccessRepository(db).get_request(request_id)
         if pending and pending.get("rule_source") == "delegate":
+            if await JitAccessRepository(db).is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             from securevector.app.services import delegation
             manager = getattr(getattr(request.app, "state", None), "terminal_manager", None)
             out = await delegation.deny(db, manager, request_id, body.reason)

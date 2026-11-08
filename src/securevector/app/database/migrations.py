@@ -216,6 +216,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         67: migrate_to_v67,
         68: migrate_to_v68,
         69: migrate_to_v69,
+        70: migrate_to_v70,
     }
 
     if version in migrations:
@@ -3903,6 +3904,34 @@ async def migrate_to_v69(db: DatabaseConnection) -> None:
             "VALUES (69, CURRENT_TIMESTAMP, 'Uncached input tokens for every provider')"
         )
     logger.info("Applied migration v69: uncached input tokens for every provider")
+
+
+async def migrate_to_v70(db: DatabaseConnection) -> None:
+    """v69 -> v70: one cost record per (agent_id, request_id). Exact
+    duplicates are removed first, keeping the earliest row of each pair,
+    then a unique index replaces the check-then-insert dedupe. Rows with no
+    ``request_id`` are untouched. One transaction; runs once."""
+    async with db.transaction() as conn:
+        cur = await conn.execute("SELECT 1 FROM schema_version WHERE version = 70")
+        if await cur.fetchone() is not None:
+            return
+        await conn.execute(
+            "DELETE FROM llm_cost_records WHERE request_id IS NOT NULL AND rowid NOT IN ("
+            " SELECT rowid FROM ("
+            "  SELECT rowid, ROW_NUMBER() OVER ("
+            "   PARTITION BY agent_id, request_id ORDER BY recorded_at, rowid) AS n"
+            "  FROM llm_cost_records WHERE request_id IS NOT NULL"
+            " ) WHERE n = 1)"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_llm_cost_records_agent_request "
+            "ON llm_cost_records (agent_id, request_id) WHERE request_id IS NOT NULL"
+        )
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+            "VALUES (70, CURRENT_TIMESTAMP, 'Unique cost record per agent and request')"
+        )
+    logger.info("Applied migration v70: unique cost record per agent and request")
 
 
 _GOVERNANCE_OUTBOX_KINDS = ("egress", "approval_request", "harness_coverage")

@@ -271,11 +271,11 @@ async def _hook(world, task_id, name, session_id=None):
 
 @pytest.mark.asyncio
 async def test_v60_schema_and_idempotent(world):
-    assert CURRENT_SCHEMA_VERSION == 69
+    assert CURRENT_SCHEMA_VERSION == 70
     await ensure_delegation_tables(world.db)
     await migrate_to_v60(world.db)
     row = await world.db.fetch_one("SELECT MAX(version) AS v FROM schema_version")
-    assert row["v"] == 69
+    assert row["v"] == 70
     cols = {r["name"] for r in await world.db.fetch_all("PRAGMA table_info(terminal_tasks)")}
     assert "parent_task_id" in cols
     sql = (await world.db.fetch_one(
@@ -396,6 +396,23 @@ async def test_deny_marks_refused(world):
                                         x_sv_ui_token=jit_routes._UI_TOKEN)
     assert res["delegation"]["state"] == "refused"
     assert (await _result(world, out["delegation_id"]))["reason"].startswith("Denied in SecureVector")
+    assert world.manager.running_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_lapsed_delegation_request_is_409_on_approve_and_deny(world):
+    out = await _ask(world)
+    rid = (await delegation._get(world.db, out["delegation_id"]))["jit_request_id"]
+    await world.db.execute("UPDATE jit_access_requests SET requested_at = datetime('now', '-2 days') WHERE id = ?",
+                           (rid,))
+    with pytest.raises(HTTPException) as e:
+        await jit_routes.approve_request(rid, jit_routes.JitApprove(duration="15m"), _Req(world.manager),
+                                         x_sv_ui_token=jit_routes._UI_TOKEN)
+    assert (e.value.status_code, e.value.detail) == (409, "request expired")
+    with pytest.raises(HTTPException) as e:
+        await jit_routes.deny_request(rid, jit_routes.JitDeny(reason="late"), _Req(world.manager),
+                                      x_sv_ui_token=jit_routes._UI_TOKEN)
+    assert (e.value.status_code, e.value.detail) == (409, "request expired")
     assert world.manager.running_count() == 1
 
 

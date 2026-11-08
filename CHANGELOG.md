@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rule labels attach only to the call they belong to.
 - Esc closes the collapsed rail menu.
 - OpenClaw cost records carry the agent id `openclaw`, the session and a request id; older OpenClaw cost rows are grouped under `openclaw`. A budget set on an older per-session OpenClaw id no longer sees new spend.
+- A cost record sent twice at the same time is stored once, and an expired delegation request shows as expired when approved or denied.
 
 ## [6.1.0] - 2026-10-31
 

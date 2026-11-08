@@ -8,6 +8,7 @@ Provides CRUD operations for:
 
 import logging
 import re
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -416,25 +417,38 @@ class CostsRepository:
         record_id = str(uuid.uuid4())
         now = datetime.utcnow()
 
-        await self.db.execute(
-            """
-            INSERT INTO llm_cost_records
-            (id, agent_id, provider, model_id, request_id,
-             input_tokens, output_tokens, input_cached_tokens,
-             input_cost_usd, output_cost_usd, total_cost_usd,
-             rate_input, rate_output, pricing_known, recorded_at, session_id,
-             input_cache_write_tokens, runtime_kind)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record_id, agent_id, provider, model_id, request_id,
-                input_tokens, output_tokens, input_cached_tokens,
-                input_cost_usd, output_cost_usd, total_cost_usd,
-                rate_input, rate_output, 1 if pricing_known else 0,
-                now.isoformat(), session_id, int(input_cache_write_tokens or 0),
-                runtime_kind or None,
-            ),
-        )
+        try:
+            await self.db.execute(
+                """
+                INSERT INTO llm_cost_records
+                (id, agent_id, provider, model_id, request_id,
+                 input_tokens, output_tokens, input_cached_tokens,
+                 input_cost_usd, output_cost_usd, total_cost_usd,
+                 rate_input, rate_output, pricing_known, recorded_at, session_id,
+                 input_cache_write_tokens, runtime_kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id, agent_id, provider, model_id, request_id,
+                    input_tokens, output_tokens, input_cached_tokens,
+                    input_cost_usd, output_cost_usd, total_cost_usd,
+                    rate_input, rate_output, 1 if pricing_known else 0,
+                    now.isoformat(), session_id, int(input_cache_write_tokens or 0),
+                    runtime_kind or None,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            # A concurrent send of the same record stored it first (unique
+            # index on agent_id + request_id, v70): return the stored one.
+            if not request_id:
+                raise
+            existing = await self.db.fetch_one(
+                "SELECT * FROM llm_cost_records WHERE agent_id = ? AND request_id = ? LIMIT 1",
+                (agent_id, request_id),
+            )
+            if not existing:
+                raise
+            return self._row_to_cost_record(existing)
 
         return CostRecord(
             id=record_id,

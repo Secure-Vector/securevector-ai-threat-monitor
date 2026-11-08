@@ -434,6 +434,80 @@ async def test_duplicate_request_id_is_recorded_once(db, monkeypatch):
     assert n["n"] == 4
 
 
+@pytest.mark.asyncio
+async def test_concurrent_sends_of_one_request_store_one_row(db):
+    import asyncio
+
+    repo = CostsRepository(db)
+    real_fetch_one = db.fetch_one
+    gate = asyncio.Barrier(2)
+    calls = {"n": 0}
+
+    async def fetch_one(sql, params=()):
+        row = await real_fetch_one(sql, params)
+        calls["n"] += 1
+        if calls["n"] <= 2:  # both sends pass the existing-record check first
+            await gate.wait()
+        return row
+
+    db.fetch_one = fetch_one
+    args = dict(agent_id="opencode", provider="anthropic", model_id="claude-sonnet-5-5",
+                input_tokens=10, output_tokens=20, input_cost_usd=0.1, output_cost_usd=0.2,
+                total_cost_usd=0.3, request_id="msg_race")
+    a, b = await asyncio.gather(repo.record_cost(**args), repo.record_cost(**args))
+    db.fetch_one = real_fetch_one
+    assert a.id == b.id
+    n = await db.fetch_one("SELECT COUNT(*) AS n FROM llm_cost_records WHERE request_id = 'msg_race'")
+    assert n["n"] == 1
+
+
+async def _v70_seed(db):
+    await db.execute("DROP INDEX IF EXISTS uq_llm_cost_records_agent_request")
+    await db.execute("DELETE FROM schema_version WHERE version = 70")
+    rows = [  # (id, agent, request_id, recorded_at)
+        ("late", "a", "r1", "2026-10-03"),
+        ("first", "a", "r1", "2026-10-01"),
+        ("mid", "a", "r1", "2026-10-02"),
+        ("other_agent", "b", "r1", "2026-10-02"),
+        ("single", "a", "r2", "2026-10-02"),
+        ("null_1", "a", None, "2026-10-01"),
+        ("null_2", "a", None, "2026-10-01"),
+    ]
+    for rid, agent, req, at in rows:
+        await db.execute(
+            "INSERT INTO llm_cost_records (id, agent_id, provider, model_id, request_id, "
+            "input_tokens, output_tokens, input_cost_usd, output_cost_usd, total_cost_usd, "
+            "pricing_known, recorded_at) VALUES (?, ?, 'openai', 'gpt-4o', ?, 1, 1, 0, 0, 0, 1, ?)",
+            (rid, agent, req, at))
+
+
+async def _cost_ids(db):
+    return {r["id"] for r in await db.fetch_all("SELECT id FROM llm_cost_records")}
+
+
+@pytest.mark.asyncio
+async def test_v70_removes_duplicates_keeping_the_earliest(db):
+    import sqlite3
+
+    from securevector.app.database.migrations import migrate_to_v70
+
+    await _v70_seed(db)
+    await migrate_to_v70(db)
+    after = {"first", "other_agent", "single", "null_1", "null_2"}
+    assert await _cost_ids(db) == after
+    assert await db.fetch_one("SELECT 1 FROM schema_version WHERE version = 70")
+    with pytest.raises(sqlite3.IntegrityError):
+        await db.execute(
+            "INSERT INTO llm_cost_records (id, agent_id, provider, model_id, request_id, recorded_at) "
+            "VALUES ('dup', 'a', 'openai', 'gpt-4o', 'r1', '2026-10-04')")
+    # Rows without a request_id stay free to repeat.
+    await db.execute(
+        "INSERT INTO llm_cost_records (id, agent_id, provider, model_id, recorded_at) "
+        "VALUES ('null_3', 'a', 'openai', 'gpt-4o', '2026-10-04')")
+    await migrate_to_v70(db)  # a second run changes nothing
+    assert await _cost_ids(db) == after | {"null_3"}
+
+
 @pytest.mark.parametrize("field", ["input_tokens", "output_tokens", "input_cached_tokens",
                                    "input_cache_write_tokens"])
 @pytest.mark.parametrize("bad", [2**63, 10**12 + 1, -1, True, "5", 1.5])

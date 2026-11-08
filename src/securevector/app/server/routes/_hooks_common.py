@@ -84,11 +84,12 @@ def ensure_bundled_dir(
     return bundled_dir
 
 
-def _atomic_write(dst: Path, data: bytes) -> None:
+def _atomic_write(dst: Path, data: bytes, new_mode: int = 0o644) -> None:
     """Write ``data`` to ``dst`` via a temp file in the same folder and a
     rename, so a reader never sees a half-written file and an existing
-    symlink at ``dst`` is replaced rather than followed."""
-    mode = 0o644
+    symlink at ``dst`` is replaced rather than followed. A new file gets
+    ``new_mode``; an existing regular file keeps its mode."""
+    mode = new_mode
     if dst.is_file() and not dst.is_symlink():
         mode = dst.stat().st_mode & 0o777  # keep an existing file's mode
     fd, tmp = tempfile.mkstemp(prefix="." + dst.name + ".", suffix=".tmp", dir=str(dst.parent))

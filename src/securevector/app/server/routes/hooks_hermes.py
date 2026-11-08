@@ -228,7 +228,6 @@ async def get_hermes_token_usage() -> TokenUsageResponse:
 
 import re  # noqa: E402  (route-module convention)
 import shutil  # noqa: E402
-import tempfile  # noqa: E402
 from typing import Optional  # noqa: E402
 
 from fastapi import Depends, HTTPException  # noqa: E402
@@ -304,30 +303,6 @@ def _backup_once(path: Path) -> None:
         shutil.copy2(path, backup)
     except OSError as e:
         logger.warning("Could not write backup at %s (continuing): %s", backup, e)
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    _check_target(path)
-    parent = path.parent.resolve(strict=False)
-    parent.mkdir(parents=True, exist_ok=True)
-    mode = None
-    try:
-        mode = path.stat().st_mode & 0o777
-    except OSError:
-        pass
-    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
-            fh.write(text)
-        if mode is not None:
-            os.chmod(tmp, mode)
-        os.replace(tmp, parent / path.name)
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
 
 
 # --- Minimal YAML list edits ------------------------------------------------
@@ -534,7 +509,10 @@ def _write_config_edits(edits: list[tuple[str, bool]]) -> Path:
         )
     if new != text:
         _backup_once(cfg)
-        _atomic_write(cfg, new)
+        _check_target(cfg)
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        # A new config file is private to the user, as before.
+        _hooks_common._atomic_write(cfg, new.encode("utf-8"), new_mode=0o600)
     return cfg
 
 
