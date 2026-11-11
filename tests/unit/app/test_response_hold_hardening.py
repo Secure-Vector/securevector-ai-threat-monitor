@@ -761,3 +761,21 @@ def test_startup_warns_when_the_check_is_off_on_posix(monkeypatch, caplog):
     monkeypatch.delenv("SV_DECISION_PEER_CHECK")
     decisions.warn_if_peer_check_off()
     assert not caplog.text
+
+
+def test_a_lapsed_request_cannot_be_approved_or_denied(tmp_path, monkeypatch):
+    db = _db(tmp_path, monkeypatch)
+    repo = JitAccessRepository(db)
+    req = asyncio.run(repo.create_request(tool_id="builtin.bash", rule_source="local", function_name="Bash",
+                                          runtime_kind=HARNESS, session_id="s-l"))
+    _age(db, req["id"], 25 * 3600)  # past the day limit, expiry pass not run
+    for call in (
+        lambda: jit_routes.approve_request(req["id"], jit_routes.JitApprove(duration="1h"), _req(),
+                                           x_sv_ui_token=TOKEN),
+        lambda: jit_routes.deny_request(req["id"], jit_routes.JitDeny(), _req(), x_sv_ui_token=TOKEN),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(call())
+        assert exc.value.status_code == 409 and exc.value.detail == "request expired"
+    assert asyncio.run(db.fetch_one("SELECT COUNT(*) AS n FROM jit_access_grants"))["n"] == 0
+    assert asyncio.run(repo.get_request(req["id"]))["status"] == "pending"

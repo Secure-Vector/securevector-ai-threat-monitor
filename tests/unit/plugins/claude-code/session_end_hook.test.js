@@ -54,7 +54,7 @@ test('hook wiring: SessionEnd / sessionEnd bound to session-end.js; versions bum
   assert.match(cx.Stop[0].hooks[0].command, /stop\.js/);
   const cu = json('cursor/hooks/hooks.json').hooks;
   assert.match(cu.sessionEnd[0].command, /__SV_PLUGIN_ROOT__\/hooks\/session-end\.js/);
-  assert.equal(json('claude-code/.claude-plugin/plugin.json').version, '5.4.2');
+  assert.equal(json('claude-code/.claude-plugin/plugin.json').version, '5.5.0');
   assert.equal(json('codex/.codex-plugin/plugin.json').version, '5.4.1');
   assert.equal(json('cursor/.cursor-plugin/plugin.json').version, '5.4.1');
 });

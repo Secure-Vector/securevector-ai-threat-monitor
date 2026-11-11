@@ -73,6 +73,39 @@ NETWORK_CAPABLE_BUILTINS = frozenset({
 # coverage; it never changes the meaning of an existing parse.
 _HTTP_CLIENTS = frozenset({"curl", "wget", "http", "https", "httpie", "xh"})
 _RAW_SOCKET = frozenset({"nc", "ncat", "netcat", "telnet", "socat", "openssl"})
+# openssl subcommands that connect to a host; the rest work on local files.
+_OPENSSL_NETWORK = frozenset({"s_client", "s_time", "ocsp"})
+_OPENSSL_DEST_FLAGS = frozenset({"-connect", "-url", "-host"})
+# nc and telnet take a bare name (`nc db 5432`); socat words are address types.
+_SINGLE_LABEL_SOCKETS = frozenset({"nc", "ncat", "netcat", "telnet"})
+_LABEL_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+# Short flags that take a value, per tool: the same letter differs between
+# them (`-c` is a command in ncat and takes nothing in telnet). `nc` may be
+# the BSD tool or ncat under that name, so its set covers both; a value
+# skipped by mistake is recovered below when no other destination is named.
+_SOCKET_SHORT_VALUE = {
+    "nc": frozenset("bcegGIiOpPsTVwxXMmq"),
+    "netcat": frozenset("bcegGIiOpPsTVwxXMmq"),
+    "ncat": frozenset("cdegGimopsxw"),
+    "telnet": frozenset("belnsSXk"),
+}
+# Letters whose meaning really differs between tools sharing a name: in the
+# BSD `nc`, `-c` takes nothing, so the token after it can be the host.
+_SOCKET_AMBIGUOUS = {"nc": frozenset("c"), "netcat": frozenset("c")}
+# A shell redirection token: `>`, `2>`, `>>`, `<`, `2>&1`, `&>log`, `2>/dev/null`.
+_REDIRECT_RE = re.compile(r"^(?:\d*|&)(?:>>?|<)(.*)$")
+# ncat long options whose next token is a value.
+_NCAT_LONG_VALUE = frozenset({
+    "--sh-exec", "--exec", "--lua-exec", "--proxy", "--proxy-type", "--proxy-auth",
+    "--output", "--hex-dump", "--source", "--source-port", "--wait", "--delay",
+    "--idle-timeout", "--max-conns", "--ssl-cert", "--ssl-key", "--ssl-trustfile",
+    "--ssl-ciphers", "--ssl-servername", "--ssl-alpn", "--allow", "--allowfile",
+    "--deny", "--denyfile",
+})
+# curl short flags that take a value (case-sensitive; -O and -L do not).
+_CURL_SHORT_VALUE = frozenset("dDHXouAeFTbcxmwCEKPQrtyYzU")
+# wget short flags that take a value (-O file, -o log, -P dir, -T seconds).
+_WGET_SHORT_VALUE = frozenset("OoaetTwQPUARDXIlBi")
 _SCP_LIKE = frozenset({"scp", "sftp", "rsync"})
 
 # Package managers: (binary, {subcommand: operation}). A subcommand absent from
@@ -157,7 +190,7 @@ _VALUE_FLAGS = frozenset({
     "--connect-timeout", "-m", "--max-time", "--retry", "--max-redirs",
     "--cacert", "--cert", "--key", "--resolve", "--interface",
     "--post-data", "--post-file", "--body-data", "--body-file",
-    "-w", "--write-out", "--oauth2-bearer", "--tlsv1", "--limit-rate",
+    "-w", "--write-out", "--oauth2-bearer", "--limit-rate",
 })
 
 # A token only counts as a destination if it could actually be one. A shell
@@ -353,9 +386,21 @@ def _classify_http(tokens, detector: str):
 
     attempts = []
     skip_next = False
+    short_value = _CURL_SHORT_VALUE if binary == "curl" else _WGET_SHORT_VALUE if binary == "wget" else None
     for tok in tokens[1:]:
         if skip_next:
             skip_next = False
+            continue
+        if short_value and len(tok) > 1 and tok[0] == "-" and tok[1] != "-":
+            # curl and wget give the same letter different meanings (`-c`,
+            # `-O`), so each reads its own set. Single or grouped
+            # (`-sSfLo out.bin`): the first letter that takes a value ends
+            # the group. Last in the group, its value is the next token;
+            # otherwise the value is the rest of this token.
+            for pos, ch in enumerate(tok[1:], start=1):
+                if ch in short_value:
+                    skip_next = pos == len(tok) - 1
+                    break
             continue
         if tok in _VALUE_FLAGS:
             # This flag's value follows; it is data, not a destination.
@@ -489,23 +534,87 @@ def _classify_package(tokens, detector: str):
 
 
 def _classify_raw_socket(tokens, detector: str):
-    """nc / telnet / socat — protocol is opaque, so the operation is UNKNOWN."""
+    """nc / telnet / socat / openssl client: the protocol is opaque, so the
+    operation is UNKNOWN. The first destination named wins; a later file or
+    script argument never replaces it."""
     host = None
     port = None
-    for tok in tokens[1:]:
-        if tok.startswith("-"):
-            continue
-        if _BARE_HOST_RE.match(tok) and not tok.isdigit() and _plausible_host(tok):
-            host = tok.lower()
-        elif tok.isdigit():
-            port = int(tok)
-        else:
-            parsed, _, parsed_port = _host_from_url(tok)
-            if parsed:
-                host, port = parsed, parsed_port or port
+    recovered = False
+    binary = tokens[0].rsplit("/", 1)[-1].lower()
+    if binary == "openssl":
+        if len(tokens) < 2 or tokens[1].lower() not in _OPENSSL_NETWORK:
+            return []  # only the client subcommands open a connection
+        # The destination is the value of -connect / -url / -host, or a
+        # `host:port` right after the subcommand.
+        named = [tokens[i + 1] for i, tok in enumerate(tokens[:-1]) if tok.lower() in _OPENSSL_DEST_FLAGS]
+        if len(tokens) > 2 and not tokens[2].startswith("-") and ":" in tokens[2]:
+            named.append(tokens[2])
+        for value in named:
+            parsed, _, parsed_port = _host_from_url(value)
+            if _plausible_host(parsed):
+                host, port = parsed, parsed_port
+                break
+    else:
+        single_label = binary in _SINGLE_LABEL_SOCKETS
+        short_value = _SOCKET_SHORT_VALUE.get(binary, frozenset())
+        ambiguous = _SOCKET_AMBIGUOUS.get(binary, frozenset())
+        maybe_host = []   # values of ambiguous flags, in order
+        listening = False
+        unread = False    # a positional that named no destination ($VAR, a word)
+        skip_next = None  # the flag letter whose value is the next token
+        for tok in tokens[1:]:
+            if skip_next is not None:
+                if skip_next in ambiguous:
+                    maybe_host.append(tok)
+                skip_next = None
+                continue
+            if tok.startswith("-"):
+                if len(tok) > 1 and tok[1] != "-":
+                    # `-e run.sh`, `-w 3`, `-zw 3`: the flag's value follows.
+                    for pos, ch in enumerate(tok[1:], start=1):
+                        if ch in short_value:
+                            skip_next = ch if pos == len(tok) - 1 else None
+                            break
+                        if ch == "l" and binary != "telnet":
+                            listening = True
+                elif binary == "ncat" and tok.lower() in _NCAT_LONG_VALUE:
+                    skip_next = ""
+                elif tok.lower() == "--listen":
+                    listening = True
+                continue
+            redirect = _REDIRECT_RE.match(tok)
+            if redirect:
+                # `2>/dev/null`, `< file`: shell plumbing, never a destination.
+                if not redirect.group(1):
+                    skip_next = ""
+                continue
+            if tok.isdigit():
+                port = port or int(tok)
+                continue
+            if host is not None or unread:
+                # The first destination wins, and after one that could not be
+                # read ($VAR) a later word is a port or service name, not a host.
+                continue
+            if _BARE_HOST_RE.match(tok) and (_plausible_host(tok) or (single_label and _LABEL_RE.match(tok))):
+                host = tok.lower()
+            else:
+                parsed, _, parsed_port = _host_from_url(tok)
+                if _plausible_host(parsed):
+                    host, port = parsed, parsed_port or port
+                else:
+                    unread = True
+        if host is None and not listening and not unread:
+            # No positional at all besides ports: the value of an ambiguous
+            # flag may be the host (BSD `nc -c host 80`). Never when a
+            # positional went unread: the real destination is then unknown,
+            # and a flag value must not stand in for it.
+            for tok in maybe_host:
+                if _BARE_HOST_RE.match(tok) and not tok.isdigit() and _plausible_host(tok):
+                    host, recovered = tok.lower(), True
+                    break
     return [EgressAttempt(
         host=host, operation=UNKNOWN, kind="raw_socket", detector=detector,
-        confidence=PARSED if host else HEURISTIC, port=port,
+        confidence=PARSED if host and not recovered else HEURISTIC, port=port,
         evidence=_truncate(" ".join(tokens)),
     )]
 

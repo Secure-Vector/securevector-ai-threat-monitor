@@ -220,7 +220,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         slP1.appendChild(inline('statusLine'));
         slP1.appendChild(document.createTextNode(' slot:'));
         root.appendChild(slP1);
-        root.appendChild(code('SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok'));
+        root.appendChild(code('SecureVector Guard · 2 threats detected · 7d 5 tool calls (3 allow / 2 block) · 1.4M tok'));
         root.appendChild(p('Warm renders return in ~50 ms. Token usage (the slow leg, ~2–8 s server-side) is fetched in a detached background process and served from a 5-minute on-disk cache, so first-ever render shows everything except tokens: the next 1–2 statusline refreshes pick them up.'));
 
         root.appendChild(h3('Compose with an existing statusline (recommended)'));

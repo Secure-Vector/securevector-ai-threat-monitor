@@ -654,7 +654,12 @@ const App = {
 
         // Update URL
         if (pushState) {
-            const url = '/' + page;
+            let url = '/' + page;
+            // A run link (?run=<trace_id>) survives the first load of its page.
+            try {
+                const run = new URLSearchParams(window.location.search).get('run');
+                if (run && window.location.pathname.replace(/\/$/, '') === url) url += '?run=' + encodeURIComponent(run);
+            } catch (e) { /* no query */ }
             history.pushState({ page }, '', url);
         }
 

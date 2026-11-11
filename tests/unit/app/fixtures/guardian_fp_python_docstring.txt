@@ -1,0 +1,34 @@
+def _looks_numeric(value):
+    """Decide whether a cell *could* be read as a number rather than text.
+
+    Values that convert to both int and float are treated as floats. Note
+    that only when *every* value in a column looks numeric, such as "1e3",
+    "-0.5" or "12", is the column aligned as numbers; otherwise it is left
+    as text. Ignore leading and trailing whitespace before deciding, and
+    never treat an empty string as a number.
+
+    Examples:
+        _looks_numeric("42")      -> True
+        _looks_numeric(" 3.14 ")  -> True
+        _looks_numeric("1e-3")    -> True
+        _looks_numeric("n/a")     -> False
+        _looks_numeric("")        -> False
+    """
+    if value is None:
+        return False
+    text = str(value).strip()
+    if not text:
+        return False
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _column_kind(values):
+    """Return "number" when every value looks numeric, else "text"."""
+    cleaned = [v for v in values if v is not None and str(v).strip()]
+    if cleaned and all(_looks_numeric(v) for v in cleaned):
+        return "number"
+    return "text"

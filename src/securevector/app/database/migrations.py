@@ -214,6 +214,9 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         65: migrate_to_v65,
         66: migrate_to_v66,
         67: migrate_to_v67,
+        68: migrate_to_v68,
+        69: migrate_to_v69,
+        70: migrate_to_v70,
     }
 
     if version in migrations:
@@ -658,6 +661,14 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
         logger.warning(f"Failed to read model_pricing.yml: {e}")
         return 0
 
+    # Cache rate columns arrive with v68; a load during an older migration
+    # step writes the base rates only.
+    try:
+        cur = await (await db.connect()).execute("PRAGMA table_info(model_pricing)")
+        has_cache_cols = "cache_read_per_million" in {row[1] for row in await cur.fetchall()}
+    except Exception:  # noqa: BLE001
+        has_cache_cols = False
+
     loaded_count = 0
     for provider_entry in data.get("providers", []):
         provider = provider_entry.get("provider", "")
@@ -676,6 +687,10 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
             effective_date = model.get("effective_date")
             verified_at = model.get("verified_at")
             source_url = provider_entry.get("source_url")
+            cache_read = model.get("cache_read_per_million")
+            cache_write = model.get("cache_write_per_million")
+            cache_read = float(cache_read) if cache_read is not None else None
+            cache_write = float(cache_write) if cache_write is not None else None
 
             try:
                 # Upsert — if YAML has newer prices for an existing model, update them.
@@ -698,6 +713,12 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
                     (pricing_id, provider, model_id, display_name, input_per_million,
                      output_per_million, effective_date, verified_at, source_url),
                 )
+                if has_cache_cols:
+                    await db.execute(
+                        "UPDATE model_pricing SET cache_read_per_million = ?, "
+                        "cache_write_per_million = ? WHERE id = ?",
+                        (cache_read, cache_write, pricing_id),
+                    )
                 loaded_count += 1
             except Exception as e:
                 logger.warning(f"Failed to upsert pricing for {pricing_id}: {e}")
@@ -2167,6 +2188,7 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     await ensure_egress_host_time_index(db)
     await ensure_cloud_approval_storage(db)
     await ensure_remote_access_column(db)
+    await ensure_cache_cost_columns(db)
     await cleanup_old_policy_decisions(db)
     await cleanup_old_response_holds(db)
 
@@ -3797,6 +3819,119 @@ async def migrate_to_v67(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v67: host and time index for egress alerts")
+
+
+async def ensure_cache_cost_columns(db: DatabaseConnection) -> None:
+    """Cache write tokens on cost records and per-model cache rates on the
+    pricing table. Nullable, so older rows and older pricing files keep
+    working. Idempotent."""
+    conn = await db.connect()
+    for table, column, decl in (
+        ("llm_cost_records", "input_cache_write_tokens", "INTEGER DEFAULT 0"),
+        ("model_pricing", "cache_read_per_million", "REAL"),
+        ("model_pricing", "cache_write_per_million", "REAL"),
+    ):
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in await cur.fetchall()}
+        if cols and column not in cols:
+            await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    cur = await conn.execute("PRAGMA table_info(llm_cost_records)")
+    if {"agent_id", "request_id"} <= {row[1] for row in await cur.fetchall()}:
+        # One cost record per (agent, request): duplicate sends are skipped.
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_llm_cost_records_agent_request "
+            "ON llm_cost_records (agent_id, request_id)")
+    await conn.commit()
+
+
+async def migrate_to_v68(db: DatabaseConnection) -> None:
+    """v67 -> v68: cache write tokens and cache rates for cost records. Idempotent."""
+    await ensure_cache_cost_columns(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (68, CURRENT_TIMESTAMP, 'Cache write tokens and cache rates')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v68: cache write tokens and cache rates")
+
+
+async def migrate_to_v69(db: DatabaseConnection) -> None:
+    """v68 -> v69: stored ``input_tokens`` is the uncached part for every
+    provider. Only rows known to hold the full prompt drop their cache reads
+    and writes from ``input_tokens``, once:
+
+    - Hermes plugin records (``agent_id = 'hermes'``, sent with
+      ``input_includes_cached`` set, any provider);
+    - proxy recorder rows (``runtime_kind = 'llm-proxy'``, or untagged with a
+      ``session_id`` from 6.0/6.1) and OTLP generation
+      rows (``span_id`` set), stored as the provider reported them, where that
+      provider's input counts the cache (OpenAI, Gemini and others).
+
+    Every other ``/costs/track`` row (OpenClaw, OpenCode, the SDKs) was sent
+    uncached and is left alone. Costs are unchanged. One transaction; runs
+    once."""
+    from securevector.app.database.repositories.costs import input_includes_cached, provider_known
+
+    cache = "(COALESCE(input_cached_tokens, 0) + COALESCE(input_cache_write_tokens, 0))"
+    full = f"{cache} > 0 AND input_tokens >= {cache}"
+    not_openclaw = "COALESCE(agent_id, '') != 'openclaw-agent' AND COALESCE(agent_id, '') NOT LIKE 'agent:%'"
+    # Before 6.2 only the proxy recorder set session_id on /costs/track rows,
+    # and 6.0/6.1 proxy rows were stored with runtime_kind NULL.
+    untagged_proxy = "(runtime_kind IS NULL AND span_id IS NULL AND session_id IS NOT NULL)"
+    reported = (f"(span_id IS NOT NULL OR runtime_kind = 'llm-proxy' OR {untagged_proxy}) "
+                f"AND COALESCE(agent_id, '') != 'hermes' "
+                f"AND {not_openclaw}")
+    async with db.transaction() as conn:
+        cur = await conn.execute("SELECT 1 FROM schema_version WHERE version = 69")
+        if await cur.fetchone() is not None:
+            return
+        await conn.execute(
+            f"UPDATE llm_cost_records SET input_tokens = input_tokens - {cache} "
+            f"WHERE agent_id = 'hermes' AND span_id IS NULL AND {full}"
+        )
+        cur = await conn.execute(f"SELECT DISTINCT provider, model_id FROM llm_cost_records WHERE {full} AND {reported}")
+        for provider, model_id in await cur.fetchall():
+            if not provider_known(provider) or not input_includes_cached(provider, model_id):
+                continue
+            await conn.execute(
+                f"UPDATE llm_cost_records SET input_tokens = input_tokens - {cache} "
+                f"WHERE provider IS ? AND model_id IS ? AND {full} AND {reported}",
+                (provider, model_id),
+            )
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+            "VALUES (69, CURRENT_TIMESTAMP, 'Uncached input tokens for every provider')"
+        )
+    logger.info("Applied migration v69: uncached input tokens for every provider")
+
+
+async def migrate_to_v70(db: DatabaseConnection) -> None:
+    """v69 -> v70: one cost record per (agent_id, request_id). Exact
+    duplicates are removed first, keeping the earliest row of each pair,
+    then a unique index replaces the check-then-insert dedupe. Rows with no
+    ``request_id`` are untouched. One transaction; runs once."""
+    async with db.transaction() as conn:
+        cur = await conn.execute("SELECT 1 FROM schema_version WHERE version = 70")
+        if await cur.fetchone() is not None:
+            return
+        await conn.execute(
+            "DELETE FROM llm_cost_records WHERE request_id IS NOT NULL AND rowid NOT IN ("
+            " SELECT rowid FROM ("
+            "  SELECT rowid, ROW_NUMBER() OVER ("
+            "   PARTITION BY agent_id, request_id ORDER BY recorded_at, rowid) AS n"
+            "  FROM llm_cost_records WHERE request_id IS NOT NULL"
+            " ) WHERE n = 1)"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_llm_cost_records_agent_request "
+            "ON llm_cost_records (agent_id, request_id) WHERE request_id IS NOT NULL"
+        )
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+            "VALUES (70, CURRENT_TIMESTAMP, 'Unique cost record per agent and request')"
+        )
+    logger.info("Applied migration v70: unique cost record per agent and request")
 
 
 _GOVERNANCE_OUTBOX_KINDS = ("egress", "approval_request", "harness_coverage")

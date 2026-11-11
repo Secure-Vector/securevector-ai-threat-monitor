@@ -123,6 +123,11 @@ class StatusResponse(BaseModel):
     # True when the plugin is registered + enabled in Copilot's config.json.
     auto_installed: bool = False
     enabled: bool = False
+    # Update awareness: whether the staged files match this app's bundle.
+    files_current: bool = False
+    update_available: bool = False
+    installed_version: Optional[str] = None
+    bundled_version: Optional[str] = None
 
 
 class InstallResponse(BaseModel):
@@ -359,6 +364,31 @@ def _plugin_version() -> str:
 # --- Routes -----------------------------------------------------------------
 
 
+def _update_state() -> dict:
+    """Update fields for /status: staged files and
+    Copilot's store copy compared with the bundle, using the installer's URL."""
+    sv_url = _hooks_common.resolve_sv_url()
+    manifest = "plugin.json"
+
+    def _installed_version():
+        for root in (COPILOT_CACHE_DIR, STAGING_DIR):
+            if root is not None and (root / manifest).is_file():
+                return _hooks_common.read_manifest_version(root / manifest)
+        return None
+
+    return _hooks_common.update_state(
+        staging_dir=STAGING_DIR,
+        source_dir=BUNDLED_PLUGIN_DIR,
+        files=PLUGIN_FILES,
+        substitutions={"http://127.0.0.1:8741": sv_url, "http://localhost:8741": sv_url},
+        bundled_version=_hooks_common.read_manifest_version(BUNDLED_PLUGIN_DIR / manifest),
+        installed_version_reader=_installed_version,
+        copies=(COPILOT_CACHE_DIR,),
+        # Installed means Copilot has it in its store and enabled in config.
+        installed=COPILOT_CACHE_DIR.is_dir() and _is_registered_enabled(),
+    )
+
+
 @router.get("/status", response_model=StatusResponse)
 async def plugin_status():
     """Whether the plugin is staged, whether Copilot is installed, and whether
@@ -372,6 +402,7 @@ async def plugin_status():
         copilot_detected=COPILOT_HOME.is_dir(),
         auto_installed=COPILOT_CACHE_DIR.is_dir() and enabled,
         enabled=enabled,
+        **_hooks_common.status_fields(_update_state()),
     )
 
 

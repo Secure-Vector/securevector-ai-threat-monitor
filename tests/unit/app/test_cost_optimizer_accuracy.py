@@ -13,8 +13,6 @@ from __future__ import annotations
 import pytest
 
 from securevector.app.services.cost_optimizer import (
-    CACHE_READ_DISCOUNT,
-    CACHE_WRITE_PREMIUM,
     THRESHOLDS,
     CostOptimizerService,
     analyze_session,
@@ -23,8 +21,8 @@ from securevector.app.services.cost_optimizer import (
 # anthropic list-price shape: $3/M in, $15/M out
 PRICING = {"claude-x": ("anthropic", 3.0, 15.0)}
 IN_RATE, OUT_RATE = 3.0, 15.0
-READ_DISC = CACHE_READ_DISCOUNT["anthropic"]      # 0.10
-WRITE_PREM = CACHE_WRITE_PREMIUM["anthropic"]     # 1.25
+READ_DISC = 0.10   # Claude fallback cache read, fraction of the input rate
+WRITE_PREM = 1.25  # Claude fallback cache write
 NET_CACHE = 1.0 - READ_DISC - (WRITE_PREM - 1.0)  # 0.65
 
 

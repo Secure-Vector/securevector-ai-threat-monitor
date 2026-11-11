@@ -348,7 +348,7 @@ const ToolPermissionsPage = {
             scopeSel = document.createElement('select');
             scopeSel.className = 'filter-select';
             scopeSel.style.cssText = 'width:100%;margin-bottom:8px;';
-            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['hermes', 'Hermes only'], ['opencode', 'OpenCode only'], ['antigravity', 'Antigravity only'], ['mcp', 'MCP only']]
+            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['hermes', 'Hermes only'], ['govrun', 'GovRun only'], ['opencode', 'OpenCode only'], ['antigravity', 'Antigravity only'], ['mcp', 'MCP only']]
                 .forEach(([v, t]) => {
                     const o = document.createElement('option');
                     o.value = v; o.textContent = t;
@@ -2332,7 +2332,7 @@ const ToolPermissionsPage = {
         'copilot-cli': 'Copilot CLI', cursor: 'Cursor', opencode: 'OpenCode',
         antigravity: 'Antigravity',
         langchain: 'LangChain', langgraph: 'LangGraph', crewai: 'CrewAI',
-        hermes: 'Hermes', python: 'Python', node: 'Node',
+        hermes: 'Hermes', govrun: 'GovRun', python: 'Python', node: 'Node',
     },
 
     _jitRel(sqlTs) {
@@ -3282,6 +3282,7 @@ const ToolPermissionsPage = {
                 : (rt === 'langgraph') ? 'LangGraph'
                 : (rt === 'crewai') ? 'CrewAI'
                 : (rt === 'hermes') ? 'Hermes'
+                : (rt === 'govrun') ? 'GovRun'
                 : (rt === 'mcp') ? 'MCP'
                 : (rt === 'proxy') ? 'Proxy'
                 : rt;
@@ -3464,6 +3465,7 @@ const ToolPermissionsPage = {
                 : (rt === 'langgraph') ? 'LangGraph'
                 : (rt === 'crewai') ? 'CrewAI'
                 : (rt === 'hermes') ? 'Hermes'
+                : (rt === 'govrun') ? 'GovRun'
                 : (rt === 'mcp') ? 'MCP'
                 : (rt === 'proxy') ? 'Proxy'
                 : rt;

@@ -67,16 +67,21 @@ def _resolve_sv_url() -> str:
     return _hooks_common.resolve_sv_url()
 
 
+def _plugin_substitutions(sv_url: str) -> dict[str, str]:
+    """URL substitutions applied to the staged plugin files."""
+    return {
+        "http://localhost:8741": sv_url,
+        "http://localhost:8000": sv_url,
+    }
+
+
 def _stage_plugin_files(sv_url: str, source_dir: Path = None) -> list[str]:
     """Copy plugin files to the OpenClaw staging dir with URL substitution; thin wrapper."""
     return _hooks_common.stage_files(
         staging_dir=STAGING_DIR,
         source_dir=source_dir or BUNDLED_PLUGIN_DIR,
         files=PLUGIN_FILES,
-        substitutions={
-            "http://localhost:8741": sv_url,
-            "http://localhost:8000": sv_url,
-        },
+        substitutions=_plugin_substitutions(sv_url),
     )
 
 
@@ -248,7 +253,7 @@ def _register_plugin_in_config(install_path: str) -> bool:
             "source": "path",
             "sourcePath": install_path,
             "installPath": install_path,
-            "version": "1.2.0",
+            "version": "1.3.0",
             "installedAt": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -413,6 +418,31 @@ class InstallRequest(BaseModel):
     force: bool = False
 
 
+def _update_state(installed: Optional[bool] = None) -> dict:
+    """Update fields for /status: staged files (the linked install) compared
+    with the bundle, using the installer's URL."""
+    if installed is None:
+        installed = (
+            (STAGING_DIR / "openclaw.plugin.json").is_file()
+            and (STAGING_DIR / "index.ts").is_file()
+            and _is_plugin_installed_via_cli()
+        )
+    try:
+        source_dir = _ensure_bundled_plugin_dir()
+    except Exception:
+        source_dir = BUNDLED_PLUGIN_DIR
+    manifest = "openclaw.plugin.json"
+    return _hooks_common.update_state(
+        staging_dir=STAGING_DIR,
+        source_dir=source_dir,
+        files=PLUGIN_FILES,
+        substitutions=_plugin_substitutions(_resolve_sv_url()),
+        bundled_version=_hooks_common.read_manifest_version(source_dir / manifest),
+        installed_version_reader=lambda: _hooks_common.read_manifest_version(STAGING_DIR / manifest),
+        installed=installed,
+    )
+
+
 @router.get("/status")
 async def plugin_status():
     """Check if the SecureVector plugin is installed."""
@@ -437,6 +467,7 @@ async def plugin_status():
         },
         "registered": registered,
         "openclaw_detected": openclaw_detected,
+        **_hooks_common.status_fields(_update_state(files_present and registered)),
     }
 
 
@@ -458,10 +489,18 @@ async def install_plugin(request: Optional[InstallRequest] = None):
             "files_written": [],
         }
 
-    # Check if already installed — only short-circuit if files are also present
+    # Check if already installed — only short-circuit if the staged files are
+    # also present and match the bundled version (an upgrade restages them)
     already_registered = _is_plugin_installed_via_cli()
     files_present = (STAGING_DIR / "openclaw.plugin.json").is_file() and (STAGING_DIR / "index.ts").is_file()
-    if already_registered and files_present and not force:
+    sv_url = _resolve_sv_url()
+    files_current = files_present and _hooks_common.staged_is_current(
+        staging_dir=STAGING_DIR,
+        source_dir=plugin_source_dir,
+        files=PLUGIN_FILES,
+        substitutions=_plugin_substitutions(sv_url),
+    )
+    if already_registered and files_current and not force:
         # An install from before 6.1.0 lacks the hook grant OpenClaw 2026.10
         # needs; add it without a reinstall.
         _ensure_conversation_access()
@@ -493,7 +532,6 @@ async def install_plugin(request: Optional[InstallRequest] = None):
         _cleanup_stale_config_entry()
 
         # Stage plugin files with correct SecureVector URL
-        sv_url = _resolve_sv_url()
         files_written = _stage_plugin_files(sv_url, source_dir=plugin_source_dir)
 
         if not files_written:
@@ -626,7 +664,7 @@ async def _uninstall_plugin():
 _PLUGIN_JSON = """{
   "id": "securevector-guard",
   "name": "SecureVector Guard",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents",
   "entry": "index.ts",
   "kind": "security",
@@ -658,7 +696,7 @@ _PLUGIN_JSON = """{
 
 _PACKAGE_JSON = """{
   "name": "securevector-guard",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents — powered by SecureVector",
   "license": "MIT",
   "author": "Secure Vector <hello@securevector.io>",
@@ -820,15 +858,25 @@ class SVClient {
   }
 
   /** Fire-and-forget: record LLM token usage for cost tracking. */
-  recordCost(provider: string, modelId: string, inputTokens: number, outputTokens: number, cachedTokens: number, agentId: string): void {
-    if (inputTokens === 0 && outputTokens === 0) return;
+  recordCost(provider: string, modelId: string, inputTokens: number, outputTokens: number, cachedTokens: number, sessionKey: string, cacheWriteTokens: number = 0, requestId: string = ""): void {
+    if (inputTokens === 0 && outputTokens === 0 && cachedTokens === 0 && cacheWriteTokens === 0) return;
     this.post("/api/costs/track", {
-      agent_id: agentId,
+      // One agent id for every OpenClaw row, so cost groups under the
+      // harness; the session key goes in session_id, as on the tool audit.
+      agent_id: "openclaw",
+      runtime_kind: "openclaw",
+      session_id: sessionKey ? sessionKey.slice(0, 200) : undefined,
+      // One id per run attempt (runId capped at 190, then ":n"): a repeat
+      // for the same attempt is stored once.
+      request_id: requestId ? requestId.slice(0, 200) : undefined,
       provider,
       model_id: modelId,
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       input_cached_tokens: cachedTokens,
+      // OpenClaw's usage.input never includes cache reads or writes.
+      input_cache_write_tokens: cacheWriteTokens,
+      input_includes_cached: false,
     }, 3_000).catch(() => {});
   }
 
@@ -1306,6 +1354,38 @@ export default {
     // On OpenClaw 2026.10 this hook is delivered only when the profile sets
     // plugins.entries.securevector-guard.hooks.allowConversationAccess = true
     // (written by `securevector-app --install-plugin openclaw`).
+    // llm_output fires once per run attempt with that attempt's usage summed
+    // over its model calls (model_call_ended carries no usage), so this is one
+    // cost row per attempt. Attempts of one run share runId: each run keeps
+    // its own counter, and an attempt is keyed by its model and usage, so a
+    // repeated delivery reuses its id (stored once) and a new attempt gets
+    // the next number. Each use moves the run to the newest end, and the
+    // least recently used run is dropped past the cap, never a part of one,
+    // so a live run never hands out an id twice.
+    const g2 = globalThis as any;
+    if (!(g2.__sv_cost_runs__ instanceof Map)) g2.__sv_cost_runs__ = new Map();
+    const costRuns: Map<string, Map<string, number>> = g2.__sv_cost_runs__;
+    const COST_RUNS_CAP = 5000;
+    const attemptId = (runId: string, key: string): string => {
+      let attempts = costRuns.get(runId);
+      if (attempts) {
+        costRuns.delete(runId);
+        costRuns.set(runId, attempts);
+      } else {
+        attempts = new Map<string, number>();
+        costRuns.set(runId, attempts);
+        if (costRuns.size > COST_RUNS_CAP) {
+          const first = costRuns.keys().next().value;
+          if (first !== undefined) costRuns.delete(first);
+        }
+      }
+      let n = attempts.get(key);
+      if (n === undefined) {
+        n = attempts.size + 1;
+        attempts.set(key, n);
+      }
+      return `${runId}:${n}`;
+    };
     api.on("llm_output", (event: any, ctx: any) => {
       try {
         const usage = event?.usage;
@@ -1318,9 +1398,14 @@ export default {
         const inputTokens = usage.input || 0;
         const outputTokens = usage.output || 0;
         const cachedTokens = usage.cacheRead || 0;
-        const agentId = ctx?.sessionKey || ctx?.agentId || event?.sessionId || "openclaw-agent";
+        const cacheWriteTokens = usage.cacheWrite || 0;
+        const sessionKey = String(ctx?.sessionKey || event?.sessionKey || ctx?.sessionId || event?.sessionId || "");
+        // Capped before the ":n" suffix so the suffix is never cut off.
+        const runId = String(event?.runId || ctx?.runId || "").slice(0, 190);
+        const attemptKey = [provider, modelId, inputTokens, outputTokens, cachedTokens, cacheWriteTokens].join("|");
+        const requestId = runId ? attemptId(runId, attemptKey) : "";
 
-        sv.recordCost(provider, modelId, inputTokens, outputTokens, cachedTokens, agentId);
+        sv.recordCost(provider, modelId, inputTokens, outputTokens, cachedTokens, sessionKey, cacheWriteTokens, requestId);
       } catch (err) {
         console.warn(`${tag} cost-tracker error:`, (err as Error).message);
       }

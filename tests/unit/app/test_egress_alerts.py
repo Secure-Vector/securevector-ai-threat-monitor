@@ -367,7 +367,7 @@ def test_migration_v67_adds_the_host_time_index(tmp_path):
         v = raw.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         raw.close()
         assert "idx_egress_audit_host_time" in names
-        assert v == CURRENT_SCHEMA_VERSION == 67
+        assert v == CURRENT_SCHEMA_VERSION == 70
     finally:
         asyncio.run(db.disconnect())
 

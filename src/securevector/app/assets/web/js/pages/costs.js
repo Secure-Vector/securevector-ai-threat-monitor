@@ -452,6 +452,7 @@ const CostsPage = {
             `<div class="svc-cell"><div class="svc-v">${usd(totals.monthly_cost_usd)}</div><div class="svc-l">this month</div></div>` +
             `<div class="svc-cell"><div class="svc-v">${(totals.total_requests || 0).toLocaleString()}</div><div class="svc-l">requests</div></div>` +
             `<div class="svc-cell"><div class="svc-v">${this._fmtTokens(totals.total_input_tokens || 0)} <span class="svc-arrow">→</span> ${this._fmtTokens(totals.total_output_tokens || 0)}</div><div class="svc-l">tokens in → out</div></div>` +
+            `<div class="svc-cell"><div class="svc-v">${this._fmtTokens(totals.total_cache_read_tokens || 0)} <span class="svc-arrow">/</span> ${this._fmtTokens(totals.total_cache_write_tokens || 0)}</div><div class="svc-l">cache read / write</div></div>` +
             '</div>';
         el.appendChild(strip);
     },
@@ -554,6 +555,8 @@ const CostsPage = {
                 { key: 'total_requests', label: 'Requests', sortable: true, render: v => (v || 0).toLocaleString() },
                 { key: 'total_input_tokens', label: 'Input Tokens', sortable: true, render: v => self._fmtTokens(v) },
                 { key: 'total_output_tokens', label: 'Output Tokens', sortable: true, render: v => self._fmtTokens(v) },
+                { key: 'total_cache_read_tokens', label: 'Cache read', sortable: true, render: v => self._fmtTokens(v || 0) },
+                { key: 'total_cache_write_tokens', label: 'Cache write', sortable: true, render: v => self._fmtTokens(v || 0) },
                 { key: 'total_cost_usd', label: 'Total Cost', sortable: true, render: v => {
                     const s = document.createElement('strong'); s.textContent = `$${(v || 0).toFixed(6)}`; return s;
                 }},
@@ -804,11 +807,8 @@ const CostsPage = {
                 { key: 'provider', label: 'Provider', sortable: true },
                 { key: 'model_id', label: 'Model', sortable: true },
                 { key: 'input_tokens', label: 'Input', sortable: true, render: v => (v || 0).toLocaleString() },
-                { key: 'input_cached_tokens', label: 'Cached', sortable: true, render: (v, row) => {
-                    if (!v || v <= 0) return '—';
-                    const pct = row.input_tokens > 0 ? ` (${Math.round(v / row.input_tokens * 100)}%)` : '';
-                    return v.toLocaleString() + pct;
-                }},
+                { key: 'input_cached_tokens', label: 'Cache read', sortable: true, render: v => (v > 0 ? v.toLocaleString() : '—') },
+                { key: 'input_cache_write_tokens', label: 'Cache write', sortable: true, render: v => (v > 0 ? v.toLocaleString() : '—') },
                 { key: 'output_tokens', label: 'Output', sortable: true, render: v => (v || 0).toLocaleString() },
                 { key: 'total_cost_usd', label: 'Cost', sortable: true, render: v => `$${(v || 0).toFixed(6)}` },
                 { key: 'pricing_known', label: 'Pricing', render: v => {
@@ -884,7 +884,7 @@ const CostsPage = {
         modelEl.textContent = r.model_id || '—';
         wrap.appendChild(section('Model', modelEl));
         const tokenGrid = document.createElement('div');
-        tokenGrid.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;';
+        tokenGrid.style.cssText = 'display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;';
         const tokenCard = (label, value, color) => {
             const card = document.createElement('div');
             card.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px 12px; text-align: center;';
@@ -897,9 +897,10 @@ const CostsPage = {
             card.appendChild(v); card.appendChild(l); return card;
         };
         tokenGrid.appendChild(tokenCard('Input', r.input_tokens.toLocaleString(), '#60a5fa'));
-        const cachedPct = r.input_tokens > 0 && r.input_cached_tokens > 0
-            ? Math.round(r.input_cached_tokens / r.input_tokens * 100) + '%' : '0%';
-        tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '—', 'var(--text-primary)'));
+        const cacheRead = r.input_cached_tokens || 0;
+        const cacheWrite = r.input_cache_write_tokens || 0;
+        tokenGrid.appendChild(tokenCard('Cache read', cacheRead > 0 ? cacheRead.toLocaleString() : '—', 'var(--text-primary)'));
+        tokenGrid.appendChild(tokenCard('Cache write', cacheWrite > 0 ? cacheWrite.toLocaleString() : '—', 'var(--text-primary)'));
         tokenGrid.appendChild(tokenCard('Output', r.output_tokens.toLocaleString(), 'var(--text-primary)'));
         wrap.appendChild(section('Token Usage', tokenGrid));
         return wrap;

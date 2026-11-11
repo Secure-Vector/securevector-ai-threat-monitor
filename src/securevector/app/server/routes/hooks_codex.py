@@ -132,6 +132,11 @@ class StatusResponse(BaseModel):
     # it isn't shown to users who don't have Codex at all. Signal is the
     # per-user config dir Codex creates on first launch.
     codex_detected: bool = False
+    # Update awareness: whether the staged files match this app's bundle.
+    files_current: bool = False
+    update_available: bool = False
+    installed_version: Optional[str] = None
+    bundled_version: Optional[str] = None
 
 
 class InstallResponse(BaseModel):
@@ -824,6 +829,32 @@ def _stage_plugin_tree(sv_url: str) -> list[str]:
 # --- Routes -----------------------------------------------------------------
 
 
+def _update_state() -> dict:
+    """Update fields for /status: staged files and the
+    Codex cache copy compared with the bundle, using the installer's URL."""
+    sv_url = _hooks_common.resolve_sv_url()
+    cache_path = _current_codex_install_path()
+    manifest = ".codex-plugin/plugin.json"
+
+    def _installed_version():
+        for root in (cache_path, STAGING_DIR / "plugins" / PLUGIN_NAME):
+            if root is not None and (root / manifest).is_file():
+                return _hooks_common.read_manifest_version(root / manifest)
+        return None
+
+    return _hooks_common.update_state(
+        staging_dir=STAGING_DIR / "plugins" / PLUGIN_NAME,
+        source_dir=BUNDLED_PLUGIN_DIR,
+        files=PLUGIN_FILES,
+        substitutions={"http://127.0.0.1:8741": sv_url, "http://localhost:8741": sv_url},
+        bundled_version=_hooks_common.read_manifest_version(BUNDLED_PLUGIN_DIR / manifest),
+        installed_version_reader=_installed_version,
+        copies=(cache_path,),
+        # Installed means Codex has it in its plugin cache.
+        installed=cache_path is not None,
+    )
+
+
 @router.get("/status", response_model=StatusResponse)
 async def plugin_status():
     """Return whether the plugin is staged + the list of present files.
@@ -847,6 +878,7 @@ async def plugin_status():
         codex_install_path=str(codex_path) if codex_path else None,
         enabled=_is_enabled_in_config_toml(),
         codex_detected=codex_detected,
+        **_hooks_common.status_fields(_update_state()),
     )
 
 

@@ -62,7 +62,9 @@ test('a request pauses the task only without newer hook activity', () => {
   const t = (status, at) => ({ status, last_activity_at: at });
   assert.strictEqual(page._approvalPausesTask(t('working', '2026-10-08T10:05:00Z'), r), false);
   assert.strictEqual(page._approvalPausesTask(t('working', '2026-10-08T09:59:00Z'), r), true);
-  assert.strictEqual(page._approvalPausesTask(t('blocked', '2026-10-08T10:05:00Z'), r), true);
+  assert.strictEqual(page._approvalPausesTask(t('blocked', '2026-10-08T10:05:00Z'), r), true,
+    'a permission prompt after the request still shows Approval needed');
+  assert.strictEqual(page._approvalPausesTask(t('blocked', '2026-10-08T09:59:00Z'), r), true);
 });
 
 test('the tool error suffix is not added to a blocked row', () => {

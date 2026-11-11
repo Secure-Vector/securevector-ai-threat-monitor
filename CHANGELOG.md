@@ -5,6 +5,41 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.0] - Unreleased
+
+### Added
+
+**Hermes**
+- A Hermes Agent plugin, installed from the Hermes guide or with `--install-plugin hermes`. It records the cost of each model call, one audit row per tool call, and session start, turn end and session end, so Hermes sessions show their harness and end on time. Observe only. It honours `HERMES_HOME`.
+- Hermes and GovRun appear in Agent Runs and in the harness filters, labels and charts across the app.
+
+**Cost & Tokens**
+- Per-model cache read and cache write prices, including Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5. Cache write tokens are recorded and shown.
+- Bedrock regional endpoints are priced with the 10% premium for Claude 4.5 and later.
+- OpenCode records one cost per finished reply.
+
+**Plugins**
+- Connect Agents and `securevector-app --update-plugins` update installed plugins that are out of date.
+
+### Changed
+- Input tokens mean the uncached part for every provider, so the token columns agree across harnesses and cached tokens are counted once in totals. Existing records are updated once on upgrade; costs are unchanged.
+- Guardian labels a model-only match as ML only.
+- Model-only detections on file-read output are shown at medium at most and listed on the Dashboard as "to review".
+- The statusline counts match the Dashboard, with the band words Low, Watch and High.
+- The What's new line follows the app version.
+- Terminal text is 14px.
+- Reading a `.env` file raises a credential-reach signal.
+
+### Fixed
+- The Sessions row shows tool calls, and a run can be linked with `?run=`.
+- Ended runs no longer show as live; the Live grid count and detail loading are fixed.
+- The Approvals list stays available while the database is busy, and an approval is asked only for a real permission prompt.
+- Rule labels attach only to the call they belong to.
+- Esc closes the collapsed rail menu.
+- OpenClaw cost records carry the agent id `openclaw`, the session and a request id; older OpenClaw cost rows are grouped under `openclaw`. A budget set on an older per-session OpenClaw id no longer sees new spend.
+- A cost record sent twice at the same time is stored once, and an expired delegation request shows as expired when approved or denied.
+- The egress list no longer shows file names or shell redirections as hosts; curl, wget, nc, telnet and openssl commands are each read with their own flags.
+
 ## [6.1.0] - 2026-10-31
 
 ### Added
