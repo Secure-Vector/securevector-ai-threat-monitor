@@ -322,3 +322,106 @@ class TestMalformedInput:
         attempts = extract_from_bash("curl $TARGET_URL").attempts
         assert attempts, "recognised network binary must produce an attempt"
         assert attempts[0].host is None
+
+
+@pytest.mark.parametrize("command", [
+    "openssl rand -hex 32",
+    "openssl x509 -in a.cer -inform DER -noout -enddate 2>/dev/null",
+    "openssl x509 -noout -enddate -fingerprint -sha1 2>&1",
+])
+def test_openssl_file_commands_are_not_egress(command):
+    from securevector.core.egress.destinations import extract_from_bash
+    assert extract_from_bash(command).attempts == []
+
+
+def test_raw_socket_redirection_is_not_a_host():
+    from securevector.core.egress.destinations import extract_from_bash
+    hosts = [a.host for a in extract_from_bash("nc -z -G 3 $ip 22 2>/dev/null").attempts]
+    assert hosts == [None]
+    hosts = [a.host for a in extract_from_bash("nc -z example.com 443 2>/dev/null").attempts]
+    assert hosts == ["example.com"]
+    hosts = [a.host for a in extract_from_bash("openssl s_client -connect example.com:443").attempts]
+    assert hosts == ["example.com"]
+
+
+@pytest.mark.parametrize("command,host", [
+    ("curl -sSfLo base.en.pt https://files.example.net/main/x", "files.example.net"),
+    ("curl -H 'A: b' -sLo f.txt https://h.example.com/x", "h.example.com"),
+    ("curl -XPOST https://api.example.com/v1 -d a=b", "api.example.com"),
+    ("curl -fsSLO https://dl.example.com/f.tgz", "dl.example.com"),
+    ("curl -O https://dl.example.com/f.tgz", "dl.example.com"),
+    ("curl -LOJ https://dl.example.com/f.tgz", "dl.example.com"),
+    ("wget -qO out.bin https://dl.example.com/f.tgz", "dl.example.com"),
+    ("wget -O out.bin https://dl.example.com/f.tgz", "dl.example.com"),
+])
+def test_grouped_short_flags_keep_only_the_url_host(command, host):
+    from securevector.core.egress.destinations import extract_from_bash
+    assert [a.host for a in extract_from_bash(command).attempts] == [host]
+
+
+@pytest.mark.parametrize("command,host", [
+    ("nc myhost 22", "myhost"),
+    ("telnet db 5432", "db"),
+    ("nc a.example.com 443 -e run.sh", "a.example.com"),
+    ("nc -w 3 a.example.com 443", "a.example.com"),
+    ("nc -zw 3 a.example.com 443 2>&1", "a.example.com"),
+    ("openssl s_client -connect a.example.com:443 -CAfile ca.pem", "a.example.com"),
+    ("openssl s_client a.example.com:443", "a.example.com"),
+    ("openssl ocsp -url http://ocsp.example.com -issuer i.pem", "ocsp.example.com"),
+    ("socat STDIO FILE:out.txt", None),
+    ("telnet -x a.example.com 23", "a.example.com"),
+    ("telnet -c a.example.com", "a.example.com"),
+    ("telnet -l user a.example.com", "a.example.com"),
+    ("telnet -n trace.log a.example.com", "a.example.com"),
+    ("nc -c a.example.com 80", "a.example.com"),
+    ("nc -b en0 a.example.com 80", "a.example.com"),
+    ("nc -x proxy.example.com:1080 a.example.com 22", "a.example.com"),
+    ("ncat -o out.txt a.example.com 80", "a.example.com"),
+    ("ncat -c 'sh run.sh' a.example.com 80", "a.example.com"),
+    ("nc -l 8080", None),
+    ("nc -l -p 8080 -e run.sh", None),
+    # An unread destination stays unknown: a flag value never stands in.
+    ("ncat -o api.github.com $EVIL 80", None),
+    ("nc -s 127.0.0.1 $EVIL 443", None),
+    ("nc -c api.github.com $EVIL 443", None),
+    ("telnet -b 10.0.0.1 $H 23", None),
+    ("nc -s 10.0.0.9 80", None),
+    ("ncat --sh-exec x a.example.com 80", "a.example.com"),
+    ("ncat --proxy p.example.com:3128 a.example.com 80", "a.example.com"),
+    ("nc -c 10.0.0.5 80 -s 10.0.0.9", "10.0.0.5"),
+    ("nc $EVIL https", None),
+    ("telnet $H db", None),
+    ("nc $EVIL api.github.com", None),
+    ("nc -c api.github.com < f 443", "api.github.com"),
+    ("nc a.example.com 443 < payload.bin", "a.example.com"),
+    ("nc 2>/dev/null a.example.com 443", "a.example.com"),
+    ("nc a.example.com 443 > out.txt 2>&1", "a.example.com"),
+    ("nc &>log.txt a.example.com 80", "a.example.com"),
+])
+def test_raw_socket_keeps_the_named_destination(command, host):
+    from securevector.core.egress.destinations import extract_from_bash
+    assert [a.host for a in extract_from_bash(command).attempts] == [host]
+
+
+def test_ncat_delay_value_is_not_the_port():
+    from securevector.core.egress.destinations import extract_from_bash
+    (attempt,) = extract_from_bash("ncat -d 1 a.example.com 80").attempts
+    assert (attempt.host, attempt.port) == ("a.example.com", 80)
+
+
+@pytest.mark.parametrize("command,host", [
+    ("wget -c https://a.example.com/f", "a.example.com"),
+    ("wget -x https://a.example.com/f", "a.example.com"),
+    ("wget -m https://a.example.com/f", "a.example.com"),
+    ("wget -d https://a.example.com/f", "a.example.com"),
+    ("wget -bc https://a.example.com/f", "a.example.com"),
+    ("wget -T 5 https://a.example.com/f", "a.example.com"),
+    ("curl --tlsv1 https://a.example.com/", "a.example.com"),
+    ("curl -sD hdr.txt https://a.example.com/", "a.example.com"),
+    ("curl -c jar.txt -b jar.txt https://a.example.com/", "a.example.com"),
+    ("curl -d x https://a.example.com/", "a.example.com"),
+    ("http POST a.example.com/x", "a.example.com"),
+])
+def test_http_flags_are_read_per_tool(command, host):
+    from securevector.core.egress.destinations import extract_from_bash
+    assert [a.host for a in extract_from_bash(command).attempts] == [host]
