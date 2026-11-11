@@ -21,6 +21,9 @@ from typing import Optional
 
 from securevector.app.database.connection import DatabaseConnection
 
+# A rung hold with no answer lapses after this many seconds.
+HOLD_LIMIT_S = 300
+
 logger = logging.getLogger(__name__)
 
 # A runaway agent must not be able to flood the human's approval queue.
@@ -137,11 +140,7 @@ class JitAccessRepository:
         """A pending request past its limit: a day for a plain request, the
         hold limit for a rung hold. Reads use it so a list is right even
         when the expiry pass could not run."""
-        try:
-            from securevector.app.services.response_rungs import HOLD_LIMIT_S
-            hold = f" OR (rule_source = 'rung' AND requested_at <= datetime('now', '-{int(HOLD_LIMIT_S)} seconds'))"
-        except Exception:  # noqa: BLE001 - no rung module, plain rule only
-            hold = ""
+        hold = f" OR (rule_source = 'rung' AND requested_at <= datetime('now', '-{int(HOLD_LIMIT_S)} seconds'))"
         return f"COALESCE((requested_at < datetime('now', '-{int(older_than_hours)} hours'){hold}), 0)"
 
     async def is_lapsed(self, request_id: str) -> bool:

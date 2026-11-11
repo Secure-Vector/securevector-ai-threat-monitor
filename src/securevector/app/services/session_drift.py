@@ -250,10 +250,31 @@ _ENV_FILE_RE = re.compile(
 # Committed templates hold no values: no signal.
 _ENV_TEMPLATES = ("example", "sample", "template")
 # A shell command that reads or copies the file right before the name.
-_SHELL_FILE_CMD_RE = re.compile(
-    r"(?:^|[\s;|&(`\"'])(?:cat|source|\.|less|more|head|tail|grep|cp|mv|scp|base64|xxd)"
-    r"(?:\s+-{1,2}[\w=-]+)*(?:\s+[^\s;|&()]+)*?\s+[\"']?[\w./~-]*$"
-)
+_SHELL_FILE_CMDS = frozenset(
+    {"cat", "source", ".", "less", "more", "head", "tail", "grep", "cp", "mv", "scp", "base64", "xxd"})
+_PATH_START_RE = re.compile(r"[\"']?[\w./~-]*")
+
+
+def _shell_file_cmd_before(prefix: str) -> bool:
+    """True when ``prefix`` ends inside the arguments of a shell file
+    command: the command is a word of the last command segment, and what
+    follows the last space is the start of a path. One pass, no backtracking."""
+    cut = max(prefix.rfind(c) for c in ";|&()")
+    seg = prefix[cut + 1:]
+    words = seg.split()
+    if seg and not seg[-1].isspace():
+        if not words or not _PATH_START_RE.fullmatch(words[-1]):
+            return False
+        words = words[:-1]
+    # A word glued to a closing bracket is not a command: `)cat`.
+    glued = cut >= 0 and prefix[cut] == ")" and not seg[:1].isspace()
+    for i, word in enumerate(words):
+        name = word.replace("`", "'").replace('"', "'").rsplit("'", 1)[-1]
+        if name in _SHELL_FILE_CMDS and not (i == 0 and glued and name == word):
+            return True
+    return False
+
+
 # Code that names the environment object, not a file.
 _ENV_CODE = frozenset({"process.env", "meta.env", "import.meta.env", "this.env", "self.env", "os.env", "sys.env"})
 
@@ -268,7 +289,7 @@ def env_file_named(text: Optional[str]) -> bool:
         # `<identifier>.env` then ) , ; or . reads as code (c.env, Bun.env),
         # unless a shell file command names it ($(cat prod.env)).
         if (not name.startswith(".") and m.end() < len(text) and text[m.end()] in "),;."
-                and not _SHELL_FILE_CMD_RE.search(text[:m.start(1)])):
+                and not _shell_file_cmd_before(text[:m.start(1)])):
             continue
         if any(part in _ENV_TEMPLATES for part in name.split(".")):
             continue

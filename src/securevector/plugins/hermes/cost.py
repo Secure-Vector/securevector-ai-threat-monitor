@@ -289,7 +289,7 @@ def _run_worker() -> None:
                 continue  # more queued after the stop marker: keep sending
             _post(*item)
         except Exception:
-            pass
+            pass  # a failed send never stops the worker
         finally:
             _queue.task_done()
 
@@ -317,7 +317,7 @@ def drain(timeout: float = EXIT_DRAIN_SECONDS) -> None:
     try:
         _queue.put_nowait(_STOP)
     except queue.Full:
-        pass
+        pass  # the join below still waits for the worker
     worker.join(timeout)
     with _worker_lock:
         if _worker is worker and not worker.is_alive():

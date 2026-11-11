@@ -255,14 +255,14 @@ def test_stage_files_replaces_symlinked_destinations_and_keeps_modes(tmp_path):
     victim.write_text("keep")
     os.symlink(victim, dst / "b.js")
     (dst / "a.js").write_text("old")
-    os.chmod(dst / "a.js", 0o755)
+    os.chmod(dst / "a.js", 0o700)
     written = mod._hooks_common.stage_files(
         staging_dir=dst, source_dir=src, files=["a.js", "b.js"],
         substitutions={"http://127.0.0.1:8741": "http://127.0.0.1:9"},
     )
     assert written == ["a.js", "b.js"]
     assert (dst / "a.js").read_text() == "url http://127.0.0.1:9"
-    assert (dst / "a.js").stat().st_mode & 0o777 == 0o755
+    assert (dst / "a.js").stat().st_mode & 0o777 == 0o700
     # The link to a file outside the folder is gone, replaced by our file.
     assert not (dst / "b.js").is_symlink() and (dst / "b.js").read_text() == "b"
     assert victim.read_text() == "keep"

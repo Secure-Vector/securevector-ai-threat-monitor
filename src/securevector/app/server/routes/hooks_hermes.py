@@ -651,7 +651,7 @@ def _folder_is_ours(target: Path) -> bool:
         if _load_yaml(manifest.read_text(encoding="utf-8")).get("name") == PLUGIN_NAME:
             return True
     except Exception:
-        pass
+        pass  # unreadable manifest: fall through to the file check
     if manifest.exists() or manifest.is_symlink():
         return False
     try:

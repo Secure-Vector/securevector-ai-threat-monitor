@@ -84,7 +84,7 @@ def ensure_bundled_dir(
     return bundled_dir
 
 
-def _atomic_write(dst: Path, data: bytes, new_mode: int = 0o644) -> None:
+def _atomic_write(dst: Path, data: bytes, new_mode: int = 0o600) -> None:
     """Write ``data`` to ``dst`` via a temp file in the same folder and a
     rename, so a reader never sees a half-written file and an existing
     symlink at ``dst`` is replaced rather than followed. A new file gets
@@ -99,13 +99,13 @@ def _atomic_write(dst: Path, data: bytes, new_mode: int = 0o644) -> None:
         try:
             os.chmod(tmp, mode)
         except OSError:
-            pass
+            pass  # keep the temp file's private mode
         os.replace(tmp, dst)
     except Exception:
         try:
             os.unlink(tmp)
         except OSError:
-            pass
+            pass  # nothing left to remove
         raise
 
 
