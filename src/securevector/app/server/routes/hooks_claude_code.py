@@ -138,6 +138,11 @@ class StatusResponse(BaseModel):
     # CTA so it isn't shown to users who don't have Claude Code at all.
     # Signal is the per-user settings file Claude Code writes on first launch.
     claude_code_detected: bool = False
+    # Update awareness: whether the staged files match this app's bundle.
+    files_current: bool = False
+    update_available: bool = False
+    installed_version: Optional[str] = None
+    bundled_version: Optional[str] = None
 
 
 class InstallResponse(BaseModel):
@@ -742,6 +747,35 @@ def _is_enabled_in_claude_settings() -> bool:
     return isinstance(ep, dict) and ep.get(INSTALL_KEY) is True
 
 
+def _update_state() -> dict:
+    """Update fields for /status: staged files and Claude Code's cache copy
+    compared with the bundle, using the URL the installer writes."""
+    sv_url = _hooks_common.resolve_sv_url()
+    claude_path = _claude_install_path()
+    manifest = ".claude-plugin/plugin.json"
+
+    def _installed_version():
+        for root in (claude_path, STAGING_DIR):
+            if root is not None and (root / manifest).is_file():
+                return _hooks_common.read_manifest_version(root / manifest)
+        return None
+
+    return _hooks_common.update_state(
+        staging_dir=STAGING_DIR,
+        source_dir=BUNDLED_PLUGIN_DIR,
+        files=PLUGIN_FILES,
+        substitutions={
+            "http://127.0.0.1:8741": sv_url,
+            "http://localhost:8741": sv_url,
+        },
+        bundled_version=_hooks_common.read_manifest_version(BUNDLED_PLUGIN_DIR / manifest),
+        installed_version_reader=_installed_version,
+        copies=(claude_path,),
+        # Installed means Claude Code has it: in its cache and enabled.
+        installed=claude_path is not None and _is_enabled_in_claude_settings(),
+    )
+
+
 # --- Routes -----------------------------------------------------------------
 
 
@@ -765,6 +799,7 @@ async def plugin_status():
         claude_install_path=str(claude_path) if claude_path else None,
         enabled=_is_enabled_in_claude_settings(),
         claude_code_detected=cc_detected,
+        **_hooks_common.status_fields(_update_state()),
     )
 
 

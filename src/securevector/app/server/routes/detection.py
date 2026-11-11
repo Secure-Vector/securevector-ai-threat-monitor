@@ -45,7 +45,7 @@ _SESSION_SCAN_CAP = 5000
 # frameworks in the agent graph. 'copilot' and 'copilot-cli' are the same host.
 _HARNESS_RUNTIME_KINDS = {
     "claude-code", "codex", "copilot", "copilot-cli", "cursor", "opencode", "openclaw",
-    "antigravity",
+    "antigravity", "hermes", "govrun",
 }
 # Frameworks we explicitly recognise (runtime_kind -> display label); anything
 # else with activity that isn't a harness is still reported as an "agent".
@@ -55,6 +55,28 @@ _KNOWN_FRAMEWORKS = set(_FRAMEWORK_LABELS)
 
 def _home() -> Path:
     return Path(os.path.expanduser("~"))
+
+
+def _hermes_home() -> Path:
+    """Hermes's home as Hermes resolves it (one rule with the installer)."""
+    from .hooks_hermes import _hermes_home as resolve
+    return resolve()
+
+
+def _govrun_home() -> Path:
+    """GovRun's data folder: ``GOVRUN_HOME``, else the platform's local data
+    folder plus ``govrun`` (where its audit trail lives)."""
+    override = (os.environ.get("GOVRUN_HOME") or "").strip()
+    if override:
+        return Path(override).expanduser()
+    system = platform.system()
+    if system == "Darwin":
+        return _home() / "Library" / "Application Support" / "govrun"
+    if system == "Windows":
+        local = (os.environ.get("LOCALAPPDATA") or "").strip()
+        return (Path(local) if local else _home() / "AppData" / "Local") / "govrun"
+    xdg = (os.environ.get("XDG_DATA_HOME") or "").strip()
+    return (Path(xdg) if xdg else _home() / ".local" / "share") / "govrun"
 
 
 def _harness_dir(env_var: str, default_rel: str) -> Path:
@@ -124,6 +146,18 @@ _HARNESSES = [
     {
         "slug": "openclaw", "label": "OpenClaw / ClawdBot",
         "home": lambda: _home() / ".openclaw",
+        "session_root": None, "session_glob": None, "session_unit": None, "recursive": False,
+    },
+    {
+        # Sessions are rows in $HERMES_HOME/state.db, not files: not counted.
+        "slug": "hermes", "label": "Hermes",
+        "home": _hermes_home,
+        "session_root": None, "session_glob": None, "session_unit": None, "recursive": False,
+    },
+    {
+        # GovRun reports through its built-in audit sink; no transcript glob.
+        "slug": "govrun", "label": "GovRun",
+        "home": _govrun_home,
         "session_root": None, "session_glob": None, "session_unit": None, "recursive": False,
     },
 ]

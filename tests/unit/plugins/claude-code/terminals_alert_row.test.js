@@ -65,7 +65,7 @@ test('alert row: high spotlight is red with head, score, two signals and two act
   assert.equal(el.hidden, false);
   assert.match(el.className, /terminals-alert-row is-high/);
   assert.match(el.innerHTML, /<b>Claude Code in webapp stopped behaving like itself<\/b>/);
-  assert.match(el.innerHTML, / · 82 high · /);
+  assert.match(el.innerHTML, / · 82 High · /);
   assert.match(el.innerHTML, /data-alert-open="t1">Open session</);
   assert.match(el.innerHTML, /data-alert-why>See why</);
   assert.equal((el.innerHTML.match(/ · /g) || []).length >= 3, true);
@@ -86,7 +86,7 @@ test('alert row: watch spotlight is amber; Open session attaches, See why opens 
   T._renderAlertRow();
   const el = els['terminals-alert-row'];
   assert.match(el.className, /is-watch/);
-  assert.match(el.innerHTML, /55 worth a look · new hosts · new tools/);
+  assert.match(el.innerHTML, /55 Watch · new hosts · new tools/);
   el.found['[data-alert-open]'].onclick();
   assert.deepEqual(attached, ['t1']);
   el.found['[data-alert-why]'].onclick();
@@ -100,7 +100,7 @@ test('alert row: calm only when nothing is pending, muted with the week high', (
   T._renderAlertRow();
   const el = els['terminals-alert-row'];
   assert.match(el.className, /is-calm/);
-  assert.match(el.innerHTML, /All sessions behaved like themselves this week · highest 21, low/);
+  assert.match(el.innerHTML, /All sessions behaved like themselves this week · highest 21, Low/);
   T._heldBySession = new Map([['s1', 1]]);
   T._renderAlertRow();
   assert.doesNotMatch(el.innerHTML, /behaved like themselves/);

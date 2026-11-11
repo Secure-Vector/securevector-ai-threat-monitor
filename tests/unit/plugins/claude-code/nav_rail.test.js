@@ -205,9 +205,9 @@ test('the Policies hub is routed and touched assets are versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=214/);
+  assert.match(html, /sidebar\.js\?v=215/);
   assert.match(html, /styles\.css\?v=503/);
-  assert.match(html, /app\.js\?v=81/);
+  assert.match(html, /app\.js\?v=82/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -625,7 +625,7 @@ test('the collapse control sits on the sidebar edge, icon-only, and names itself
   assert.match(groups.slice(0, groups.indexOf('}')), /padding: 6px 0;/);
   // Still hidden in the mobile drawer, where collapse is not a mode.
   assert.match(css, /\.sidebar-resize-handle,\n    \.sidebar-collapse-btn \{ display: none; \}/);
-  assert.match(read('index.html'), /sidebar\.js\?v=214/);
+  assert.match(read('index.html'), /sidebar\.js\?v=215/);
 });
 
 test('Cmd+B / Ctrl+B toggles the sidebar, and never while the user is typing', () => {
@@ -718,4 +718,16 @@ test('Detection & Response: the edge bar follows the lit section row, not the pa
   assert.match(src, /rows\.find\(r => r\.classList\.contains\('nav-dr-section'\)\)\s*\|\| rows\.find\(r => !r\.classList\.contains\('nav-view'\)\)/);
   // Lighting a section moves the bar on the next frame.
   assert.match(src, /r\.removeAttribute\('aria-current'\);\s*\}\);\s*\/\/ The edge bar follows the lit section\.\s*if \(this\._indicator && typeof requestAnimationFrame === 'function'\) requestAnimationFrame\(\(\) => this\._moveIndicator\(false\)\);/);
+});
+
+test('collapsed rail: Escape closes an open flyout wherever focus is', () => {
+  const src = read('js/components/sidebar.js');
+  const init = src.slice(src.indexOf('    _flyoutInit(container) {'), src.indexOf('    _flyoutShow(button) {'));
+  // The flyout's own handler stays for focus inside the menu.
+  assert.match(init, /fly\.addEventListener\('keydown', \(e\) => \{\s*if \(e\.key !== 'Escape'\) return;/);
+  // One document-level listener, guarded so re-renders do not stack it.
+  assert.match(init, /if \(!this\._flyoutEscBound\) \{\s*this\._flyoutEscBound = true;\s*document\.addEventListener\('keydown', \(e\) => \{/);
+  assert.equal((init.match(/document\.addEventListener\('keydown'/g) || []).length, 1);
+  // Acts only while the flyout is visible, hides it at once, returns focus.
+  assert.match(init, /if \(!open \|\| open\.hidden\) return;\s*const opener = this\._flyoutOpener;\s*this\._flyoutHide\(true\);\s*if \(opener && opener\.isConnected\) opener\.focus\(\);/);
 });

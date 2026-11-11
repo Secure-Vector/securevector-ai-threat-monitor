@@ -113,7 +113,7 @@ class TestRegisterPluginInConfig:
         config = json.loads(config_path.read_text())
         assert config["plugins"]["entries"][PLUGIN_NAME] == {"enabled": True}
         # The install record carries the bundled OpenClaw plugin version.
-        assert config["plugins"]["installs"][PLUGIN_NAME]["version"] == "1.2.0"
+        assert config["plugins"]["installs"][PLUGIN_NAME]["version"] == "1.3.0"
         assert config["plugins"]["installs"][PLUGIN_NAME]["sourcePath"] == "/new/path"
 
     def test_creates_backup(self, openclaw_dir):
@@ -369,6 +369,62 @@ class TestConversationAccessGrant:
         assert result["status"] == "already_installed"
         entry = json.loads(config_path.read_text())["plugins"]["entries"][PLUGIN_NAME]
         assert entry == {"enabled": True, "hooks": {"allowConversationAccess": True}}
+
+    def _registered_with_source(self, openclaw_dir, staged_index):
+        """A registered install, a bundled source dir, and a staged index.ts."""
+        from securevector.app.server.routes import hooks as mod
+
+        source = openclaw_dir / "bundled"
+        source.mkdir()
+        for name in mod.PLUGIN_FILES:
+            (source / name).write_text("new " + name)
+        (source / "index.ts").write_text("new index http://localhost:8741")
+        staging = openclaw_dir / "plugins" / PLUGIN_NAME
+        staging.mkdir(parents=True)
+        for name in mod.PLUGIN_FILES:
+            (staging / name).write_text("new " + name)
+        (staging / "index.ts").write_text(staged_index)
+        (openclaw_dir / "openclaw.json").write_text(
+            json.dumps(
+                {
+                    "plugins": {
+                        "installs": {PLUGIN_NAME: {"source": "path"}},
+                        "entries": {PLUGIN_NAME: {"enabled": True}},
+                    }
+                }
+            )
+        )
+        return source, staging
+
+    def _run_install(self, source):
+        import asyncio
+        from securevector.app.server.routes import hooks as mod
+
+        with (
+            patch.object(mod, "_ensure_bundled_plugin_dir", return_value=source),
+            patch.object(mod, "_resolve_sv_url", return_value="http://127.0.0.1:9"),
+            patch.object(mod, "_run_openclaw_cmd", return_value=(0, "2026.10.6", "")),
+        ):
+            return asyncio.run(mod.install_plugin(None))
+
+    def test_stale_staged_file_is_restaged(self, openclaw_dir):
+        source, staging = self._registered_with_source(openclaw_dir, "old index")
+
+        result = self._run_install(source)
+
+        assert result["status"] == "updated"
+        assert (staging / "index.ts").read_text() == "new index http://127.0.0.1:9"
+
+    def test_current_staged_files_are_not_rewritten(self, openclaw_dir):
+        source, staging = self._registered_with_source(
+            openclaw_dir, "new index http://127.0.0.1:9"
+        )
+        before = (staging / "index.ts").stat().st_mtime_ns
+
+        result = self._run_install(source)
+
+        assert result["status"] == "already_installed"
+        assert (staging / "index.ts").stat().st_mtime_ns == before
 
 
 class TestEmbeddedPluginCopies:

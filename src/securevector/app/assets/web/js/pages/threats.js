@@ -577,17 +577,19 @@ const ThreatsPage = {
             if (!text) return '';
             return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         };
+        const sev = (t) => API.threatSeverity(t);
+        const sevClass = (t) => ({ critical: 'risk-high', high: 'risk-high', medium: 'risk-medium' })[sev(t)] || 'risk-low';
         let rows = '';
         threats.forEach(threat => {
-            const riskClass = threat.risk_score >= 80 ? 'risk-high' : threat.risk_score >= 40 ? 'risk-medium' : 'risk-low';
+            const riskClass = sevClass(threat);
             const content = escapeHtml((threat.text_preview || threat.text_content || '').substring(0, 100));
             const llmStatus = threat.llm_reviewed ? (threat.llm_agrees ? 'Confirmed' : 'Disputed') : 'Not Reviewed';
             const date = threat.created_at ? this.formatDate(threat.created_at).split(' ')[0] : '-';
             rows += '<tr><td>' + content + '</td><td>' + escapeHtml(threat.threat_type || 'No Threat Detected') + '</td><td class="' + riskClass + '">' + threat.risk_score + '%</td><td>' + llmStatus + '</td><td>' + date + '</td></tr>';
         });
         let details = '';
-        threats.filter(t => t.risk_score >= 60).forEach(threat => {
-            const riskClass = threat.risk_score >= 80 ? 'risk-high' : 'risk-medium';
+        threats.filter(t => sev(t) === 'critical' || sev(t) === 'high').forEach(threat => {
+            const riskClass = sevClass(threat);
             details += '<div class="threat"><div class="threat-header"><strong>' + escapeHtml(threat.threat_type || 'No Threat Detected') + '</strong><span class="' + riskClass + '">' + threat.risk_score + '% Risk</span></div>';
             details += '<p><span class="label">Content:</span> ' + escapeHtml(threat.text_content || threat.text_preview || '') + '</p>';
             if (threat.llm_reviewed) {
@@ -595,7 +597,7 @@ const ThreatsPage = {
             }
             details += '</div>';
         });
-        return '<!DOCTYPE html><html><head><title>SecureVector Threat Report</title><style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a1a2e;border-bottom:2px solid #5eadb8;padding-bottom:10px}h2{color:#16213e;margin-top:30px}.threat{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px}.threat-header{display:flex;justify-content:space-between;margin-bottom:10px}.risk-high{color:#ef4444;font-weight:bold}.risk-medium{color:#f59e0b;font-weight:bold}.risk-low{color:#22c55e;font-weight:bold}.label{color:#666;font-size:12px}.llm-section{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#1a1a2e;color:white}.summary{background:#e8f4f8;padding:15px;border-radius:8px;margin-bottom:20px}</style></head><body><h1>SecureVector Threat Report</h1><p>Generated: ' + new Date().toLocaleString() + '</p><div class="summary"><strong>Summary:</strong> ' + threats.length + ' threats<br>Critical: ' + threats.filter(t => t.risk_score >= 80).length + ' | High: ' + threats.filter(t => t.risk_score >= 60 && t.risk_score < 80).length + ' | Medium: ' + threats.filter(t => t.risk_score >= 40 && t.risk_score < 60).length + ' | Low: ' + threats.filter(t => t.risk_score < 40).length + '</div><table><thead><tr><th>Content</th><th>Type</th><th>Risk</th><th>LLM</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table><h2>High Risk Details</h2>' + details + '</body></html>';
+        return '<!DOCTYPE html><html><head><title>SecureVector Threat Report</title><style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a1a2e;border-bottom:2px solid #5eadb8;padding-bottom:10px}h2{color:#16213e;margin-top:30px}.threat{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px}.threat-header{display:flex;justify-content:space-between;margin-bottom:10px}.risk-high{color:#ef4444;font-weight:bold}.risk-medium{color:#f59e0b;font-weight:bold}.risk-low{color:#22c55e;font-weight:bold}.label{color:#666;font-size:12px}.llm-section{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#1a1a2e;color:white}.summary{background:#e8f4f8;padding:15px;border-radius:8px;margin-bottom:20px}</style></head><body><h1>SecureVector Threat Report</h1><p>Generated: ' + new Date().toLocaleString() + '</p><div class="summary"><strong>Summary:</strong> ' + threats.length + ' threats<br>Critical: ' + threats.filter(t => sev(t) === 'critical').length + ' | High: ' + threats.filter(t => sev(t) === 'high').length + ' | Medium: ' + threats.filter(t => sev(t) === 'medium').length + ' | Low: ' + threats.filter(t => sev(t) === 'low' || sev(t) === 'info').length + '</div><table><thead><tr><th>Content</th><th>Type</th><th>Risk</th><th>LLM</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table><h2>High Risk Details</h2>' + details + '</body></html>';
     },
 
     getUniqueCategories() {
@@ -674,7 +676,7 @@ const ThreatsPage = {
         const pageNote = paged ? 'on this page · ' : '';
         const llmReviewed = threats.filter(t => t.llm_reviewed).length;
         const totalTokens = threats.reduce((sum, t) => sum + (t.llm_tokens_used || 0), 0);
-        const highRisk = threats.filter(t => t.risk_score >= 60).length;
+        const highRisk = threats.filter(t => ['high', 'critical'].includes(API.threatSeverity(t))).length;
         const clearedTotal = (this.cleared && this.cleared.total) || 0;
         const stat = (v, label, det, cls) =>
             `<div class="tm-stat${cls ? ' ' + cls : ''}"><div class="tm-stat-v">${v}</div>` +
@@ -764,7 +766,7 @@ const ThreatsPage = {
                     const row = document.createElement('div');
                     row.style.cssText = 'display: flex; align-items: center; gap: 8px;';
                     const badge = document.createElement('span');
-                    badge.className = 'risk-badge risk-' + self.getRiskLevel(threat.risk_score);
+                    badge.className = 'risk-badge risk-' + API.threatSeverity(threat);
                     badge.textContent = (threat.risk_score || 0) + '%';
                     badge.title = 'Rule-driven risk score: 70%+ reads high (red), 40–69% medium (amber), under 40 low (green).';
                     row.appendChild(badge);
@@ -926,6 +928,7 @@ const ThreatsPage = {
         const modelOnly = rules.length > 0 && rules.every(
             r => r.source === 'model' || r.rule_id === 'sv_guardian_model'
         );
+        if (agree === 'corroborated' && modelOnly) agree = 'ml_only';
         return (agree || score !== null) ? { agree, score, modelOnly } : null;
     },
 
@@ -1009,7 +1012,7 @@ const ThreatsPage = {
         riskMain.className = 'threat-detail-risk-main';
 
         const riskBadge = document.createElement('span');
-        riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
+        riskBadge.className = 'risk-badge risk-' + API.threatSeverity(threat);
         // When an ML number sits next to it, label the rule score explicitly so
         // "Rule risk 90%" vs "ML-adjusted 12%" reads as a contrast, not a glitch.
         riskBadge.textContent = (ml ? 'Rule risk ' : '') + (threat.risk_score || 0) + '%' + (ml ? '' : ' Risk');
@@ -1047,14 +1050,9 @@ const ThreatsPage = {
                 corroborated: { cls: 'mlassess-ok',   icon: '✓', text: 'ML corroborated this detection' },
                 ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain, worth a review' },
                 ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive: ML disagrees' },
+                ml_only:      { cls: 'mlassess-warn', icon: '⚠', text: 'ML model is the only detector, no independent rule matched' },
             };
-            let t = TIER[ml.agree];
-            // A model-only detection cannot corroborate itself: swap the green
-            // check for an honest caution so the analyst knows no independent
-            // rule fired on this content.
-            if (ml.agree === 'corroborated' && ml.modelOnly) {
-                t = { cls: 'mlassess-warn', icon: '⚠', text: 'ML model is the only detector, no independent rule matched' };
-            }
+            const t = TIER[ml.agree];
             if (t) {
                 const assess = document.createElement('div');
                 assess.className = 'ml-assessment ' + t.cls + ' threat-detail-ml-badge';
@@ -1460,13 +1458,6 @@ const ThreatsPage = {
             title: 'Threat Details',
             content: content,
         });
-    },
-
-    getRiskLevel(score) {
-        if (score >= 80) return 'critical';
-        if (score >= 60) return 'high';
-        if (score >= 40) return 'medium';
-        return 'low';
     },
 
     formatDate(dateStr) {

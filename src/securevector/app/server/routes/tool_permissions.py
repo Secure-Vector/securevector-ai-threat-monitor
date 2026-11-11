@@ -1536,6 +1536,7 @@ _RUNTIME_LABELS = {
     "langgraph":    "LangGraph",
     "crewai":       "CrewAI",
     "hermes":       "Hermes",
+    "govrun":       "GovRun",
     "mcp":          "MCP",
     "n8n":          "n8n",
     "ollama":       "Ollama",

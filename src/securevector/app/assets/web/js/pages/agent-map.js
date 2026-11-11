@@ -27,7 +27,7 @@ const OUTCOME_COLOR = { blocked: '#ef4444', log_only: '#64748b', allow: '#10b981
 // palette below.
 // v5: harnesses are all "yours" — brand teal for every harness node;
 // security state colors the RING, not the node identity.
-const HARNESS_FIXED = { 'claude-code': '#5eadb8', 'codex': '#5eadb8', 'openclaw': '#5eadb8', 'cursor': '#5eadb8', 'opencode': '#5eadb8', 'antigravity': '#5eadb8' };
+const HARNESS_FIXED = { 'claude-code': '#5eadb8', 'codex': '#5eadb8', 'openclaw': '#5eadb8', 'cursor': '#5eadb8', 'opencode': '#5eadb8', 'antigravity': '#5eadb8', 'hermes': '#5eadb8', 'govrun': '#5eadb8' };
 const HARNESS_PALETTE = ['#5eadb8'];
 const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
 const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
@@ -1337,7 +1337,9 @@ const AgentMapPage = {
                 ? ' <span style="font:700 10px sans-serif;color:#f59e0b;background:rgba(245,158,11,0.16);padding:1px 6px;border-radius:10px;">likely FP · ML disagrees</span>'
                 : node.ml_agreement === 'ml_uncertain'
                     ? ' <span style="font:700 10px sans-serif;color:#7d8590;background:rgba(125,133,144,0.16);padding:1px 6px;border-radius:10px;">ML uncertain</span>'
-                    : '';
+                    : node.ml_agreement === 'ml_only'
+                        ? ' <span style="font:700 10px sans-serif;color:#7d8590;background:rgba(125,133,144,0.16);padding:1px 6px;border-radius:10px;">ML only</span>'
+                        : '';
             return `<span>${icon} ${what}</span><b>${DetectionLabel.htmlFromFields(node.detection_source, node.ml_score, node.detection_rules)}${fp}</b>`;
         };
 

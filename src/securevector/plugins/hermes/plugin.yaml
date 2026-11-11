@@ -1,0 +1,11 @@
+name: securevector
+version: "1.1.0"
+description: "SecureVector cost tracking and tool-call audit: posts token usage, tool calls and session markers to the local SecureVector app."
+author: SecureVector
+kind: standalone
+provides_hooks:
+  - post_api_request
+  - post_tool_call
+  - on_session_start
+  - on_session_end
+  - on_session_finalize

@@ -474,10 +474,10 @@ def test_v63_table_and_version(w):
     from securevector.app.database.migrations import migrate_to_v63
     from securevector.app.database.models import CURRENT_SCHEMA_VERSION
 
-    assert CURRENT_SCHEMA_VERSION == 67
+    assert CURRENT_SCHEMA_VERSION == 70
     asyncio.run(migrate_to_v63(w.db))
     asyncio.run(migrate_to_v63(w.db))
-    assert w.one("SELECT MAX(version) FROM schema_version")[0] == 67
+    assert w.one("SELECT MAX(version) FROM schema_version")[0] == 70
     cols = {r[1] for r in w.raw.execute("PRAGMA table_info(session_rule_state)")}
     assert {"session_id", "cred_read_at", "outside_read_at", "cleared_cred_at", "cleared_outside_at",
             "fired_rules", "updated_at"} <= cols
@@ -722,3 +722,48 @@ def test_shell_sends_vocabulary():
     assert not cr.shell_sends({"command": "ls -la"})
     assert not cr.shell_sends({})
     assert cr.sends("WebFetch", {"url": "https://a.example"}) and cr.sends("mcp__srv__get", {})
+
+
+# --- environment files by name -----------------------------------------------------
+
+
+@pytest.mark.parametrize("preview", [
+    '{"command": "cat .env"}',
+    '{"file_path": "/Users/dev/app/.env"}',
+    '{"file_path": ".env"}',
+    '{"file_path": "config/.env.local"}',
+    '{"command": "source ./.env && npm start"}',
+    '{"file_path": "deploy/prod.env"}',
+    '{"file_path": "/repo/.envrc"}',
+    '{"command": "export X=$(cat prod.env)"}',
+    '{"command": "(source deploy/prod.env; run)"}',
+    '{"command": "grep -n KEY prod.env, then"}',
+    '{"command": "cat .envrc"}',
+])
+def test_an_env_file_read_is_a_credential_read_by_name_alone(preview):
+    from securevector.app.services import call_rules, egress_alerts
+
+    assert call_rules.credential_read(preview) is True
+    assert egress_alerts.credential_name(preview)
+
+
+@pytest.mark.parametrize("preview", [
+    '{"file_path": ".env.example"}',
+    '{"command": "cp .env.sample .env.template"}',
+    '{"command": "node -e \\"console.log(process.env)\\""}',
+    '{"command": "echo process.env.HOME"}',
+    '{"file_path": ".envrc.md"}',
+    '{"command": "node -e \\"f(c.env)\\""}',
+    '{"command": "bun -e \\"console.log(Bun.env, 1)\\""}',
+    '{"command": "node -e \\"const a = ctx.env; b(ctx.env.X)\\""}',
+])
+def test_env_templates_and_code_are_no_signal(preview):
+    from securevector.app.services import call_rules
+
+    assert call_rules.credential_read(preview) is False
+
+
+def test_an_env_template_names_no_credential():
+    from securevector.app.services import egress_alerts
+
+    assert egress_alerts.credential_name('{"file_path": ".env.example"}') is None

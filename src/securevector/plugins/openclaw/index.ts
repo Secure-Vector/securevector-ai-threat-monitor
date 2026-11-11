@@ -141,15 +141,25 @@ class SVClient {
   }
 
   /** Fire-and-forget: record LLM token usage for cost tracking. */
-  recordCost(provider: string, modelId: string, inputTokens: number, outputTokens: number, cachedTokens: number, agentId: string): void {
-    if (inputTokens === 0 && outputTokens === 0) return;
+  recordCost(provider: string, modelId: string, inputTokens: number, outputTokens: number, cachedTokens: number, sessionKey: string, cacheWriteTokens: number = 0, requestId: string = ""): void {
+    if (inputTokens === 0 && outputTokens === 0 && cachedTokens === 0 && cacheWriteTokens === 0) return;
     this.post("/api/costs/track", {
-      agent_id: agentId,
+      // One agent id for every OpenClaw row, so cost groups under the
+      // harness; the session key goes in session_id, as on the tool audit.
+      agent_id: "openclaw",
+      runtime_kind: "openclaw",
+      session_id: sessionKey ? sessionKey.slice(0, 200) : undefined,
+      // One id per run attempt (runId capped at 190, then ":n"): a repeat
+      // for the same attempt is stored once.
+      request_id: requestId ? requestId.slice(0, 200) : undefined,
       provider,
       model_id: modelId,
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       input_cached_tokens: cachedTokens,
+      // OpenClaw's usage.input never includes cache reads or writes.
+      input_cache_write_tokens: cacheWriteTokens,
+      input_includes_cached: false,
     }, 3_000).catch(() => {});
   }
 
@@ -627,6 +637,38 @@ export default {
     // On OpenClaw 2026.10 this hook is delivered only when the profile sets
     // plugins.entries.securevector-guard.hooks.allowConversationAccess = true
     // (written by `securevector-app --install-plugin openclaw`).
+    // llm_output fires once per run attempt with that attempt's usage summed
+    // over its model calls (model_call_ended carries no usage), so this is one
+    // cost row per attempt. Attempts of one run share runId: each run keeps
+    // its own counter, and an attempt is keyed by its model and usage, so a
+    // repeated delivery reuses its id (stored once) and a new attempt gets
+    // the next number. Each use moves the run to the newest end, and the
+    // least recently used run is dropped past the cap, never a part of one,
+    // so a live run never hands out an id twice.
+    const g2 = globalThis as any;
+    if (!(g2.__sv_cost_runs__ instanceof Map)) g2.__sv_cost_runs__ = new Map();
+    const costRuns: Map<string, Map<string, number>> = g2.__sv_cost_runs__;
+    const COST_RUNS_CAP = 5000;
+    const attemptId = (runId: string, key: string): string => {
+      let attempts = costRuns.get(runId);
+      if (attempts) {
+        costRuns.delete(runId);
+        costRuns.set(runId, attempts);
+      } else {
+        attempts = new Map<string, number>();
+        costRuns.set(runId, attempts);
+        if (costRuns.size > COST_RUNS_CAP) {
+          const first = costRuns.keys().next().value;
+          if (first !== undefined) costRuns.delete(first);
+        }
+      }
+      let n = attempts.get(key);
+      if (n === undefined) {
+        n = attempts.size + 1;
+        attempts.set(key, n);
+      }
+      return `${runId}:${n}`;
+    };
     api.on("llm_output", (event: any, ctx: any) => {
       try {
         const usage = event?.usage;
@@ -639,9 +681,14 @@ export default {
         const inputTokens = usage.input || 0;
         const outputTokens = usage.output || 0;
         const cachedTokens = usage.cacheRead || 0;
-        const agentId = ctx?.sessionKey || ctx?.agentId || event?.sessionId || "openclaw-agent";
+        const cacheWriteTokens = usage.cacheWrite || 0;
+        const sessionKey = String(ctx?.sessionKey || event?.sessionKey || ctx?.sessionId || event?.sessionId || "");
+        // Capped before the ":n" suffix so the suffix is never cut off.
+        const runId = String(event?.runId || ctx?.runId || "").slice(0, 190);
+        const attemptKey = [provider, modelId, inputTokens, outputTokens, cachedTokens, cacheWriteTokens].join("|");
+        const requestId = runId ? attemptId(runId, attemptKey) : "";
 
-        sv.recordCost(provider, modelId, inputTokens, outputTokens, cachedTokens, agentId);
+        sv.recordCost(provider, modelId, inputTokens, outputTokens, cachedTokens, sessionKey, cacheWriteTokens, requestId);
       } catch (err) {
         console.warn(`${tag} cost-tracker error:`, (err as Error).message);
       }

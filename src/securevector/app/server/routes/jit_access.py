@@ -298,10 +298,17 @@ async def list_requests(
         db = get_database()
         repo = JitAccessRepository(db)
         # Opportunistic housekeeping: stale pending requests expire on read so
-        # the queue the human sees never contains day-old asks.
-        await repo.expire_stale_requests()
-        from securevector.app.services import response_rungs
-        await response_rungs.expire_holds(db)
+        # the queue the human sees never contains day-old asks. A busy
+        # database skips it; the read below leaves lapsed requests out.
+        try:
+            await repo.expire_stale_requests()
+            from securevector.app.services import response_rungs
+            await response_rungs.expire_holds(db)
+        except Exception as e:  # noqa: BLE001 - the list is still served
+            if any(w in str(e).lower() for w in ("locked", "busy", "within a transaction")):
+                logger.debug("JIT expiry skipped, database busy", exc_info=True)
+            else:
+                logger.warning(f"JIT expiry failed: {e}")
         items = await repo.list_requests(status=status)
         return {"items": items, "pending": await repo.pending_count()}
     except Exception as e:
@@ -362,6 +369,8 @@ async def approve_request(
         # A delegation request launches its task on approval; no grant.
         pending = await repo.get_request(request_id)
         if pending and pending.get("rule_source") == "delegate":
+            if await repo.is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             from securevector.app.services import delegation
             manager = getattr(getattr(request.app, "state", None), "terminal_manager", None)
             out = await delegation.approve(db, manager, request_id)
@@ -373,6 +382,8 @@ async def approve_request(
         except ValueError as ve:
             raise HTTPException(status_code=422, detail=str(ve))
         if grant is None:
+            if await repo.is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             raise HTTPException(status_code=404, detail="No such pending request")
         if changed:
             await decisions.audit_request(db, "allow", pending)
@@ -409,6 +420,8 @@ async def deny_request(
         db = get_database()
         pending = await JitAccessRepository(db).get_request(request_id)
         if pending and pending.get("rule_source") == "delegate":
+            if await JitAccessRepository(db).is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             from securevector.app.services import delegation
             manager = getattr(getattr(request.app, "state", None), "terminal_manager", None)
             out = await delegation.deny(db, manager, request_id, body.reason)
@@ -417,6 +430,8 @@ async def deny_request(
             return {"denied": True, "delegation": out}
         ok = await JitAccessRepository(db).deny_request(request_id, body.reason)
         if not ok:
+            if await JitAccessRepository(db).is_lapsed(request_id):
+                raise HTTPException(status_code=409, detail="request expired")
             raise HTTPException(status_code=404, detail="No such pending request")
         await decisions.audit_request(db, "deny", pending, reason=body.reason)
         return {"denied": True}
