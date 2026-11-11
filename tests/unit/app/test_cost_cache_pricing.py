@@ -440,14 +440,16 @@ async def test_concurrent_sends_of_one_request_store_one_row(db):
 
     repo = CostsRepository(db)
     real_fetch_one = db.fetch_one
-    gate = asyncio.Barrier(2)
+    both = asyncio.Event()  # set once both sends have done the check
     calls = {"n": 0}
 
     async def fetch_one(sql, params=()):
         row = await real_fetch_one(sql, params)
         calls["n"] += 1
         if calls["n"] <= 2:  # both sends pass the existing-record check first
-            await gate.wait()
+            if calls["n"] == 2:
+                both.set()
+            await both.wait()
         return row
 
     db.fetch_one = fetch_one
