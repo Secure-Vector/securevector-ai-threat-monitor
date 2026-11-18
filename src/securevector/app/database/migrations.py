@@ -8,6 +8,7 @@ Provides:
 """
 
 import logging
+import sqlite3
 import re
 from datetime import datetime
 
@@ -665,9 +666,11 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
     # step writes the base rates only.
     try:
         cur = await (await db.connect()).execute("PRAGMA table_info(model_pricing)")
-        has_cache_cols = "cache_read_per_million" in {row[1] for row in await cur.fetchall()}
+        pricing_cols = {row[1] for row in await cur.fetchall()}
+        has_cache_cols = "cache_read_per_million" in pricing_cols
+        has_long_col = "long_context_json" in pricing_cols
     except Exception:  # noqa: BLE001
-        has_cache_cols = False
+        has_cache_cols = has_long_col = False
 
     loaded_count = 0
     for provider_entry in data.get("providers", []):
@@ -718,6 +721,12 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
                         "UPDATE model_pricing SET cache_read_per_million = ?, "
                         "cache_write_per_million = ? WHERE id = ?",
                         (cache_read, cache_write, pricing_id),
+                    )
+                if has_long_col:
+                    from securevector.app.database.repositories.costs import long_context_json
+                    await db.execute(
+                        "UPDATE model_pricing SET long_context_json = ? WHERE id = ?",
+                        (long_context_json(model.get("long_context")), pricing_id),
                     )
                 loaded_count += 1
             except Exception as e:
@@ -1147,10 +1156,7 @@ async def migrate_to_v25(db: DatabaseConnection) -> None:
 
     # Rebuild with the new CHECK. Must drop dependent FK before recreating
     # since external_forward_outbox references external_forwarders(id).
-    await conn.execute("PRAGMA foreign_keys = OFF")
-    try:
-        await conn.executescript(
-            """
+    rebuild = """
             -- Always start from a fresh staging table. Without this drop,
             -- a crash between `INSERT INTO ..._v25 SELECT FROM external_forwarders`
             -- and `DROP TABLE external_forwarders` would, on retry, double
@@ -1191,7 +1197,19 @@ async def migrate_to_v25(db: DatabaseConnection) -> None:
             CREATE INDEX IF NOT EXISTS idx_external_forwarders_enabled
               ON external_forwarders (enabled, id);
             """
-        )
+    await conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        try:
+            await conn.executescript(rebuild)
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower():
+                raise
+            # A read statement not yet finalized on this connection blocks
+            # the DROP. Finalize what is unreferenced and run it again: the
+            # script starts by dropping its staging table, so a replay is safe.
+            import gc
+            gc.collect()
+            await conn.executescript(rebuild)
     finally:
         await conn.execute("PRAGMA foreign_keys = ON")
 
@@ -3830,6 +3848,7 @@ async def ensure_cache_cost_columns(db: DatabaseConnection) -> None:
         ("llm_cost_records", "input_cache_write_tokens", "INTEGER DEFAULT 0"),
         ("model_pricing", "cache_read_per_million", "REAL"),
         ("model_pricing", "cache_write_per_million", "REAL"),
+        ("model_pricing", "long_context_json", "TEXT"),
     ):
         cur = await conn.execute(f"PRAGMA table_info({table})")
         cols = {row[1] for row in await cur.fetchall()}

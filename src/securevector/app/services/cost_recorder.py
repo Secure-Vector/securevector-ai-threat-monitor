@@ -20,6 +20,7 @@ from securevector.app.database.repositories.costs import (
     model_id_candidates,
     pricing_table,
     stored_input,
+    tier_card,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,7 +236,9 @@ class CostRecorder:
 
             # Normalize model ID for pricing lookup
             canonical_id = self._normalize_model_id(model_id)
-            card = lookup_rate_card(provider, canonical_id, self._pricing_cache)
+            card = tier_card(provider, model_id or canonical_id,
+                             lookup_rate_card(provider, canonical_id, self._pricing_cache),
+                             input_tokens, input_cached_tokens, cache_write_tokens)
             pricing_known = card is not None
             rate_input, rate_output = effective_rates(provider, model_id or canonical_id, card)
 

@@ -443,8 +443,12 @@ def _route_flow(client, repo, plain):
     # The stop waits out the process's grace period before the worktree is
     # kept; a loaded CI runner took just over 10 s, so allow 30.
     deadline = time.monotonic() + 30
-    while client.get(f"/api/terminals/tasks/{tid}", headers=AUTH).json()["worktree_state"] != "kept":
-        assert time.monotonic() < deadline, "worktree never kept"
+    while True:
+        seen = client.get(f"/api/terminals/tasks/{tid}", headers=AUTH).json()
+        if seen["worktree_state"] == "kept":
+            break
+        assert time.monotonic() < deadline, (
+            f"worktree never kept: status={seen.get('status')} worktree_state={seen.get('worktree_state')}")
         time.sleep(0.02)
     r = client.get(f"/api/terminals/tasks/{tid}", headers=AUTH)
     assert r.json()["worktree_dirty"] == 1 and r.json()["worktree_commits"] == 0

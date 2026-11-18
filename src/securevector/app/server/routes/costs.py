@@ -24,7 +24,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StrictInt
 
 from securevector.app.database.connection import get_database
-from securevector.app.database.repositories.costs import CostsRepository, compute_cost, effective_rates, stored_input
+from securevector.app.database.repositories.costs import (
+    CostsRepository, compute_cost, effective_rates, stored_input, tier_card,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +208,12 @@ async def record_cost(request: RecordCostRequest) -> dict:
 
         # Look up pricing: exact first, then the same fallbacks traced calls
         # use, so dated variants and Bedrock ids price instead of showing $0.
-        card = await repo.resolve_rate_card(request.provider, request.model_id)
+        card = tier_card(
+            request.provider, request.model_id,
+            await repo.resolve_rate_card(request.provider, request.model_id),
+            request.input_tokens, request.input_cached_tokens, request.input_cache_write_tokens,
+            includes_cached=request.input_includes_cached,
+        )
         rate_in, rate_out = effective_rates(request.provider, request.model_id, card)
         pricing_known = card is not None
         input_cost = 0.0
@@ -765,6 +772,7 @@ async def sync_pricing_from_source(force_local: bool = False) -> SyncResponse:
                     source_url=provider_entry.get("source_url"),
                     cache_read_per_million=model.get("cache_read_per_million"),
                     cache_write_per_million=model.get("cache_write_per_million"),
+                    long_context=model.get("long_context"),
                 )
                 updated += 1
                 if abs(new_input - old_input) > 0.001 or abs(new_output - old_output) > 0.001:

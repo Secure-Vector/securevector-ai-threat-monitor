@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-model cache read and cache write prices, including Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5. Cache write tokens are recorded and shown.
 - Bedrock regional endpoints are priced with the 10% premium for Claude 4.5 and later.
 - OpenCode records one cost per finished reply.
+- Prices re-verified against each provider's pricing page on 17 Nov 2026. Added Claude Fable 5.2, the GPT-6 family, Gemini 4 and 3.8 Flash, Grok 4.7, DeepSeek Flash, MiniMax M3.1 Flash and Qwen 3.8 on Groq, and cached-input prices for OpenAI, Gemini, xAI, DeepSeek, Mistral, Groq and MiniMax.
 
 **Plugins**
 - Connect Agents and `securevector-app --update-plugins` update installed plugins that are out of date.

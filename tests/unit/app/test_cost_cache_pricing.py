@@ -94,8 +94,9 @@ async def test_new_models_price_in_every_id_form(db, model, form, provider, prem
     card = await CostsRepository(db).resolve_rate_card(provider, form.format(m=model))
     assert card is not None
     assert (card.input, card.cache_write, card.cache_read, card.output) == (inp, write, read, outp)
-    ic, oc = compute_cost(provider, form.format(m=model), card, 1_000_000, 1_000_000, 1_000_000, 1_000_000)
-    assert ic + oc == pytest.approx(premium * (inp + write + read + outp))
+    # 10k of each: a prompt small enough to stay on the standard rates.
+    ic, oc = compute_cost(provider, form.format(m=model), card, 10_000, 10_000, 10_000, 10_000)
+    assert ic + oc == pytest.approx(premium * (inp + write + read + outp) / 100)
 
 
 def test_model_id_candidates_reduce_to_first_party():
@@ -648,3 +649,54 @@ def test_track_request_accepts_a_harness_name():
     req = costs_routes.RecordCostRequest(provider="p" * 200, model_id="gpt-4o", runtime_kind="claude-code_2")
     assert req.runtime_kind == "claude-code_2" and costs_routes.RecordCostRequest(
         provider="openai", model_id="gpt-4o").runtime_kind is None
+
+
+# --- long-prompt tiers -------------------------------------------------------
+
+def _tiered():
+    from securevector.app.database.repositories.costs import RateCard as RC
+    return RC(input=0.1, output=0.5, cache_read=0.01, cache_write=0.125,
+              long=RC(input=0.5, output=2.5, cache_read=0.05, cache_write=0.625), long_over=100_000)
+
+
+def test_long_prompt_rates_apply_only_over_the_threshold():
+    card = _tiered()
+    at = compute_cost("anthropic", "claude-haiku-5-5", card, 100_000, 1_000)
+    over = compute_cost("anthropic", "claude-haiku-5-5", card, 100_001, 1_000)
+    assert at == pytest.approx((0.01, 0.0005))
+    assert over == pytest.approx((100_001 * 0.5 / 1e6, 0.0025))
+
+
+def test_cache_reads_and_writes_count_toward_the_threshold():
+    card = _tiered()
+    # 20k uncached + 90k read: 110k prompt, so the whole request pays long rates.
+    assert compute_cost("anthropic", "claude-haiku-5-5", card, 20_000, 1_000, 90_000) == pytest.approx((0.0145, 0.0025))
+    # A provider whose input already includes the cache: 90k total stays short.
+    short = compute_cost("openai", "gpt-x", card, 90_000, 0, 80_000)
+    assert short[0] == pytest.approx((10_000 * 0.1 + 80_000 * 0.01) / 1e6)
+
+
+def test_long_context_entry_is_validated():
+    from securevector.app.database.repositories.costs import long_context_json, parse_long_context
+    ok = {"over_tokens": 272000, "input_per_million": 8, "output_per_million": 30, "cache_read_per_million": 0.8}
+    over, rates = parse_long_context(long_context_json(ok))
+    assert over == 272000 and (rates.input, rates.output, rates.cache_read, rates.cache_write) == (8.0, 30.0, 0.8, None)
+    for bad in (None, "", "not json", [], {"over_tokens": 0, "input_per_million": 1, "output_per_million": 1},
+                {"over_tokens": 10}, {"over_tokens": "x", "input_per_million": 1, "output_per_million": 1}):
+        assert parse_long_context(bad) == (None, None)
+        assert long_context_json(bad) is None
+
+
+@pytest.mark.asyncio
+async def test_seeded_tiers_price_a_long_request(db, monkeypatch):
+    repo = CostsRepository(db)
+    card = await repo.resolve_rate_card("anthropic", "claude-haiku-5-5")
+    assert card.long_over == 100_000 and card.long.input == 0.5
+    grok = await repo.resolve_rate_card("grok", "grok-4.7")
+    assert grok.long_over == 199_999   # the provider's tier starts at 200k inclusive
+    assert (await repo.resolve_rate_card("anthropic", "claude-opus-5-5")).long is None
+    out = await _track(db, monkeypatch, agent_id="a", provider="anthropic", model_id="claude-haiku-5-5",
+                       input_tokens=150_000, output_tokens=1_000, request_id="long-1")
+    row = await db.fetch_one("SELECT total_cost_usd, rate_input, rate_output FROM llm_cost_records WHERE request_id = 'long-1'")
+    assert row["total_cost_usd"] == pytest.approx(150_000 * 0.5 / 1e6 + 1_000 * 2.5 / 1e6)
+    assert (row["rate_input"], row["rate_output"]) == (0.5, 2.5)

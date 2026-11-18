@@ -52,6 +52,53 @@ class RateCard:
     output: float
     cache_read: Optional[float] = None
     cache_write: Optional[float] = None
+    # Rates for a request whose prompt is over ``long_over`` tokens, when the
+    # provider prices long prompts higher. The whole request pays them.
+    long: Optional["RateCard"] = None
+    long_over: Optional[int] = None
+
+
+def parse_long_context(value) -> tuple[Optional[int], Optional["RateCard"]]:
+    """(threshold, rates) from a model's ``long_context`` entry: a mapping,
+    or the JSON text stored in ``model_pricing.long_context_json``.
+    (None, None) when absent or not usable."""
+    if not value:
+        return None, None
+    if isinstance(value, str):
+        try:
+            import json
+            value = json.loads(value)
+        except ValueError:
+            return None, None
+    if not isinstance(value, dict):
+        return None, None
+    try:
+        over = int(value["over_tokens"])
+        rates = RateCard(
+            input=float(value["input_per_million"]),
+            output=float(value["output_per_million"]),
+            cache_read=None if value.get("cache_read_per_million") is None else float(value["cache_read_per_million"]),
+            cache_write=None if value.get("cache_write_per_million") is None else float(value["cache_write_per_million"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None, None
+    if over <= 0 or rates.input < 0 or rates.output < 0:
+        return None, None
+    return over, rates
+
+
+def long_context_json(value) -> Optional[str]:
+    """The ``long_context`` entry as stored text, or None when not usable."""
+    over, rates = parse_long_context(value)
+    if rates is None:
+        return None
+    import json
+    out = {"over_tokens": over, "input_per_million": rates.input, "output_per_million": rates.output}
+    if rates.cache_read is not None:
+        out["cache_read_per_million"] = rates.cache_read
+    if rates.cache_write is not None:
+        out["cache_write_per_million"] = rates.cache_write
+    return json.dumps(out, sort_keys=True)
 
 
 def is_claude_model(model_id: Optional[str]) -> bool:
@@ -256,6 +303,28 @@ def lookup_rate_card(provider: Optional[str], model_id: Optional[str], table: di
     return best[1] if best else None
 
 
+def tier_card(
+    provider: Optional[str],
+    model_id: Optional[str],
+    card: Optional[RateCard],
+    input_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    includes_cached: Optional[bool] = None,
+) -> Optional[RateCard]:
+    """The rates that apply to one request: the long-prompt rates when the
+    model has them and the whole prompt (uncached input, cache reads and
+    cache writes) is over the threshold, else ``card`` itself."""
+    if card is None or card.long is None or card.long_over is None:
+        return card
+    if includes_cached is None:
+        includes_cached = input_includes_cached(provider, model_id)
+    prompt = int(input_tokens or 0)
+    if not includes_cached:
+        prompt += int(cache_read_tokens or 0) + int(cache_write_tokens or 0)
+    return card.long if prompt > card.long_over else card
+
+
 def compute_cost(
     provider: Optional[str],
     model_id: Optional[str],
@@ -276,6 +345,8 @@ def compute_cost(
     """
     if includes_cached is None:
         includes_cached = input_includes_cached(provider, model_id)
+    card = tier_card(provider, model_id, card, input_tokens, cache_read_tokens,
+                     cache_write_tokens, includes_cached)
     read = int(cache_read_tokens or 0)
     write = int(cache_write_tokens or 0)
     uncached = int(input_tokens or 0)
@@ -310,6 +381,7 @@ def pricing_table(rows) -> dict:
                 cache_read=None if get("cache_read_per_million") is None else float(get("cache_read_per_million")),
                 cache_write=None if get("cache_write_per_million") is None else float(get("cache_write_per_million")),
             )
+            card.long_over, card.long = parse_long_context(get("long_context_json"))
         except (TypeError, ValueError):
             continue
         table[(str(get("provider")), str(get("model_id")))] = card
@@ -694,6 +766,7 @@ class CostsRepository:
         source_url: Optional[str] = None,
         cache_read_per_million: Optional[float] = None,
         cache_write_per_million: Optional[float] = None,
+        long_context: Optional[dict] = None,
     ) -> None:
         """Upsert a pricing entry (used by sync)."""
         pricing_id = f"{provider}/{model_id}"
@@ -721,6 +794,13 @@ class CostsRepository:
                 cache_read_per_million, cache_write_per_million,
             ),
         )
+        try:
+            await self.db.execute(
+                "UPDATE model_pricing SET long_context_json = ? WHERE id = ?",
+                (long_context_json(long_context), pricing_id),
+            )
+        except sqlite3.OperationalError:
+            pass  # column not added yet on this database; added at next start
 
     # --- Budget methods ---
 
@@ -900,7 +980,8 @@ class CostsRepository:
         # transcript import, proxy). None stays None: the "not stored" marker.
         input_preview, _ = sanitize_trace_text(input_preview, direction="outgoing")
         output_preview, _ = sanitize_trace_text(output_preview, direction="llm_response")
-        card = await self.resolve_rate_card(provider, model_id)
+        card = tier_card(provider, model_id, await self.resolve_rate_card(provider, model_id),
+                         int(input_tokens), int(input_cached_tokens), int(input_cache_write_tokens or 0))
         rate_in, rate_out = effective_rates(provider, model_id, card)
         pricing_known = card is not None
         if pricing_known:
