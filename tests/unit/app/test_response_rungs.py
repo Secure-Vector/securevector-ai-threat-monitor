@@ -572,6 +572,10 @@ def test_step_up_class_by_name_and_by_arguments():
 
 
 def test_shadow_files_nothing_and_leaves_the_rows_unchanged(gw):
+    # Start the harness's test-mode window first, as in use: sessions are
+    # evaluated inside it. Seeding first let a clock second pass in between,
+    # which put the session before the window on a slow runner.
+    asyncio.run(rr.shadow_would_have(gw.db, HARNESS))
     _at_rung(gw, "s-shadow", "shadow")
     _at_rung(gw, "s-other", "shadow", rung=1)
     with_rung, without = _rows(gw, "s-shadow"), _rows(gw, "s-other")
