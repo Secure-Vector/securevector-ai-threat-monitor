@@ -16,6 +16,11 @@ from securevector.app.server.routes.transcript_generations import apply_cost
 # The models that must resolve to a price (Claude 5 family + Opus 4.8 + Codex).
 REQUIRED_MODELS = [
     "claude-fable-5", "claude-mythos-5", "claude-sonnet-5", "claude-opus-4-8",
+    # Named in the 6.2 README: every one of these must be priced.
+    "claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5",
+    "gpt-6-astra", "gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-6-cyber",
+    "gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen", "gemini-3.8-flash",
+    "grok-4.7", "deepseek-flash",
 ]
 
 
