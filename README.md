@@ -144,7 +144,7 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 
 > **What's new in 6.2**
 > - **Hermes**: a Hermes Agent plugin, installed from the Hermes guide or with `securevector-app --install-plugin hermes`. It records the cost of each model call, an audit row per tool call, and session start and end. Hermes and GovRun appear in Agent Runs and the harness filters.
-> - **Cache-aware costs**: cache read and cache write tokens are recorded and priced per model, including Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5. Bedrock regional endpoints carry their 10% premium.
+> - **Cache-aware costs**: cache read and cache write tokens are recorded and priced per model, including Fable 5.2, Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5. Bedrock regional endpoints carry their 10% premium.
 > - **One meaning for input tokens**: input tokens are the uncached part for every provider, so the token columns agree across harnesses. Existing records are updated once on upgrade; costs are unchanged.
 > - **Plugin updates**: Connect Agents shows each plugin's installed version and updates the ones that are out of date. `securevector-app --update-plugins` does the same from a terminal.
 > - **Clearer detections**: a model-only match is labelled ML only; on file-read output it shows at medium at most and is listed on the Dashboard as "to review". Reading a `.env` file raises a credential-reach signal.
