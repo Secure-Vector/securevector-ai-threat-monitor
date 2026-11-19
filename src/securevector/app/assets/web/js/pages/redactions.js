@@ -32,6 +32,7 @@ const RedactionsPage = {
             'langgraph':   'LangGraph',
             'crewai':      'CrewAI',
             'hermes':      'Hermes',
+            'govrun':      'GovRun',
             'n8n':         'n8n',
             'ollama':      'Ollama',
             'proxy':       'Proxy (unattributed)',

@@ -177,3 +177,83 @@ async def test_hold_without_trace_id_gets_the_sessions_run_trace(tmp_path):
     assert explicit["trace_id"] == "given"
     orphan = await repo.create_request(tool_id="builtin.read", rule_source="local")
     assert orphan["trace_id"] is None
+
+
+async def _age(db, req_id: str, hours: int) -> None:
+    await db.execute(
+        "UPDATE jit_access_requests SET requested_at = datetime('now', ?) WHERE id = ?",
+        (f"-{int(hours)} hours", req_id),
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_lapsed_request_is_left_out_of_pending_without_the_expiry_pass(tmp_path):
+    db = await _build_db(tmp_path)
+    repo = JitAccessRepository(db)
+    old = await _pending_request(repo)
+    await _age(db, old["id"], 30)
+    pending = await repo.list_requests(status="pending")
+    assert old["id"] not in [r["id"] for r in pending]
+    assert await repo.pending_count() == 0
+    every = {r["id"]: r for r in await repo.list_requests()}
+    assert every[old["id"]]["status"] == "expired"
+    assert "_lapsed" not in every[old["id"]]
+
+
+@pytest.mark.asyncio
+async def test_the_list_route_serves_when_the_expiry_pass_hits_a_lock(tmp_path, monkeypatch):
+    import sqlite3
+
+    from securevector.app.server.routes import jit_access as route
+
+    db = await _build_db(tmp_path)
+    repo = JitAccessRepository(db)
+    fresh = await _pending_request(repo)
+
+    async def locked(self, *a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(route, "get_database", lambda: db)
+    monkeypatch.setattr(JitAccessRepository, "expire_stale_requests", locked)
+    body = await route.list_requests(status="pending")
+    assert [r["id"] for r in body["items"]] == [fresh["id"]]
+    assert body["pending"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", [
+    "cannot start a transaction within a transaction",
+    "database table is locked",
+    "database is busy",
+])
+async def test_the_list_route_treats_nested_and_busy_errors_as_busy(tmp_path, monkeypatch, caplog, message):
+    import logging
+    import sqlite3
+
+    from securevector.app.server.routes import jit_access as route
+
+    db = await _build_db(tmp_path)
+    repo = JitAccessRepository(db)
+    fresh = await _pending_request(repo)
+
+    async def busy(self, *a, **k):
+        raise sqlite3.OperationalError(message)
+
+    monkeypatch.setattr(route, "get_database", lambda: db)
+    monkeypatch.setattr(JitAccessRepository, "expire_stale_requests", busy)
+    with caplog.at_level(logging.DEBUG, logger=route.logger.name):
+        body = await route.list_requests(status="pending")
+    assert [r["id"] for r in body["items"]] == [fresh["id"]]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING and "expiry" in r.getMessage()]
+
+
+@pytest.mark.asyncio
+async def test_expiry_runs_in_an_immediate_transaction(tmp_path):
+    db = await _build_db(tmp_path)
+    repo = JitAccessRepository(db)
+    old = await _pending_request(repo)
+    await _age(db, old["id"], 30)
+    assert await repo.expire_stale_requests() == 1
+    conn = await db.connect()
+    assert not conn.in_transaction
+    assert (await repo.get_request(old["id"]))["status"] == "expired"

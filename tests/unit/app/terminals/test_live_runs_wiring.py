@@ -71,6 +71,26 @@ async def test_hook_emits_once_per_status_change(tmp_path, sent):
 
 
 @pytest.mark.asyncio
+async def test_input_that_clears_a_permission_block_emits_its_status_change(tmp_path, sent):
+    m, ws = await _manager(tmp_path)
+    try:
+        task = await m.spawn("claude-code", str(ws), title=None, origin="ui")
+        tid, token = task["id"], m.hook_token(task["id"])
+        await m.handle_hook_event(tid, token, {
+            "hook_event_name": "Notification", "notification_type": "permission_prompt",
+            "message": "Claude needs your permission to use Bash"})
+        await m.input(tid, b"1\r")
+        await _drain()
+        assert [(p["event"], p["status"]) for p in sent][-2:] == [("hook", "blocked"), ("hook", "working")]
+        assert sent[-1]["event_origin"] == "ui"
+        assert m._live_status[tid] == "working"
+        events = await m.store.list_events(tid, limit=50)
+        assert any(e["kind"] == "status" and e["detail"] == "input -> working" for e in events)
+    finally:
+        await m.stop_heartbeat()
+
+
+@pytest.mark.asyncio
 async def test_stop_exit_and_archive_each_emit(tmp_path, sent):
     m, ws = await _manager(tmp_path)
     try:

@@ -75,7 +75,7 @@
         /** Plain words for a score band. */
         scoreBand(score) {
             if (typeof score !== 'number') return '';
-            return score >= 70 ? 'high' : score >= 40 ? 'worth a look' : 'calm';
+            return score >= 70 ? 'High' : score >= 40 ? 'Watch' : 'Low';
         },
 
         // ------------------------------------------------------------ pins
@@ -357,6 +357,12 @@
                 if (o.chip && !this.matchToggle(s, o.chip)) return false;
                 return on.every(k => this.matchToggle(s, k));
             });
+        },
+
+        /** The "All running" tab count: running sessions in the list the
+         *  grid shows under the current filters. */
+        runningShown(sessions, f) {
+            return this.filter(sessions || [], f || {}).filter(s => this.sessionRunning(s)).length;
         },
 
         /** Counters over every running session (the server sends these; this
@@ -1082,7 +1088,8 @@
             // The open call is not among the latest rows: its details lead.
             const lead = pn && pn.detailHtml && !shownDet ? `<ol class="lg-calls">${detLi()}</ol>` : '';
             const callsBody = !d ? '<div class="lg-sec-empty">Loading calls…</div>'
-                : lead + (cs.rows.length ? `<ol class="lg-calls">${rowsHtml}</ol>` : '<div class="lg-sec-empty">No calls recorded yet.</div>');
+                : d.error && !cs.rows.length ? `<div class="lg-sec-empty">Calls did not load. <button type="button" class="lg-link" data-act="retry" data-sid="${e(sid)}">Retry</button></div>`
+                : lead + (cs.rows.length ? `<ol class="lg-calls">${rowsHtml}</ol>` : '<div class="lg-sec-empty">No calls yet.</div>');
             const es = this.egressSection(d && d.gov, cap);
             const egCount = es.loading || (!es.visible && !es.total) ? '' : `${es.total} host${es.total === 1 ? '' : 's'}`;
             let egBody;

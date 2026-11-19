@@ -2170,6 +2170,21 @@ const Sidebar = {
                 if (opener && opener.isConnected) opener.focus();
             });
         }
+        // Escape closes the flyout wherever focus is. A hover-open or a click
+        // leaves focus outside the flyout (WebKit never focuses a clicked
+        // button), so the flyout's own handler above never sees the key.
+        // Registered once: render() calls this on every navigation.
+        if (!this._flyoutEscBound) {
+            this._flyoutEscBound = true;
+            document.addEventListener('keydown', (e) => {
+                if (e.key !== 'Escape') return;
+                const open = document.getElementById('nav-flyout');
+                if (!open || open.hidden) return;
+                const opener = this._flyoutOpener;
+                this._flyoutHide(true);
+                if (opener && opener.isConnected) opener.focus();
+            });
+        }
         // The flyout hangs off the PRODUCT RAIL, not off the context rows.
         // Collapsed hides the context panel outright, so the flyout is how
         // the other destinations stay reachable. Hover opens it after a short

@@ -167,8 +167,8 @@ def _max_dt(a: Optional[str], b: Optional[str]) -> Optional[str]:
     return a if a >= b else b
 
 
-_AGREE_RANK = {"corroborated": 2, "ml_uncertain": 1, "ml_disagrees": 0}
-_RANK_AGREE = {2: "corroborated", 1: "ml_uncertain", 0: "ml_disagrees"}
+_AGREE_RANK = {"corroborated": 3, "ml_only": 2, "ml_uncertain": 1, "ml_disagrees": 0}
+_RANK_AGREE = {3: "corroborated", 2: "ml_only", 1: "ml_uncertain", 0: "ml_disagrees"}
 
 
 def _merge_detection(node: dict, source, ml_score, rules, ml_agreement=None) -> None:

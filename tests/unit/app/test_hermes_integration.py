@@ -94,7 +94,8 @@ def test_hermes_is_a_known_framework_in_detection():
         _HARNESS_RUNTIME_KINDS,
     )
     assert _FRAMEWORK_LABELS.get("hermes") == "Hermes"
-    assert "hermes" not in _HARNESS_RUNTIME_KINDS  # framework, not harness
+    # Listed as a harness on Agent Runs (6.2.0); the label stays for old rows.
+    assert "hermes" in _HARNESS_RUNTIME_KINDS
 
 
 def test_hermes_is_a_valid_proxy_integration():

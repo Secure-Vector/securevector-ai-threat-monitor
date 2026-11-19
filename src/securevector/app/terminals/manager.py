@@ -199,6 +199,23 @@ class ManagerSettings:
     config_trust: bool = False
 
 
+# Claude Code's Notification types; only this one asks to approve a tool call.
+PERMISSION_NOTIFICATION = "permission_prompt"
+
+
+def is_permission_notification(kind: str, message: str) -> bool:
+    """A tool permission prompt. With a type, only `permission_prompt`
+    counts; without one (older harness builds), a message about permission
+    that is not the folder trust dialog."""
+    kind = (kind or "").strip().lower()
+    if kind:
+        return kind == PERMISSION_NOTIFICATION
+    msg = (message or "").lower()
+    if "permission" not in msg:
+        return False
+    return not any(w in msg for w in ("trust", "folder", "workspace", "directory"))
+
+
 def status_from_hook(event: Mapping) -> Tuple[Optional[str], Optional[str]]:
     """Map a relayed hook payload to (status, activity). None = no change."""
     name = event.get("hook_event_name")
@@ -214,7 +231,7 @@ def status_from_hook(event: Mapping) -> Tuple[Optional[str], Optional[str]]:
     if name == "Notification":
         kind = str(event.get("notification_type") or "")
         msg = str(event.get("message") or "")
-        if "permission" in kind or "permission" in msg.lower():
+        if is_permission_notification(kind, msg):
             return "blocked", msg or "Waiting for permission"
         return None, None
     if name == "Stop":
@@ -275,6 +292,8 @@ class TerminalManager:
         # Tasks whose Guard sent no hook after their first prompt: task id
         # -> the card warning. Cleared by the next hook event.
         self._guard_silent: dict = {}
+        # Tasks a permission Notification marked blocked.
+        self._prompt_blocked: set = set()
         # Delegated prompts that may be sent once more if their paste brings
         # no hook (executors with prompt_resubmit): task id -> text.
         self._resubmit: dict = {}
@@ -1263,6 +1282,7 @@ class TerminalManager:
         # The audit trail is authoritative for finished tasks; the set is a cache.
         self._ungoverned.discard(task_id)
         self._guard_silent.pop(task_id, None)
+        self._prompt_blocked.discard(task_id)
         self._input_checked.discard(task_id)
         stop_requested = task_id in self._stop_requested
         self._stop_requested.discard(task_id)
@@ -1737,6 +1757,18 @@ class TerminalManager:
             return True
         if activity:
             activity = redact_secrets(activity, "outgoing")[0]
+        await self._apply_status(
+            task_id, status, activity, origin="hook",
+            detail=f"{event.get('hook_event_name')} -> {status}",
+        )
+        if status == "idle":
+            self._notify_delegation(task_id)
+        return True
+
+    async def _apply_status(self, task_id: str, status: str, activity: Optional[str], *,
+                            origin: str, detail: str) -> None:
+        """Store a status change from a hook or the person: the task row,
+        the permission-block set, its event and the Live Runs event."""
         # Live Runs: one event per actual status change. The last status sent
         # is remembered per task; with nothing remembered yet (sink installed
         # after spawn), the stored status before this update stands in.
@@ -1753,25 +1785,24 @@ class TerminalManager:
             except Exception:
                 logger.debug("live runs: status read failed for %s", log_safe(task_id), exc_info=True)
         await self.store.update_status(task_id, status, activity=activity)
+        # A permission prompt blocks until the next hook or a submitted line.
+        if status == "blocked":
+            self._prompt_blocked.add(task_id)
+        else:
+            self._prompt_blocked.discard(task_id)
         if tracking:
             # Only once the new status is stored, so a failed write cannot
             # suppress the event for the retry.
             self._live_status[task_id] = status
-        await self.store.add_event(
-            task_id,
-            kind="hook",
-            origin="hook",
-            detail=f"{event.get('hook_event_name')} -> {status}",
-        )
+        # Only a hook writes a hook event (the Guard check reads those).
+        await self.store.add_event(task_id, kind="hook" if origin == "hook" else "status",
+                                   origin=origin, detail=detail)
         if changed and live_runs.has_sink():
             try:
                 current = await self.store.get_task(task_id)
             except Exception:
                 current = None
-            live_runs.emit_nowait(current, "hook", origin="hook")
-        if status == "idle":
-            self._notify_delegation(task_id)
-        return True
+            live_runs.emit_nowait(current, "hook", origin=origin)
 
     # -- worktrees ------------------------------------------------------------
 
@@ -2036,6 +2067,14 @@ class TerminalManager:
         self._input_bytes[task_id] = self._input_bytes.get(task_id, 0) + len(data)
         if b"\r" in data or b"\n" in data:
             n = self._input_bytes.pop(task_id, 0)
+            if task_id in self._prompt_blocked:
+                # The person answered the prompt: the task works again.
+                self._prompt_blocked.discard(task_id)
+                try:
+                    await self._apply_status(task_id, "working", "Input sent", origin="ui",
+                                             detail="input -> working")
+                except Exception:
+                    logger.debug("unblock after input failed for %s", log_safe(task_id), exc_info=True)
             seq = await self.store.add_event(
                 task_id, kind="input", origin="ui", detail=f"line submitted, {n} bytes"
             )

@@ -110,8 +110,8 @@ def test_cache_bucket_respects_min_cacheable_prefix():
 
 def test_cache_value_zero_for_provider_without_discount():
     # Unknown provider conventions: tokens may count, value must not be claimed.
-    pricing = {"claude-x": ("unknown-vendor", 3.0, 15.0)}
-    gens = [_gen(inp=2000 + 500 * i, ts=_ts(i)) for i in range(5)]
+    pricing = {"vendor-x": ("unknown-vendor", 3.0, 15.0)}
+    gens = [_gen(inp=2000 + 500 * i, ts=_ts(i), model="vendor-x") for i in range(5)]
     a = analyze_session(gens, pricing)
     assert a["cache_bucket"]["est_value_usd"] == 0
 

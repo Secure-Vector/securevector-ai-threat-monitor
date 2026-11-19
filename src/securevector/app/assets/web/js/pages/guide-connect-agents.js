@@ -29,7 +29,7 @@ const GuideConnectAgentsPage = {
             wire: 'from langchain.agents import create_agent  # langgraph-backed\nfrom securevector_sdk_langgraph import secure_middleware\n\n# requires langchain>=1.0 · observe = log-only (default); mode="enforce" blocks\nagent = create_agent(model, tools, middleware=[secure_middleware(mode="observe")])' },
         { id: 'crewai', route: 'A', label: 'CrewAI', guide: 'guide-frameworks', integration: 'proxy-crewai', pkg: 'securevector-sdk-crewai',
             wire: 'from crewai import Agent\nfrom securevector_sdk_crewai import secure_tools\n\n# observe = log-only (default); mode="enforce" blocks\nagent = Agent(role="Researcher", goal="...", backstory="...", tools=secure_tools(my_tools, mode="observe"))' },
-        { id: 'hermes', route: 'A', label: 'Hermes', guide: 'guide-frameworks', integration: 'proxy-hermes', pkg: 'securevector-sdk-hermes',
+        { id: 'hermes', route: 'A', label: 'Hermes', guide: 'guide-frameworks', integration: 'proxy-hermes', pkg: 'securevector-sdk-hermes', installSlug: 'hermes',
             wire: '# Zero-config: the SDK registers a Hermes plugin (hermes_agent.plugins\n# entry point): auto-attached when hermes starts (CLI, gateway, ACP).\nhermes                                # observe = log-only (default)\nSECUREVECTOR_SDK_MODE=enforce hermes  # blocks denied tools\n\n# Library embeddings: from securevector_sdk_hermes import install; install(mode="enforce")' },
         { id: 'claude-code', route: 'B', label: 'Claude Code', guide: 'guide-claude-code', integration: 'proxy-claude-code', slug: 'claude-code' },
         { id: 'codex', route: 'B', label: 'Codex', guide: 'guide-codex', integration: 'proxy-codex', slug: 'codex' },
@@ -84,6 +84,21 @@ const GuideConnectAgentsPage = {
     // Two-column layout styles (main flow + sticky detection rail). Injected
     // once; collapses to a single column below 960px so the detection rail
     // drops beneath the flow on narrow viewports instead of squeezing it.
+    /** One status line for an installed plugin, or null when not installed:
+     *  "Installed 1.2.0" or "Installed 1.2.0, 1.3.0 available". */
+    versionLine(st) {
+        if (!st || st.installed !== true) return null;
+        const line = st.installed_version ? 'Installed ' + st.installed_version : 'Installed';
+        if (st.update_available !== true) return line;
+        return line + ', ' + (st.bundled_version ? st.bundled_version + ' available' : 'update available');
+    },
+
+    /** Number of plugins with an update, from GET /api/hooks/status-all. */
+    updateCount(all) {
+        if (!all || !Array.isArray(all.plugins)) return 0;
+        return all.plugins.filter(p => p && p.update_available === true).length;
+    },
+
     _injectColsStyle() {
         if (document.getElementById('ca-cols-style')) return;
         const st = document.createElement('style');
@@ -194,6 +209,44 @@ const GuideConnectAgentsPage = {
         lede.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px; font-size: 14px; line-height: 1.5;';
         lede.textContent = 'See what is connected and covered on this device, then connect more: the guided one-click way or by copying commands.';
         root.appendChild(lede);
+
+        // Plugin updates: one Update all button, shown only when an installed
+        // plugin differs from the one this app version ships.
+        const updAll = document.createElement('div');
+        updAll.className = 'ca-update-all';
+        updAll.style.cssText = 'display:none; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px; font-size:13px; color:var(--text-secondary);';
+        const updAllMsg = document.createElement('span');
+        const updAllBtn = document.createElement('button');
+        updAllBtn.type = 'button';
+        updAllBtn.className = 'btn btn-sm btn-primary';
+        updAllBtn.textContent = 'Update all';
+        updAll.appendChild(updAllMsg); updAll.appendChild(updAllBtn);
+        root.appendChild(updAll);
+        // One status-all fetch per page open, shared by this row and the cards.
+        let statusAll = null;
+        const loadStatusAll = (fresh) => {
+            if (fresh || !statusAll) statusAll = fetch('/api/hooks/status-all').then(r => r.json()).catch(() => null);
+            return statusAll;
+        };
+        const refreshUpdAll = async (fresh) => {
+            if (endpointMode) return;
+            const n = this.updateCount(await loadStatusAll(fresh));
+            updAllMsg.textContent = 'Plugin updates available (' + n + ')';
+            updAll.style.display = n > 0 ? 'flex' : 'none';
+        };
+        updAllBtn.addEventListener('click', async () => {
+            updAllBtn.disabled = true;
+            updAllBtn.textContent = 'Updating...';
+            let ok = false;
+            try { const r = await fetch('/api/hooks/update-plugins', { method: 'POST' }).then(x => x.json()); ok = !!(r && r.ok); } catch (_) { ok = false; }
+            updAllBtn.disabled = false;
+            updAllBtn.textContent = 'Update all';
+            await refreshUpdAll(true);
+            if (!ok) { updAllMsg.textContent = 'Some updates failed. Try again or update each plugin below.'; updAll.style.display = 'flex'; }
+            if (selected) renderPanel();
+            if (window.GlobalBanners) GlobalBanners.refreshPluginUpdates();
+        });
+        refreshUpdAll();
 
         // Your agent setup: what every harness on this device is configured
         // with, risky items first, before anything changes. Read-only.
@@ -369,8 +422,11 @@ const GuideConnectAgentsPage = {
             // options on this device, deliberately duplicated: a button for
             // the guided path, the command below for people who live in a
             // terminal. Self-host stays command-only (the plugin installs on
-            // a machine this app cannot reach).
-            if (!selfHost && selected.route === 'B') {
+            // a machine this app cannot reach). Hermes (route A) also has a
+            // directory plugin for cost tracking; the pip SDK stays as the
+            // alternative below it.
+            const plugSlug = selected.route === 'B' ? selected.slug : selected.installSlug;
+            if (!selfHost && plugSlug) {
                 const oneClick = document.createElement('div');
                 oneClick.style.cssText = 'display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 2px 0 12px;';
                 const installBtn = document.createElement('button');
@@ -380,15 +436,54 @@ const GuideConnectAgentsPage = {
                 const resultLine = document.createElement('span');
                 resultLine.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
                 oneClick.appendChild(installBtn); oneClick.appendChild(resultLine);
+                // Installed version, and an Update button when this app ships newer files.
+                const verLine = document.createElement('span');
+                verLine.className = 'ca-plugin-version';
+                verLine.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+                const updateBtn = document.createElement('button');
+                updateBtn.type = 'button';
+                updateBtn.className = 'btn btn-sm btn-secondary';
+                updateBtn.textContent = 'Update';
+                updateBtn.style.display = 'none';
+                oneClick.appendChild(verLine); oneClick.appendChild(updateBtn);
+                const statusUrl = plugSlug === 'openclaw' ? '/api/hooks/status' : '/api/hooks/' + plugSlug + '/status';
+                const installUrl = plugSlug === 'openclaw' ? '/api/hooks/install' : '/api/hooks/' + plugSlug + '/install';
+                // From the shared status-all result; after this card's own
+                // install or update, from its status route.
+                const showVersion = async (fromRoute) => {
+                    let st = null;
+                    if (fromRoute) {
+                        try { st = await fetch(statusUrl).then(r => r.json()); } catch (_) { st = null; }
+                    } else {
+                        const all = await loadStatusAll();
+                        st = (all && Array.isArray(all.plugins)) ? (all.plugins.find(p => p && p.runtime === plugSlug) || null) : null;
+                    }
+                    verLine.textContent = this.versionLine(st) || '';
+                    updateBtn.style.display = st && st.installed === true && st.update_available === true ? '' : 'none';
+                };
+                showVersion();
+                updateBtn.addEventListener('click', async () => {
+                    updateBtn.disabled = true;
+                    updateBtn.textContent = 'Updating...';
+                    try { await fetch(installUrl, { method: 'POST' }); } catch (_) { /* the refresh below shows the state */ }
+                    updateBtn.disabled = false;
+                    updateBtn.textContent = 'Update';
+                    await showVersion(true);
+                    refreshUpdAll(true);
+                    if (window.GlobalBanners) GlobalBanners.refreshPluginUpdates();
+                });
                 // Reflect current state so the label reads Install / Reinstall
                 // exactly like the Integrations page.
-                guardStatus(selected.slug).then(st => { if (st !== 'absent') installBtn.textContent = 'Reinstall Plugin'; });
+                guardStatus(plugSlug).then(st => {
+                    if (st !== 'absent') installBtn.textContent = 'Reinstall Plugin';
+                    if (selected.route !== 'B' && !resultLine.textContent) resultLine.textContent = st === 'enabled' ? 'Installed: tracks cost per API call.' : (st === 'installed' ? 'Installed, not enabled.' : 'Not installed: tracks cost per API call.');
+                });
                 installBtn.addEventListener('click', async () => {
                     installBtn.disabled = true;
                     const prev = installBtn.textContent;
                     installBtn.textContent = prev === 'Reinstall Plugin' ? 'Reinstalling...' : 'Installing...';
                     try {
-                        const url = selected.slug === 'openclaw' ? '/api/hooks/install' : '/api/hooks/' + selected.slug + '/install';
+                        const url = plugSlug === 'openclaw' ? '/api/hooks/install' : '/api/hooks/' + plugSlug + '/install';
                         const res = await fetch(url, { method: 'POST' });
                         const r = await res.json();
                         if (r && r.ok) {
@@ -400,9 +495,11 @@ const GuideConnectAgentsPage = {
                                     : 'Staged: finish with the command below, or the full setup page.');
                             installBtn.textContent = 'Reinstall Plugin';
                             runDetection(); // refresh the coverage rail badges
+                            showVersion(true);
+                            refreshUpdAll(true);
                         } else {
                             resultLine.style.color = 'var(--error)';
-                            resultLine.textContent = 'Install failed: use the command below, or the full setup page.';
+                            resultLine.textContent = (selected.route !== 'B' && r && (r.next_step || (typeof r.detail === 'string' && r.detail))) || 'Install failed: use the command below, or the full setup page.';
                             installBtn.textContent = prev;
                         }
                     } catch (_) {
@@ -415,7 +512,7 @@ const GuideConnectAgentsPage = {
                 panel.appendChild(oneClick);
                 const orLabel = document.createElement('div');
                 orLabel.style.cssText = 'font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); margin: 0 0 2px;';
-                orLabel.textContent = 'Or run it yourself';
+                orLabel.textContent = selected.route === 'B' ? 'Or run it yourself' : 'Or use the pip SDK';
                 panel.appendChild(orLabel);
             }
 
@@ -765,6 +862,8 @@ const GuideConnectAgentsPage = {
         // (registry-backed). OpenClaw uses a different path. Returns one of
         // 'enabled' | 'installed' | 'absent' (best-effort; 'absent' on error).
         const guardStatus = async (slug) => {
+            // GovRun's audit sink is built in: no plugin to install.
+            if (slug === 'govrun') return 'builtin';
             try {
                 const url = slug === 'openclaw' ? '/api/hooks/status' : '/api/hooks/' + slug + '/status';
                 const st = await fetch(url).then(r => r.json());
@@ -824,6 +923,7 @@ const GuideConnectAgentsPage = {
                 if (present) {
                     guardStatus(h.slug).then(state => {
                         if (state === 'enabled') { badge.textContent = '✓ Guard'; badge.style.color = '#10b981'; badge.style.borderColor = 'color-mix(in srgb, #10b981 50%, transparent)'; badge.style.cursor = 'default'; }
+                        else if (state === 'builtin') { badge.textContent = 'Built in'; badge.style.cursor = 'default'; }
                         else if (state === 'installed') { badge.textContent = 'Guard · off'; badge.style.color = 'var(--warning)'; badge.style.borderColor = 'color-mix(in srgb, #f59e0b 50%, transparent)'; }
                         else { badge.textContent = 'Install →'; badge.style.color = ACCENT; badge.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 50%, transparent)'; badge.style.cursor = 'pointer'; badge.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
                     });
@@ -856,7 +956,7 @@ const GuideConnectAgentsPage = {
                     });
                 }
 
-                if (present) { row.title = 'Open the ' + h.label + ' install page'; name.style.cursor = 'pointer'; name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
+                if (present && h.slug !== 'govrun') { row.title = 'Open the ' + h.label + ' install page'; name.style.cursor = 'pointer'; name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
                 wrap.appendChild(row);
             });
 

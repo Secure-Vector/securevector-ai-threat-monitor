@@ -21,6 +21,9 @@ from typing import Optional
 
 from securevector.app.database.connection import DatabaseConnection
 
+# A rung hold with no answer lapses after this many seconds.
+HOLD_LIMIT_S = 300
+
 logger = logging.getLogger(__name__)
 
 # A runaway agent must not be able to flood the human's approval queue.
@@ -132,10 +135,34 @@ class JitAccessRepository:
         )
         return dict(row) if row else None
 
+    @staticmethod
+    def _lapsed_sql(older_than_hours: int = 24) -> str:
+        """A pending request past its limit: a day for a plain request, the
+        hold limit for a rung hold. Reads use it so a list is right even
+        when the expiry pass could not run."""
+        hold = f" OR (rule_source = 'rung' AND requested_at <= datetime('now', '-{int(HOLD_LIMIT_S)} seconds'))"
+        return f"COALESCE((requested_at < datetime('now', '-{int(older_than_hours)} hours'){hold}), 0)"
+
+    async def is_lapsed(self, request_id: str) -> bool:
+        """True when the request expired or is pending past its limit."""
+        row = await self.db.fetch_one(
+            f"SELECT (status = 'expired' OR (status = 'pending' AND {self._lapsed_sql()})) AS gone "
+            "FROM jit_access_requests WHERE id = ?",
+            (request_id,),
+        )
+        return bool(row and row["gone"])
+
     async def list_requests(
         self, status: Optional[str] = None, limit: int = 100
     ) -> list[dict]:
-        if status:
+        lapsed = self._lapsed_sql()
+        if status == "pending":
+            rows = await self.db.fetch_all(
+                "SELECT * FROM jit_access_requests WHERE status = 'pending' "
+                f"AND NOT {lapsed} ORDER BY requested_at DESC LIMIT ?",
+                (limit,),
+            )
+        elif status:
             rows = await self.db.fetch_all(
                 "SELECT * FROM jit_access_requests WHERE status = ? "
                 "ORDER BY requested_at DESC LIMIT ?",
@@ -143,14 +170,23 @@ class JitAccessRepository:
             )
         else:
             rows = await self.db.fetch_all(
-                "SELECT * FROM jit_access_requests ORDER BY requested_at DESC LIMIT ?",
+                f"SELECT *, (status = 'pending' AND {lapsed}) AS _lapsed "
+                "FROM jit_access_requests ORDER BY requested_at DESC LIMIT ?",
                 (limit,),
             )
-        return [dict(r) for r in rows] if rows else []
+        out = []
+        for r in rows or []:
+            d = dict(r)
+            # A lapsed request reads as what the expiry pass makes of it.
+            if d.pop("_lapsed", 0):
+                d["status"] = "denied" if d.get("rule_source") == "rung" else "expired"
+            out.append(d)
+        return out
 
     async def pending_count(self) -> int:
         row = await self.db.fetch_one(
-            "SELECT COUNT(*) AS n FROM jit_access_requests WHERE status = 'pending'"
+            "SELECT COUNT(*) AS n FROM jit_access_requests WHERE status = 'pending' "
+            f"AND NOT {self._lapsed_sql()}"
         )
         return int(row["n"]) if row else 0
 
@@ -243,7 +279,7 @@ class JitAccessRepository:
             cur = await self.db.execute(
                 "UPDATE jit_access_requests SET status = 'approved', "
                 "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user' "
-                "WHERE id = ? AND status = 'pending'",
+                f"WHERE id = ? AND status = 'pending' AND NOT {self._lapsed_sql()}",
                 (request_id,),
             )
         else:
@@ -314,7 +350,7 @@ class JitAccessRepository:
         cur = await self.db.execute(
             "UPDATE jit_access_requests SET status = 'denied', "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user', "
-            "deny_reason = ? WHERE id = ? AND status = 'pending'",
+            f"deny_reason = ? WHERE id = ? AND status = 'pending' AND NOT {self._lapsed_sql()}",
             ((reason or "").strip()[:200] or None, request_id),
         )
         # True only when this call moved the request out of pending.
@@ -323,11 +359,19 @@ class JitAccessRepository:
     async def expire_stale_requests(self, older_than_hours: int = 24) -> int:
         """Pending requests nobody decided within a day auto-expire — a stale
         queue must not become a standing invitation to approve blindly."""
-        cur = await self.db.execute(
+        sql = (
             "UPDATE jit_access_requests SET status = 'expired', "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'auto-expiry' "
             f"WHERE status = 'pending' AND requested_at < datetime('now', '-{int(older_than_hours)} hours')"
         )
+        # The write lock is taken up front (BEGIN IMMEDIATE), so a competing
+        # writer is waited for instead of failing the statement at once.
+        tx = getattr(self.db, "transaction", None)
+        if tx is not None:
+            async with tx() as conn:
+                cur = await conn.execute(sql)
+        else:
+            cur = await self.db.execute(sql)
         return cur.rowcount if cur else 0
 
     # --------------------------------------------------------------- grants
@@ -601,7 +645,8 @@ class JitAccessRepository:
         cur = await self.db.execute(
             "UPDATE jit_access_requests SET status = ?, "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user', "
-            "deny_reason = ? WHERE id = ? AND status = 'pending' AND rule_source = 'delegate'",
+            "deny_reason = ? WHERE id = ? AND status = 'pending' AND rule_source = 'delegate' "
+            f"AND NOT {self._lapsed_sql()}",
             (status, None if approve else ((reason or "").strip()[:200] or None), request_id),
         )
         return bool(getattr(cur, "rowcount", 0))

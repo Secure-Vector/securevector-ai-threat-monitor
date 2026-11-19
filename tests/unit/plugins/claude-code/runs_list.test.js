@@ -175,7 +175,7 @@ test('list timers and totals: minute tick, debounce cleared, one session total',
   assert.match(src, /if \(this\._searchTimer\) \{ clearTimeout\(this\._searchTimer\); this\._searchTimer = null; \}/);
   assert.match(src, /RL\.pageSessions\(ordered, this\.pageIdx, RL\.PAGE_SIZE\)/);
   assert.match(src, /Sessions \$\{info\.from\}–\$\{info\.to\} of/);
-  assert.match(src, /\$\{sessRuns\.length\} run\$\{sessRuns\.length === 1/);
+  assert.match(src, /RL\.sessionSummary\(sessRuns\)/);
 });
 
 test('grouped paging is by session: no run on two pages, exact hidden count, big sessions stay whole', () => {

@@ -139,9 +139,14 @@ def credential_name(preview: Any) -> Optional[str]:
     if not preview:
         return None
     text = str(preview)
-    m = _CRED_FILE_RE.search(text)
-    if m:
-        return m.group(1) or m.group(2)
+    for m in _CRED_FILE_RE.finditer(text):
+        name = m.group(1) or m.group(2)
+        # An env template (.env.example, .env.sample, .env.template) holds
+        # no values: it names no credential.
+        if name and name.lower().startswith(".env") and any(
+                p in ("example", "sample", "template") for p in name.lower().split(".")):
+            continue
+        return name
     m = _CRED_ENV_RE.search(text)
     if m:
         return m.group(1)

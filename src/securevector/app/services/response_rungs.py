@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
+from securevector.app.database.repositories.jit_access import HOLD_LIMIT_S
 from securevector.app.services import session_drift as drift
 
 logger = logging.getLogger(__name__)
@@ -507,7 +508,7 @@ REQUESTS_PER_HOUR = 20
 # Guard already denied the call when the hold began (it never waits on the
 # request), so the deny stands for the agent; this closes the request, so a
 # late approval cannot open it, and the next attempt files a fresh one.
-HOLD_LIMIT_S = 300
+# HOLD_LIMIT_S (imported above) is that limit, in seconds.
 
 
 def hold_limit_reason(limit_s: int = HOLD_LIMIT_S) -> str:

@@ -168,7 +168,7 @@ const DetectionResponsePage = {
 
     // --- spotlight ------------------------------------------------------------
 
-    BAND_RANGE: { high: 'High \u00b7 70 and above', watch: 'Worth a look \u00b7 40 to 69', calm: 'Low \u00b7 below 40' },
+    BAND_RANGE: { high: 'High \u00b7 70 and above', watch: 'Watch \u00b7 40 to 69', calm: 'Low \u00b7 below 40' },
 
     _hhmm(iso) {
         const t = new Date(iso || '');
@@ -176,7 +176,7 @@ const DetectionResponsePage = {
         return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
     },
 
-    _bandWord(b) { return b === 'high' ? 'high' : b === 'watch' ? 'worth a look' : 'low'; },
+    _bandWord(b) { return b === 'high' ? 'High' : b === 'watch' ? 'Watch' : 'Low'; },
 
     _bandOf(b) { return b === 'high' || b === 'watch' ? b : 'calm'; },
 

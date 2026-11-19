@@ -142,7 +142,7 @@ def test_coverage_values_and_labels():
     unknown = harness_coverage.coverage("something-else")
     assert unknown["enforced"] == "none" and unknown["level"] == "not_enforced"
     tokens = {k for k, v in harness_coverage.COVERAGE.items() if v["token_data"]}
-    assert {"claude-code", "codex"} <= tokens
+    assert {"claude-code", "codex", "openclaw", "opencode"} <= tokens
 
 
 @pytest.mark.parametrize("path", ["/coverage", "/live", "/sessions/sa/governance"])
@@ -274,7 +274,7 @@ def test_migration_v66_adds_the_time_indexes_and_is_idempotent(tmp_path):
             "SELECT name FROM sqlite_master WHERE type = 'index'"))}
         assert {"idx_tool_call_audit_called_at", "idx_cost_records_recorded_at"} <= names
         v = asyncio.run(db.fetch_one("SELECT MAX(version) AS v FROM schema_version"))
-        assert v["v"] == CURRENT_SCHEMA_VERSION == 67
+        assert v["v"] == CURRENT_SCHEMA_VERSION == 70
         plan = asyncio.run(db.fetch_all(
             "EXPLAIN QUERY PLAN SELECT session_id FROM tool_call_audit WHERE called_at >= '2026-01-01' "
             "AND session_id IS NOT NULL UNION SELECT session_id FROM llm_cost_records "
@@ -538,6 +538,18 @@ def test_a_running_terminal_task_stays_live_with_an_end_marker(obs):
     body, by = _live(client)
     assert by["held"]["ended"] is False
     assert body["counters"]["running"] == 1
+
+
+def test_an_exited_terminal_task_ends_its_session_at_the_end_marker(obs):
+    client, ws, db = obs
+    s = Seed(db.db_path)
+    s.task("t-gone", "gone-task", ws, status="done")
+    s.call("gone-task", ago=20)
+    s.call("gone-task", "log_only", ago=10, tool="__session_end__")
+    s.done()
+    body, by = _live(client)
+    assert by["gone-task"]["ended"] is True and _about(by["gone-task"]["ended_at"], 10)
+    assert body["counters"]["running"] == 0
 
 
 def test_turn_markers_are_not_activity_for_quiet_or_the_ten_minute_rule(obs):

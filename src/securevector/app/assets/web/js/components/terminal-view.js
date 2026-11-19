@@ -39,7 +39,7 @@
                 allowProposedApi: false,
                 cursorBlink: true,
                 scrollback: 5000,
-                fontSize: 13,
+                fontSize: 14,
                 fontFamily: 'SF Mono, Menlo, Consolas, "DejaVu Sans Mono", monospace',
                 theme: THEME,
                 convertEol: false,
@@ -68,6 +68,12 @@
                 this._resizeObserver.observe(container);
             }
             this.fitNow();
+            // Refit once web fonts settle so the cell size matches the glyphs.
+            try {
+                if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(() => this.fitNow()).catch(() => {});
+                }
+            } catch (e) { /* fonts API unavailable */ }
         }
 
         _selectRenderer() {

@@ -1271,7 +1271,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         // when high (the band is a security state). Observe only.
         if (typeof t.drift_score === 'number') {
             const band = t.drift_band === 'high' || t.drift_band === 'watch' ? t.drift_band : 'calm';
-            const w = band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low';
+            const w = this._band(band);
             parts.push(`<span class="terminals-task-drift is-${band}" title="Unusual activity score ${this._esc(t.drift_score)}">unusual activity ${w}</span>`);
         }
         if (t.worktree_branch) {
@@ -1792,7 +1792,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             return {
                 kind: 'unusual', band: sp.band, taskId: sp.task_id, spotlight: sp,
                 head: `${sp.harness_label || 'This agent tool'}${sp.folder ? ` in ${sp.folder}` : ''} stopped behaving like itself`,
-                score: `${sp.score} ${sp.band === 'high' ? 'high' : 'worth a look'}`,
+                score: `${sp.score} ${this._band(sp.band)}`,
                 signals: (sp.features || []).slice(0, 2).map(sentence).filter(Boolean),
                 blocked: held,
             };
@@ -1838,7 +1838,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             if (m.held > 0) parts.push(`<button type="button" class="terminals-alert-link" data-alert-blocked>${esc(`${m.held} ${m.held === 1 ? 'call' : 'calls'} blocked until you decide`)}</button>`);
             body = `<span class="terminals-alert-text">${parts.join(esc(dot))}</span>`;
         } else if (m && m.kind === 'calm') {
-            const high = m.high !== null && m.high !== undefined ? `${dot}highest ${m.high}, ${m.band === 'high' ? 'high' : m.band === 'watch' ? 'worth a look' : 'low'}` : '';
+            const high = m.high !== null && m.high !== undefined ? `${dot}highest ${m.high}, ${this._band(m.band)}` : '';
             body = `<span class="terminals-alert-text">${esc('All sessions behaved like themselves this week' + high)}</span>`;
         }
         const chip = mode
@@ -3554,7 +3554,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         };
     },
 
-    _band(b) { return b === 'high' ? 'high' : b === 'watch' ? 'worth a look' : 'low'; },
+    _band(b) { return b === 'high' ? 'High' : b === 'watch' ? 'Watch' : 'Low'; },
 
     /** Plain one-liners for what is worth a look, most severe first. */
     _worthALook(s) {
@@ -3631,7 +3631,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
 
     _summaryHeadline(s, n) {
         const dur = s.duration_seconds !== null ? this._elapsed(s.started_at, s.ended_at) : '';
-        const tail = n === 0 ? 'Nothing unusual' : `${n} ${n === 1 ? 'thing' : 'things'} worth a look`;
+        const tail = n === 0 ? 'Nothing unusual' : `${n} to review`;
         if (this._RUNNING_STATUSES.includes(s.status) && !s.ended_at) return `Running${dur ? ' for ' + dur : ''}. ${n === 0 ? 'Nothing unusual so far' : tail}.`;
         const lead = s.status === 'failed' ? 'Stopped' : s.status === 'interrupted' ? 'Interrupted' : 'Finished';
         return `${lead}${dur ? (lead === 'Finished' ? ' in ' : ' after ') + dur : ''}. ${tail}.`;
@@ -3660,7 +3660,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
         if (worth.length) {
             const shown = worth.slice(0, 3);
             const more = worth.length - shown.length;
-            out.push(row('Worth a look', `<ul class="terminals-summary-list">${shown.map(w => `<li>${this._esc(w.text)}</li>`).join('')}</ul>${more > 0 ? `<a href="#" class="terminals-summary-all" data-summary-more>and ${more} more</a> ` : ''}<button type="button" class="btn btn-sm" data-summary-export aria-label="Export evidence as JSON">Export evidence</button>`));
+            out.push(row('To review', `<ul class="terminals-summary-list">${shown.map(w => `<li>${this._esc(w.text)}</li>`).join('')}</ul>${more > 0 ? `<a href="#" class="terminals-summary-all" data-summary-more>and ${more} more</a> ` : ''}<button type="button" class="btn btn-sm" data-summary-export aria-label="Export evidence as JSON">Export evidence</button>`));
         }
         return out.join('');
     },
@@ -3724,7 +3724,7 @@ ${this.CLI_BIN} stop &lt;id&gt;
             : d.ended
                 ? ' <button type="button" class="btn btn-sm btn-secondary" data-drift-normal aria-label="Mark this session as looking normal">Looks normal</button>'
                 : '';
-        return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${band === 'high' ? 'high' : band === 'watch' ? 'worth a look' : 'low'}</span>${top ? `: ${top}` : ''}${partial}${action}`;
+        return `<span class="terminals-drift-band is-${band}">${this._esc(d.score)}, ${this._band(band)}</span>${top ? `: ${top}` : ''}${partial}${action}`;
     },
 
     /** The summary fields only: no prompts, no output, and the working folder

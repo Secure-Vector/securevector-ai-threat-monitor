@@ -1552,9 +1552,9 @@ class CustomToolsRepository:
 
         # Edge-level FP-triage tier: pick the *best* agreement across the edge's
         # threats (a single corroborated hit means the edge is real). Ranks:
-        # corroborated > ml_uncertain > ml_disagrees > (none).
-        _AGREE_RANK = {"corroborated": 2, "ml_uncertain": 1, "ml_disagrees": 0}
-        _RANK_AGREE = {2: "corroborated", 1: "ml_uncertain", 0: "ml_disagrees"}
+        # corroborated > ml_only > ml_uncertain > ml_disagrees > (none).
+        _AGREE_RANK = {"corroborated": 3, "ml_only": 2, "ml_uncertain": 1, "ml_disagrees": 0}
+        _RANK_AGREE = {3: "corroborated", 2: "ml_only", 1: "ml_uncertain", 0: "ml_disagrees"}
         agg: dict = {}
         for r in rows or []:
             info = classify_matched_rules(r["matched_rules"])

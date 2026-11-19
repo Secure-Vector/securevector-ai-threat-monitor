@@ -142,19 +142,16 @@ If ports 8741 or 8742 are taken, pass `--port`. Prefer an installer? [Windows, m
 
 </div>
 
-> **What's new in 6.1**
-> - **Runs grouped by harness**: Observability opens on Runs, grouped by harness with each session under it, running counts on every row, and a one-line summary (runs, sessions running, waiting, refused, median). A run's tool calls expand under the row; Open details keeps Session governance beside the trace.
-> - **Live grid**: every running session as a tile with what it is doing now, waiting and blocked chips, tiles that open as a 2x2 or 3x3 matrix, and a running count on the tab. Sessions end on the harness's own end marker.
-> - **Agent Detection & Response**: every governed session gets a score from 0 to 100 against what the same agent tool normally does in that folder, with the reasons in plain words. Two named rules act at call time: a credential file read followed by a network call, and outside content (web pages, MCP results) followed by a reach outward.
-> - **Approvals from the cloud** (Professional and Enterprise): an enrolled device can let held calls be answered from Fleet Runs, off by default, with Deny always and the durations you allow. The device pulls the answer; nothing connects in.
-> - **Remote access mode** (off by default): approve, deny and stop sessions from your own browser on another machine over HTTPS, with a short-lived token and re-sign-in for anything that lifts a block.
-> - **Guardian stays quiet**: new findings show as an unread count and one short toast; urgent advice sits in the corner.
-> - **One-session approvals**: approve a blocked host for 15 minutes, 1 hour or the rest of the session from the Approval inbox. Other sessions stay blocked.
-> - **Agent Config Trust**: Integrations scans each agent tool's MCP servers, hooks and rules files, and shows changes as side-by-side cards to approve.
-> - **SecureVector MCP**: `check_policy` tells the agent whether a tool call will be allowed before it makes it; `session_burn` reports tokens and estimated cost so far.
-> - **Fleet** (Professional and Enterprise): Runs grouped by harness with inline expansion, run traces with governance, a Live grid across devices, held counts, rule matches and stopped sessions.
+> **What's new in 6.2**
+> - **Hermes**: a Hermes Agent plugin, installed from the Hermes guide or with `securevector-app --install-plugin hermes`. It records the cost of each model call, an audit row per tool call, and session start and end. Hermes and GovRun appear in Agent Runs and the harness filters.
+> - **Cache-aware costs**: cache read and cache write tokens are recorded and priced per model, including Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5. Bedrock regional endpoints carry their 10% premium.
+> - **One meaning for input tokens**: input tokens are the uncached part for every provider, so the token columns agree across harnesses. Existing records are updated once on upgrade; costs are unchanged.
+> - **Plugin updates**: Connect Agents shows each plugin's installed version and updates the ones that are out of date. `securevector-app --update-plugins` does the same from a terminal.
+> - **Clearer detections**: a model-only match is labelled ML only; on file-read output it shows at medium at most and is listed on the Dashboard as "to review". Reading a `.env` file raises a credential-reach signal.
+> - **OpenClaw and OpenCode costs**: OpenClaw records are grouped under `openclaw` with their session; OpenCode records one cost per finished reply.
+> - **Fixes**: ended runs no longer show as live, the Sessions row shows tool calls, a run can be linked with `?run=`, and the Approvals list stays available while the database is busy.
 >
-> 6.0 (Agent Sessions, Observability, npm install) and earlier releases are in the [CHANGELOG](CHANGELOG.md).
+> 6.1 (Runs grouped by harness, Live grid, Agent Detection & Response), 6.0 (Agent Sessions, Observability, npm install) and earlier releases are in the [CHANGELOG](CHANGELOG.md).
 
 ## Screenshots
 
