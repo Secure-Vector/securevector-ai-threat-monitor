@@ -727,6 +727,385 @@ def extract_from_bash(command: str) -> ExtractionResult:
     )
 
 
+# Browser automation tools, by the tool part of `mcp__server__tool`. The MCP
+# server is usually local, but the page the tool opens is a destination the
+# agent chose.
+_BROWSER_NAVIGATE_TOOLS = frozenset({
+    "navigate", "browser_navigate", "navigate_page", "new_page", "puppeteer_navigate",
+    "browser_tab_new", "go_to_url", "open_tab",
+})
+_BROWSER_SCRIPT_TOOLS = frozenset({
+    "browser_run_code_unsafe", "browser_run_code", "browser_evaluate", "javascript_tool",
+    "evaluate_script", "puppeteer_evaluate",
+})
+# A tool that carries several browser actions in one call.
+_BROWSER_BATCH_TOOLS = frozenset({"browser_batch"})
+_BATCH_SCRIPT_KEYS = frozenset({"code", "function", "text", "script", "expression", "javascript"})
+_BATCH_NODE_LIMIT = 2000
+_BATCH_DEPTH_LIMIT = 8
+
+# Schemes a browser fetches over the network, and ones that name no remote
+# destination. Anything else is recorded without a host: unreadable, so the
+# policy does not vouch for it.
+_BROWSER_NETWORK_SCHEMES = frozenset({"http", "https", "ws", "wss"})
+_BROWSER_LOCAL_SCHEMES = frozenset({
+    "about", "chrome", "chrome-extension", "edge", "brave", "devtools", "blob", "mailto", "tel",
+})
+# A javascript: or data: URL carries content that can fetch; its body is read
+# like a script.
+_BROWSER_INLINE_SCHEMES = frozenset({"javascript", "data"})
+_JOINED_AFTER_RE = re.compile(r"[\"'`]\s*\+")
+_BROWSER_HISTORY_WORDS = frozenset({"back", "forward", "reload"})
+_URL_SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
+_HOST_PORT_REST_RE = re.compile(r"^\d{1,5}(?:[/?#]|$)")
+_URL_EDGE_CHARS = "".join(chr(c) for c in range(0x21))   # C0 controls and space
+_HOST_FORBIDDEN_RE = re.compile(r"[\x00-\x20#/<>?@\[\\\]^|%\x7f]")
+_BAD_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+# A URL with a scheme, or a quoted one that starts with // (it takes the
+# scheme of the page; the quote keeps a // comment from matching).
+_SCRIPT_URL_RE = re.compile(r"(?:(?:https?|wss?):|(?<=[\"'`])//(?=[^\s/]))[^\s\"'`<>()]+", re.IGNORECASE)
+_INLINE_BODY_LIMIT = 200_000
+_SCRIPT_SCAN_LIMIT = 100_000     # characters, for the whole call
+_SCRIPT_MATCH_LIMIT = 400        # matches examined, for the whole call
+_SCRIPT_HOST_LIMIT = 25
+_BROWSER_SCRIPT_COVERAGE = (
+    "Only URLs written in the script are recorded. A URL built while the script runs, "
+    "and hosts a page loads by itself, are not visible from this boundary."
+)
+_SKIP, _HOST, _UNREADABLE, _INLINE = "skip", "host", "unreadable", "inline"
+
+
+def _browser_ipv4(host: str):
+    """A host whose last label is a number is an IPv4 address to a browser,
+    in decimal, octal or hex, with one to four parts. Returns the dotted
+    form, False when it is numeric but not a valid address, None when the
+    host is a name."""
+    parts = host.split(".")
+    last = parts[-1]
+    if not (last.isdigit() or re.fullmatch(r"0[xX][0-9A-Fa-f]*", last)):
+        return None
+    if len(parts) > 4:
+        return False
+    numbers = []
+    for part in parts:
+        try:
+            if part[:2].lower() == "0x":
+                numbers.append(int(part[2:] or "0", 16))
+            elif len(part) > 1 and part[0] == "0":
+                numbers.append(int(part, 8))
+            else:
+                numbers.append(int(part, 10))
+        except ValueError:
+            return False
+    if any(n > 255 for n in numbers[:-1]) or numbers[-1] >= 256 ** (5 - len(numbers)):
+        return False
+    value = numbers[-1]
+    for i, n in enumerate(numbers[:-1]):
+        value += n << (8 * (3 - i))
+    return ".".join(str((value >> s) & 255) for s in (24, 16, 8, 0))
+
+
+def _browser_host(raw: str) -> Optional[str]:
+    """The host as a browser resolves it: width and case folded, percent
+    escapes decoded, dots unified, a trailing dot dropped, numeric forms
+    turned into the address, other scripts into punycode. None when a
+    browser would not accept it."""
+    import unicodedata
+    from urllib.parse import unquote
+
+    if not raw or _BAD_PERCENT_RE.search(raw):
+        return None
+    host = unicodedata.normalize("NFKC", unquote(raw))
+    host = host.replace("。", ".").replace("．", ".").replace("｡", ".").lower()
+    if host.endswith("."):
+        host = host[:-1]
+    if not host or _HOST_FORBIDDEN_RE.search(host):
+        return None
+    numeric = _browser_ipv4(host)
+    if numeric is False:
+        return None
+    if numeric:
+        return numeric
+    if not host.isascii():
+        try:
+            host = host.encode("idna").decode("ascii")
+        except (UnicodeError, ValueError):
+            return None
+    return host if _plausible_host(host.replace("_", "-")) else None
+
+
+def _browser_url_target(raw):
+    """How a browser would treat ``raw`` as an address: ``(state, host,
+    scheme, port)``. ``skip`` names no remote destination (history words,
+    about:, file:, data: and the like), ``host`` is a destination, and
+    ``unreadable`` is something a browser may load that this cannot resolve.
+
+    Follows the browser's reading where it differs from a general URL
+    parser: edge whitespace and control characters are dropped, a backslash
+    is a slash, any number of slashes may follow the scheme, and what stands
+    before the last ``@`` of the authority is credentials, not the host."""
+    if not isinstance(raw, str):
+        return _SKIP, None, None, None
+    text = raw.strip(_URL_EDGE_CHARS).replace("\t", "").replace("\n", "").replace("\r", "")
+    if not text or text.lower() in _BROWSER_HISTORY_WORDS:
+        return _SKIP, None, None, None
+    if len(text) > 4096:
+        return _UNREADABLE, None, None, None
+    while text[:12].lower() == "view-source:":
+        text = text[12:]
+    scheme = None
+    rest = text
+    match = _URL_SCHEME_RE.match(text)
+    if match:
+        name = match.group(1).lower()
+        after = text[match.end():]
+        if name in _BROWSER_LOCAL_SCHEMES:
+            return _SKIP, None, None, None
+        if name in _BROWSER_INLINE_SCHEMES:
+            return _INLINE, None, name, None
+        if name == "file":
+            # file:///path is local; file://host/share opens a share on that host.
+            share = after.replace("\\", "/")
+            if not share.startswith("//"):
+                return _SKIP, None, None, None
+            host_text = re.split(r"[/?#]", share[2:], maxsplit=1)[0]
+            if not host_text or host_text.lower() == "localhost":
+                return _SKIP, None, None, None
+            host = _browser_host(host_text)
+            return (_HOST, host, "file", None) if host else (_UNREADABLE, None, None, None)
+        if name in _BROWSER_NETWORK_SCHEMES:
+            scheme, rest = name, after.replace("\\", "/").lstrip("/")
+        elif not _HOST_PORT_REST_RE.match(after):
+            return _UNREADABLE, None, None, None      # a scheme this does not know
+    if scheme is None:
+        rest = rest.replace("\\", "/")
+        if rest.startswith("//"):
+            rest = rest[2:]                           # same scheme as the current page
+        elif rest.startswith("/"):
+            return _UNREADABLE, None, None, None
+    authority = re.split(r"[/?#]", rest, maxsplit=1)[0]
+    authority = authority.rsplit("@", 1)[-1]
+    port = None
+    if authority.startswith("["):
+        end = authority.find("]")
+        if end < 0:
+            return _UNREADABLE, None, None, None
+        try:
+            import ipaddress
+            address = ipaddress.IPv6Address(authority[1:end])
+        except ValueError:
+            return _UNREADABLE, None, None, None
+        # ::ffff:a.b.c.d and the NAT64 form 64:ff9b::a.b.c.d reach the IPv4
+        # address; record it as that.
+        if address.ipv4_mapped is not None:
+            host = str(address.ipv4_mapped)
+        elif int(address) >> 32 == 0x0064FF9B << 64:
+            host = str(ipaddress.IPv4Address(int(address) & 0xFFFFFFFF))
+        else:
+            host = str(address)
+        port_text = authority[end + 1:]
+        if port_text and not re.fullmatch(r":\d{0,5}", port_text):
+            return _UNREADABLE, None, None, None
+        port_text = port_text[1:]
+    else:
+        host_text, _, port_text = authority.partition(":")
+        if port_text and not port_text.isdigit():
+            return _UNREADABLE, None, None, None
+        host = _browser_host(host_text)
+        if host is None:
+            return _UNREADABLE, None, None, None
+    if port_text:
+        port = int(port_text)
+        if port > 65535:
+            return _UNREADABLE, None, None, None
+    return _HOST, host, scheme, port
+
+
+def _unread_attempt(detector: str, evidence: str) -> EgressAttempt:
+    """Something that may reach the network and could not be resolved."""
+    return EgressAttempt(
+        host=None, operation=UNKNOWN, kind="http", detector=detector,
+        confidence=HEURISTIC, evidence=_truncate(evidence))
+
+
+def browser_inline_body(raw) -> Optional[str]:
+    """The content of a ``javascript:`` or ``data:`` URL as text, read the way
+    a browser reads the URL. ``""`` when ``raw`` is not such a URL; None when
+    the content cannot be read (a base64 body that does not decode, or one
+    over the size limit)."""
+    if _browser_url_target(raw)[0] != _INLINE:
+        return ""
+    from urllib.parse import unquote
+    text = raw.strip(_URL_EDGE_CHARS).replace("\t", "").replace("\n", "").replace("\r", "")
+    while text[:12].lower() == "view-source:":
+        text = text[12:]
+    scheme, _, body = text.partition(":")
+    if len(body) > _INLINE_BODY_LIMIT:
+        return None
+    if scheme.lower() != "data":
+        return unquote(body)
+    header, comma, payload = body.partition(",")
+    if not comma:
+        return ""
+    if "base64" not in header.lower():
+        return unquote(payload)
+    import base64
+    import binascii
+    try:
+        data = re.sub(r"\s+", "", unquote(payload))
+        return base64.b64decode(data + "=" * (-len(data) % 4), validate=True).decode("latin-1")
+    except (binascii.Error, ValueError):
+        return None
+
+
+def _navigate_attempts(raw) -> list:
+    state, host, scheme, port = _browser_url_target(raw)
+    if state == _SKIP:
+        return []
+    if state == _INLINE:
+        body = browser_inline_body(raw)
+        if body is None:
+            return [_unread_attempt("browser.navigate", _truncate(str(raw)))]
+        return _script_attempts([body])
+    return [EgressAttempt(
+        host=host, operation=READ, kind="http", detector="browser.navigate",
+        confidence=EXACT if state == _HOST else HEURISTIC, scheme=scheme, port=port,
+        evidence=_truncate(str(raw)),
+    )]
+
+
+def _script_attempts(texts):
+    """One attempt per distinct host written in the script texts, within one
+    budget for the whole call. Recorded once without a host: a URL that
+    carries a backslash (a script escape can rebuild any character), one
+    joined to more text, one that cannot be resolved, and anything left
+    unscanned when a limit is reached. A limit is never silent."""
+    attempts, seen_hosts, seen_raw = [], set(), set()
+    unread = None            # evidence for the single hostless attempt
+    budget, examined = _SCRIPT_SCAN_LIMIT, 0
+    for text in texts:
+        if budget <= 0:
+            if text:
+                unread = unread or "script text past the scan limit"
+            continue
+        chunk = text[:budget]
+        cut = len(text) > len(chunk)
+        budget -= len(chunk)
+        if cut:
+            unread = unread or "script text past the scan limit"
+        for match in _SCRIPT_URL_RE.finditer(chunk):
+            examined += 1
+            raw = match.group(0)
+            if examined > _SCRIPT_MATCH_LIMIT or len(attempts) >= _SCRIPT_HOST_LIMIT:
+                unread = unread or raw
+                break
+            if raw in seen_raw:
+                continue
+            seen_raw.add(raw)
+            if "\\" in raw or (cut and match.end() == len(chunk)) \
+                    or _JOINED_AFTER_RE.match(chunk, match.end()):
+                unread = unread or raw
+                continue
+            state, host, scheme, port = _browser_url_target(raw)
+            if state == _SKIP:
+                continue
+            if state != _HOST:
+                unread = unread or raw
+                continue
+            if host in seen_hosts:
+                continue
+            seen_hosts.add(host)
+            attempts.append(EgressAttempt(
+                host=host, operation=UNKNOWN, kind="http", detector="browser.script",
+                confidence=HEURISTIC, scheme=scheme, port=port, evidence=_truncate(raw)))
+    if unread is not None:
+        attempts.append(_unread_attempt("browser.script", unread))
+    return attempts
+
+
+def _walk_parts(root, in_script: bool):
+    """(urls, script texts, complete) found anywhere under ``root``, in
+    order, within a node and depth limit. With ``in_script`` every string is
+    script text; otherwise a string is read by its key (``url``, or a script
+    key, under which every nested string is script text too). ``complete``
+    is False when a limit left part of the input unread."""
+    urls, scripts, complete = [], [], True
+    stack, visited = [(root, 0, in_script)], 0
+    while stack:
+        if visited >= _BATCH_NODE_LIMIT:
+            complete = False
+            break
+        node, depth, scripted = stack.pop()
+        visited += 1
+        if depth > _BATCH_DEPTH_LIMIT:
+            complete = False
+            continue
+        if isinstance(node, dict):
+            items = [(str(k).lower(), v) for k, v in node.items()]
+        else:
+            items = [(None, v) for v in node]
+        nested = []
+        for key, value in items:
+            keyed = scripted or key in _BATCH_SCRIPT_KEYS
+            if isinstance(value, str):
+                if key == "url" and not scripted:
+                    urls.append(value)
+                elif keyed:
+                    scripts.append(value)
+            elif isinstance(value, (dict, list)):
+                nested.append((value, depth + 1, keyed))
+        stack.extend(reversed(nested))
+    return urls, scripts, complete
+
+
+def browser_tool_parts(tool_name: str, tool_input) -> tuple:
+    """(urls, script texts, complete) a browser automation tool call carries,
+    or ``([], [], True)`` when the tool is not one. ``complete`` is False
+    when the input was too large or too deep to read in full. ``tool_name``
+    is the host-supplied name; only the tool part after the last ``__`` is
+    read."""
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    tool = (tool_name or "").strip().lower().rsplit("__", 1)[-1]
+    if tool in _BROWSER_NAVIGATE_TOOLS:
+        url = tool_input.get("url")
+        return ([url] if isinstance(url, str) else []), [], True
+    if tool in _BROWSER_SCRIPT_TOOLS:
+        return _walk_parts(tool_input, True)
+    if tool in _BROWSER_BATCH_TOOLS:
+        return _walk_parts(tool_input, False)
+    return [], [], True
+
+
+def browser_script_texts(tool_name: str, tool_input) -> tuple:
+    """(script texts, complete) for a browser tool call: its scripts plus the
+    content of any ``javascript:`` or ``data:`` URL it opens."""
+    urls, scripts, complete = browser_tool_parts(tool_name, tool_input)
+    texts = list(scripts)
+    for url in urls:
+        body = browser_inline_body(url)
+        if body is None:
+            complete = False
+        elif body:
+            texts.append(body)
+    return texts, complete
+
+
+def _browser_attempts(tool_name: str, tool_input: dict):
+    """Attempts for a browser automation tool call, and a coverage note.
+    ([], None) when the tool is not one, or names no network destination."""
+    urls, scripts, complete = browser_tool_parts(tool_name, tool_input)
+    attempts = []
+    if not complete:
+        attempts.append(_unread_attempt("browser.script", "input too large or too deep to read in full"))
+    for url in urls[:_SCRIPT_HOST_LIMIT]:
+        attempts.extend(_navigate_attempts(url))
+    if len(urls) > _SCRIPT_HOST_LIMIT:
+        attempts.append(_unread_attempt("browser.navigate", f"{len(urls) - _SCRIPT_HOST_LIMIT} more URLs in one call"))
+    scripted = _script_attempts(scripts) if scripts else []
+    note = _BROWSER_SCRIPT_COVERAGE if scripted or any(a.detector == "browser.script" for a in attempts) else None
+    return attempts + scripted, note
+
+
 def extract_from_tool_call(
     tool_name: str,
     tool_input: Optional[dict] = None,
@@ -751,16 +1130,20 @@ def extract_from_tool_call(
     # Remote MCP tools reach whatever their server reaches. We can only see the
     # server endpoint; see the proxy caveat in coverage below.
     if lowered.startswith("mcp__"):
+        # A browser tool opens a page the agent chose, wherever its server runs.
+        browser, browser_note = _browser_attempts(lowered, tool_input)
         if not mcp_endpoint:
             # A local (stdio) MCP server has no network destination of its own.
-            return ExtractionResult(network_capable=False)
+            if not browser:
+                return ExtractionResult(network_capable=False)
+            return ExtractionResult(attempts=browser, network_capable=True, coverage=browser_note)
         host, scheme, port = _host_from_url(mcp_endpoint)
         return ExtractionResult(
             attempts=[EgressAttempt(
                 host=host, operation=UNKNOWN, kind="mcp", detector="mcp.endpoint",
                 confidence=EXACT if host else HEURISTIC, scheme=scheme, port=port,
                 evidence=_truncate(name),
-            )],
+            )] + browser,
             network_capable=True,
             coverage=(
                 "A remote MCP server is an egress proxy: this records the server "

@@ -425,3 +425,324 @@ def test_ncat_delay_value_is_not_the_port():
 def test_http_flags_are_read_per_tool(command, host):
     from securevector.core.egress.destinations import extract_from_bash
     assert [a.host for a in extract_from_bash(command).attempts] == [host]
+
+
+# --- browser automation tools ------------------------------------------------
+# A browser tool runs on a local MCP server, but the page it opens is a
+# destination the agent chose, so it is recorded like a fetch.
+
+@pytest.mark.parametrize("tool,tool_input,host", [
+    ("mcp__claude-in-chrome__navigate", {"url": "https://openai.com/index/introducing-dots/"}, "openai.com"),
+    ("mcp__claude-in-chrome__navigate", {"tabId": 7, "url": "securevector.io/blog"}, "securevector.io"),
+    ("mcp__plugin_playwright_playwright__browser_navigate", {"url": "http://127.0.0.1:8792/"}, "127.0.0.1"),
+    ("mcp__playwright__browser_navigate", {"url": "https://docs.example.com/a?b=1#c"}, "docs.example.com"),
+    ("mcp__chrome-devtools__navigate_page", {"url": "https://example.org"}, "example.org"),
+    ("mcp__chrome-devtools__new_page", {"url": "https://example.org/x"}, "example.org"),
+    ("mcp__puppeteer__puppeteer_navigate", {"url": "https://example.net"}, "example.net"),
+])
+def test_browser_navigation_is_an_egress_destination(tool, tool_input, host):
+    from securevector.core.egress.destinations import EXACT, READ, extract_from_tool_call
+    result = extract_from_tool_call(tool, tool_input)
+    assert result.network_capable is True
+    assert [(a.host, a.kind, a.detector, a.operation, a.confidence) for a in result.attempts] == [
+        (host, "http", "browser.navigate", READ, EXACT)]
+
+
+@pytest.mark.parametrize("tool_input", [
+    {"url": "back"}, {"url": "forward"}, {"url": ""}, {}, {"url": "about:blank"},
+    {"url": "chrome://newtab/"}, {"url": "file:///Users/me/page.html"}, {"url": "javascript:alert(1)"},
+    {"url": "data:text/html,<h1>x</h1>"}, {"url": None}, {"url": 42},
+])
+def test_browser_navigation_without_a_network_url_is_not_egress(tool_input):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__claude-in-chrome__navigate", tool_input)
+    assert result.network_capable is False and result.attempts == []
+
+
+def test_browser_script_records_urls_written_in_the_code():
+    from securevector.core.egress.destinations import HEURISTIC, UNKNOWN, extract_from_tool_call
+    code = ("async (page) => {\n  await page.goto('https://a.example.com/login');\n"
+            "  const r = await page.request.post(\"https://api.example.org/v1/items\", {data: {}});\n"
+            "  await page.goto(`https://a.example.com/next`);\n  return r.status();\n}")
+    result = extract_from_tool_call("mcp__plugin_playwright_playwright__browser_run_code_unsafe", {"code": code})
+    assert result.network_capable is True
+    assert [(a.host, a.kind, a.detector, a.operation, a.confidence) for a in result.attempts] == [
+        ("a.example.com", "http", "browser.script", UNKNOWN, HEURISTIC),
+        ("api.example.org", "http", "browser.script", UNKNOWN, HEURISTIC)]
+    assert "built while the script runs" in result.coverage
+
+
+@pytest.mark.parametrize("tool,tool_input", [
+    ("mcp__playwright__browser_evaluate", {"function": "() => document.title"}),
+    ("mcp__claude-in-chrome__javascript_tool", {"text": "window.scrollTo(0, 0)"}),
+    ("mcp__plugin_playwright_playwright__browser_run_code_unsafe", {"code": "async (page) => page.goto(base + path)"}),
+    ("mcp__plugin_playwright_playwright__browser_run_code_unsafe", {}),
+])
+def test_browser_script_without_a_literal_url_is_not_egress(tool, tool_input):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call(tool, tool_input)
+    assert result.network_capable is False and result.attempts == []
+
+
+def test_browser_script_url_scan_is_bounded():
+    from securevector.core.egress.destinations import extract_from_tool_call
+    code = " ".join(f"fetch('https://h{i}.example.com/x');" for i in range(200))
+    result = extract_from_tool_call("mcp__playwright__browser_evaluate", {"function": code})
+    hosts = [a.host for a in result.attempts]
+    assert len([h for h in hosts if h]) == 25 and len(set(hosts)) == len(hosts)
+    assert hosts[-1] is None      # the rest is recorded as unread, not dropped
+
+
+@pytest.mark.parametrize("tool,tool_input", [
+    ("mcp__notes__navigate_to_folder", {"url": "https://example.com"}),
+    ("mcp__search__query", {"url": "https://example.com", "navigate": True}),
+    ("mcp__claude-in-chrome__computer", {"action": "screenshot"}),
+    ("mcp__claude-in-chrome__find", {"query": "https://example.com link"}),
+    ("mcp__plugin_playwright_playwright__browser_take_screenshot", {"filename": "https://example.com.png"}),
+])
+def test_other_local_mcp_tools_stay_out_of_egress(tool, tool_input):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call(tool, tool_input)
+    assert result.network_capable is False and result.attempts == []
+
+
+def test_browser_tool_on_a_remote_server_records_both_destinations():
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__cloudbrowser__browser_navigate", {"url": "https://example.com/a"},
+                                    mcp_endpoint="https://browser.vendor.example/mcp")
+    assert result.network_capable is True
+    assert [(a.host, a.detector) for a in result.attempts] == [
+        ("browser.vendor.example", "mcp.endpoint"), ("example.com", "browser.navigate")]
+
+
+def test_remote_mcp_tool_without_browser_use_is_unchanged():
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__crm__lookup", {"url": "https://example.com"}, mcp_endpoint="https://crm.example/mcp")
+    assert [(a.host, a.detector) for a in result.attempts] == [("crm.example", "mcp.endpoint")]
+
+
+# --- browser URLs are read the way a browser reads them -----------------------
+
+@pytest.mark.parametrize("url,host", [
+    ("https://blocked.example\\@allowed.example/", "blocked.example"),     # backslash ends the host
+    ("https://allowed.example@evil.example/", "evil.example"),             # userinfo is not the host
+    ("\x00https://evil.example/", "evil.example"),
+    ("  \t https://evil.example/ \n", "evil.example"),
+    ("ht\ttps://evil.example/", "evil.example"),                           # tabs and newlines are dropped
+    ("HTTPS:evil.example", "evil.example"),
+    ("https:/evil.example", "evil.example"),
+    ("http:\\\\evil.example", "evil.example"),
+    ("view-source:https://evil.example/", "evil.example"),
+    ("https://ｅｖｉｌ.example/", "evil.example"),          # fullwidth letters
+    ("https://evil。example/", "evil.example"),                        # ideographic full stop
+    ("https://bücher.example/", "xn--bcher-kva.example"),
+    ("https://evil.example./", "evil.example"),
+    ("http://2852039166/latest/meta-data/", "169.254.169.254"),
+    ("https://0x7f000001/", "127.0.0.1"),
+    ("http://0177.0.0.1/", "127.0.0.1"),
+    ("//evil.example/x", "evil.example"),
+    ("evil.example:8443/x", "evil.example"),
+    ("https://[2001:db8::1]:8443/x", "2001:db8::1"),
+    ("HtTpS://Evil.Example/", "evil.example"),
+])
+def test_browser_url_host_matches_what_a_browser_loads(url, host):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__claude-in-chrome__navigate", {"url": url})
+    assert result.network_capable is True
+    assert [a.host for a in result.attempts] == [host]
+
+
+@pytest.mark.parametrize("url", ["foo", "https://", "https://exa mple.com/", "ftp://files.example/x", "weird-scheme://x/y",
+                                 "https://%zz/", "http://999.999.999.999999999999/"])
+def test_browser_url_that_cannot_be_read_is_recorded_without_a_host(url):
+    from securevector.core.egress.destinations import HEURISTIC, extract_from_tool_call
+    result = extract_from_tool_call("mcp__claude-in-chrome__navigate", {"url": url})
+    assert result.network_capable is True
+    assert [(a.host, a.confidence, a.detector) for a in result.attempts] == [(None, HEURISTIC, "browser.navigate")]
+
+
+@pytest.mark.parametrize("url", ["about:blank", "chrome://settings", "chrome-extension://abc/x.html", "devtools://devtools/x",
+                                 "file:///tmp/a.html", "data:text/html,hi", "javascript:void(0)", "blob:https://a.example/1",
+                                 "mailto:a@example.com", "tel:+15550100", "back", "forward", "Back", ""])
+def test_browser_url_that_names_no_destination_is_skipped(url):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__claude-in-chrome__navigate", {"url": url})
+    assert result.network_capable is False and result.attempts == []
+
+
+@pytest.mark.parametrize("code", [
+    "fetch('https://allowed.example\\\\@evil.example/')",     # JS escape: the script reaches evil.example
+    "fetch('https://allowed.example\\x40evil.example/')",
+    "fetch('https://allowed.example\\u0040evil.example/')",
+])
+def test_browser_script_url_with_an_escape_is_not_given_a_host(code):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__playwright__browser_evaluate", {"function": code})
+    assert result.network_capable is True
+    assert [a.host for a in result.attempts] == [None]
+
+
+def test_browser_script_reads_numeric_hosts_like_a_browser():
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__playwright__browser_evaluate", {"function": "fetch('http://2852039166/latest/')"})
+    assert [a.host for a in result.attempts] == ["169.254.169.254"]
+
+
+def test_browser_script_scan_has_one_budget_for_the_whole_call():
+    import time
+    from securevector.core.egress.destinations import extract_from_tool_call
+    for payload in ("https://x/ " * 20000, "https://same.example.com/a " * 20000):
+        tool_input = {f"k{i}": payload for i in range(200)}
+        started = time.perf_counter()
+        result = extract_from_tool_call("mcp__playwright__browser_evaluate", tool_input)
+        assert time.perf_counter() - started < 1.0
+        assert len(result.attempts) <= 25
+
+
+@pytest.mark.parametrize("tool,tool_input,expected", [
+    ("mcp__playwright__browser_tab_new", {"url": "https://a.example/x"}, [("a.example", "browser.navigate")]),
+    ("mcp__browser-use__go_to_url", {"url": "https://a.example/x"}, [("a.example", "browser.navigate")]),
+    ("mcp__browser-use__open_tab", {"url": "https://a.example/x"}, [("a.example", "browser.navigate")]),
+    ("mcp__claude-in-chrome__browser_batch",
+     {"actions": [{"name": "navigate", "input": {"tabId": 1, "url": "https://a.example/"}},
+                  {"name": "computer", "input": {"action": "screenshot"}},
+                  {"name": "javascript_tool", "input": {"text": "fetch('https://b.example/x')"}}]},
+     [("a.example", "browser.navigate"), ("b.example", "browser.script")]),
+])
+def test_more_browser_tools_that_open_a_chosen_url(tool, tool_input, expected):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call(tool, tool_input)
+    assert [(a.host, a.detector) for a in result.attempts] == expected
+
+
+def test_browser_batch_without_urls_is_not_egress():
+    from securevector.core.egress.destinations import extract_from_tool_call
+    result = extract_from_tool_call("mcp__claude-in-chrome__browser_batch",
+                                    {"actions": [{"name": "computer", "input": {"action": "screenshot"}}]})
+    assert result.network_capable is False
+
+
+# --- limits are never silent, and a few more browser readings ----------------
+
+def _hosts(tool, tool_input):
+    from securevector.core.egress.destinations import extract_from_tool_call
+    return [a.host for a in extract_from_tool_call(tool, tool_input).attempts]
+
+
+def test_script_input_past_the_scan_budget_is_recorded_as_unread():
+    hosts = _hosts("mcp__playwright__browser_evaluate",
+                   {"pad": "z" * 100_000, "function": "fetch('https://evil.example/x')"})
+    assert None in hosts          # the part that was not scanned is not vouched for
+
+
+def test_url_cut_at_the_budget_edge_is_not_given_a_host():
+    url = "https://allowed.com.evil.example/"
+    pad = "z" * (100_000 - len("fetch('https://allowed.com"))
+    hosts = _hosts("mcp__playwright__browser_evaluate", {"function": pad + "fetch('" + url + "')"})
+    assert "allowed.com" not in hosts and None in hosts
+
+
+def test_hosts_past_the_host_limit_are_recorded_as_unread():
+    code = " ".join(f"fetch('https://h{i}.example.com/');" for i in range(25)) + " fetch('https://evil.example/');"
+    hosts = _hosts("mcp__playwright__browser_evaluate", {"function": code})
+    assert "evil.example" in hosts or None in hosts
+
+
+def test_batch_urls_past_the_limit_are_recorded_as_unread():
+    actions = [{"name": "navigate", "input": {"url": f"https://h{i}.example.com/"}} for i in range(25)]
+    actions.append({"name": "navigate", "input": {"url": "https://evil.example/"}})
+    hosts = _hosts("mcp__claude-in-chrome__browser_batch", {"actions": actions})
+    assert "evil.example" in hosts or None in hosts
+
+
+@pytest.mark.parametrize("url,host", [
+    ("https://[::ffff:169.254.169.254]/latest/", "169.254.169.254"),
+    ("http://[::ffff:7f00:1]/", "127.0.0.1"),
+    ("https://evil_x.example/", "evil_x.example"),
+    ("file://fileserver.example/share/a.txt", "fileserver.example"),
+])
+def test_more_browser_hosts(url, host):
+    assert _hosts("mcp__claude-in-chrome__navigate", {"url": url}) == [host]
+
+
+@pytest.mark.parametrize("url", ["file:///tmp/a.html", "file://localhost/tmp/a.html", "file:/tmp/a.html"])
+def test_local_file_urls_stay_out_of_egress(url):
+    assert _hosts("mcp__claude-in-chrome__navigate", {"url": url}) == []
+
+
+@pytest.mark.parametrize("url,host", [
+    ("javascript:fetch('https://evil.example/x')", "evil.example"),
+    ("javascript:fetch(%27https://evil.example/x%27)", "evil.example"),
+    ("data:text/html,<img src=https://evil.example/p.png>", "evil.example"),
+])
+def test_urls_inside_javascript_and_data_urls_are_recorded(url, host):
+    assert _hosts("mcp__claude-in-chrome__navigate", {"url": url}) == [host]
+
+
+@pytest.mark.parametrize("url", ["javascript:void(0)", "data:text/html,<h1>hi</h1>", "javascript:alert(1)"])
+def test_javascript_and_data_urls_without_a_url_are_skipped(url):
+    assert _hosts("mcp__claude-in-chrome__navigate", {"url": url}) == []
+
+
+@pytest.mark.parametrize("code", [
+    "fetch('https://allowed.com'+'@evil.example')",
+    "fetch(\"https://allowed.com\" + suffix)",
+    "fetch(`https://allowed.com` + '.evil.example')",
+])
+def test_script_url_that_is_joined_to_more_text_is_not_given_a_host(code):
+    hosts = _hosts("mcp__playwright__browser_evaluate", {"function": code})
+    assert "allowed.com" not in hosts and None in hosts
+
+
+@pytest.mark.parametrize("code,host", [
+    ("fetch('//evil.example/collect')", "evil.example"),
+    ('new Image().src = "//evil.example:8443/p.png"', "evil.example"),
+])
+def test_script_url_without_a_scheme_is_recorded(code, host):
+    assert _hosts("mcp__playwright__browser_evaluate", {"function": code}) == [host]
+
+
+@pytest.mark.parametrize("code", ["// a comment\nreturn 1", "const s = '// not a url'", "a = b // c"])
+def test_script_comment_is_not_a_url(code):
+    assert _hosts("mcp__playwright__browser_evaluate", {"function": code}) == []
+
+
+def test_base64_data_url_body_is_read():
+    url = "data:text/html;base64,PGltZyBzcmM9aHR0cHM6Ly9ldmlsLmV4YW1wbGUvcC5wbmc+"
+    assert _hosts("mcp__claude-in-chrome__navigate", {"url": url}) == ["evil.example"]
+
+
+def test_base64_data_url_that_cannot_be_decoded_is_recorded_as_unread():
+    assert _hosts("mcp__claude-in-chrome__navigate", {"url": "data:text/html;base64,@@@not-base64@@@"}) == [None]
+
+
+@pytest.mark.parametrize("url", ["\x00javascript:fetch('https://evil.example/x')",
+                                 "java\tscript:fetch('https://evil.example/x')"])
+def test_javascript_url_is_read_the_way_a_browser_reads_it(url):
+    assert _hosts("mcp__claude-in-chrome__navigate", {"url": url}) == ["evil.example"]
+
+
+def test_script_text_inside_a_list_or_object_is_read():
+    assert _hosts("mcp__playwright__browser_evaluate",
+                  {"function": ["fetch('https://evil.example/x')"]}) == ["evil.example"]
+    assert _hosts("mcp__playwright__browser_evaluate",
+                  {"args": {"body": "fetch('https://two.example/x')"}}) == ["two.example"]
+
+
+def test_batch_past_the_node_limit_is_recorded_as_unread():
+    pad = [{"name": "wait", "input": {"n": i}} for i in range(3000)]
+    hosts = _hosts("mcp__claude-in-chrome__browser_batch",
+                   {"actions": pad + [{"name": "navigate", "input": {"url": "https://evil.example/"}}]})
+    assert None in hosts
+
+
+def test_batch_nested_past_the_depth_limit_is_recorded_as_unread():
+    node = {"url": "https://evil.example/"}
+    for _ in range(12):
+        node = {"input": [node]}
+    assert None in _hosts("mcp__claude-in-chrome__browser_batch", {"actions": [node]})
+
+
+def test_nat64_address_is_recorded_as_the_ipv4_it_reaches():
+    assert _hosts("mcp__claude-in-chrome__navigate",
+                  {"url": "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/"}) == ["169.254.169.254"]

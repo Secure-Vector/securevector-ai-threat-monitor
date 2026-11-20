@@ -47,7 +47,7 @@ from urllib.parse import unquote
 
 import yaml
 
-from .destinations import UNKNOWN, WRITE, EgressAttempt, extract_from_tool_call
+from .destinations import UNKNOWN, WRITE, EgressAttempt, browser_script_texts, browser_tool_parts, extract_from_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -430,12 +430,25 @@ SELF_CONTROL_PREFIXES = (
     "jit", "egress", "tool-permissions", "skill-permissions", "settings", "terminals",
     "policy",
 )
+# The host is read backwards from the port afterwards (`_host_before`), so
+# the pattern itself stays linear on long input.
 _SELF_CONTROL_RE = re.compile(
-    r"(?P<host>[^\s'\"<>\\/]{0,253}?)"
     r":(?P<port>\d{1,5})"
     r"/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\]|$)",
     re.IGNORECASE,
 )
+
+
+_HOST_END_CHARS = frozenset(" \t\n\r\x0b\x0c'\"<>\\/")
+
+
+def _host_before(text: str, end: int) -> str:
+    """Up to 253 host characters that stand directly in front of ``end``."""
+    start = end
+    while start > 0 and end - start < 253 and text[start - 1] not in _HOST_END_CHARS \
+            and not text[start - 1].isspace():
+        start -= 1
+    return text[start:end]
 
 
 def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = None) -> list:
@@ -444,7 +457,10 @@ def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = Non
     tool_input = tool_input if isinstance(tool_input, dict) else {}
     lowered = (tool_name or "").strip().lower()
     if lowered.startswith("mcp__"):
-        return [mcp_endpoint] if mcp_endpoint else []
+        # A browser tool reaches the URL it is given and the URLs in its script.
+        urls = browser_tool_parts(lowered, tool_input)[0]
+        texts = browser_script_texts(lowered, tool_input)[0]
+        return ([mcp_endpoint] if mcp_endpoint else []) + urls + texts
     if lowered == "webfetch":
         return [tool_input.get("url") or tool_input.get("URL") or ""]
     if lowered == "websearch":
@@ -459,7 +475,7 @@ def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = Non
 # someone else's server and is left to the other rules. Text matching only:
 # it catches the plain spellings an agent is likely to use.
 _SELF_CONTROL_PATH_RE = re.compile(
-    r"/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\)`;|&]|$)",
+    r"(?<!/)/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\)`;|&]|$)",
     re.IGNORECASE,
 )
 # Run-time host construction in front of the path. Leading quotes and the
@@ -510,6 +526,26 @@ def _self_control_block(route: str, host: str, port: Optional[int], evidence: st
     )
 
 
+# The most script text one browser call may carry and still be checked.
+BROWSER_SCRIPT_CHECK_LIMIT = 200_000
+
+
+def browser_script_self_control(tool_name: str, tool_input) -> Optional[EgressVerdict]:
+    """A block verdict when a browser script names a control route by a path
+    with no host in front of it (`fetch('/api/policy')`): a script runs in
+    whatever page is open, which may be the app's own. Also when the script
+    is too large to check. None for any other tool or text."""
+    texts, complete = browser_script_texts(tool_name, tool_input)
+    if not complete or sum(len(t) for t in texts) > BROWSER_SCRIPT_CHECK_LIMIT:
+        return _self_control_block("terminals", "unresolved", None, "browser script too large to check")
+    for text in texts:
+        for form in _decoded_forms(text):
+            for m in _SELF_CONTROL_PATH_RE.finditer(form):
+                if not _host_prefix(form, m.start()).lstrip("'\"`"):
+                    return _self_control_block(m.group("route"), "current page", None, m.group(0))
+    return None
+
+
 def _built_host_self_control(text: str) -> Optional[EgressVerdict]:
     token = _TOKEN_FILE_RE.search(text)
     if token:
@@ -537,13 +573,14 @@ def self_control_verdict(texts, app_port: Optional[int] = None) -> Optional[Egre
             built = _built_host_self_control(form)
             if built is not None:
                 return built
-        for m in (m for form in forms for m in _SELF_CONTROL_RE.finditer(form)):
+        for form, m in ((form, m) for form in forms for m in _SELF_CONTROL_RE.finditer(form)):
             if int(m.group("port")) != port:
                 continue
-            host = (m.group("host") or "").strip("[]").lower() or "127.0.0.1"
+            host_text = _host_before(form, m.start())
+            host = host_text.strip("[]").lower() or "127.0.0.1"
             attempt = EgressAttempt(
                 host=host, operation=UNKNOWN, kind="http", detector="self_control",
-                confidence="PARSED", port=port, evidence=m.group(0)[:160],
+                confidence="PARSED", port=port, evidence=(host_text + m.group(0))[:160],
             )
             return EgressVerdict(
                 action=BLOCK, attempt=attempt, rule_id=SELF_CONTROL_RULE_ID,
@@ -577,6 +614,23 @@ def evaluate_tool_call(
     ctx = ctx or EgressContext()
 
     extraction = extract_from_tool_call(tool_name, tool_input, mcp_endpoint=mcp_endpoint)
+
+    # A browser script that calls a control route by a bare path names no
+    # host, so it is checked before the "not network capable" exit.
+    if (tool_name or "").strip().lower().startswith("mcp__"):
+        scripted = browser_script_self_control(tool_name, tool_input)
+        if scripted is None:
+            # A script URL this cannot give a host may leave the call "not
+            # network capable"; the control check runs regardless.
+            scripted = self_control_verdict(
+                _network_texts(tool_name, tool_input, mcp_endpoint), ctx.local_app_port)
+        if scripted is not None:
+            return EgressEvaluation(
+                action=BLOCK, verdicts=[scripted], network_capable=True,
+                coverage="Agent call to the SecureVector control API.",
+                reason=scripted.reason,
+            )
+
     if not extraction.network_capable:
         return EgressEvaluation(action=ALLOW, network_capable=False)
 
