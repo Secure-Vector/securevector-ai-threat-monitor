@@ -230,7 +230,47 @@ function resolveBaseUrl() {
   return baseUrl;
 }
 
+/**
+ * Cost record for one finished OpenCode assistant message, or null.
+ *
+ * OpenCode reports usage on the `message.updated` event: `info.tokens`
+ * carries input, output, reasoning and cache {read, write}. Its `input`
+ * never includes the cache tokens, and reasoning is billed as output.
+ * Only a completed message is recorded, so the many in-flight updates of
+ * one message produce one record.
+ *
+ * @param {object} info  AssistantMessage from the event's properties.
+ * @returns {object|null} body for POST /api/costs/track
+ */
+function costRecordFromMessage(info) {
+  if (!info || info.role !== 'assistant') return null;
+  if (!info.time || !info.time.completed) return null;
+  const t = info.tokens || {};
+  const cache = t.cache || {};
+  const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  const input = n(t.input);
+  const output = n(t.output) + n(t.reasoning);
+  const read = n(cache.read);
+  const write = n(cache.write);
+  if (!info.modelID || input + output + read + write === 0) return null;
+  return {
+    agent_id: 'opencode',
+    provider: String(info.providerID || 'unknown'),
+    model_id: String(info.modelID),
+    input_tokens: input,
+    output_tokens: output,
+    input_cached_tokens: read,
+    input_cache_write_tokens: write,
+    input_includes_cached: false,
+    session_id: info.sessionID ? String(info.sessionID).slice(0, 200) : null,
+    // The message id: the app records one cost per message, even when the
+    // plugin restarts and sees the same finished message again.
+    request_id: info.id ? String(info.id).slice(0, 200) : null,
+  };
+}
+
 export {
+  costRecordFromMessage,
   resolveBaseUrl,
   getJson,
   postJsonAndForget,

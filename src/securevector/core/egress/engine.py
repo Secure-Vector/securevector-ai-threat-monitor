@@ -39,6 +39,7 @@ Presets, in increasing strictness:
 
 import ipaddress
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,7 +48,7 @@ from urllib.parse import unquote
 
 import yaml
 
-from .destinations import UNKNOWN, WRITE, EgressAttempt, extract_from_tool_call
+from .destinations import UNKNOWN, WRITE, EgressAttempt, browser_script_texts, browser_tool_parts, extract_from_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,10 @@ class EgressContext:
     # engine only ever lets it clear a promotable block, never a denylist,
     # publish or metadata verdict.
     host_grants: dict = field(default_factory=dict)
+    # The owner lets an agent's browser open the app's own pages. Off unless
+    # set here or by SECUREVECTOR_AGENT_BROWSER_APP_ACCESS in the app's
+    # environment; the control API stays blocked either way.
+    allow_browser_app: bool = False
 
 
 @dataclass
@@ -425,17 +430,32 @@ def _evaluate_attempt(attempt, policy, ctx=None, pack=None) -> EgressVerdict:
 # the policy and grant routes apply as well.
 
 SELF_CONTROL_RULE_ID = "sv.self.control_api"
+SELF_APP_PAGE_RULE_ID = "sv.self.app_page"
+BROWSER_APP_ACCESS_ENV = "SECUREVECTOR_AGENT_BROWSER_APP_ACCESS"
 DEFAULT_APP_PORT = 8741
 SELF_CONTROL_PREFIXES = (
     "jit", "egress", "tool-permissions", "skill-permissions", "settings", "terminals",
     "policy",
 )
+# The host is read backwards from the port afterwards (`_host_before`), so
+# the pattern itself stays linear on long input.
 _SELF_CONTROL_RE = re.compile(
-    r"(?P<host>[^\s'\"<>\\/]{0,253}?)"
     r":(?P<port>\d{1,5})"
     r"/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\]|$)",
     re.IGNORECASE,
 )
+
+
+_HOST_END_CHARS = frozenset(" \t\n\r\x0b\x0c'\"<>\\/")
+
+
+def _host_before(text: str, end: int) -> str:
+    """Up to 253 host characters that stand directly in front of ``end``."""
+    start = end
+    while start > 0 and end - start < 253 and text[start - 1] not in _HOST_END_CHARS \
+            and not text[start - 1].isspace():
+        start -= 1
+    return text[start:end].rsplit("@", 1)[-1]
 
 
 def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = None) -> list:
@@ -444,7 +464,10 @@ def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = Non
     tool_input = tool_input if isinstance(tool_input, dict) else {}
     lowered = (tool_name or "").strip().lower()
     if lowered.startswith("mcp__"):
-        return [mcp_endpoint] if mcp_endpoint else []
+        # A browser tool reaches the URL it is given and the URLs in its script.
+        urls = browser_tool_parts(lowered, tool_input)[0]
+        texts = browser_script_texts(lowered, tool_input)[0]
+        return ([mcp_endpoint] if mcp_endpoint else []) + urls + texts
     if lowered == "webfetch":
         return [tool_input.get("url") or tool_input.get("URL") or ""]
     if lowered == "websearch":
@@ -459,7 +482,7 @@ def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = Non
 # someone else's server and is left to the other rules. Text matching only:
 # it catches the plain spellings an agent is likely to use.
 _SELF_CONTROL_PATH_RE = re.compile(
-    r"/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\)`;|&]|$)",
+    r"(?<!/)/+api/+(?P<route>" + "|".join(re.escape(p) for p in SELF_CONTROL_PREFIXES) + r")(?=[/?#\s'\"\\)`;|&]|$)",
     re.IGNORECASE,
 )
 # Run-time host construction in front of the path. Leading quotes and the
@@ -510,6 +533,87 @@ def _self_control_block(route: str, host: str, port: Optional[int], evidence: st
     )
 
 
+# The most script text one browser call may carry and still be checked.
+BROWSER_SCRIPT_CHECK_LIMIT = 200_000
+
+
+def browser_script_self_control(tool_name: str, tool_input) -> Optional[EgressVerdict]:
+    """A block verdict when a browser script names a control route by a path
+    with no host in front of it (`fetch('/api/policy')`): a script runs in
+    whatever page is open, which may be the app's own. Also when the script
+    is too large to check. None for any other tool or text."""
+    texts, complete = browser_script_texts(tool_name, tool_input)
+    if not complete or sum(len(t) for t in texts) > BROWSER_SCRIPT_CHECK_LIMIT:
+        return _self_control_block("terminals", "unresolved", None, "browser script too large to check")
+    for text in texts:
+        for form in _decoded_forms(text):
+            for m in _SELF_CONTROL_PATH_RE.finditer(form):
+                if not _host_prefix(form, m.start()).lstrip("'\"`"):
+                    verdict = _self_control_block(m.group("route"), "current page", None, m.group(0))
+                    verdict.reason += (
+                        " A path with no host is read as this app's;"
+                        " to call another app, write its full URL."
+                    )
+                    return verdict
+    return None
+
+
+_APP_PAGE_REASON = (
+    "An agent's browser may not open the SecureVector app; its pages are where a person "
+    "approves requests and changes policy. Only the owner of the app can allow this."
+)
+
+
+def _browser_app_access(ctx) -> bool:
+    if ctx.allow_browser_app:
+        return True
+    return os.environ.get(BROWSER_APP_ACCESS_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def browser_app_page_verdict(attempts, ctx) -> Optional[EgressVerdict]:
+    """A block verdict when a browser tool call opens the app's own port
+    and the owner has not allowed it: the app's pages are where a person
+    approves requests and changes policy. Matched on the port alone, since
+    any name can resolve to this machine."""
+    if _browser_app_access(ctx):
+        return None
+    port = int(ctx.local_app_port or DEFAULT_APP_PORT)
+    for attempt in attempts:
+        if (attempt.detector or "").startswith("browser.") and attempt.host and attempt.port == port:
+            return EgressVerdict(
+                action=BLOCK, attempt=attempt, rule_id=SELF_APP_PAGE_RULE_ID,
+                rule_title="Agent browser opening the SecureVector app",
+                severity="high",
+                reason=_APP_PAGE_REASON,
+                promotable=False,
+            )
+    return None
+
+
+def browser_app_port_in_script(tool_name: str, tool_input, ctx) -> Optional[EgressVerdict]:
+    """The same block for a browser script whose text names the app's port
+    (`:8741`) in an address this cannot read: one joined from parts or
+    written with escapes."""
+    if _browser_app_access(ctx):
+        return None
+    port = int(ctx.local_app_port or DEFAULT_APP_PORT)
+    named = re.compile(r":0*%d(?!\d)" % port)
+    for text in browser_script_texts(tool_name, tool_input)[0]:
+        for form in _decoded_forms(text):
+            m = named.search(form)
+            if m:
+                attempt = EgressAttempt(
+                    host="unresolved", operation=UNKNOWN, kind="http", detector="browser.script",
+                    confidence="HEURISTIC", port=port, evidence=form[max(0, m.start() - 60):m.end() + 20],
+                )
+                return EgressVerdict(
+                    action=BLOCK, attempt=attempt, rule_id=SELF_APP_PAGE_RULE_ID,
+                    rule_title="Agent browser opening the SecureVector app",
+                    severity="high", reason=_APP_PAGE_REASON, promotable=False,
+                )
+    return None
+
+
 def _built_host_self_control(text: str) -> Optional[EgressVerdict]:
     token = _TOKEN_FILE_RE.search(text)
     if token:
@@ -537,13 +641,14 @@ def self_control_verdict(texts, app_port: Optional[int] = None) -> Optional[Egre
             built = _built_host_self_control(form)
             if built is not None:
                 return built
-        for m in (m for form in forms for m in _SELF_CONTROL_RE.finditer(form)):
+        for form, m in ((form, m) for form in forms for m in _SELF_CONTROL_RE.finditer(form)):
             if int(m.group("port")) != port:
                 continue
-            host = (m.group("host") or "").strip("[]").lower() or "127.0.0.1"
+            host_text = _host_before(form, m.start())
+            host = host_text.strip("[]").lower() or "127.0.0.1"
             attempt = EgressAttempt(
                 host=host, operation=UNKNOWN, kind="http", detector="self_control",
-                confidence="PARSED", port=port, evidence=m.group(0)[:160],
+                confidence="PARSED", port=port, evidence=(host_text + m.group(0))[:160],
             )
             return EgressVerdict(
                 action=BLOCK, attempt=attempt, rule_id=SELF_CONTROL_RULE_ID,
@@ -577,6 +682,33 @@ def evaluate_tool_call(
     ctx = ctx or EgressContext()
 
     extraction = extract_from_tool_call(tool_name, tool_input, mcp_endpoint=mcp_endpoint)
+
+    # A browser script that calls a control route by a bare path names no
+    # host, so it is checked before the "not network capable" exit.
+    if (tool_name or "").strip().lower().startswith("mcp__"):
+        scripted = browser_script_self_control(tool_name, tool_input)
+        if scripted is None:
+            # A script URL this cannot give a host may leave the call "not
+            # network capable"; the control check runs regardless.
+            scripted = self_control_verdict(
+                _network_texts(tool_name, tool_input, mcp_endpoint), ctx.local_app_port)
+        if scripted is not None:
+            return EgressEvaluation(
+                action=BLOCK, verdicts=[scripted], network_capable=True,
+                coverage="Agent call to the SecureVector control API.",
+                reason=scripted.reason,
+            )
+
+    app_page = browser_app_page_verdict(extraction.attempts, ctx)
+    if app_page is None and (tool_name or "").strip().lower().startswith("mcp__"):
+        app_page = browser_app_port_in_script(tool_name, tool_input, ctx)
+    if app_page is not None:
+        return EgressEvaluation(
+            action=BLOCK, verdicts=[app_page], network_capable=True,
+            coverage="Agent browser opening the SecureVector app.",
+            reason=app_page.reason,
+        )
+
     if not extraction.network_capable:
         return EgressEvaluation(action=ALLOW, network_capable=False)
 

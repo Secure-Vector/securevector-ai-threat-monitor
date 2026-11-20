@@ -58,6 +58,20 @@ copy: `PYTHONPATH=src python -m securevector.app.main --web`.
 
 Python 3.10+, JavaScript ES6+: Follow standard conventions
 
+## Test-driven development (all new changes)
+
+Every new change, feature or fix, is built test first:
+
+1. Write the test for the behaviour you want.
+2. Run it and see it fail for the expected reason. A test that has never failed proves nothing.
+3. Add the implementation.
+4. Run the test again and see it pass, then run the full suite.
+
+- A bug fix starts with a test that reproduces the bug.
+- No implementation is written before its failing test exists.
+- The commit or PR notes which test was written first and that it failed before the change.
+- Exceptions: pure copy or documentation edits, and data files such as the price list, where a test adds nothing. Say so when you skip it.
+
 ## Recent Changes
 - 008-openclaw-hooks-integration: Added TypeScript (hook handler), JavaScript ES6+ (integration page UI), Python 3.10+ (existing backend) + OpenClaw hook API (external), FastAPI (existing backend), native `fetch` (TypeScript handler)
 - 001-skill-scanner: Added Python 3.10+, JavaScript ES6+ + FastAPI, aiosqlite, pywebview 5.0+, uvicorn (all existing — no new dependencies)

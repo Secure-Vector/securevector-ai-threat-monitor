@@ -19,7 +19,8 @@
  *   tool.execute.after   → tamper-evident audit row + tool-RESPONSE scan.
  *   chat.message         → prompt scan (observe-only, never blocks).
  *   permission.ask       → collapse the approval prompt on an existing deny.
- *   event                → session lifecycle (session.created audit row).
+ *   event                → session lifecycle (session.created audit row) and
+ *                          token usage (message.updated → /api/costs/track).
  *
  * ⚠️  FAIL-OPEN INVERSION — the single most important thing in this file.
  * OpenCode's documented way to block a tool call is to THROW from
@@ -56,7 +57,7 @@ import {
   resolveBaseUrl,
 } from './lib/decide.js';
 import { normalize, isMcpToolName } from './lib/normalize.js';
-import { fetchSyncedOverrides, getJson, postJsonAndForget } from './lib/client.js';
+import { costRecordFromMessage, fetchSyncedOverrides, getJson, postJsonAndForget } from './lib/client.js';
 import { hasCredentialMarkers } from './lib/redact.js';
 import { postTerminalEvent } from './lib/terminal-relay.js';
 
@@ -128,6 +129,10 @@ export const SecureVectorGuard = async ({ client }) => {
   // permission.ask AFTER tool.execute.before on the MCP path, so a call we
   // already blocked would otherwise still prompt the user for approval.
   const denied = new Map();
+
+  // Assistant message ids already sent to Cost & Tokens. A finished message
+  // can be updated again (e.g. a title or summary pass); it is billed once.
+  const costed = new Set();
 
   return {
     /**
@@ -344,6 +349,18 @@ export const SecureVectorGuard = async ({ client }) => {
       try {
         if (!event) return;
         const props = event.properties || {};
+        // TOKEN USAGE. A completed assistant message carries its model and
+        // token counts; the app prices it (POST /api/costs/track).
+        if (event.type === 'message.updated') {
+          const info = props.info;
+          const body = costRecordFromMessage(info);
+          if (body && info.id && !costed.has(info.id)) {
+            costed.add(info.id);
+            if (costed.size > 5000) costed.delete(costed.values().next().value);
+            postJsonAndForget(`${baseUrl}/api/costs/track`, body);
+          }
+          return;
+        }
         const sessionId = props.info?.id ?? props.sessionID ?? props.id ?? null;
         // session.idle marks a finished turn. It carries no security value,
         // so it is relayed to the task only and never written to the audit

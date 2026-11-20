@@ -94,9 +94,9 @@ class DatabaseConnection:
                     isolation_level=None,  # Autocommit mode
                 )
                 # Enable foreign keys
-                await self._connection.execute("PRAGMA foreign_keys = ON")
+                await self._pragma("PRAGMA foreign_keys = ON")
                 # Enable WAL mode for better concurrency
-                await self._connection.execute("PRAGMA journal_mode = WAL")
+                await self._pragma("PRAGMA journal_mode = WAL")
                 # Wait up to 5s for a competing writer instead of failing
                 # instantly. WAL allows concurrent readers but still only one
                 # writer, and this app writes from several places at once
@@ -104,7 +104,7 @@ class DatabaseConnection:
                 # timeout SQLite raises "database is locked" the moment two
                 # writes overlap, which surfaces as a dropped audit row — the
                 # one thing an enforcement log must never do.
-                await self._connection.execute("PRAGMA busy_timeout = 5000")
+                await self._pragma("PRAGMA busy_timeout = 5000")
                 # The audit trail is a security record, so it is readable only
                 # by the OS user that installed the app (a 6.0.0 release-gate
                 # criterion, alongside the terminals token file). Done after
@@ -118,6 +118,12 @@ class DatabaseConnection:
                 logger.info("Database connection established")
 
             return self._connection
+
+    async def _pragma(self, sql: str) -> None:
+        """Run a connect-time PRAGMA and close its cursor. Some return a row
+        (journal_mode, busy_timeout); left unread, that statement stays open."""
+        cursor = await self._connection.execute(sql)
+        await cursor.close()
 
     async def disconnect(self) -> None:
         """Close database connection if open."""
@@ -223,7 +229,13 @@ class DatabaseConnection:
             Single row or None if no results.
         """
         cursor = await self.execute(sql, parameters)
-        return await cursor.fetchone()
+        try:
+            return await cursor.fetchone()
+        finally:
+            # Closed here, not left to garbage collection: an open read
+            # statement makes a later DROP or ALTER on this connection fail
+            # with "database table is locked".
+            await cursor.close()
 
     async def fetch_all(
         self, sql: str, parameters: tuple = ()
@@ -239,7 +251,10 @@ class DatabaseConnection:
             List of rows.
         """
         cursor = await self.execute(sql, parameters)
-        return await cursor.fetchall()
+        try:
+            return await cursor.fetchall()
+        finally:
+            await cursor.close()
 
     async def health_check(self) -> dict:
         """

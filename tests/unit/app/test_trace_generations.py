@@ -118,4 +118,5 @@ async def test_bedrock_ids_with_a_region_prefix_price_and_track_uses_the_fallbac
         agent_id="hermes-agent", provider="bedrock", model_id="anthropic.claude-haiku-4-5-20251001-v1:0",
         input_tokens=1_000_000, output_tokens=1_000_000))
     assert r["pricing_known"] is True
-    assert round(r["total_cost_usd"], 6) == 6.0
+    # An in-region Bedrock id (no geographic prefix) is a regional endpoint: 1.1x.
+    assert round(r["total_cost_usd"], 6) == 6.6

@@ -9,7 +9,13 @@
  * statusline script and appended).
  *
  * Example output:
- *   SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok
+ *   SecureVector Guard · 2 threats detected · 7d 5 tool calls (3 allow / 2 block) · 1.4M tok
+ *
+ * Tool-call counts use the dashboard's definitions over the same 7-day
+ * window: tool calls = every audit row, allow = calls that ran (audit rows
+ * minus tool-policy blocks), block = tool-policy blocks plus egress blocks.
+ * The "7d" label is printed once and covers the counts and the tokens; an
+ * app without the daily endpoint gives all-time counts, printed unlabelled.
  *
  * Architecture:
  *   - Stats + timeline are shared through a 15-second on-disk cache.
@@ -50,7 +56,7 @@ const { resolveBaseUrl } = require('../lib/client.js');
 
 const BASE_URL = resolveBaseUrl();
 
-// Foreground fetch budget — only governs the fast endpoints.
+// Foreground fetch budget — one deadline shared by all the fast endpoints.
 const FAST_TIMEOUT_MS = 1500;
 // Background refresh budget — generous because the token-usage handler
 // can take 6+ s when the OS disk cache is cold.
@@ -80,7 +86,7 @@ function writeLiveCache(stats, timeline) {
   if (!stats && !timeline) return; // app unreachable: do not cache the miss
   const slim = {
     ts: Date.now(),
-    stats: stats ? { total: stats.total, allowed: stats.allowed, blocked: stats.blocked } : null,
+    stats: stats ? { total: stats.total, allowed: stats.allowed, blocked: stats.blocked, window: stats.window } : null,
     timeline: timeline && Array.isArray(timeline.items)
       ? { items: timeline.items.map((i) => ({ kind: i && i.kind })) }
       : null,
@@ -91,6 +97,55 @@ function writeLiveCache(stats, timeline) {
     fs.writeFileSync(tmp, JSON.stringify(slim), { mode: 0o600 });
     fs.renameSync(tmp, LIVE_CACHE_FILE);
   } catch { /* cache is opportunistic: ignore */ }
+}
+
+// Same lookback as the dashboard's default range and the token segment.
+const COUNT_WINDOW_DAYS = 7;
+
+function localDayKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Tool-call counts as the dashboard shows them.
+ *   daily  — GET /api/tool-permissions/call-audit/daily?days=N
+ *   egress — GET /api/egress/destinations?days=N
+ *   stats  — GET /api/tool-permissions/call-audit/stats (fallback only,
+ *            for an app without the daily endpoint)
+ * Returns { total, allowed, blocked, window } or null when nothing was
+ * fetched; window is "7d", or "all" for the all-time fallback. Egress blocks
+ * are 7-day counts, so they are added only to the daily counts.
+ */
+function summarizeCounts(daily, egress, stats, now = Date.now(), days = COUNT_WINDOW_DAYS) {
+  const egressBlocked = egress && Array.isArray(egress.destinations)
+    ? egress.destinations.reduce((a, d) => a + (Number(d && d.blocked) || 0), 0)
+    : 0;
+  let total = null;
+  let toolBlocked = 0;
+  let window = '7d';
+  if (daily && Array.isArray(daily.days)) {
+    // The daily endpoint over-returns at the window edge; clamp to the last
+    // N calendar days the way the dashboard does.
+    const sinceDay = localDayKey(new Date(now - (days - 1) * 86400000));
+    total = 0;
+    for (const d of daily.days) {
+      if (!d || !(String(d.day || '') >= sinceDay)) continue;
+      const b = Number(d.blocked) || 0;
+      total += b + (Number(d.allowed) || 0) + (Number(d.logged) || 0);
+      toolBlocked += b;
+    }
+  } else if (stats && typeof stats.total === 'number') {
+    total = stats.total;
+    toolBlocked = Number(stats.blocked) || 0;
+    window = 'all';
+  }
+  if (total === null) return null;
+  return {
+    total,
+    allowed: Math.max(0, total - toolBlocked),
+    blocked: toolBlocked + (window === '7d' ? egressBlocked : 0),
+    window,
+  };
 }
 
 function getJson(reqPath, timeoutMs) {
@@ -243,11 +298,15 @@ function buildLine(stats, tokens, timeline) {
     }
   }
 
-  if (stats && (stats.total ?? 0) > 0) {
+  // "7d" is printed once: on the counts when they are windowed, else on the
+  // token segment.
+  let labelled = false;
+  if (stats && ((stats.total ?? 0) > 0 || (stats.blocked ?? 0) > 0)) {
     const a = stats.allowed ?? 0;
     const b = stats.blocked ?? 0;
+    labelled = stats.window === '7d';
     tail.push(
-      `${C.cyan}${stats.total} tool calls (${a} allow / ${C.reset}${C.red}${b} block${C.reset}${C.cyan})${C.reset}`
+      `${C.cyan}${labelled ? '7d ' : ''}${stats.total ?? 0} tool calls (${a} allow / ${C.reset}${C.red}${b} block${C.reset}${C.cyan})${C.reset}`
     );
   }
 
@@ -262,7 +321,7 @@ function buildLine(stats, tokens, timeline) {
       0
     );
     if (total7d > 0) {
-      tail.push(`${C.cyan}7d ${fmtTokens(total7d)} tok${C.reset}`);
+      tail.push(`${C.cyan}${labelled ? '' : '7d '}${fmtTokens(total7d)} tok${C.reset}`);
     }
   }
 
@@ -278,8 +337,18 @@ async function statuslineMain() {
   // ordering avoids cheap calls queueing behind anything slow.
   let live = readLiveCache();
   if (!live) {
-    const fetchedStats = await getJson('/api/tool-permissions/call-audit/stats', FAST_TIMEOUT_MS);
-    const fetchedTimeline = await getJson('/api/replay/timeline?limit=200', FAST_TIMEOUT_MS);
+    // One deadline for every fast fetch, so a slow app costs at most
+    // FAST_TIMEOUT_MS in total; a fetch with no time left is skipped.
+    const deadline = Date.now() + FAST_TIMEOUT_MS;
+    const timed = (p) => {
+      const left = deadline - Date.now();
+      return left > 0 ? getJson(p, left) : Promise.resolve(null);
+    };
+    const daily = await timed(`/api/tool-permissions/call-audit/daily?days=${COUNT_WINDOW_DAYS}`);
+    const egress = await timed(`/api/egress/destinations?days=${COUNT_WINDOW_DAYS}`);
+    const auditStats = daily ? null : await timed('/api/tool-permissions/call-audit/stats');
+    const fetchedStats = summarizeCounts(daily, egress, auditStats);
+    const fetchedTimeline = await timed('/api/replay/timeline?limit=200');
     writeLiveCache(fetchedStats, fetchedTimeline);
     live = { stats: fetchedStats, timeline: fetchedTimeline };
   }
@@ -301,8 +370,12 @@ async function statuslineMain() {
   if (line) process.stdout.write(line + '\n');
 }
 
-const isRefreshMode = process.argv.includes('--refresh-tokens');
-const entry = isRefreshMode ? refreshTokensMain : statuslineMain;
-entry()
-  .then(() => process.exit(0))
-  .catch(() => process.exit(0));
+if (require.main === module) {
+  const isRefreshMode = process.argv.includes('--refresh-tokens');
+  const entry = isRefreshMode ? refreshTokensMain : statuslineMain;
+  entry()
+    .then(() => process.exit(0))
+    .catch(() => process.exit(0));
+} else {
+  module.exports = { summarizeCounts, buildLine, FAST_TIMEOUT_MS };
+}

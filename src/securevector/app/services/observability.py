@@ -439,7 +439,7 @@ async def session_governance(db, session_id: str) -> Optional[dict]:
         db,
         "SELECT MAX(runtime_kind) AS harness, MIN(COALESCE(started_at, recorded_at)) AS first, "
         "MAX(COALESCE(started_at, recorded_at)) AS last, SUM(total_cost_usd) AS usd, "
-        "SUM(input_tokens + input_cached_tokens + output_tokens) AS tokens, "
+        "SUM(input_tokens + input_cached_tokens + COALESCE(input_cache_write_tokens, 0) + output_tokens) AS tokens, "
         "GROUP_CONCAT(DISTINCT model_id) AS models, COUNT(*) AS n "
         "FROM llm_cost_records WHERE session_id = ?",
         (session_id,),
@@ -695,7 +695,7 @@ async def live_sessions(db, group: str = "none", limit: int = 200, now: Optional
             db,
             "SELECT session_id, MAX(runtime_kind) AS harness, MIN(COALESCE(started_at, recorded_at)) AS first, "
             "MAX(COALESCE(started_at, recorded_at)) AS last, SUM(total_cost_usd) AS usd, "
-            "SUM(input_tokens + input_cached_tokens + output_tokens) AS tokens "
+            "SUM(input_tokens + input_cached_tokens + COALESCE(input_cache_write_tokens, 0) + output_tokens) AS tokens "
             f"FROM llm_cost_records WHERE session_id IN ({m}) GROUP BY session_id",
             tuple(sids),
         ):

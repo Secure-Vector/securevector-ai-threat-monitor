@@ -674,3 +674,47 @@ class TestGrantsEndWithTheTask:
         await TerminalManager._revoke_host_grants(fake, "task-sess-aaaa1111")
         assert (await _call("sess-aaaa1111"))["action"] == BLOCK
         assert (await _call("sess-bbbb2222"))["action"] == "allow"
+
+
+class TestBrowserToolEgress:
+    """A page opened through a browser automation tool is a destination the
+    agent chose: it is evaluated and recorded like a fetch."""
+
+    @staticmethod
+    async def _browser(session_id, tool, tool_input):
+        task_id = await MANAGER.task_for(session_id)
+        return await egress_routes.evaluate_egress(egress_routes.EvaluateRequest(
+            tool_name=tool, tool_input=tool_input, runtime_kind="claude-code", session_id=session_id,
+        ), _http(MANAGER, {"x-sv-terminal-task": task_id, "x-sv-terminal-hook": MANAGER.tokens[task_id]}))
+
+    @pytest.mark.asyncio
+    async def test_navigation_to_an_unlisted_host_is_blocked_and_recorded(self, db):
+        out = await self._browser("sess-brow0001", "mcp__claude-in-chrome__navigate", {"url": f"https://{HOST}/pricing"})
+        assert out["network_capable"] is True and out["action"] == BLOCK
+        rows = await db.fetch_all(
+            "SELECT host, detector, tool_name, session_id FROM egress_audit WHERE session_id = 'sess-brow0001'")
+        assert [(r["host"], r["detector"]) for r in rows] == [(HOST, "browser.navigate")]
+
+    @pytest.mark.asyncio
+    async def test_script_with_a_literal_url_is_blocked_and_recorded(self, db):
+        out = await self._browser("sess-brow0002", "mcp__plugin_playwright_playwright__browser_run_code_unsafe",
+                                  {"code": f"async (page) => {{ await page.goto('https://{HOST}/x'); }}"})
+        assert out["network_capable"] is True and out["action"] == BLOCK
+        rows = await db.fetch_all("SELECT host, detector FROM egress_audit WHERE session_id = 'sess-brow0002'")
+        assert [(r["host"], r["detector"]) for r in rows] == [(HOST, "browser.script")]
+
+    @pytest.mark.asyncio
+    async def test_history_navigation_and_screenshots_are_not_egress(self, db):
+        for tool, tool_input in (("mcp__claude-in-chrome__navigate", {"url": "back"}),
+                                 ("mcp__claude-in-chrome__computer", {"action": "screenshot"})):
+            out = await self._browser("sess-brow0003", tool, tool_input)
+            assert out["network_capable"] is False
+        assert await db.fetch_all("SELECT 1 FROM egress_audit WHERE session_id = 'sess-brow0003'") == []
+
+    @pytest.mark.asyncio
+    async def test_opening_the_app_itself_is_blocked_through_the_route(self, db, monkeypatch):
+        monkeypatch.delenv("SECUREVECTOR_AGENT_BROWSER_APP_ACCESS", raising=False)
+        out = await self._browser("sess-brow0004", "mcp__claude-in-chrome__navigate",
+                                  {"url": "http://127.0.0.1:8741/agent-runs"})
+        assert out["action"] == BLOCK
+        assert out["verdicts"][0]["rule_id"] == "sv.self.app_page"

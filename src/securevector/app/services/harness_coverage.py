@@ -28,7 +28,8 @@ copilot-cli
 opencode
   enforced=before_call   P/opencode/index.js:138,199 (tool.execute.before throws); ask is audited and allowed
   egress_visible=True    P/opencode/lib/decide.js:142,177-189, lib/client.js:169
-  token_data=False       R/traces.py:404 (R/hooks_opencode.py:702 is a device total)
+  token_data=True        P/opencode/index.js:354-364 (message.updated -> /api/costs/track),
+                         lib/client.js costRecordFromMessage
   session_id_sent=True   P/opencode/index.js:141,155,178
   approvals=True         P/opencode/index.js:178, lib/decide.js:183
 cursor
@@ -48,8 +49,9 @@ openclaw
   enforced=after_call    P/openclaw/index.ts:492 (after_tool_call only), :469-482 (block recorded as log_only
                          unless the proxy blocks)
   egress_visible=True    P/openclaw/index.ts:177-180 (evaluated after the call, recorded only)
-  token_data=True        P/openclaw/index.ts:630-646 (llm_output -> /api/costs/track, :146)
-  session_id_sent=True   P/openclaw/index.ts:220
+  token_data=True        P/openclaw/index.ts:643-666 (llm_output -> /api/costs/track, :146; one row per
+                         run attempt, usage summed over its model calls)
+  session_id_sent=True   P/openclaw/index.ts:229 (audit), :151 (cost)
   approvals=False        no /api/jit/requests call; policy fetched with no runtime (index.ts:93)
 govrun
   enforced=after_call    app/terminals/executors.py:139-144 (reports through its own Guard; no hook
@@ -57,8 +59,11 @@ govrun
   egress_visible=False, token_data=False, session_id_sent=False, approvals=False: no evidence in this repo
 hermes
   enforced=after_call    R/tool_permissions.py:332-338,684-693 (decided by the external Hermes SDK);
-                         R/hooks_hermes.py:199 is a device token total only
-  egress_visible=False, token_data=False, session_id_sent=False, approvals=False: no evidence in this repo
+                         P/hermes/audit.py records each call after it ran (post_tool_call), observe only
+  token_data=True        P/hermes/cost.py (post_api_request -> /api/costs/track, one record per API
+                         call), installed by R/hooks_hermes.py install_plugin
+  session_id_sent=True   P/hermes/cost.py build_record (Hermes session_id on each cost record)
+  egress_visible=False, approvals=False: no evidence in this repo
 
 Common to every plugin: hosts are checked only when they can be read from the
 tool input or the MCP endpoint, so network opened by child processes is not
@@ -91,7 +96,7 @@ COVERAGE: dict = {
         "unchecked": [CHILD_NET, FAIL_OPEN],
     },
     "opencode": {
-        "enforced": "before_call", "egress_visible": True, "token_data": False,
+        "enforced": "before_call", "egress_visible": True, "token_data": True,
         "session_id_sent": True, "approvals": True,
         "unchecked": ["rules set to ask are allowed without asking", CHILD_NET, FAIL_OPEN],
     },
@@ -118,8 +123,8 @@ COVERAGE: dict = {
                       "network not checked"],
     },
     "hermes": {
-        "enforced": "after_call", "egress_visible": False, "token_data": False,
-        "session_id_sent": False, "approvals": False,
+        "enforced": "after_call", "egress_visible": False, "token_data": True,
+        "session_id_sent": True, "approvals": False,
         "unchecked": ["decisions made by the Hermes SDK, not by SecureVector",
                       "MCP tools not in the tool list", NO_APPROVALS, "network not checked"],
     },

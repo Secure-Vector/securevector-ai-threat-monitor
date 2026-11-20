@@ -299,7 +299,7 @@ test('matching: a plain block then a held call; the request takes the held call 
   assert.equal(RT.decision(h1).key, 'waiting');
 });
 
-test('matching: two pending requests for one tool each take their own call; no content falls back to the nearest time', () => {
+test('matching: two pending requests for one tool each take their own call; no content never pairs by time', () => {
   const RT = load();
   const t = trace();
   t.spans = [gen('g1', 0),
@@ -311,7 +311,72 @@ test('matching: two pending requests for one tool each take their own call; no c
   assert.equal(m.bySpan.get('s:x1').id, 'r-one');
   assert.equal(m.bySpan.get('s:x2').id, 'r-two');
   const bare = RT.matchRequests(t, [pending({ id: 'r-bare', call_preview: null, call_fingerprint: null, requested_at: at(11) })]);
-  assert.equal(bare.bySpan.get('s:x2').id, 'r-bare');
+  assert.equal(bare.bySpan.size, 0, 'a request with nothing to compare attaches to no call');
+});
+
+test('matching: a later blocked call never takes an earlier request with other content', () => {
+  const RT = load();
+  const t = trace();
+  t.spans = [gen('g1', 0),
+    call('late', 'Bash', 30, { action: 'block', args_preview: 'npm test' })];
+  const early = { id: 'r-early', status: 'denied', session_id: t.session_id, tool_id: 'Bash', rule_source: 'local',
+    justification: 'Held by rule: destructive delete', call_preview: 'rm -rf build', requested_at: at(29) };
+  const root = RT.buildTree(t, { requests: [early] });
+  const n = root.children[0].children[0];
+  assert.equal(n.req, null);
+  assert.equal(RT.spanRule(n.req, n.span), null);
+});
+
+test('matching: a bare decided request pairs by time only with the one blocked call of its tool in reach', () => {
+  const RT = load();
+  const t = trace();
+  t.spans = [gen('g1', 0),
+    call('ran', 'Bash', 10, { action: 'allow', args_preview: 'ls' }),
+    call('held', 'Bash', 11, { action: 'block', args_preview: null })];
+  const r = { id: 'r-old', status: 'denied', session_id: t.session_id, tool_id: 'Bash', call_preview: null,
+    call_fingerprint: null, requested_at: at(11) };
+  const m = RT.matchRequests(t, [r]);
+  assert.equal(m.bySpan.get('s:held').id, 'r-old');
+  assert.equal(m.bySpan.has('s:ran'), false, 'a span that ran never takes a request');
+});
+
+test('matching: a decided request left unmatched joins as its own row', () => {
+  const RT = load();
+  const t = trace();
+  t.spans = [gen('g1', 0),
+    call('a1', 'Bash', 10, { action: 'block', args_preview: 'npm test' }),
+    call('a2', 'Bash', 11, { action: 'block', args_preview: 'npm run lint' })];
+  const r = { id: 'r-x', status: 'denied', session_id: t.session_id, trace_id: t.trace_id, tool_id: 'Bash',
+    call_preview: null, call_fingerprint: null, requested_at: at(11) };
+  const m = RT.matchRequests(t, [r]);
+  assert.equal(m.bySpan.size, 0, 'two calls in reach: no time pairing');
+  assert.equal(m.orphans.map(x => x.id).join(','), 'r-x');
+});
+
+test('orphan rows take their action from the request status', () => {
+  const RT = load();
+  assert.equal(RT.orphanAction({ status: 'pending' }), 'hold');
+  assert.equal(RT.orphanAction({ status: 'approved' }), 'allow');
+  assert.equal(RT.orphanAction({ status: 'denied' }), 'block');
+  assert.equal(RT.orphanAction({ status: 'expired' }), 'block');
+  const t = trace();
+  t.spans = [gen('g1', 0)];
+  const mk = (id, status) => ({ id, status, session_id: t.session_id, trace_id: t.trace_id, tool_id: 'Bash',
+    call_preview: 'npm test', requested_at: at(5) });
+  const root = RT.buildTree(t, { requests: [mk('p', 'pending'), mk('a', 'approved'), mk('d', 'denied')] });
+  const rows = root.children[0].children;
+  const by = Object.fromEntries(rows.map(n => [n.req.id, n.span.action]));
+  assert.equal(by.p, 'hold');
+  assert.equal(by.a, 'allow');
+  assert.equal(by.d, 'block');
+});
+
+test('rule label: an allowed span never shows a request rule', () => {
+  const RT = load();
+  const req = { id: 'r1', status: 'denied', rule_source: 'local', justification: 'Held by rule: destructive delete' };
+  assert.equal(RT.spanRule(req, { action: 'allow' }), null);
+  assert.equal(RT.spanRule(req, { action: 'block' }).name, 'destructive delete');
+  assert.equal(RT.spanRule(null, { action: 'allow', detection_rules: ['r-a'] }).name, 'r-a');
 });
 
 test('duplicate span ids: keys are computed once and the request lands on the deduped key', () => {
@@ -410,7 +475,7 @@ test('trace tree caret: 24px button, 14px chevron that turns, 24px levels with t
   assert.match(src, /\.rt-caret\[aria-expanded="true"\] svg \{ transform:rotate\(90deg\); \}/);
   assert.match(src, /\.rt-g, \.rt-c \{ position:relative; flex:0 0 24px;/);
   assert.match(src, /\.rt-c::before \{ content:''; position:absolute; left:12px;/);
-  assert.match(read('index.html'), /run-trace\.js\?v=17/);
+  assert.match(read('index.html'), /run-trace\.js\?v=19/);
 });
 
 // ------------------------------------------------ run export + governance sections

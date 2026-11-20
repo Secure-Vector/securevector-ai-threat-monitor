@@ -212,6 +212,7 @@ async def _ingest_generation(span: dict, attrs: dict, ctx: dict, costs: CostsRep
         input_tokens=int(_first(attrs.get("gen_ai.usage.input_tokens"), attrs.get("gen_ai.usage.prompt_tokens"), 0) or 0),
         output_tokens=int(_first(attrs.get("gen_ai.usage.output_tokens"), attrs.get("gen_ai.usage.completion_tokens"), 0) or 0),
         input_cached_tokens=int(attrs.get("gen_ai.usage.cache_read.input_tokens") or 0),
+        input_cache_write_tokens=int(attrs.get("gen_ai.usage.cache_creation.input_tokens") or 0),
         started_at=ctx["started_at"], duration_ms=ctx["duration_ms"],
         parent_span_id=span.get("parentSpanId") or None, request_id=request_id or None,
         agent_id=ctx.get("agent_id"),

@@ -126,6 +126,17 @@ const API = {
         return String((t && t.action_taken) || '').toLowerCase().includes('block');
     },
 
+    /** Severity of a threat record: the score band (80+ critical, 60+ high,
+     *  40+ medium, else low), lowered to metadata.severity_cap when the
+     *  record carries one. The score itself is never changed. */
+    threatSeverity(t) {
+        const score = Number((t && t.risk_score) || 0);
+        const band = score >= 80 ? 'critical' : score >= 60 ? 'high' : score >= 40 ? 'medium' : 'low';
+        const cap = String(((t && t.metadata) || {}).severity_cap || '').toLowerCase();
+        const rank = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
+        return (cap in rank && rank[cap] < rank[band]) ? cap : band;
+    },
+
     async getThreatAnalytics() {
         // Get dashboard summary from threat intel and rules
         try {
@@ -139,7 +150,7 @@ const API = {
             const ruleItems = rules.items || [];
 
             // Calculate stats from available items (sample)
-            const criticalCount = items.filter(t => t.risk_score >= 80).length;
+            const criticalCount = items.filter(t => this.threatSeverity(t) === 'critical').length;
             const recentThreats = items.slice(0, 5);
             const activeRulesCount = ruleItems.filter(r => r.enabled).length;
 

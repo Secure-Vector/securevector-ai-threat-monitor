@@ -1670,6 +1670,29 @@ def _warn_if_sessions_live(name: str) -> None:
     )
 
 
+def _handle_update_plugins() -> int:
+    """--update-plugins: restage every installed plugin whose files differ
+    from this app's bundle, using the same logic as
+    POST /api/hooks/update-plugins. Prints one line per harness and returns
+    the exit code: 0 unless an update failed."""
+    import asyncio
+
+    from securevector.app.server.routes import hooks_updates
+
+    results = asyncio.run(hooks_updates.update_plugins())
+    width = max(len(r["runtime"]) for r in results)
+    for r in results:
+        name = r["runtime"].ljust(width)
+        if r["status"] == "updated":
+            print(f"{name}  {r['before_version'] or '?'} -> {r['after_version'] or '?'}  updated")
+        elif r["status"] == "failed":
+            reason = f": {r['reason']}" if r.get("reason") else ""
+            print(f"{name}  {r['before_version'] or '?'}  failed{reason}")
+        else:
+            print(f"{name}  {r['status']}")
+    return 1 if any(r["status"] == "failed" for r in results) else 0
+
+
 def _handle_plugin_command(args) -> None:
     """Dispatch --install-plugin / --uninstall-plugin to the same async
     handler the POST /api/hooks/<agent>/{install,uninstall} routes use.
@@ -1728,8 +1751,12 @@ def _handle_plugin_command(args) -> None:
         from securevector.app.server.routes import hooks_antigravity as mod
         handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
         result = asyncio.run(handler())
+    elif name == "hermes":
+        from securevector.app.server.routes import hooks_hermes as mod
+        handler = mod.install_plugin if action == "install" else mod._uninstall_plugin
+        result = asyncio.run(handler())
     else:
-        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor, opencode, antigravity.", file=sys.stderr)
+        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor, opencode, antigravity, hermes.", file=sys.stderr)
         sys.exit(1)
 
     # Response models are Pydantic — serialise consistently.
@@ -1932,16 +1959,21 @@ Examples:
     parser.add_argument(
         "--install-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode", "antigravity"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode", "antigravity", "hermes"],
         metavar="NAME",
-        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, opencode, or antigravity) and exit",
+        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, opencode, or antigravity) or the Hermes cost plugin (hermes) and exit",
+    )
+    parser.add_argument(
+        "--update-plugins",
+        action="store_true",
+        help="Update every installed SecureVector plugin whose files differ from this version and exit",
     )
     parser.add_argument(
         "--uninstall-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode", "antigravity"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode", "antigravity", "hermes"],
         metavar="NAME",
-        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, opencode, or antigravity) and exit",
+        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, opencode, or antigravity) or the Hermes cost plugin (hermes) and exit",
     )
 
     args = parser.parse_args()
@@ -1954,6 +1986,8 @@ Examples:
     if args.install_plugin or args.uninstall_plugin:
         _handle_plugin_command(args)
         return
+    if args.update_plugins:
+        sys.exit(_handle_update_plugins())
 
     # If --port / --host were not explicitly passed, prefer values from svconfig.yml
     explicit_args = {a.lstrip("-").replace("-", "_") for a in sys.argv[1:] if a.startswith("-")}
