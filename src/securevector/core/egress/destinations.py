@@ -763,7 +763,7 @@ _HOST_FORBIDDEN_RE = re.compile(r"[\x00-\x20#/<>?@\[\\\]^|%\x7f]")
 _BAD_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 # A URL with a scheme, or a quoted one that starts with // (it takes the
 # scheme of the page; the quote keeps a // comment from matching).
-_SCRIPT_URL_RE = re.compile(r"(?:(?:https?|wss?):|(?<=[\"'`])//(?=[^\s/]))[^\s\"'`<>()]+", re.IGNORECASE)
+_SCRIPT_URL_RE = re.compile(r"(?:(?:https?|wss?):|(?<=[\"'`])//(?=[\w\[][^\s/\"'`]*[.:]))[^\s\"'`<>()]+", re.IGNORECASE)
 _INLINE_BODY_LIMIT = 200_000
 _SCRIPT_SCAN_LIMIT = 100_000     # characters, for the whole call
 _SCRIPT_MATCH_LIMIT = 400        # matches examined, for the whole call

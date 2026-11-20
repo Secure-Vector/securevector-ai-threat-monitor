@@ -39,6 +39,7 @@ Presets, in increasing strictness:
 
 import ipaddress
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -110,6 +111,10 @@ class EgressContext:
     # engine only ever lets it clear a promotable block, never a denylist,
     # publish or metadata verdict.
     host_grants: dict = field(default_factory=dict)
+    # The owner lets an agent's browser open the app's own pages. Off unless
+    # set here or by SECUREVECTOR_AGENT_BROWSER_APP_ACCESS in the app's
+    # environment; the control API stays blocked either way.
+    allow_browser_app: bool = False
 
 
 @dataclass
@@ -425,6 +430,8 @@ def _evaluate_attempt(attempt, policy, ctx=None, pack=None) -> EgressVerdict:
 # the policy and grant routes apply as well.
 
 SELF_CONTROL_RULE_ID = "sv.self.control_api"
+SELF_APP_PAGE_RULE_ID = "sv.self.app_page"
+BROWSER_APP_ACCESS_ENV = "SECUREVECTOR_AGENT_BROWSER_APP_ACCESS"
 DEFAULT_APP_PORT = 8741
 SELF_CONTROL_PREFIXES = (
     "jit", "egress", "tool-permissions", "skill-permissions", "settings", "terminals",
@@ -448,7 +455,7 @@ def _host_before(text: str, end: int) -> str:
     while start > 0 and end - start < 253 and text[start - 1] not in _HOST_END_CHARS \
             and not text[start - 1].isspace():
         start -= 1
-    return text[start:end]
+    return text[start:end].rsplit("@", 1)[-1]
 
 
 def _network_texts(tool_name: str, tool_input, mcp_endpoint: Optional[str] = None) -> list:
@@ -542,7 +549,68 @@ def browser_script_self_control(tool_name: str, tool_input) -> Optional[EgressVe
         for form in _decoded_forms(text):
             for m in _SELF_CONTROL_PATH_RE.finditer(form):
                 if not _host_prefix(form, m.start()).lstrip("'\"`"):
-                    return _self_control_block(m.group("route"), "current page", None, m.group(0))
+                    verdict = _self_control_block(m.group("route"), "current page", None, m.group(0))
+                    verdict.reason += (
+                        " A path with no host is read as this app's;"
+                        " to call another app, write its full URL."
+                    )
+                    return verdict
+    return None
+
+
+_APP_PAGE_REASON = (
+    "An agent's browser may not open the SecureVector app; its pages are where a person "
+    "approves requests and changes policy. Only the owner of the app can allow this."
+)
+
+
+def _browser_app_access(ctx) -> bool:
+    if ctx.allow_browser_app:
+        return True
+    return os.environ.get(BROWSER_APP_ACCESS_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def browser_app_page_verdict(attempts, ctx) -> Optional[EgressVerdict]:
+    """A block verdict when a browser tool call opens the app's own port
+    and the owner has not allowed it: the app's pages are where a person
+    approves requests and changes policy. Matched on the port alone, since
+    any name can resolve to this machine."""
+    if _browser_app_access(ctx):
+        return None
+    port = int(ctx.local_app_port or DEFAULT_APP_PORT)
+    for attempt in attempts:
+        if (attempt.detector or "").startswith("browser.") and attempt.host and attempt.port == port:
+            return EgressVerdict(
+                action=BLOCK, attempt=attempt, rule_id=SELF_APP_PAGE_RULE_ID,
+                rule_title="Agent browser opening the SecureVector app",
+                severity="high",
+                reason=_APP_PAGE_REASON,
+                promotable=False,
+            )
+    return None
+
+
+def browser_app_port_in_script(tool_name: str, tool_input, ctx) -> Optional[EgressVerdict]:
+    """The same block for a browser script whose text names the app's port
+    (`:8741`) in an address this cannot read: one joined from parts or
+    written with escapes."""
+    if _browser_app_access(ctx):
+        return None
+    port = int(ctx.local_app_port or DEFAULT_APP_PORT)
+    named = re.compile(r":0*%d(?!\d)" % port)
+    for text in browser_script_texts(tool_name, tool_input)[0]:
+        for form in _decoded_forms(text):
+            m = named.search(form)
+            if m:
+                attempt = EgressAttempt(
+                    host="unresolved", operation=UNKNOWN, kind="http", detector="browser.script",
+                    confidence="HEURISTIC", port=port, evidence=form[max(0, m.start() - 60):m.end() + 20],
+                )
+                return EgressVerdict(
+                    action=BLOCK, attempt=attempt, rule_id=SELF_APP_PAGE_RULE_ID,
+                    rule_title="Agent browser opening the SecureVector app",
+                    severity="high", reason=_APP_PAGE_REASON, promotable=False,
+                )
     return None
 
 
@@ -630,6 +698,16 @@ def evaluate_tool_call(
                 coverage="Agent call to the SecureVector control API.",
                 reason=scripted.reason,
             )
+
+    app_page = browser_app_page_verdict(extraction.attempts, ctx)
+    if app_page is None and (tool_name or "").strip().lower().startswith("mcp__"):
+        app_page = browser_app_port_in_script(tool_name, tool_input, ctx)
+    if app_page is not None:
+        return EgressEvaluation(
+            action=BLOCK, verdicts=[app_page], network_capable=True,
+            coverage="Agent browser opening the SecureVector app.",
+            reason=app_page.reason,
+        )
 
     if not extraction.network_capable:
         return EgressEvaluation(action=ALLOW, network_capable=False)

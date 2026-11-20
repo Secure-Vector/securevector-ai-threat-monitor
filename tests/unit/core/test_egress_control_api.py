@@ -177,9 +177,120 @@ def test_the_control_check_stays_fast_on_long_text(filler):
 
 def test_the_host_in_front_of_the_app_port_is_reported():
     ev = _bash("curl http://user@LocalHost:8741/api/policy")
-    assert ev.action == BLOCK and ev.verdicts[0].attempt.host == "user@localhost"
+    assert ev.action == BLOCK and ev.verdicts[0].attempt.host == "localhost"
 
 
-def test_browser_navigation_to_the_app_pages_is_not_this_rule():
-    ev = evaluate_tool_call("mcp__claude-in-chrome__navigate", {"url": "http://127.0.0.1:8741/agent-runs"})
-    assert not any(v.rule_id == SELF_CONTROL_RULE_ID for v in ev.verdicts)
+APP_PAGE_CALLS = [
+    ("mcp__claude-in-chrome__navigate", {"url": "http://127.0.0.1:8741/agent-runs"}),
+    ("mcp__claude-in-chrome__navigate", {"url": "localhost:8741"}),
+    ("mcp__playwright__browser_navigate", {"url": "http://[::1]:8741/"}),
+    # A name that resolves to this machine: the port is what is matched.
+    ("mcp__playwright__browser_navigate", {"url": "http://app.localtest.example:8741/costs"}),
+    ("mcp__claude-in-chrome__browser_batch",
+     {"actions": [{"name": "navigate", "input": {"url": "http://127.0.0.1:8741/"}}]}),
+    ("mcp__playwright__browser_evaluate", {"function": "location.href = 'http://127.0.0.1:8741/'"}),
+    ("mcp__claude-in-chrome__javascript_tool", {"text": "window.open('//localhost:8741/agent-runs')"}),
+]
+
+
+@pytest.fixture
+def no_opt_in(monkeypatch):
+    monkeypatch.delenv("SECUREVECTOR_AGENT_BROWSER_APP_ACCESS", raising=False)
+
+
+@pytest.mark.parametrize("tool,tool_input", APP_PAGE_CALLS)
+def test_an_agent_browser_may_not_open_the_app_by_default(no_opt_in, tool, tool_input):
+    from securevector.core.egress.engine import SELF_APP_PAGE_RULE_ID
+    ev = evaluate_tool_call(tool, tool_input)
+    assert ev.action == BLOCK, tool_input
+    assert ev.verdicts[0].rule_id == SELF_APP_PAGE_RULE_ID
+    assert ev.verdicts[0].promotable is False
+
+
+@pytest.mark.parametrize("tool,tool_input", APP_PAGE_CALLS)
+def test_the_owner_can_let_an_agent_browser_open_the_app(no_opt_in, monkeypatch, tool, tool_input):
+    from securevector.core.egress.engine import SELF_APP_PAGE_RULE_ID, EgressContext
+    ev = evaluate_tool_call(tool, tool_input, ctx=EgressContext(allow_browser_app=True))
+    assert not any(v.rule_id == SELF_APP_PAGE_RULE_ID for v in ev.verdicts)
+    monkeypatch.setenv("SECUREVECTOR_AGENT_BROWSER_APP_ACCESS", "1")
+    ev = evaluate_tool_call(tool, tool_input)
+    assert not any(v.rule_id == SELF_APP_PAGE_RULE_ID for v in ev.verdicts)
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "no", "off"])
+def test_other_values_of_the_setting_do_not_open_the_app(monkeypatch, value):
+    monkeypatch.setenv("SECUREVECTOR_AGENT_BROWSER_APP_ACCESS", value)
+    ev = evaluate_tool_call("mcp__claude-in-chrome__navigate", {"url": "http://127.0.0.1:8741/"})
+    assert ev.action == BLOCK
+
+
+def test_the_control_api_stays_blocked_when_the_app_pages_are_opened_up():
+    from securevector.core.egress.engine import EgressContext
+    ctx = EgressContext(allow_browser_app=True)
+    for tool, tool_input in [
+        ("mcp__claude-in-chrome__navigate", {"url": "http://127.0.0.1:8741/api/settings"}),
+        ("mcp__playwright__browser_evaluate", {"function": "fetch('/api/policy')"}),
+    ]:
+        ev = evaluate_tool_call(tool, tool_input, ctx=ctx)
+        assert ev.action == BLOCK and ev.verdicts[0].rule_id == SELF_CONTROL_RULE_ID
+
+
+@pytest.mark.parametrize("tool,tool_input", [
+    ("mcp__claude-in-chrome__navigate", {"url": "http://localhost:3000/"}),
+    ("mcp__claude-in-chrome__navigate", {"url": "https://example.com/"}),
+    ("mcp__playwright__browser_evaluate", {"function": "fetch('http://localhost:3000/api/settings')"}),
+    ("Bash", {"command": "curl http://127.0.0.1:8741/health"}),
+    ("WebFetch", {"url": "http://127.0.0.1:8741/health"}),
+])
+def test_other_ports_and_other_tools_are_not_the_app_page_rule(no_opt_in, tool, tool_input):
+    from securevector.core.egress.engine import SELF_APP_PAGE_RULE_ID
+    ev = evaluate_tool_call(tool, tool_input)
+    assert not any(v.rule_id in (SELF_APP_PAGE_RULE_ID, SELF_CONTROL_RULE_ID) for v in ev.verdicts)
+
+
+def test_the_app_page_rule_follows_the_port_the_app_runs_on(no_opt_in):
+    from securevector.core.egress.engine import SELF_APP_PAGE_RULE_ID, EgressContext
+    ctx = EgressContext(local_app_port=9000)
+    ev = evaluate_tool_call("mcp__claude-in-chrome__navigate", {"url": "http://127.0.0.1:9000/"}, ctx=ctx)
+    assert ev.action == BLOCK and ev.verdicts[0].rule_id == SELF_APP_PAGE_RULE_ID
+    ev = evaluate_tool_call("mcp__claude-in-chrome__navigate", {"url": "http://127.0.0.1:8741/"}, ctx=ctx)
+    assert not any(v.rule_id == SELF_APP_PAGE_RULE_ID for v in ev.verdicts)
+
+
+@pytest.mark.parametrize("code", [
+    "location.href='http://127.0.0.1:8741'+'/'",
+    "window.open(`http://${'127.0.0.1'}:8741/`)",
+    "location = 'http://127.0.0.1:8741\\x2f'",
+    "location = 'http:\\/\\/127.0.0.1:8741/'",
+    "location = 'http://' + h + ':8741/'",
+    "location = 'http://127.0.0.1%3A8741/'",
+])
+def test_a_script_address_that_cannot_be_read_but_names_the_app_port_is_blocked(no_opt_in, code):
+    from securevector.core.egress.engine import SELF_APP_PAGE_RULE_ID, EgressContext
+    ev = evaluate_tool_call("mcp__playwright__browser_evaluate", {"function": code})
+    assert ev.action == BLOCK and ev.verdicts[0].rule_id == SELF_APP_PAGE_RULE_ID, code
+    ev = evaluate_tool_call("mcp__playwright__browser_evaluate", {"function": code},
+                            ctx=EgressContext(allow_browser_app=True))
+    assert not any(v.rule_id == SELF_APP_PAGE_RULE_ID for v in ev.verdicts)
+
+
+@pytest.mark.parametrize("code", [
+    "fetch('http://localhost:87410/x')", "const n = 18741; return n", "document.title",
+    "fetch('http://localhost:3000/' + path)",
+])
+def test_other_numbers_in_a_script_are_not_the_app_port(no_opt_in, code):
+    from securevector.core.egress.engine import SELF_APP_PAGE_RULE_ID
+    ev = evaluate_tool_call("mcp__playwright__browser_evaluate", {"function": code})
+    assert not any(v.rule_id == SELF_APP_PAGE_RULE_ID for v in ev.verdicts)
+
+
+def test_the_app_page_block_does_not_name_the_switch(no_opt_in):
+    from securevector.core.egress.engine import BROWSER_APP_ACCESS_ENV
+    ev = evaluate_tool_call("mcp__claude-in-chrome__navigate", {"url": "http://127.0.0.1:8741/"})
+    assert ev.action == BLOCK and BROWSER_APP_ACCESS_ENV not in ev.reason
+    assert "owner" in ev.reason
+
+
+def test_the_relative_path_block_says_how_to_reach_another_app():
+    ev = evaluate_tool_call("mcp__playwright__browser_evaluate", {"function": "fetch('/api/settings')"})
+    assert ev.action == BLOCK and "full URL" in ev.reason

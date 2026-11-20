@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A cost record sent twice at the same time is stored once, and an expired delegation request shows as expired when approved or denied.
 - The egress list no longer shows file names or shell redirections as hosts; curl, wget, nc, telnet and openssl commands are each read with their own flags.
 - Agent Egress records the sites an agent opens through browser automation tools (Claude in Chrome, Playwright, Chrome DevTools and Puppeteer servers): the page address, and addresses written in a page script. An address the app cannot read is recorded without a host.
+- An agent's browser tools no longer open the SecureVector app's own pages by default. To allow it, start the app with `SECUREVECTOR_AGENT_BROWSER_APP_ACCESS=1`; approvals and policy routes stay closed to agents either way.
 
 ## [6.1.0] - 2026-10-31
 

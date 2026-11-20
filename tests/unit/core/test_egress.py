@@ -746,3 +746,8 @@ def test_batch_nested_past_the_depth_limit_is_recorded_as_unread():
 def test_nat64_address_is_recorded_as_the_ipv4_it_reaches():
     assert _hosts("mcp__claude-in-chrome__navigate",
                   {"url": "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/"}) == ["169.254.169.254"]
+
+
+@pytest.mark.parametrize("code", ["// comment about '//items'", "'a'.repeat(2)+'//b'", 's = "//:"', "x.split('//')"])
+def test_quoted_double_slash_without_a_host_is_not_a_url(code):
+    assert _hosts("mcp__playwright__browser_evaluate", {"function": code}) == []

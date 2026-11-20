@@ -710,3 +710,11 @@ class TestBrowserToolEgress:
             out = await self._browser("sess-brow0003", tool, tool_input)
             assert out["network_capable"] is False
         assert await db.fetch_all("SELECT 1 FROM egress_audit WHERE session_id = 'sess-brow0003'") == []
+
+    @pytest.mark.asyncio
+    async def test_opening_the_app_itself_is_blocked_through_the_route(self, db, monkeypatch):
+        monkeypatch.delenv("SECUREVECTOR_AGENT_BROWSER_APP_ACCESS", raising=False)
+        out = await self._browser("sess-brow0004", "mcp__claude-in-chrome__navigate",
+                                  {"url": "http://127.0.0.1:8741/agent-runs"})
+        assert out["action"] == BLOCK
+        assert out["verdicts"][0]["rule_id"] == "sv.self.app_page"
